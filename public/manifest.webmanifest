@@ -1,0 +1,20 @@
+{
+  "name": "Company Fleet Management & Dispatch System",
+  "short_name": "FleetOps PWA",
+  "description": "Internal Company Fleet Management, Vehicle Reservation, Driver Dispatch & Periodic GPS Reporting PWA",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b1120",
+  "theme_color": "#0f172a",
+  "categories": ["business", "productivity", "navigation"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
