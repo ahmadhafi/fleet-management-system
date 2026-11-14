@@ -6,7 +6,8 @@ const app = createApp();
 let syncPromise: Promise<void> | null = null;
 
 export default async function handler(req: Request, res: Response) {
-  if (process.env.BLOB_READ_WRITE_TOKEN && !syncPromise) {
+  const hasBlobToken = Boolean(process.env.BLOB_READ_WRITE_TOKEN || Object.keys(process.env).some((k) => k.endsWith('BLOB_READ_WRITE_TOKEN')));
+  if (hasBlobToken && !syncPromise) {
     syncPromise = ensureCloudSync();
   }
   if (syncPromise) {

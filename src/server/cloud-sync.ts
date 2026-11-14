@@ -9,10 +9,17 @@ export function getResolvedDbPath(): string {
   return process.env.DB_PATH || (isVercel ? `/tmp/${DB_FILENAME}` : path.join(process.cwd(), 'data', DB_FILENAME));
 }
 
+function getBlobToken(): string | undefined {
+  if (process.env.BLOB_READ_WRITE_TOKEN) return process.env.BLOB_READ_WRITE_TOKEN;
+  const key = Object.keys(process.env).find((k) => k.endsWith('BLOB_READ_WRITE_TOKEN'));
+  return key ? process.env[key] : undefined;
+}
+
 let syncInitiated = false;
 
 export async function ensureCloudSync(): Promise<void> {
-  if (syncInitiated || !process.env.BLOB_READ_WRITE_TOKEN) {
+  const token = getBlobToken();
+  if (syncInitiated || !token) {
     return;
   }
   syncInitiated = true;
@@ -45,7 +52,8 @@ export async function ensureCloudSync(): Promise<void> {
 let saveTimeout: NodeJS.Timeout | null = null;
 
 export function persistDatabaseToCloud(): void {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  const token = getBlobToken();
+  if (!token) {
     return;
   }
 
