@@ -33,6 +33,7 @@ export interface DynamicIslandNavProps {
   pendingDispatchCount?: number;
   isDriverOrPrivileged?: boolean;
   isPrivileged?: boolean;
+  isDriverOnly?: boolean;
   onSignOut: () => void;
   userNickname?: string;
   departmentName?: string;
@@ -48,6 +49,7 @@ export const DynamicIslandNav: React.FC<DynamicIslandNavProps> = ({
   pendingDispatchCount = 0,
   isDriverOrPrivileged,
   isPrivileged,
+  isDriverOnly = false,
   onSignOut,
   userNickname,
   departmentName,
@@ -82,24 +84,32 @@ export const DynamicIslandNav: React.FC<DynamicIslandNavProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isExpanded]);
 
-  const navItems = [
-    { id: 'HOME' as const, label: 'Home', icon: <Home size={17} /> },
-    { id: 'ACTIVITY' as const, label: 'Activity', icon: <Clock size={17} /> },
-    { id: 'INBOX' as const, label: 'Inbox', icon: <Inbox size={17} />, badge: unreadInboxCount },
-    { id: 'PROFILE' as const, label: 'Profile', icon: <User size={17} /> },
-    ...(isDriverOrPrivileged ? [{ id: 'DRIVER' as const, label: 'Dispatch', icon: <Navigation size={17} />, badge: pendingDispatchCount }] : []),
-    ...(isPrivileged ? [{ id: 'ADMIN' as const, label: 'Admin', icon: <ShieldCheck size={17} /> }] : []),
-  ];
+  // For drivers: strictly driver functions only (Dispatch, Activity, Inbox, Profile) - no Home / Book a ride!
+  const navItems = isDriverOnly
+    ? [
+        { id: 'DRIVER' as const, label: 'Dispatch', icon: <Navigation size={17} />, badge: pendingDispatchCount },
+        { id: 'ACTIVITY' as const, label: 'Activity', icon: <Clock size={17} /> },
+        { id: 'INBOX' as const, label: 'Inbox', icon: <Inbox size={17} />, badge: unreadInboxCount },
+        { id: 'PROFILE' as const, label: 'Profile', icon: <User size={17} /> },
+      ]
+    : [
+        { id: 'HOME' as const, label: 'Home', icon: <Home size={17} /> },
+        { id: 'ACTIVITY' as const, label: 'Activity', icon: <Clock size={17} /> },
+        { id: 'INBOX' as const, label: 'Inbox', icon: <Inbox size={17} />, badge: unreadInboxCount },
+        { id: 'PROFILE' as const, label: 'Profile', icon: <User size={17} /> },
+        ...(isDriverOrPrivileged ? [{ id: 'DRIVER' as const, label: 'Dispatch', icon: <Navigation size={17} />, badge: pendingDispatchCount }] : []),
+        ...(isPrivileged ? [{ id: 'ADMIN' as const, label: 'Admin', icon: <ShieldCheck size={17} /> }] : []),
+      ];
 
   const getActiveLabel = () => {
     switch (activeNav) {
-      case 'HOME': return 'GalaxyFleet';
+      case 'HOME': return isDriverOnly ? 'Driver Dispatch' : 'GalaxyFleet';
       case 'ACTIVITY': return 'My Activity';
       case 'INBOX': return 'Inbox';
       case 'PROFILE': return 'Profile';
       case 'DRIVER': return 'Driver Dispatch';
       case 'ADMIN': return 'Admin Console';
-      default: return 'GalaxyFleet';
+      default: return isDriverOnly ? 'Driver Dispatch' : 'GalaxyFleet';
     }
   };
 
@@ -219,6 +229,7 @@ interface AppShellProps {
   hideChromeDuringBooking: boolean;
   isDriverOrPrivileged: boolean;
   isPrivileged: boolean;
+  isDriverOnly?: boolean;
   unreadInboxCount: number;
   pendingDispatchCount: number;
   pendingAdminCount: number;
@@ -237,6 +248,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   hideChromeDuringBooking,
   isDriverOrPrivileged,
   isPrivileged,
+  isDriverOnly = false,
   unreadInboxCount,
   pendingDispatchCount,
   mapStage,
@@ -246,12 +258,19 @@ export const AppShell: React.FC<AppShellProps> = ({
   onSwitchToDriverDispatch,
   onSwitchToAdmin,
 }) => {
-  const navItems: NavItem[] = [
-    { id: 'HOME', label: 'Home', icon: <Home size={22} /> },
-    { id: 'ACTIVITY', label: 'Activity', icon: <Clock size={22} /> },
-    { id: 'INBOX', label: 'Inbox', icon: <Inbox size={22} />, badge: unreadInboxCount },
-    { id: 'PROFILE', label: 'Profile', icon: <User size={22} /> },
-  ];
+  const navItems: NavItem[] = isDriverOnly
+    ? [
+        { id: 'DRIVER', label: 'Dispatch', icon: <Navigation size={22} />, badge: pendingDispatchCount },
+        { id: 'ACTIVITY', label: 'Activity', icon: <Clock size={22} /> },
+        { id: 'INBOX', label: 'Inbox', icon: <Inbox size={22} />, badge: unreadInboxCount },
+        { id: 'PROFILE', label: 'Profile', icon: <User size={22} /> },
+      ]
+    : [
+        { id: 'HOME', label: 'Home', icon: <Home size={22} /> },
+        { id: 'ACTIVITY', label: 'Activity', icon: <Clock size={22} /> },
+        { id: 'INBOX', label: 'Inbox', icon: <Inbox size={22} />, badge: unreadInboxCount },
+        { id: 'PROFILE', label: 'Profile', icon: <User size={22} /> },
+      ];
 
   return (
     <div className="gf-shell">
@@ -264,6 +283,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           pendingDispatchCount={pendingDispatchCount}
           isDriverOrPrivileged={isDriverOrPrivileged}
           isPrivileged={isPrivileged}
+          isDriverOnly={isDriverOnly}
           onSignOut={onSignOut}
           userNickname={userNickname}
           departmentName={departmentName}
@@ -311,6 +331,7 @@ export interface DesktopHeaderNavProps {
   unreadInboxCount: number;
   isDriverOrPrivileged?: boolean;
   isPrivileged?: boolean;
+  isDriverOnly?: boolean;
   onSignOut?: () => void;
   userNickname?: string;
   departmentName?: string;
@@ -324,20 +345,28 @@ export const DesktopHeaderNav: React.FC<DesktopHeaderNavProps> = ({
   unreadInboxCount,
   isDriverOrPrivileged,
   isPrivileged,
+  isDriverOnly = false,
   onSignOut,
   userNickname,
   departmentName,
   onSwitchToDriverDispatch,
   onSwitchToAdmin,
 }) => {
-  const items: NavItem[] = [
-    { id: 'HOME', label: 'Home', icon: <Home size={18} /> },
-    { id: 'ACTIVITY', label: 'Activity', icon: <Clock size={18} /> },
-    { id: 'INBOX', label: 'Inbox', icon: <Inbox size={18} />, badge: unreadInboxCount },
-    { id: 'PROFILE', label: 'Profile', icon: <User size={18} /> },
-  ];
+  const items: NavItem[] = isDriverOnly
+    ? [
+        { id: 'DRIVER', label: 'Dispatch', icon: <Navigation size={18} /> },
+        { id: 'ACTIVITY', label: 'Activity', icon: <Clock size={18} /> },
+        { id: 'INBOX', label: 'Inbox', icon: <Inbox size={18} />, badge: unreadInboxCount },
+        { id: 'PROFILE', label: 'Profile', icon: <User size={18} /> },
+      ]
+    : [
+        { id: 'HOME', label: 'Home', icon: <Home size={18} /> },
+        { id: 'ACTIVITY', label: 'Activity', icon: <Clock size={18} /> },
+        { id: 'INBOX', label: 'Inbox', icon: <Inbox size={18} />, badge: unreadInboxCount },
+        { id: 'PROFILE', label: 'Profile', icon: <User size={18} /> },
+      ];
 
-  if (isDriverOrPrivileged && onSwitchToDriverDispatch) {
+  if (!isDriverOnly && isDriverOrPrivileged && onSwitchToDriverDispatch) {
     items.push({ id: 'DRIVER', label: 'Dispatch', icon: <Navigation size={18} /> });
   }
   if (isPrivileged && onSwitchToAdmin) {

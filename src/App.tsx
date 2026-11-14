@@ -150,6 +150,7 @@ export function App() {
   const [activityTab, setActivityTab] = useState<'ONGOING' | 'HISTORY'>('ONGOING');
   const [summaryPicker, setSummaryPicker] = useState<'PURPOSE' | 'PAX' | 'NOTES' | 'CHARGE' | null>(null);
   const [focusedTripId, setFocusedTripId] = useState<number | null>(null);
+  const [driverSectionTab, setDriverSectionTab] = useState<'DISPATCH' | 'SCHEDULE'>('DISPATCH');
 
   // Live MapTiler Geocoding, User Location Detection, Route Calculation & All-User Pinpoint Dots
   const [originCoords, setOriginCoords] = useState<{ lat: number; lon: number } | null>(null);
@@ -309,6 +310,7 @@ export function App() {
   const [usagePeriod, setUsagePeriod] = useState<'day' | 'week' | 'month' | 'overall'>('month');
 
   const isPrivileged = user && ['ADM', 'FM', 'HWS'].includes(user.role);
+  const isDriverOnly = Boolean(user && user.role === 'DRV' && !isPrivileged);
 
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
@@ -3252,10 +3254,9 @@ export function App() {
       bookingStep === 'IN_TRIP');
 
   const handleMapBack = () => {
-    if (navSection === 'DRIVER') {
-      setNavSection('HOME');
-      setBookingStep('HOME');
-      setSheetSnap('half');
+    if (isDriverOnly || navSection === 'DRIVER') {
+      setNavSection('DRIVER');
+      setSheetSnap('full');
       return;
     }
     if (bookingStep === 'ROUTE') {
@@ -3423,6 +3424,10 @@ export function App() {
     // -------------------------------------------------------------------------
     if (navSection === 'DRIVER') {
       const driverCheckedInReady = gpsNoticeAccepted && gpsReportingActive;
+      const dedicatedCar = vehicles.find(
+        (v) => (v.dedicated_driver_user_id && v.dedicated_driver_user_id === user.id) ||
+               (v.default_driver_name && v.default_driver_name.toLowerCase() === (user.nickname || '').toLowerCase())
+      );
 
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -3431,7 +3436,7 @@ export function App() {
             <div>
               <h1 className="type-title">Driver Dispatch</h1>
               <p className="type-caption">
-                {user.department_name || 'Company Driver'} • Confirm duty & check-in before running trips
+                {user.department_name || 'Company Driver'} • Driver duty console & car operational schedule
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -3450,18 +3455,255 @@ export function App() {
             </div>
           </div>
 
-          {/* Gojek-Style Driver Duty Confirmation & Location Check-In Card */}
-          <div
-            style={{
-              padding: '16px',
-              borderRadius: 'var(--radius-card)',
-              background: driverCheckedInReady ? 'var(--color-green-tint)' : 'var(--color-bg-subtle)',
-              border: `1.5px solid ${driverCheckedInReady ? 'var(--color-green)' : 'var(--color-border)'}`,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '10px',
-            }}
-          >
+          {/* Subtabs for Driver: Duty & Trips vs Car Schedule */}
+          <div className="gf-underline-tabs" role="tablist" aria-label="Driver subtabs">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={driverSectionTab === 'DISPATCH'}
+              className={`gf-underline-tab ${driverSectionTab === 'DISPATCH' ? 'is-active' : ''}`}
+              onClick={() => setDriverSectionTab('DISPATCH')}
+            >
+              <Navigation size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+              Duty & Trips ({dispatches.length})
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={driverSectionTab === 'SCHEDULE'}
+              className={`gf-underline-tab ${driverSectionTab === 'SCHEDULE' ? 'is-active' : ''}`}
+              onClick={() => setDriverSectionTab('SCHEDULE')}
+            >
+              <Calendar size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+              Car Timetable & Schedule
+            </button>
+          </div>
+
+          {/* Dedicated Car Card */}
+          {dedicatedCar && (
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-card)',
+                background: 'var(--color-bg-subtle)',
+                border: '1.5px solid var(--color-green)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div className="gf-circle-icon is-green" style={{ width: 34, height: 34 }}>
+                  <Car size={18} />
+                </div>
+                <div>
+                  <div className="type-body" style={{ fontWeight: 800, fontSize: '14px' }}>
+                    {dedicatedCar.make} {dedicatedCar.model} • <span className="mono">{dedicatedCar.registration_plate}</span>
+                  </div>
+                  <div className="type-caption" style={{ fontSize: '12px' }}>
+                    Assigned Dedicated Car • {dedicatedCar.energy_type} • Odo: {dedicatedCar.current_odometer} km
+                  </div>
+                </div>
+              </div>
+              <StatusBadge label={dedicatedCar.status} tone={dedicatedCar.status === 'Available' ? 'green' : 'amber'} />
+            </div>
+          )}
+
+          {driverSectionTab === 'SCHEDULE' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+                <Chip active={scheduleFilterTab === 'ALL'} onClick={() => setScheduleFilterTab('ALL')}>
+                  All Cars ({vehicles.length})
+                </Chip>
+                <Chip active={scheduleFilterTab === 'AVAILABLE'} onClick={() => setScheduleFilterTab('AVAILABLE')}>
+                  Available Now ({vehicles.filter((v) => v.status === 'Available').length})
+                </Chip>
+                <Chip active={scheduleFilterTab === 'BOOKED'} onClick={() => setScheduleFilterTab('BOOKED')}>
+                  Booked Today
+                </Chip>
+              </div>
+
+              {/* My Driver Agenda */}
+              {(() => {
+                const todayStr = new Date().toISOString().slice(0, 10);
+                const myAgenda = trips.filter(
+                  (t) => (t.assigned_driver_user_id === user.id || t.assigned_driver_name === user.nickname) &&
+                         String(t.start_time).startsWith(todayStr) &&
+                         t.status !== 'CANCELLED' && t.status !== 'REJECTED'
+                );
+                return (
+                  <div
+                    style={{
+                      padding: '14px',
+                      borderRadius: 'var(--radius-card)',
+                      background: 'var(--color-bg-subtle)',
+                      border: '1.5px solid var(--color-border)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="type-section" style={{ fontSize: '15px' }}>📋 My Driver Agenda (Today)</span>
+                      <StatusBadge label={`${myAgenda.length} Trips`} tone="blue" />
+                    </div>
+                    {myAgenda.length === 0 ? (
+                      <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+                        No trips scheduled for you today. On standby.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {myAgenda.map((t) => (
+                          <div
+                            key={t.id}
+                            style={{
+                              padding: '10px 12px',
+                              borderRadius: 'var(--radius-control)',
+                              background: 'var(--color-surface)',
+                              border: '1px solid var(--color-border)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span className="mono" style={{ fontWeight: 700, fontSize: '13px' }}>
+                                {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />
+                            </div>
+                            <div className="type-caption" style={{ marginTop: '4px', fontWeight: 600 }}>
+                              {t.origin} ➔ {t.destination}
+                            </div>
+                            <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+                              Passenger: {t.passenger_nickname || 'Team'} • <span className="notranslate" translate="no">{t.department_name}</span> • Car: {t.registration_plate}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Cars Live Availability and Time Schedule */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {vehicles
+                  .filter((v) => {
+                    const todayStr = new Date().toISOString().slice(0, 10);
+                    if (scheduleFilterTab === 'AVAILABLE') return v.status === 'Available';
+                    if (scheduleFilterTab === 'BOOKED') {
+                      return trips.some((t) => t.vehicle_id === v.id && String(t.start_time).startsWith(todayStr) && t.status !== 'CANCELLED' && t.status !== 'REJECTED');
+                    }
+                    return true;
+                  })
+                  .map((v) => {
+                    const todayStr = new Date().toISOString().slice(0, 10);
+                    const vehicleTripsToday = trips.filter(
+                      (t) => t.vehicle_id === v.id && String(t.start_time).startsWith(todayStr) && t.status !== 'CANCELLED' && t.status !== 'REJECTED'
+                    );
+                    const isFreeNow = v.status === 'Available' && vehicleTripsToday.every((t) => {
+                      const now = Date.now();
+                      const start = new Date(t.start_time).getTime();
+                      const end = new Date(t.end_time).getTime();
+                      return now < start || now > end;
+                    });
+
+                    return (
+                      <div
+                        key={v.id}
+                        style={{
+                          padding: '14px',
+                          borderRadius: 'var(--radius-card)',
+                          border: '1px solid var(--color-border)',
+                          background: 'var(--color-surface)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '10px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span className="mono" style={{ padding: '2px 7px', borderRadius: '6px', border: '1.5px solid var(--color-text-primary)', fontWeight: 800, fontSize: '12px' }}>
+                                {v.registration_plate}
+                              </span>
+                              <span className="type-body" style={{ fontWeight: 700 }}>
+                                {v.make} {v.model}
+                              </span>
+                            </div>
+                            <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
+                              👤 Driver: <strong>{v.default_driver_name || 'Pool Driver'}</strong>
+                              {v.default_driver_phone && <span className="mono"> ({v.default_driver_phone})</span>}
+                            </div>
+                          </div>
+                          <StatusBadge
+                            label={isFreeNow ? 'Available' : v.status !== 'Available' ? v.status : 'In Use'}
+                            tone={isFreeNow ? 'green' : v.status !== 'Available' ? 'neutral' : 'amber'}
+                          />
+                        </div>
+
+                        {/* Visual 24-hr Bar */}
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }} className="type-caption mono">
+                            <span>08:00</span>
+                            <span>12:00</span>
+                            <span>16:00</span>
+                            <span>20:00</span>
+                          </div>
+                          <div className="gf-timeline-track" style={{ position: 'relative' }}>
+                            {vehicleTripsToday.map((t) => {
+                              const startH = new Date(t.start_time).getHours() + new Date(t.start_time).getMinutes() / 60;
+                              const endH = new Date(t.end_time).getHours() + new Date(t.end_time).getMinutes() / 60;
+                              const leftPct = Math.max(0, Math.min(100, ((startH - 8) / 12) * 100));
+                              const widthPct = Math.max(8, Math.min(100 - leftPct, ((endH - startH) / 12) * 100));
+                              return (
+                                <div
+                                  key={t.id}
+                                  className="gf-timeline-block"
+                                  style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                                  title={`${new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}: ${t.department_name} (${t.passenger_nickname || 'Team'})`}
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Booked Slots Summary */}
+                        <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: '6px' }}>
+                          {vehicleTripsToday.length === 0 ? (
+                            <div className="type-caption" style={{ color: 'var(--color-green-text)', fontWeight: 600 }}>
+                              ✅ Free all day
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {vehicleTripsToday.map((t) => (
+                                <div key={t.id} className="type-caption">
+                                  <span className="mono" style={{ fontWeight: 700 }}>
+                                    {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>: <span className="notranslate" translate="no">{t.department_name}</span> (Pax: {t.passenger_nickname || 'Team'})
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Gojek-Style Driver Duty Confirmation & Location Check-In Card */}
+              <div
+                style={{
+                  padding: '16px',
+                  borderRadius: 'var(--radius-card)',
+                  background: driverCheckedInReady ? 'var(--color-green-tint)' : 'var(--color-bg-subtle)',
+                  border: `1.5px solid ${driverCheckedInReady ? 'var(--color-green)' : 'var(--color-border)'}`,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                }}
+              >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
               <div className="type-body" style={{ fontWeight: 700 }}>
                 {driverCheckedInReady ? 'Ready to Drive — Duty Active' : 'Step 1: Confirm Ready to Drive & Work'}
@@ -3736,9 +3978,11 @@ export function App() {
               </div>
             )}
           </div>
-        </div>
-      );
-    }
+        </>
+      )}
+    </div>
+  );
+}
 
     // -------------------------------------------------------------------------
     // ACTIVITY TAB (Ongoing & History underline tabs, no tables)
@@ -3781,19 +4025,32 @@ export function App() {
             <EmptyState
               message={activityTab === 'ONGOING' ? 'No ongoing rides right now.' : 'No completed trips yet.'}
               action={
-                <button
-                  type="button"
-                  className="gf-btn gf-btn-primary"
-                  onClick={() =>
-                    requireLocationBeforeCarUse(() => {
-                      setNavSection('HOME');
-                      setBookingStep('ROUTE');
+                user.role === 'DRV' ? (
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-primary"
+                    onClick={() => {
+                      setNavSection('DRIVER');
                       setSheetSnap('full');
-                    })
-                  }
-                >
-                  Book a ride
-                </button>
+                    }}
+                  >
+                    <Navigation size={16} /> Open Driver Dispatch
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-primary"
+                    onClick={() =>
+                      requireLocationBeforeCarUse(() => {
+                        setNavSection('HOME');
+                        setBookingStep('ROUTE');
+                        setSheetSnap('full');
+                      })
+                    }
+                  >
+                    Book a ride
+                  </button>
+                )
               }
             />
           ) : (
@@ -3819,9 +4076,14 @@ export function App() {
                       activityTab === 'ONGOING'
                         ? () => {
                             setFocusedTripId(t.id);
-                            setNavSection('HOME');
-                            setBookingStep(t.status === 'PENDING_APPROVAL' ? 'WAITING' : 'IN_TRIP');
-                            setSheetSnap('half');
+                            if (user.role === 'DRV') {
+                              setNavSection('DRIVER');
+                              setSheetSnap('full');
+                            } else {
+                              setNavSection('HOME');
+                              setBookingStep(t.status === 'PENDING_APPROVAL' ? 'WAITING' : 'IN_TRIP');
+                              setSheetSnap('half');
+                            }
                           }
                         : undefined
                     }
@@ -4005,8 +4267,13 @@ export function App() {
     }
 
     // -------------------------------------------------------------------------
-    // BOOKING FLOW STEP 0: HOME
+    // BOOKING FLOW STEP 0: HOME (Passengers only; Drivers strictly stay in Driver Dispatch)
     // -------------------------------------------------------------------------
+    if (isDriverOnly && navSection === 'HOME') {
+      setNavSection('DRIVER');
+      return null;
+    }
+
     // -------------------------------------------------------------------------
     // FLEET SCHEDULE & AVAILABILITY BOARD (Revisions #10 & #14)
     // -------------------------------------------------------------------------
@@ -4037,8 +4304,15 @@ export function App() {
               id="schedule-back-btn"
               type="button"
               className="gf-icon-btn-48 pressable"
-              onClick={() => setBookingStep('HOME')}
-              aria-label="Back to home"
+              onClick={() => {
+                if (user.role === 'DRV') {
+                  setNavSection('DRIVER');
+                  setSheetSnap('full');
+                } else {
+                  setBookingStep('HOME');
+                }
+              }}
+              aria-label="Back"
               title="Back"
             >
               <ChevronRight size={22} style={{ transform: 'rotate(180deg)' }} />
@@ -4225,21 +4499,23 @@ export function App() {
                     )}
                   </div>
 
-                  {/* Quick Action: Book This Car */}
-                  <button
-                    type="button"
-                    className="gf-btn gf-btn-secondary gf-btn-full"
-                    style={{ minHeight: '36px', fontSize: '13px' }}
-                    onClick={() =>
-                      requireLocationBeforeCarUse(() => {
-                        setBookVehicleId(v.id);
-                        setBookingStep('ROUTE');
-                        setSheetSnap('full');
-                      })
-                    }
-                  >
-                    Select & Book This Vehicle
-                  </button>
+                  {/* Quick Action: Book This Car (Passengers only, never for drivers) */}
+                  {user.role !== 'DRV' && (
+                    <button
+                      type="button"
+                      className="gf-btn gf-btn-secondary gf-btn-full"
+                      style={{ minHeight: '36px', fontSize: '13px' }}
+                      onClick={() =>
+                        requireLocationBeforeCarUse(() => {
+                          setBookVehicleId(v.id);
+                          setBookingStep('ROUTE');
+                          setSheetSnap('full');
+                        })
+                      }
+                    >
+                      Select & Book This Vehicle
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -5277,8 +5553,9 @@ export function App() {
       <AppShell
         activeNav={navSection}
         onSelectNav={(n) => {
-          setNavSection(n);
-          if (n === 'HOME') {
+          const target = isDriverOnly && n === 'HOME' ? 'DRIVER' : n;
+          setNavSection(target);
+          if (target === 'HOME') {
             setBookingStep('HOME');
             setSheetSnap('half');
           } else {
@@ -5286,9 +5563,10 @@ export function App() {
           }
         }}
         onSignOut={handleLogout}
-        hideChromeDuringBooking={inActiveBookingFlow || navSection === 'DRIVER'}
+        hideChromeDuringBooking={inActiveBookingFlow && !isDriverOnly}
         isDriverOrPrivileged={user.role === 'DRV' || Boolean(isPrivileged)}
         isPrivileged={Boolean(isPrivileged)}
+        isDriverOnly={isDriverOnly}
         unreadInboxCount={unreadCount}
         pendingDispatchCount={dispatches.filter((d) => d.trip_status !== 'COMPLETED' && d.trip_status !== 'REJECTED').length}
         pendingAdminCount={pendingTrips.length + pendingUsers.length}
@@ -5323,7 +5601,7 @@ export function App() {
             waitingRadar={navSection === 'HOME' && bookingStep === 'WAITING'}
             driverActive={navSection === 'HOME' && bookingStep === 'IN_TRIP'}
             driverName={focusedTrip?.assigned_driver_name}
-            showBackButton={inActiveBookingFlow || navSection === 'DRIVER'}
+            showBackButton={inActiveBookingFlow && !isDriverOnly}
             onBack={handleMapBack}
             isOffline={isOffline}
           />
@@ -5333,7 +5611,7 @@ export function App() {
             snap={sheetSnap}
             onSnapChange={setSheetSnap}
             onEscape={inActiveBookingFlow ? handleMapBack : undefined}
-            hasBottomNav={!inActiveBookingFlow && navSection !== 'DRIVER'}
+            hasBottomNav={!inActiveBookingFlow}
             stepKey={`${navSection}:${bookingStep}`}
             footer={stickyFooter}
             topNav={undefined}
