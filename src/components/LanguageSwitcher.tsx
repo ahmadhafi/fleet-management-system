@@ -118,10 +118,10 @@ export const LanguageSwitcher: React.FC<{ compact?: boolean }> = ({ compact = fa
       }}
     >
       <Globe
-        size={13}
+        size={15}
         style={{
-          marginLeft: '6px',
-          marginRight: '2px',
+          marginLeft: '8px',
+          marginRight: '4px',
           color: 'var(--color-text-secondary)',
           flexShrink: 0,
         }}
@@ -137,9 +137,9 @@ export const LanguageSwitcher: React.FC<{ compact?: boolean }> = ({ compact = fa
             style={{
               border: 'none',
               cursor: 'pointer',
-              padding: compact ? '3px 7px' : '4px 9px',
+              padding: compact ? '4px 8px' : '6px 12px',
               borderRadius: 'var(--radius-pill)',
-              fontSize: '11px',
+              fontSize: compact ? '12px' : '13px',
               fontWeight: 800,
               lineHeight: 1.2,
               background: active ? 'var(--color-green)' : 'transparent',

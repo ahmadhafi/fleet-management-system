@@ -16,6 +16,7 @@ interface BottomSheetProps {
   stepKey?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  topNav?: React.ReactNode;
   desktopNav?: React.ReactNode;
   ariaLabel?: string;
 }
@@ -28,9 +29,11 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   stepKey,
   children,
   footer,
+  topNav,
   desktopNav,
   ariaLabel = 'Booking sheet',
 }) => {
+
   const [dragHeightPx, setDragHeightPx] = useState<number | null>(null);
   const startYRef = useRef<number>(0);
   const startHeightRef = useRef<number>(0);
@@ -172,6 +175,8 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
       >
         <span className="gf-sheet-handle" />
       </button>
+
+      {topNav}
 
       <div ref={bodyRef} tabIndex={-1} className={`gf-sheet-body ${hasBottomNav && !footer ? 'has-bottom-nav' : ''}`}>{children}</div>
 

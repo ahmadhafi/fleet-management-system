@@ -4,34 +4,39 @@
   --font-sans: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Typography Scale */
-  --text-title-size: 1.25rem;     /* 20px */
-  --text-title-line: 1.75rem;     /* 28px */
-  --text-section-size: 1rem;      /* 16px */
-  --text-section-line: 1.5rem;    /* 24px */
-  --text-body-size: 0.875rem;     /* 14px */
-  --text-body-line: 1.25rem;      /* 20px */
-  --text-caption-size: 0.75rem;   /* 12px */
-  --text-caption-line: 1rem;      /* 16px */
+  /* Typography Scale — Enhanced Legibility (No tiny text) */
+  --text-hero-size: 1.75rem;       /* 28px */
+  --text-hero-line: 2.25rem;       /* 36px */
+  --text-title-size: 1.375rem;     /* 22px */
+  --text-title-line: 1.875rem;     /* 30px */
+  --text-section-size: 1.125rem;   /* 18px */
+  --text-section-line: 1.625rem;   /* 26px */
+  --text-body-size: 0.9375rem;     /* 15px */
+  --text-body-line: 1.45rem;       /* 23.2px */
+  --text-caption-size: 0.8125rem;  /* 13px */
+  --text-caption-line: 1.25rem;    /* 20px */
+  --text-badge-size: 0.75rem;      /* 12px */
+  --text-badge-line: 1rem;         /* 16px */
 
-  /* Neutral Surfaces & Text (Light Mode) */
-  --color-bg-canvas: #f5f6f7;
+  /* Neutral Surfaces & Text (Light Mode — High Legibility) */
+  --color-bg-canvas: #f8fafc;
   --color-bg-surface: #ffffff;
-  --color-bg-subtle: #f3f4f6;
-  --color-bg-hover: #eceef0;
-  --color-divider: #eaeaea;
-  --color-border: #d9dde2;
+  --color-bg-subtle: #f1f5f9;
+  --color-bg-hover: #e2e8f0;
+  --color-divider: #e2e8f0;
+  --color-border: #cbd5e1;
+  --color-border-divider: #e2e8f0;
 
-  --color-text-primary: #111827;
-  --color-text-secondary: #4b5563;
-  --color-text-muted: #6b7280;
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #334155;
+  --color-text-muted: #64748b;
   --color-text-inverse: #ffffff;
 
-  /* Single Accent: Green (#00AA13) for Actions, Selections & Success */
+  /* Single Accent: Vibrant Ride-Hailing Green (#00AA13) */
   --color-green: #00aa13;
   --color-green-hover: #009210;
   --color-green-text: #007e0e; /* WCAG AA >= 4.5:1 on white & soft tint */
-  --color-green-tint: #ebf9ed;
+  --color-green-tint: #ecfdf3;
   --color-green-ring: rgba(0, 170, 19, 0.25);
 
   /* Semantic Status (Chips & Route Pins only) */
@@ -44,8 +49,8 @@
   --color-status-red-fg: #b91c1c;
   --color-status-blue-bg: #dbeafe;
   --color-status-blue-fg: #1d4ed8;
-  --color-status-neutral-bg: #f3f4f6;
-  --color-status-neutral-fg: #4b5563;
+  --color-status-neutral-bg: #f1f5f9;
+  --color-status-neutral-fg: #475569;
 
   /* Map Palette */
   --color-map-land: #eef1ee;
@@ -55,13 +60,13 @@
   --color-map-road-minor: #f7f8f7;
   --color-map-highway: #e3e7e5;
   --color-map-label: #5f6966;
-  --color-route-line: #111827;
+  --color-route-line: #0f172a;
   --color-route-outline: #ffffff;
 
-  /* Radii */
-  --radius-control: 12px;
-  --radius-card: 16px;
-  --radius-sheet: 24px;
+  /* Radii — Friendly & Curved */
+  --radius-control: 14px;
+  --radius-card: 18px;
+  --radius-sheet: 26px;
   --radius-pill: 9999px;
 
   /* Spacing */
@@ -73,11 +78,13 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  /* Floating-Only Shadows */
+  /* Refined Soft Shadows */
   --shadow-none: none;
-  --shadow-floating: 0 4px 20px rgba(17, 24, 39, 0.12);
-  --shadow-sheet: 0 -4px 24px rgba(17, 24, 39, 0.12);
-  --shadow-sticky: 0 -2px 12px rgba(17, 24, 39, 0.06);
+  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.05), 0 6px 16px rgba(15, 23, 42, 0.04);
+  --shadow-floating: 0 10px 30px rgba(15, 23, 42, 0.12), 0 2px 8px rgba(15, 23, 42, 0.06);
+  --shadow-sheet: 0 -6px 30px rgba(15, 23, 42, 0.09);
+  --shadow-sticky: 0 -4px 20px rgba(15, 23, 42, 0.06);
+  --shadow-dock: 0 8px 32px rgba(15, 23, 42, 0.12), 0 2px 8px rgba(15, 23, 42, 0.04);
 
   /* Z-index Scale */
   --z-map: 1;
@@ -100,6 +107,7 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --touch-min: 48px;
 }
+
 
 /* Dark Mode (Explicit toggle OR System preference when not forced light) */
 :root[data-theme='dark'] {
