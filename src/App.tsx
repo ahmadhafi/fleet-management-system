@@ -53,6 +53,7 @@ import {
   formatPhoneCallUrl,
 } from './components/MapView';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
+import { SamsungBusLogo } from './components/SamsungBusLogo';
 import { RouteFields } from './components/RouteFields';
 import { VehicleArt } from './components/VehicleArt';
 import {
@@ -1462,21 +1463,7 @@ export function App() {
             <LanguageSwitcher />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-            <div
-              style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '14px',
-                background: 'var(--color-green)',
-                color: '#ffffff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <Car size={24} />
-            </div>
+            <SamsungBusLogo size={52} />
             <div>
               <h1 className="type-title">GalaxyFleet</h1>
               <p className="type-caption">Internal Fleet Management System</p>
@@ -1838,8 +1825,14 @@ export function App() {
       {showInstallGuideModal && (
         <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label="Install GalaxyFleet PWA">
           <div className="gf-modal-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <h3 className="type-title">Install GalaxyFleet App</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <SamsungBusLogo size={40} />
+                <div>
+                  <h3 className="type-title" style={{ margin: 0 }}>Install GalaxyFleet App</h3>
+                  <p className="type-caption" style={{ margin: 0 }}>Samsung Mobility Fleet PWA</p>
+                </div>
+              </div>
               <button type="button" className="gf-btn gf-btn-secondary" onClick={() => setShowInstallGuideModal(false)}>
                 Close
               </button>

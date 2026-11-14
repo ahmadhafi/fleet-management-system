@@ -15,6 +15,8 @@ import {
   ScrollText,
 } from 'lucide-react';
 import { LanguageSwitcher } from './LanguageSwitcher';
+import { SamsungBusLogo } from './SamsungBusLogo';
+
 
 export type NavSection = 'HOME' | 'ACTIVITY' | 'INBOX' | 'PROFILE' | 'DRIVER' | 'ADMIN';
 export type AdminModule = 'FLEET_MAP' | 'ADMIN_DISPATCH' | 'FLEET_OPS' | 'ANALYTICS_REPORT' | 'AUDIT';
@@ -87,7 +89,9 @@ export const EmbeddedTopNav: React.FC<EmbeddedTopNavProps> = ({
     <header className="gf-embedded-topbar" role="banner">
       {/* Left: Brand Identity & Group */}
       <div className="gf-topbar-left">
-        <div className="gf-topbar-logo">GF</div>
+        <div className="gf-topbar-logo" title="GalaxyFleet">
+          <SamsungBusLogo size={36} />
+        </div>
         <div className="gf-topbar-brand-meta">
           <span className="gf-topbar-title">GalaxyFleet</span>
           {(userNickname || departmentName) && (
@@ -309,23 +313,7 @@ export const DesktopHeaderNav: React.FC<DesktopHeaderNavProps> = ({
     <div className="gf-desktop-top-nav">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div
-            style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '8px',
-              background: 'var(--color-samsung-blue, #0072de)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#ffffff',
-              fontWeight: 800,
-              fontSize: '15px',
-              boxShadow: '0 2px 6px rgba(0, 114, 222, 0.35)',
-            }}
-          >
-            GF
-          </div>
+          <SamsungBusLogo size={34} />
           <div>
             <div className="type-title" style={{ fontSize: '17px', lineHeight: 1.2 }}>
               GalaxyFleet
@@ -516,22 +504,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
       <aside className="gf-admin-sidebar" aria-label="Admin sidebar">
         <div style={{ paddingBottom: '14px', borderBottom: '1px solid var(--color-divider)', marginBottom: '8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <div
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: '7px',
-                background: 'var(--color-samsung-blue, #0072de)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#fff',
-                fontWeight: 800,
-                fontSize: '13px',
-              }}
-            >
-              GF
-            </div>
+            <SamsungBusLogo size={32} />
             <div className="type-title" style={{ fontSize: '18px', fontWeight: 800 }}>
               GalaxyFleet
             </div>
