@@ -26,7 +26,6 @@ import {
   MessageSquare,
   Share2,
   Star,
-  Zap,
   Smartphone,
   ChevronRight,
   Lock,
@@ -70,7 +69,19 @@ const FALLBACK_GROUPS = [
   { id: 12, name: 'PRODUCTION CONTROL G', code: 'PROD_CONTROL_G' },
 ];
 
-type BookingStep = 'HOME' | 'ROUTE' | 'VEHICLE' | 'SUMMARY' | 'WAITING' | 'IN_TRIP';
+type BookingStep = 'HOME' | 'ROUTE' | 'VEHICLE' | 'SUMMARY' | 'WAITING' | 'IN_TRIP' | 'SCHEDULE_VIEW';
+
+function getWhatsAppUrl(phone: string, text?: string): string {
+  if (!phone) return '';
+  let clean = phone.replace(/[^0-9]/g, '');
+  if (clean.startsWith('0')) {
+    clean = '62' + clean.slice(1);
+  } else if (!clean.startsWith('62')) {
+    clean = '62' + clean;
+  }
+  const baseUrl = `https://wa.me/+${clean}`;
+  return text ? `${baseUrl}?text=${encodeURIComponent(text)}` : baseUrl;
+}
 
 function getTimeGreeting(): string {
   const hr = new Date().getHours();
@@ -197,6 +208,7 @@ export function App() {
   const defaultStart = new Date(Date.now() + 2 * 3600000).toISOString().slice(0, 16);
   const defaultEnd = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 16);
   const [bookPurpose, setBookPurpose] = useState('');
+  const [bookPassengerNickname, setBookPassengerNickname] = useState('');
   const [bookOrigin, setBookOrigin] = useState('');
   const [bookDest, setBookDest] = useState('');
   const [bookStart, setBookStart] = useState(defaultStart);
@@ -206,6 +218,17 @@ export function App() {
   const [bookPax, setBookPax] = useState<number>(1);
   const [bookNotes, setBookNotes] = useState('');
   const [liveAvailability, setLiveAvailability] = useState<{ vehicles: any[]; drivers: any[] } | null>(null);
+  const [scheduleFilterTab, setScheduleFilterTab] = useState<'ALL' | 'AVAILABLE' | 'BOOKED'>('ALL');
+
+  // Driver Expense Reimbursement State
+  const [showDriverExpenseModal, setShowDriverExpenseModal] = useState<boolean>(false);
+  const [driverExpenseForm, setDriverExpenseForm] = useState({
+    vehicle_id: 0,
+    category: 'Toll',
+    amount: '',
+    description: '',
+    receipt_name: '',
+  });
 
   // Admin Modals & Creation State
   const [editingVehicle, setEditingVehicle] = useState<any | null>(null);
@@ -231,6 +254,7 @@ export function App() {
     current_odometer: '0',
     battery_percent: '100',
     last_parking_spot: '',
+    default_driver_id: '',
   });
 
   // Admin New Driver Profile Form (includes Group department_id)
@@ -903,10 +927,12 @@ export function App() {
           start_time: startIso,
           end_time: endIso,
           passenger_count: Number(bookPax),
+          passenger_nickname: bookPassengerNickname.trim(),
           notes: bookNotes,
         }),
       });
       setBookPurpose('');
+      setBookPassengerNickname('');
       setBookNotes('');
       setFocusedTripId(created.tripId);
       setBookingStep('WAITING');
@@ -1060,6 +1086,7 @@ export function App() {
           current_odometer: Number(newVehicleForm.current_odometer) || 0,
           battery_percent: newVehicleForm.energy_type === 'Electric' ? Number(newVehicleForm.battery_percent || 100) : null,
           last_parking_spot: newVehicleForm.last_parking_spot.trim() || 'Main Pool',
+          default_driver_id: newVehicleForm.default_driver_id ? Number(newVehicleForm.default_driver_id) : null,
         }),
       });
       setNewVehicleForm({
@@ -1074,6 +1101,7 @@ export function App() {
         current_odometer: '0',
         battery_percent: '100',
         last_parking_spot: '',
+        default_driver_id: '',
       });
       setStatusBanner({ type: 'success', text: 'New vehicle registered in fleet.' });
       await loadAllData(user);
@@ -1100,6 +1128,7 @@ export function App() {
           status: editingVehicle.status,
           standby_reason: editingVehicle.standby_reason || null,
           last_parking_spot: editingVehicle.last_parking_spot,
+          default_driver_id: editingVehicle.default_driver_id ? Number(editingVehicle.default_driver_id) : null,
         }),
       });
       setEditingVehicle(null);
@@ -1336,7 +1365,7 @@ export function App() {
             </div>
             <div>
               <h1 className="type-title">GalaxyFleet</h1>
-              <p className="type-caption">Company Ride Dispatch & Mobile PWA</p>
+              <p className="type-caption">Internal Fleet Management System</p>
             </div>
           </div>
 
@@ -1375,7 +1404,7 @@ export function App() {
             <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
                 <label className="type-caption" htmlFor="login-username" style={{ fontWeight: 700, display: 'block', marginBottom: '6px' }}>
-                  Group Username
+                  Username
                 </label>
                 <input
                   id="login-username"
@@ -1383,7 +1412,7 @@ export function App() {
                   type="text"
                   autoComplete="username"
                   required
-                  placeholder="Enter your group username"
+                  placeholder="Enter your username"
                   value={loginUsername}
                   onChange={(e) => setLoginUsername(e.target.value)}
                 />
@@ -1418,7 +1447,7 @@ export function App() {
                   color: 'var(--color-text-secondary)',
                 }}
               >
-                <strong>Account Registration:</strong> Enter your nickname, group, group username & password. Administrator approval is required before sign-in.
+                <strong>Account Registration:</strong> Enter your nickname, group, username & password. Administrator approval is required before sign-in.
               </div>
 
               <div>
@@ -1440,9 +1469,9 @@ export function App() {
                 <label className="type-caption" htmlFor="reg-dept" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
                   Group
                 </label>
-                <select id="reg-dept" className="gf-select" value={regDeptId} onChange={(e) => setRegDeptId(Number(e.target.value))}>
+                <select id="reg-dept" className="gf-select notranslate" translate="no" value={regDeptId} onChange={(e) => setRegDeptId(Number(e.target.value))}>
                   {groupsList.map((g) => (
-                    <option key={g.id} value={g.id}>
+                    <option key={g.id} value={g.id} className="notranslate" translate="no">
                       {g.name}
                     </option>
                   ))}
@@ -1451,14 +1480,14 @@ export function App() {
 
               <div>
                 <label className="type-caption" htmlFor="reg-username" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Group Username
+                  Username
                 </label>
                 <input
                   id="reg-username"
                   className="gf-input"
                   type="text"
                   required
-                  placeholder="Enter your group username"
+                  placeholder="Enter your username"
                   value={regUsername}
                   onChange={(e) => setRegUsername(e.target.value)}
                 />
@@ -1580,6 +1609,24 @@ export function App() {
                   value={editingVehicle.standby_reason || ''}
                   onChange={(e) => setEditingVehicle({ ...editingVehicle, standby_reason: e.target.value })}
                 />
+              </div>
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Dedicated Driver (Fixed Car Assignment)</label>
+                <select
+                  className="gf-select"
+                  value={editingVehicle.default_driver_id || 0}
+                  onChange={(e) => setEditingVehicle({ ...editingVehicle, default_driver_id: Number(e.target.value) || null })}
+                >
+                  <option value={0}>No Dedicated Driver (Pool Driver)</option>
+                  {drivers.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.full_name} ({d.contact_number || 'No Phone'})
+                    </option>
+                  ))}
+                </select>
+                <p className="type-caption" style={{ marginTop: '3px', color: 'var(--color-text-secondary)' }}>
+                  Once assigned, this car keeps this dedicated driver unless changed by Admin.
+                </p>
               </div>
               <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
                 <button type="button" className="gf-btn gf-btn-secondary" style={{ flex: 1 }} onClick={() => setEditingVehicle(null)}>
@@ -1753,6 +1800,155 @@ export function App() {
                 Continue & Pin Location Manually on Map
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showDriverExpenseModal && (
+        <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label="Upload Expense Receipt">
+          <div className="gf-modal-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div>
+                <h3 className="type-title">Upload Expense Receipt</h3>
+                <p className="type-caption">Claim reimbursement for operational car expenses</p>
+              </div>
+              <button
+                type="button"
+                className="gf-btn gf-btn-ghost"
+                onClick={() => setShowDriverExpenseModal(false)}
+              >
+                Cancel
+              </button>
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!driverExpenseForm.vehicle_id) {
+                  setStatusBanner({ type: 'danger', text: 'Please select an operational vehicle.' });
+                  return;
+                }
+                if (!driverExpenseForm.amount || Number(driverExpenseForm.amount) <= 0) {
+                  setStatusBanner({ type: 'danger', text: 'Please enter a valid expense amount.' });
+                  return;
+                }
+                try {
+                  await apiRequest('/api/expenses', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      vehicle_id: Number(driverExpenseForm.vehicle_id),
+                      category: driverExpenseForm.category,
+                      amount: Number(driverExpenseForm.amount),
+                      description: `${driverExpenseForm.description}${driverExpenseForm.receipt_name ? ` [Receipt: ${driverExpenseForm.receipt_name}]` : ''}`.trim(),
+                    }),
+                  });
+                  setShowDriverExpenseModal(false);
+                  setDriverExpenseForm({ vehicle_id: 0, category: 'Toll', amount: '', description: '', receipt_name: '' });
+                  setStatusBanner({ type: 'success', text: 'Expense receipt submitted for reimbursement approval!' });
+                  await loadAllData(user);
+                } catch (err: any) {
+                  setStatusBanner({ type: 'danger', text: err.message });
+                }
+              }}
+              style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+            >
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  Operational Vehicle
+                </label>
+                <select
+                  className="gf-select"
+                  required
+                  value={driverExpenseForm.vehicle_id}
+                  onChange={(e) => setDriverExpenseForm({ ...driverExpenseForm, vehicle_id: Number(e.target.value) })}
+                >
+                  <option value={0}>Select Vehicle</option>
+                  {vehicles.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.registration_plate} — {v.make} {v.model} ({v.energy_type})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  Expense Category
+                </label>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {(['Parking', 'Gas', 'Charging', 'Toll'] as const).map((cat) => (
+                    <Chip
+                      key={cat}
+                      active={driverExpenseForm.category === cat}
+                      onClick={() => setDriverExpenseForm({ ...driverExpenseForm, category: cat })}
+                    >
+                      {cat === 'Charging' ? 'Charging (EV)' : cat}
+                    </Chip>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  Amount (Rp)
+                </label>
+                <input
+                  type="number"
+                  className="gf-input"
+                  required
+                  min={1}
+                  placeholder="e.g. 50000"
+                  value={driverExpenseForm.amount}
+                  onChange={(e) => setDriverExpenseForm({ ...driverExpenseForm, amount: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  Description / Location
+                </label>
+                <input
+                  type="text"
+                  className="gf-input"
+                  placeholder="e.g. Gerbang Tol Cikarang Utama, Parkir Kantor Pusat"
+                  value={driverExpenseForm.description}
+                  onChange={(e) => setDriverExpenseForm({ ...driverExpenseForm, description: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  Receipt Photo / Document
+                </label>
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  className="gf-input"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setDriverExpenseForm({ ...driverExpenseForm, receipt_name: file.name });
+                    }
+                  }}
+                />
+                <p className="type-caption" style={{ marginTop: '2px', color: 'var(--color-text-secondary)' }}>
+                  Take a photo of the receipt or attach PDF slip for admin verification.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-secondary"
+                  style={{ flex: 1 }}
+                  onClick={() => setShowDriverExpenseModal(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="gf-btn gf-btn-primary" style={{ flex: 1 }}>
+                  Submit Claim
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -2234,6 +2430,18 @@ export function App() {
                       value={newVehicleForm.last_parking_spot}
                       onChange={(e) => setNewVehicleForm({ ...newVehicleForm, last_parking_spot: e.target.value })}
                     />
+                    <select
+                      className="gf-select"
+                      value={newVehicleForm.default_driver_id}
+                      onChange={(e) => setNewVehicleForm({ ...newVehicleForm, default_driver_id: e.target.value })}
+                    >
+                      <option value="">No Dedicated Driver (Pool Driver)</option>
+                      {drivers.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.full_name} ({d.contact_number || 'No Phone'})
+                        </option>
+                      ))}
+                    </select>
                     <button type="submit" className="gf-btn gf-btn-primary">
                       <Plus size={16} /> Add Vehicle
                     </button>
@@ -2249,6 +2457,7 @@ export function App() {
                           <tr>
                             <th>Plate</th>
                             <th>Model</th>
+                            <th>Dedicated Driver</th>
                             <th>Type</th>
                             <th>Energy</th>
                             <th>Odometer</th>
@@ -2263,6 +2472,10 @@ export function App() {
                               <td>
                                 <div style={{ fontWeight: 700 }}>{v.make} {v.model}</div>
                                 <div className="type-caption">{v.seats} seats • VIN {v.vin}</div>
+                              </td>
+                              <td>
+                                <div style={{ fontWeight: 600 }}>{v.default_driver_name || 'Pool Driver'}</div>
+                                {v.default_driver_phone && <div className="type-caption mono">{v.default_driver_phone}</div>}
                               </td>
                               <td>{v.car_type}</td>
                               <td>
@@ -2678,6 +2891,8 @@ export function App() {
                     <select className="gf-select" style={{ flex: '1 1 140px' }} value={expForm.category} onChange={(e) => setExpForm({ ...expForm, category: e.target.value })}>
                       <option value="Toll">Toll</option>
                       <option value="Parking">Parking</option>
+                      <option value="Gas">Gas (Gasoline)</option>
+                      <option value="Charging">Charging (EV)</option>
                       <option value="Cleaning">Cleaning</option>
                       <option value="Accessories">Accessories</option>
                       <option value="Other">Other</option>
@@ -2688,11 +2903,81 @@ export function App() {
                   </form>
                   <div className="gf-table-wrap">
                     <table className="gf-table">
-                      <thead><tr><th>Plate</th><th>Category</th><th>Amount</th><th>Status</th></tr></thead>
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Plate</th>
+                          <th>Category</th>
+                          <th>Submitted By</th>
+                          <th>Amount</th>
+                          <th>Status</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
                       <tbody>
-                        {expenses.map((ex) => (
-                          <tr key={ex.id}><td>{ex.registration_plate}</td><td>{ex.category}: {ex.description}</td><td className="mono">${Number(ex.amount).toFixed(2)}</td><td><StatusBadge label={ex.approval_status} tone="blue" /></td></tr>
-                        ))}
+                        {expenses.length === 0 ? (
+                          <tr><td colSpan={7} style={{ textAlign: 'center', padding: '16px' }} className="type-caption">No expense records or reimbursement claims.</td></tr>
+                        ) : (
+                          expenses.map((ex) => (
+                            <tr key={ex.id}>
+                              <td className="mono">{new Date(ex.date_time).toLocaleDateString()}</td>
+                              <td className="mono" style={{ fontWeight: 700 }}>{ex.registration_plate}</td>
+                              <td>
+                                <span style={{ fontWeight: 600 }}>{ex.category}</span>
+                                {ex.description && <div className="type-caption">{ex.description}</div>}
+                              </td>
+                              <td>{ex.submitted_by_name || 'Driver / User'}</td>
+                              <td className="mono">Rp {Number(ex.amount).toLocaleString()}</td>
+                              <td><StatusBadge label={ex.approval_status} tone={ex.approval_status === 'Approved' ? 'green' : ex.approval_status === 'Rejected' ? 'red' : 'blue'} /></td>
+                              <td>
+                                {ex.approval_status === 'Submitted' ? (
+                                  <div style={{ display: 'flex', gap: '6px' }}>
+                                    <button
+                                      type="button"
+                                      className="gf-btn gf-btn-primary"
+                                      style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px' }}
+                                      onClick={async () => {
+                                        try {
+                                          await apiRequest(`/api/expenses/${ex.id}`, {
+                                            method: 'PATCH',
+                                            body: JSON.stringify({ approval_status: 'Approved' }),
+                                          });
+                                          setStatusBanner({ type: 'success', text: `Expense #${ex.id} approved for reimbursement.` });
+                                          await loadAllData(user);
+                                        } catch (err: any) {
+                                          setStatusBanner({ type: 'danger', text: err.message });
+                                        }
+                                      }}
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="gf-btn gf-btn-outline-danger"
+                                      style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px' }}
+                                      onClick={async () => {
+                                        try {
+                                          await apiRequest(`/api/expenses/${ex.id}`, {
+                                            method: 'PATCH',
+                                            body: JSON.stringify({ approval_status: 'Rejected' }),
+                                          });
+                                          setStatusBanner({ type: 'info', text: `Expense #${ex.id} rejected.` });
+                                          await loadAllData(user);
+                                        } catch (err: any) {
+                                          setStatusBanner({ type: 'danger', text: err.message });
+                                        }
+                                      }}
+                                    >
+                                      Reject
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>Completed</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -3398,6 +3683,59 @@ export function App() {
               })}
             </div>
           )}
+
+          {/* Driver Reimbursements & Expense Receipt Upload (Revision #11) */}
+          <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <h2 className="type-section">Reimbursements & Receipts</h2>
+                <p className="type-caption">Upload Parking, Gas, Charging (EV), and Toll receipts for reimbursement approval</p>
+              </div>
+              <button
+                id="driver-upload-receipt-btn"
+                type="button"
+                className="gf-btn gf-btn-primary"
+                onClick={() => setShowDriverExpenseModal(true)}
+              >
+                <Upload size={16} /> Upload Receipt
+              </button>
+            </div>
+
+            {expenses.length === 0 ? (
+              <EmptyState message="No reimbursement claims submitted yet." />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {expenses.map((ex) => (
+                  <div
+                    key={ex.id}
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: 'var(--radius-card)',
+                      border: '1px solid var(--color-border)',
+                      background: 'var(--color-surface)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: '10px',
+                    }}
+                  >
+                    <div>
+                      <div className="type-body" style={{ fontWeight: 700 }}>
+                        {ex.category} • Rp {Number(ex.amount).toLocaleString()}
+                      </div>
+                      <div className="type-caption">
+                        {ex.registration_plate || 'Operational Car'} • {ex.description || 'Receipt claim'} • {new Date(ex.date_time).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <StatusBadge
+                      label={ex.approval_status}
+                      tone={ex.approval_status === 'Approved' ? 'green' : ex.approval_status === 'Rejected' ? 'red' : 'blue'}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       );
     }
@@ -3459,27 +3797,56 @@ export function App() {
               }
             />
           ) : (
-            <div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {shownList.map((t) => (
-                <ListRow
+                <div
                   key={t.id}
-                  tall
-                  icon={<Car size={20} />}
-                  title={`${t.origin} → ${t.destination}`}
-                  subtitle={`${new Date(t.start_time).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} • ${t.make} ${t.model} (${t.registration_plate})`}
-                  trailing={<StatusBadge label={t.booking_status === 'CANCELLED' ? 'CANCELLED' : t.status} tone={toneFromStatus(t.booking_status === 'CANCELLED' ? 'CANCELLED' : t.status)} />}
-                  showChevron={activityTab === 'ONGOING'}
-                  onClick={
-                    activityTab === 'ONGOING'
-                      ? () => {
-                          setFocusedTripId(t.id);
-                          setNavSection('HOME');
-                          setBookingStep(t.status === 'PENDING_APPROVAL' ? 'WAITING' : 'IN_TRIP');
-                          setSheetSnap('half');
-                        }
-                      : undefined
-                  }
-                />
+                  style={{
+                    borderRadius: 'var(--radius-card)',
+                    border: '1px solid var(--color-border)',
+                    background: 'var(--color-surface)',
+                    padding: '8px 12px',
+                  }}
+                >
+                  <ListRow
+                    tall
+                    icon={<Car size={20} />}
+                    title={`${t.origin} → ${t.destination}`}
+                    subtitle={`${t.passenger_nickname ? `Pax: ${t.passenger_nickname} • ` : ''}${new Date(t.start_time).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} • ${t.make} ${t.model} (${t.registration_plate})`}
+                    trailing={<StatusBadge label={t.booking_status === 'CANCELLED' ? 'CANCELLED' : t.status} tone={toneFromStatus(t.booking_status === 'CANCELLED' ? 'CANCELLED' : t.status)} />}
+                    showChevron={activityTab === 'ONGOING'}
+                    onClick={
+                      activityTab === 'ONGOING'
+                        ? () => {
+                            setFocusedTripId(t.id);
+                            setNavSection('HOME');
+                            setBookingStep(t.status === 'PENDING_APPROVAL' ? 'WAITING' : 'IN_TRIP');
+                            setSheetSnap('half');
+                          }
+                        : undefined
+                    }
+                  />
+                  {(t.status === 'APPROVED' || t.status === 'IN_PROGRESS') && t.booking_status !== 'CANCELLED' && (
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '6px', borderTop: '1px solid var(--color-divider)', marginTop: '4px' }}>
+                      <button
+                        type="button"
+                        className="gf-btn gf-btn-secondary"
+                        style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const shareMsg = `*GalaxyFleet Booking Details*\nVehicle: ${t.make} ${t.model} (${t.registration_plate || '—'})\nPassenger: ${t.passenger_nickname || 'Team'}\nDriver: ${t.assigned_driver_name || 'Assigned Driver'}${t.assigned_driver_phone ? ` (${t.assigned_driver_phone})` : ''}\nPickup: ${t.origin}\nDestination: ${t.destination}\nSchedule: ${new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\nStatus: ${t.status}`;
+                          if (navigator.clipboard) {
+                            navigator.clipboard.writeText(shareMsg).catch(() => {});
+                          }
+                          window.open(`https://wa.me/?text=${encodeURIComponent(shareMsg)}`, '_blank');
+                          setStatusBanner({ type: 'success', text: 'Booking details copied & opened WhatsApp to share with passenger!' });
+                        }}
+                      >
+                        <Share2 size={13} /> Share to Passenger (WhatsApp)
+                      </button>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           )}
@@ -3640,8 +4007,251 @@ export function App() {
     // -------------------------------------------------------------------------
     // BOOKING FLOW STEP 0: HOME
     // -------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // FLEET SCHEDULE & AVAILABILITY BOARD (Revisions #10 & #14)
+    // -------------------------------------------------------------------------
+    if (bookingStep === 'SCHEDULE_VIEW') {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const filteredVehicles = vehicles.filter((v) => {
+        if (scheduleFilterTab === 'AVAILABLE') {
+          return v.status === 'Available';
+        }
+        if (scheduleFilterTab === 'BOOKED') {
+          return trips.some((t) => t.vehicle_id === v.id && String(t.start_time).startsWith(todayStr) && t.status !== 'CANCELLED' && t.status !== 'REJECTED');
+        }
+        return true;
+      });
+
+      // Filter driver agenda if current user is DRV or has trips
+      const driverAgendaTrips = trips.filter((t) => {
+        return (t.assigned_driver_user_id === user.id || t.assigned_driver_name === user.nickname) && t.status !== 'CANCELLED' && t.status !== 'REJECTED';
+      });
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {feedbackBanner}
+
+          {/* Header with Back navigation button */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <button
+              id="schedule-back-btn"
+              type="button"
+              className="gf-icon-btn-48 pressable"
+              onClick={() => setBookingStep('HOME')}
+              aria-label="Back to home"
+              title="Back"
+            >
+              <ChevronRight size={22} style={{ transform: 'rotate(180deg)' }} />
+            </button>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h1 className="type-title" style={{ fontSize: '19px' }}>Fleet Schedule</h1>
+              <p className="type-caption">Live operational timetable & dedicated drivers</p>
+            </div>
+            <StatusBadge label="Live Availability" tone="green" />
+          </div>
+
+          {/* Filter Chips */}
+          <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+            <Chip active={scheduleFilterTab === 'ALL'} onClick={() => setScheduleFilterTab('ALL')}>
+              All Cars ({vehicles.length})
+            </Chip>
+            <Chip active={scheduleFilterTab === 'AVAILABLE'} onClick={() => setScheduleFilterTab('AVAILABLE')}>
+              Available Now ({vehicles.filter((v) => v.status === 'Available').length})
+            </Chip>
+            <Chip active={scheduleFilterTab === 'BOOKED'} onClick={() => setScheduleFilterTab('BOOKED')}>
+              Booked Today
+            </Chip>
+          </div>
+
+          {/* Driver Daily Agenda Card (if Driver account or has assigned trips) */}
+          {(user.role === 'DRV' || driverAgendaTrips.length > 0) && (
+            <div
+              style={{
+                padding: '14px',
+                borderRadius: 'var(--radius-card)',
+                background: 'var(--color-bg-subtle)',
+                border: '1.5px solid var(--color-border)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="type-section" style={{ fontSize: '15px' }}>📋 My Driver Agenda (Today)</span>
+                <StatusBadge label={`${driverAgendaTrips.length} Bookings`} tone="blue" />
+              </div>
+              {driverAgendaTrips.length === 0 ? (
+                <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+                  No trips assigned to you today. Ready on standby.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {driverAgendaTrips.map((t) => (
+                    <div
+                      key={t.id}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: 'var(--radius-control)',
+                        background: 'var(--color-surface)',
+                        border: '1px solid var(--color-border)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span className="mono" style={{ fontWeight: 700, fontSize: '13px' }}>
+                          {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />
+                      </div>
+                      <div className="type-caption" style={{ marginTop: '4px', fontWeight: 600 }}>
+                        {t.origin} ➔ {t.destination}
+                      </div>
+                      <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+                        Passenger: {t.passenger_nickname || 'Team'} • <span className="notranslate" translate="no">{t.department_name}</span> • Car: {t.registration_plate}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Vehicle Schedule Timeline Cards */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {filteredVehicles.map((v) => {
+              const vehicleTripsToday = trips.filter(
+                (t) => t.vehicle_id === v.id && String(t.start_time).startsWith(todayStr) && t.status !== 'CANCELLED' && t.status !== 'REJECTED'
+              );
+              const isFreeNow = v.status === 'Available' && vehicleTripsToday.every((t) => {
+                const now = Date.now();
+                const start = new Date(t.start_time).getTime();
+                const end = new Date(t.end_time).getTime();
+                return now < start || now > end;
+              });
+
+              return (
+                <div
+                  key={v.id}
+                  style={{
+                    padding: '14px',
+                    borderRadius: 'var(--radius-card)',
+                    border: '1px solid var(--color-border)',
+                    background: 'var(--color-surface)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    boxShadow: 'var(--shadow-sm)',
+                  }}
+                >
+                  {/* Top Bar: Plate + Model + Dedicated Driver */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span
+                          className="mono"
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            border: '1.5px solid var(--color-text-primary)',
+                            fontWeight: 800,
+                            fontSize: '12px',
+                          }}
+                        >
+                          {v.registration_plate}
+                        </span>
+                        <span className="type-body" style={{ fontWeight: 700 }}>
+                          {v.make} {v.model}
+                        </span>
+                      </div>
+                      <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
+                        👤 Dedicated Driver: <strong>{v.default_driver_name || 'Pool Driver'}</strong>
+                        {v.default_driver_phone && <span className="mono"> ({v.default_driver_phone})</span>}
+                      </div>
+                    </div>
+                    <StatusBadge
+                      label={isFreeNow ? 'Available Now' : v.status !== 'Available' ? v.status : 'Booked'}
+                      tone={isFreeNow ? 'green' : v.status !== 'Available' ? 'neutral' : 'amber'}
+                    />
+                  </div>
+
+                  {/* 24-Hour Visual Schedule Bar (08:00 - 20:00 range) */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }} className="type-caption mono">
+                      <span>08:00</span>
+                      <span>12:00</span>
+                      <span>16:00</span>
+                      <span>20:00</span>
+                    </div>
+                    <div className="gf-timeline-track" style={{ position: 'relative' }}>
+                      {vehicleTripsToday.map((t) => {
+                        const startH = new Date(t.start_time).getHours() + new Date(t.start_time).getMinutes() / 60;
+                        const endH = new Date(t.end_time).getHours() + new Date(t.end_time).getMinutes() / 60;
+                        const leftPct = Math.max(0, Math.min(100, ((startH - 8) / 12) * 100));
+                        const widthPct = Math.max(8, Math.min(100 - leftPct, ((endH - startH) / 12) * 100));
+
+                        return (
+                          <div
+                            key={t.id}
+                            className="gf-timeline-block"
+                            style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                            title={`${new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}: ${t.department_name} (${t.passenger_nickname || 'Team'})`}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Booking Slots Text List */}
+                  <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: '8px' }}>
+                    {vehicleTripsToday.length === 0 ? (
+                      <div className="type-caption" style={{ color: 'var(--color-green-text)', fontWeight: 600 }}>
+                        ✅ Available full day — No scheduled bookings today
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div className="type-caption" style={{ fontWeight: 700 }}>
+                          Booked Slots Today ({vehicleTripsToday.length}):
+                        </div>
+                        {vehicleTripsToday.map((t) => (
+                          <div key={t.id} className="type-caption" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span className="mono" style={{ fontWeight: 700 }}>
+                              🕒 {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}:
+                            </span>
+                            <span>
+                              <span className="notranslate" translate="no"><strong>{t.department_name}</strong></span> (Passenger: {t.passenger_nickname || 'Team'})
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Quick Action: Book This Car */}
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-secondary gf-btn-full"
+                    style={{ minHeight: '36px', fontSize: '13px' }}
+                    onClick={() =>
+                      requireLocationBeforeCarUse(() => {
+                        setBookVehicleId(v.id);
+                        setBookingStep('ROUTE');
+                        setSheetSnap('full');
+                      })
+                    }
+                  >
+                    Select & Book This Vehicle
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // BOOKING FLOW STEP 0: HOME
+    // -------------------------------------------------------------------------
     if (bookingStep === 'HOME') {
-      const shortcutCount = isPrivileged || user.role === 'DRV' ? 8 : 7;
       const shortcuts = [
         {
           id: 'sc-ride',
@@ -3661,34 +4271,19 @@ export function App() {
           label: 'Schedule',
           green: false,
           icon: <Calendar size={22} />,
-          action: () =>
-            requireLocationBeforeCarUse(() => {
-              setVehicleFilter('ALL');
-              setScheduleMode('SCHEDULE');
-              setBookingStep('ROUTE');
-              setSheetSnap('full');
-            }),
+          action: () => {
+            setBookingStep('SCHEDULE_VIEW');
+            setSheetSnap('full');
+          },
         },
         {
-          id: 'sc-ev',
-          label: 'EV Pool',
-          green: true,
-          icon: <Zap size={22} />,
-          action: () =>
-            requireLocationBeforeCarUse(() => {
-              setVehicleFilter('Electric');
-              setBookingStep('ROUTE');
-              setSheetSnap('full');
-            }),
-        },
-        {
-          id: 'sc-mpv',
-          label: '7-Seater',
+          id: 'sc-saved',
+          label: 'Saved Places',
           green: false,
-          icon: <Users size={22} />,
+          icon: <Bookmark size={22} />,
           action: () =>
             requireLocationBeforeCarUse(() => {
-              setVehicleFilter('MPV');
+              setRouteTab('SAVED');
               setBookingStep('ROUTE');
               setSheetSnap('full');
             }),
@@ -3714,7 +4309,7 @@ export function App() {
           icon: <Download size={22} />,
           action: handleInstallPwa,
         },
-        ...(shortcutCount === 8
+        ...(isPrivileged || user.role === 'DRV'
           ? [
               {
                 id: 'sc-ops',
@@ -3740,7 +4335,7 @@ export function App() {
                 {getTimeGreeting()}, {user.nickname}
               </h1>
               <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                <Chip subtle>{user.department_name || 'Company Group'}</Chip>
+                <Chip subtle><span className="notranslate" translate="no">{user.department_name || 'Company Group'}</span></Chip>
                 <LanguageSwitcher compact />
               </div>
             </div>
@@ -3771,6 +4366,76 @@ export function App() {
                 <LogOut size={19} />
               </button>
             </div>
+          </div>
+
+          {/* Hero Action Cards for Primary Workflows (Revision #7) */}
+          <div className="gf-hero-action-grid">
+            <button
+              id="hero-book-ride-card"
+              type="button"
+              className="gf-hero-action-card pressable"
+              onClick={() =>
+                requireLocationBeforeCarUse(() => {
+                  setVehicleFilter('ALL');
+                  setScheduleMode('NOW');
+                  setBookingStep('ROUTE');
+                  setSheetSnap('full');
+                })
+              }
+              style={{ borderLeft: '4px solid var(--color-green)' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="gf-circle-icon is-green" style={{ width: '40px', height: '40px' }}>
+                  <Car size={22} />
+                </div>
+                <ChevronRight size={18} style={{ color: 'var(--color-green)' }} />
+              </div>
+              <div>
+                <div className="type-title" style={{ fontSize: '16px', fontWeight: 800 }}>Book a Ride</div>
+                <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                  Request operational car
+                </div>
+              </div>
+            </button>
+
+            <button
+              id="hero-fleet-schedule-card"
+              type="button"
+              className="gf-hero-action-card pressable"
+              onClick={() => {
+                setBookingStep('SCHEDULE_VIEW');
+                setSheetSnap('full');
+              }}
+              style={{ borderLeft: '4px solid var(--color-text-primary)' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="gf-circle-icon" style={{ width: '40px', height: '40px', background: 'var(--color-bg-subtle)' }}>
+                  <Calendar size={22} />
+                </div>
+                <ChevronRight size={18} style={{ color: 'var(--color-text-secondary)' }} />
+              </div>
+              <div>
+                <div className="type-title" style={{ fontSize: '16px', fontWeight: 800 }}>Fleet Schedule</div>
+                <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                  Live slots & cars
+                </div>
+              </div>
+            </button>
+          </div>
+
+          {/* Quick Collapse to Map Toggle */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '-8px 0 -4px 0' }}>
+            <span className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+              Operational Quick Access
+            </span>
+            <button
+              type="button"
+              className="gf-btn gf-btn-ghost"
+              style={{ minHeight: '30px', padding: '0 8px', fontSize: '12px' }}
+              onClick={() => setSheetSnap(sheetSnap === 'peek' ? 'half' : 'peek')}
+            >
+              <Navigation size={13} /> {sheetSnap === 'peek' ? 'Expand Menu' : 'View Full Map'}
+            </button>
           </div>
 
           {/* Active ongoing trip card if any */}
@@ -4269,7 +4934,7 @@ export function App() {
               id="summary-pax-row"
               icon={<Users size={18} />}
               title="Passengers"
-              subtitle={`${bookPax} passenger${bookPax > 1 ? 's' : ''}`}
+              subtitle={bookPassengerNickname ? `${bookPassengerNickname} (${bookPax} passenger${bookPax > 1 ? 's' : ''})` : `${bookPax} passenger${bookPax > 1 ? 's' : ''}`}
               showChevron
               onClick={() => setSummaryPicker('PAX')}
             />
@@ -4298,7 +4963,7 @@ export function App() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                   <h3 className="type-section">
                     {summaryPicker === 'PURPOSE' && 'Trip purpose'}
-                    {summaryPicker === 'PAX' && 'Number of passengers'}
+                    {summaryPicker === 'PAX' && 'Passenger details'}
                     {summaryPicker === 'NOTES' && 'Dispatch notes'}
                     {summaryPicker === 'CHARGE' && 'Group & driver'}
                   </h3>
@@ -4328,24 +4993,56 @@ export function App() {
                 )}
 
                 {summaryPicker === 'PAX' && (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px', padding: '12px 0' }}>
-                    <button
-                      type="button"
-                      className="gf-icon-btn-48"
-                      aria-label="Decrease passengers"
-                      onClick={() => setBookPax((p) => Math.max(1, p - 1))}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <div
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: 'var(--radius-control)',
+                        background: 'var(--color-status-amber-bg)',
+                        color: 'var(--color-status-amber-fg)',
+                        fontSize: '12.5px',
+                        lineHeight: 1.4,
+                      }}
                     >
-                      <Minus size={18} />
-                    </button>
-                    <span className="type-title" style={{ minWidth: '48px', textAlign: 'center' }}>{bookPax}</span>
-                    <button
-                      type="button"
-                      className="gf-icon-btn-48"
-                      aria-label="Increase passengers"
-                      onClick={() => setBookPax((p) => Math.min(selectedVehicle?.seats || 7, p + 1))}
-                    >
-                      <Plus size={18} />
-                    </button>
+                      ⚠️ <strong>Privacy Notice:</strong> Enter passenger <strong>nickname only</strong> (e.g. Budi, Sarah, Alex). Do NOT enter full names.
+                    </div>
+                    <div>
+                      <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                        Passenger Nickname (Who will ride the car)
+                      </label>
+                      <input
+                        type="text"
+                        className="gf-input"
+                        placeholder="e.g. Budi, Sarah, Alex"
+                        value={bookPassengerNickname}
+                        onChange={(e) => setBookPassengerNickname(e.target.value)}
+                        autoFocus
+                      />
+                    </div>
+                    <div>
+                      <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '6px' }}>
+                        Total Passenger Count
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px', padding: '6px 0' }}>
+                        <button
+                          type="button"
+                          className="gf-icon-btn-48"
+                          aria-label="Decrease passengers"
+                          onClick={() => setBookPax((p) => Math.max(1, p - 1))}
+                        >
+                          <Minus size={18} />
+                        </button>
+                        <span className="type-title" style={{ minWidth: '48px', textAlign: 'center' }}>{bookPax}</span>
+                        <button
+                          type="button"
+                          className="gf-icon-btn-48"
+                          aria-label="Increase passengers"
+                          onClick={() => setBookPax((p) => Math.min(selectedVehicle?.seats || 7, p + 1))}
+                        >
+                          <Plus size={18} />
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -4505,37 +5202,64 @@ export function App() {
           </div>
         </div>
 
-        {/* Three 48px Round Action Buttons: Call, Chat, Share */}
+        {/* Three 48px Round Action Buttons: Call, Chat, Share (Revision #1 & #4) */}
         <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
           <button
+            id="trip-call-driver-btn"
             type="button"
-            onClick={() => setStatusBanner({ type: 'info', text: `Driver dispatch desk: ${tripToShow?.assigned_driver_name || 'Driver'} is notified of your call.` })}
+            onClick={() => {
+              const phone = tripToShow?.assigned_driver_phone || tripToShow?.default_driver_phone || '081234567890';
+              if (phone) {
+                window.location.href = `tel:${phone}`;
+              } else {
+                setStatusBanner({ type: 'info', text: `Calling driver desk: ${tripToShow?.assigned_driver_name || 'Driver'}` });
+              }
+            }}
             style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', background: 'transparent', border: 'none', cursor: 'pointer' }}
+            title="Call driver via phone app"
           >
-            <span className="gf-icon-btn-48"><Phone size={20} /></span>
+            <span className="gf-icon-btn-48 pressable"><Phone size={20} /></span>
             <span className="type-caption" style={{ fontWeight: 600 }}>Call</span>
           </button>
 
           <button
+            id="trip-chat-driver-btn"
             type="button"
-            onClick={() => setStatusBanner({ type: 'info', text: 'Quick dispatch note sent to your driver.' })}
+            onClick={() => {
+              const phone = tripToShow?.assigned_driver_phone || tripToShow?.default_driver_phone || '081234567890';
+              if (phone) {
+                const url = getWhatsAppUrl(
+                  phone,
+                  `Halo ${tripToShow?.assigned_driver_name || 'Driver'}, koordinasi perjalanan GalaxyFleet: ${tripToShow?.origin} -> ${tripToShow?.destination} (${tripToShow?.registration_plate || ''})`
+                );
+                window.open(url, '_blank');
+              } else {
+                setStatusBanner({ type: 'danger', text: 'Driver contact number not registered.' });
+              }
+            }}
             style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', background: 'transparent', border: 'none', cursor: 'pointer' }}
+            title="Chat with driver via WhatsApp"
           >
-            <span className="gf-icon-btn-48"><MessageSquare size={20} /></span>
-            <span className="type-caption" style={{ fontWeight: 600 }}>Chat</span>
+            <span className="gf-icon-btn-48 pressable" style={{ color: 'var(--color-green)' }}><MessageSquare size={20} /></span>
+            <span className="type-caption" style={{ fontWeight: 600 }}>WhatsApp</span>
           </button>
 
           <button
+            id="trip-share-passenger-btn"
             type="button"
             onClick={() => {
+              const driverPhone = tripToShow?.assigned_driver_phone || tripToShow?.default_driver_phone || '';
+              const shareMsg = `*GalaxyFleet Booking Details*\nVehicle: ${tripToShow?.make} ${tripToShow?.model} (${tripToShow?.registration_plate || '—'})\nPassenger Nickname: ${tripToShow?.passenger_nickname || 'Team'}\nDriver: ${tripToShow?.assigned_driver_name || 'Assigned Driver'}${driverPhone ? ` (${driverPhone})` : ''}\nPickup: ${tripToShow?.origin}\nDestination: ${tripToShow?.destination}\nSchedule: ${new Date(tripToShow?.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(tripToShow?.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\nStatus: ${tripToShow?.status || 'APPROVED'}`;
               if (navigator.clipboard) {
-                navigator.clipboard.writeText(`${tripToShow?.make} ${tripToShow?.model} (${tripToShow?.registration_plate}) -> ${tripToShow?.destination}`).catch(() => {});
+                navigator.clipboard.writeText(shareMsg).catch(() => {});
               }
-              setStatusBanner({ type: 'success', text: 'Trip summary copied to clipboard.' });
+              window.open(`https://wa.me/?text=${encodeURIComponent(shareMsg)}`, '_blank');
+              setStatusBanner({ type: 'success', text: 'Booking details copied & opened WhatsApp to share with passenger!' });
             }}
             style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', background: 'transparent', border: 'none', cursor: 'pointer' }}
+            title="Share booking details to passenger via WhatsApp"
           >
-            <span className="gf-icon-btn-48"><Share2 size={20} /></span>
+            <span className="gf-icon-btn-48 pressable"><Share2 size={20} /></span>
             <span className="type-caption" style={{ fontWeight: 600 }}>Share</span>
           </button>
         </div>

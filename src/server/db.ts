@@ -155,6 +155,7 @@ function initializeSchema(db: AppDatabase) {
       status TEXT NOT NULL DEFAULT 'Available' CHECK (status IN ('Available', 'Standby', 'In Maintenance', 'Deactivated', 'Retired')),
       standby_reason TEXT,
       last_parking_spot TEXT DEFAULT 'HQ Main Lot',
+      default_driver_id INTEGER REFERENCES driver_profiles(id),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -178,6 +179,7 @@ function initializeSchema(db: AppDatabase) {
       department_id INTEGER NOT NULL REFERENCES departments(id),
       vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
       preferred_driver_id INTEGER REFERENCES driver_profiles(id),
+      passenger_nickname TEXT,
       purpose TEXT NOT NULL,
       origin TEXT NOT NULL,
       destination TEXT NOT NULL,
@@ -344,7 +346,7 @@ function initializeSchema(db: AppDatabase) {
       trip_request_id INTEGER REFERENCES trip_requests(id),
       submitted_by INTEGER NOT NULL REFERENCES users(id),
       date_time TEXT NOT NULL,
-      category TEXT NOT NULL CHECK (category IN ('Parking', 'Toll', 'Cleaning', 'Accessories', 'Other')),
+      category TEXT NOT NULL CHECK (category IN ('Parking', 'Toll', 'Gas', 'Charging', 'Gasoline', 'EV Charging', 'Cleaning', 'Accessories', 'Other')),
       amount REAL NOT NULL CHECK (amount > 0),
       description TEXT NOT NULL,
       receipt_document_id INTEGER,
@@ -468,6 +470,13 @@ function initializeSchema(db: AppDatabase) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  try {
+    db.exec('ALTER TABLE vehicles ADD COLUMN default_driver_id INTEGER REFERENCES driver_profiles(id);');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN passenger_nickname TEXT;');
+  } catch {}
 }
 
 export const COMPANY_GROUPS: ReadonlyArray<readonly [string, string]> = [

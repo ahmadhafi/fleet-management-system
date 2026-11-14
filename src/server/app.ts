@@ -733,7 +733,14 @@ export function createApp() {
 
   app.get('/api/vehicles', requireAuth, (req: Request, res: Response) => {
     const db = getDb();
-    const vehicles = db.prepare('SELECT * FROM vehicles ORDER BY id ASC').all() as Array<Record<string, unknown>>;
+    const vehicles = db
+      .prepare(
+        `SELECT v.*, dp.full_name as default_driver_name, dp.contact_number as default_driver_phone
+         FROM vehicles v
+         LEFT JOIN driver_profiles dp ON dp.id = v.default_driver_id
+         ORDER BY v.id ASC`
+      )
+      .all() as Array<Record<string, unknown>>;
     const canViewGps = isPrivilegedRole(req.user!);
 
     const enriched = vehicles.map((v) => {
@@ -772,7 +779,14 @@ export function createApp() {
   app.get('/api/vehicles/:id', requireAuth, (req: Request, res: Response) => {
     const db = getDb();
     const vehicleId = Number(req.params.id);
-    const vehicle = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
+    const vehicle = db
+      .prepare(
+        `SELECT v.*, dp.full_name as default_driver_name, dp.contact_number as default_driver_phone
+         FROM vehicles v
+         LEFT JOIN driver_profiles dp ON dp.id = v.default_driver_id
+         WHERE v.id = ?`
+      )
+      .get(vehicleId);
     if (!vehicle) {
       res.status(404).json({ error: 'Vehicle not found' });
       return;
@@ -820,8 +834,22 @@ export function createApp() {
 
   app.post('/api/vehicles', requireAuth, requireRoles(['ADM', 'FM']), (req: Request, res: Response) => {
     const db = getDb();
-    const { registration_plate, make, model, car_type, year, vin, energy_type, seats, current_odometer, battery_percent, status, standby_reason, last_parking_spot } =
-      req.body ?? {};
+    const {
+      registration_plate,
+      make,
+      model,
+      car_type,
+      year,
+      vin,
+      energy_type,
+      seats,
+      current_odometer,
+      battery_percent,
+      status,
+      standby_reason,
+      last_parking_spot,
+      default_driver_id,
+    } = req.body ?? {};
 
     if (!registration_plate || !make || !model || !vin) {
       res.status(400).json({ error: 'registration_plate, make, model, and vin are mandatory fields (VEH-03)' });
@@ -840,8 +868,8 @@ export function createApp() {
 
     const result = db
       .prepare(
-        `INSERT INTO vehicles (registration_plate, make, model, car_type, year, vin, energy_type, seats, current_odometer, battery_percent, status, standby_reason, last_parking_spot)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO vehicles (registration_plate, make, model, car_type, year, vin, energy_type, seats, current_odometer, battery_percent, status, standby_reason, last_parking_spot, default_driver_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         registration_plate.trim(),
@@ -856,7 +884,8 @@ export function createApp() {
         energy_type === 'Electric' ? Number(battery_percent ?? 100) : null,
         status || 'Available',
         standby_reason ?? null,
-        last_parking_spot || 'HQ Main Lot'
+        last_parking_spot || 'HQ Main Lot',
+        default_driver_id ? Number(default_driver_id) : null
       );
 
     const created = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(Number(result.lastInsertRowid));
@@ -874,8 +903,21 @@ export function createApp() {
       return;
     }
 
-    const { registration_plate, make, model, car_type, year, energy_type, seats, current_odometer, battery_percent, status, standby_reason, last_parking_spot } =
-      req.body ?? {};
+    const {
+      registration_plate,
+      make,
+      model,
+      car_type,
+      year,
+      energy_type,
+      seats,
+      current_odometer,
+      battery_percent,
+      status,
+      standby_reason,
+      last_parking_spot,
+      default_driver_id,
+    } = req.body ?? {};
 
     const nextPlate = registration_plate !== undefined ? String(registration_plate).trim() : String(prev.registration_plate);
     if (!nextPlate) {
@@ -901,6 +943,13 @@ export function createApp() {
       return;
     }
 
+    const nextDefaultDriver =
+      default_driver_id !== undefined
+        ? default_driver_id
+          ? Number(default_driver_id)
+          : null
+        : (prev.default_driver_id as number | null);
+
     db.prepare(
       `UPDATE vehicles
        SET registration_plate = ?,
@@ -915,6 +964,7 @@ export function createApp() {
            status = ?,
            standby_reason = ?,
            last_parking_spot = ?,
+           default_driver_id = ?,
            updated_at = datetime('now')
        WHERE id = ?`
     ).run(
@@ -930,6 +980,7 @@ export function createApp() {
       nextStatus,
       standby_reason !== undefined ? (standby_reason === null ? null : String(standby_reason)) : (prev.standby_reason === null ? null : String(prev.standby_reason)),
       last_parking_spot !== undefined ? (last_parking_spot === null ? null : String(last_parking_spot)) : (prev.last_parking_spot === null ? null : String(prev.last_parking_spot)),
+      nextDefaultDriver,
       vehicleId
     );
 
@@ -1132,6 +1183,9 @@ export function createApp() {
 
   app.get('/api/trips', requireAuth, (req: Request, res: Response) => {
     const db = getDb();
+    try {
+      checkTripAlertsAndAutoCancellations(db);
+    } catch {}
     const user = req.user!;
     let rows: Array<Record<string, unknown>>;
 
@@ -1143,7 +1197,8 @@ export function createApp() {
              v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.battery_percent,
              b.id as booking_id, b.status as booking_status,
              a.id as assignment_id, a.driver_profile_id, a.acknowledged_at,
-             dp.full_name as assigned_driver_name
+             dp.full_name as assigned_driver_name,
+             dp.contact_number as assigned_driver_phone
       FROM trip_requests tr
       JOIN users u ON u.id = tr.requester_id
       JOIN departments d ON d.id = tr.department_id
@@ -1222,7 +1277,8 @@ export function createApp() {
   app.post('/api/trips', requireAuth, requireRoles(['EMP', 'ADM', 'FM', 'HWS'], true), (req: Request, res: Response) => {
     const db = getDb();
     const user = req.user!;
-    const { vehicle_id, preferred_driver_id, purpose, origin, destination, start_time, end_time, passenger_count, notes, self_drive } = req.body ?? {};
+    const { vehicle_id, preferred_driver_id, purpose, origin, destination, start_time, end_time, passenger_count, passenger_nickname, notes, self_drive } =
+      req.body ?? {};
 
     // Revision #1: Self-drive is strictly prohibited
     if (self_drive === true || self_drive === 'true' || self_drive === 1) {
@@ -1258,6 +1314,15 @@ export function createApp() {
         }
 
         let chosenDriverId: number | null = preferred_driver_id ? Number(preferred_driver_id) : null;
+        if (!chosenDriverId) {
+          const veh = db.prepare('SELECT default_driver_id FROM vehicles WHERE id = ?').get(Number(vehicle_id)) as
+            | { default_driver_id: number | null }
+            | undefined;
+          if (veh?.default_driver_id) {
+            chosenDriverId = veh.default_driver_id;
+          }
+        }
+
         if (chosenDriverId) {
           const dConflict = checkDriverConflict(db, chosenDriverId, start_time, end_time);
           if (dConflict.hasConflict) {
@@ -1270,15 +1335,16 @@ export function createApp() {
         const tripRes = db
           .prepare(
             `INSERT INTO trip_requests (
-              requester_id, department_id, vehicle_id, preferred_driver_id,
+              requester_id, department_id, vehicle_id, preferred_driver_id, passenger_nickname,
               purpose, origin, destination, start_time, end_time, passenger_count, notes, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')`
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')`
           )
           .run(
             user.id,
             user.department_id,
             Number(vehicle_id),
             chosenDriverId,
+            passenger_nickname ? String(passenger_nickname).trim() : null,
             String(purpose).trim(),
             String(origin).trim(),
             String(destination).trim(),
@@ -1419,7 +1485,15 @@ export function createApp() {
           throw err;
         }
 
-        const targetDriverProfileId = driver_profile_id ? Number(driver_profile_id) : trip.preferred_driver_id;
+        let targetDriverProfileId = driver_profile_id ? Number(driver_profile_id) : trip.preferred_driver_id;
+        if (!targetDriverProfileId) {
+          const veh = db.prepare('SELECT default_driver_id FROM vehicles WHERE id = ?').get(targetVehicleId) as
+            | { default_driver_id: number | null }
+            | undefined;
+          if (veh?.default_driver_id) {
+            targetDriverProfileId = veh.default_driver_id;
+          }
+        }
         if (targetDriverProfileId) {
           const dConflict = checkDriverConflict(db, targetDriverProfileId, trip.start_time, trip.end_time, tripId);
           if (dConflict.hasConflict) {
@@ -2448,18 +2522,23 @@ export function createApp() {
     res.json({ maintenanceRecord: updated });
   });
 
-  // Expenses (EXP-01 to EXP-08)
-  app.get('/api/expenses', requireAuth, (_req: Request, res: Response) => {
+  // Expenses (EXP-01 to EXP-08, Driver Reimbursements)
+  app.get('/api/expenses', requireAuth, (req: Request, res: Response) => {
     const db = getDb();
-    const expenses = db
-      .prepare(
-        `SELECT e.*, v.registration_plate, u.nickname as submitted_by_name
+    const isPrivileged = isPrivilegedRole(req.user!);
+    const sql = isPrivileged
+      ? `SELECT e.*, v.registration_plate, v.make, v.model, u.nickname as submitted_by_name
          FROM expenses e
          JOIN vehicles v ON v.id = e.vehicle_id
          JOIN users u ON u.id = e.submitted_by
          ORDER BY e.date_time DESC`
-      )
-      .all();
+      : `SELECT e.*, v.registration_plate, v.make, v.model, u.nickname as submitted_by_name
+         FROM expenses e
+         JOIN vehicles v ON v.id = e.vehicle_id
+         JOIN users u ON u.id = e.submitted_by
+         WHERE e.submitted_by = ?
+         ORDER BY e.date_time DESC`;
+    const expenses = isPrivileged ? db.prepare(sql).all() : db.prepare(sql).all(req.user!.id);
     res.json({ expenses });
   });
 
@@ -2472,8 +2551,9 @@ export function createApp() {
       return;
     }
 
-    if (!['Parking', 'Toll', 'Cleaning', 'Accessories', 'Other'].includes(category)) {
-      res.status(400).json({ error: 'Invalid expense category; fuel/charging must be recorded in energy records (EXP-02, EXP-06)' });
+    const normalizedCategory = category === 'Gasoline' ? 'Gas' : category === 'EV Charging' ? 'Charging' : category;
+    if (!['Parking', 'Toll', 'Gas', 'Charging', 'Cleaning', 'Accessories', 'Other'].includes(normalizedCategory)) {
+      res.status(400).json({ error: 'Invalid expense category. Supported categories: Parking, Toll, Gas, Charging, Cleaning, Other' });
       return;
     }
 
@@ -3268,12 +3348,101 @@ export function createApp() {
     });
   });
 
+  // Revision: 5-minute reminder & 20-minute auto-cancellation for passenger no-show
+  function checkTripAlertsAndAutoCancellations(db: ReturnType<typeof getDb>) {
+    const now = new Date();
+    const nowMs = now.getTime();
+
+    // 1. 20-minute auto-cancellation for approved trips that haven't departed
+    const approvedTrips = db
+      .prepare(
+        `SELECT tr.id, tr.requester_id, tr.purpose, tr.origin, tr.destination, tr.start_time,
+                v.registration_plate, dp.user_id as driver_user_id
+         FROM trip_requests tr
+         JOIN vehicles v ON v.id = tr.vehicle_id
+         LEFT JOIN assignments a ON a.trip_request_id = tr.id AND a.is_current = 1
+         LEFT JOIN driver_profiles dp ON dp.id = a.driver_profile_id
+         WHERE tr.status = 'APPROVED'`
+      )
+      .all() as Array<{
+      id: number;
+      requester_id: number;
+      purpose: string;
+      origin: string;
+      destination: string;
+      start_time: string;
+      registration_plate: string;
+      driver_user_id: number | null;
+    }>;
+
+    for (const t of approvedTrips) {
+      const startMs = new Date(t.start_time).getTime();
+      if (!Number.isNaN(startMs)) {
+        if (nowMs >= startMs + 20 * 60 * 1000) {
+          try {
+            db.prepare("UPDATE trip_requests SET status = 'CANCELLED', updated_at = datetime('now') WHERE id = ?").run(t.id);
+            db.prepare(
+              "UPDATE bookings SET status = 'CANCELLED', cancellation_reason = 'Auto-cancelled: Passenger no-show within 20 minutes', updated_at = datetime('now') WHERE trip_request_id = ?"
+            ).run(t.id);
+            db.prepare('UPDATE assignments SET is_current = 0 WHERE trip_request_id = ?').run(t.id);
+
+            sendUserNotification(db, {
+              userId: t.requester_id,
+              triggerType: 'BOOKING_AUTO_CANCEL_NO_SHOW',
+              title: 'Booking Cancelled (20-Min No Show)',
+              body: `Your booking for "${t.purpose}" (${t.registration_plate}) was automatically cancelled because departure was not initiated within 20 minutes of schedule. The vehicle and driver have been released.`,
+              relatedEntityType: 'TRIP_REQUEST',
+              relatedEntityId: t.id,
+            });
+
+            if (t.driver_user_id) {
+              sendUserNotification(db, {
+                userId: t.driver_user_id,
+                triggerType: 'DISPATCH_AUTO_CANCEL_NO_SHOW',
+                title: 'Dispatch Order Cancelled (Passenger No-Show)',
+                body: `Trip "${t.purpose}" was automatically cancelled due to passenger no-show after 20 minutes. Vehicle ${t.registration_plate} is now available.`,
+                relatedEntityType: 'TRIP_REQUEST',
+                relatedEntityId: t.id,
+              });
+            }
+          } catch (e) {
+            console.error('Error auto-cancelling trip:', e);
+          }
+        } else {
+          // 5-minute reminder before start time (between 0 and 5 minutes prior)
+          const diffMs = startMs - nowMs;
+          if (diffMs > 0 && diffMs <= 5 * 60 * 1000) {
+            const sent = db
+              .prepare(
+                "SELECT id FROM notifications WHERE user_id = ? AND related_entity_id = ? AND trigger_type = 'TRIP_5MIN_CONFIRMATION'"
+              )
+              .get(t.requester_id, t.id);
+
+            if (!sent) {
+              sendUserNotification(db, {
+                userId: t.requester_id,
+                triggerType: 'TRIP_5MIN_CONFIRMATION',
+                title: 'Trip Starting in 5 Minutes',
+                body: `Your ride with ${t.registration_plate} starts in 5 minutes (${t.start_time.slice(11, 16)}). Please confirm you are ready to depart or let dispatch know if your schedule changed.`,
+                relatedEntityType: 'TRIP_REQUEST',
+                relatedEntityId: t.id,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
   // ============================================================================
   // 11. NOTIFICATIONS, WEB PUSH, REMINDERS, AUDIT LOG & DATA IMPORT
   // ============================================================================
 
   app.get('/api/notifications', requireAuth, (req: Request, res: Response) => {
     const db = getDb();
+    try {
+      checkTripAlertsAndAutoCancellations(db);
+    } catch {}
     const notifications = db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 50').all(req.user!.id);
     res.json({ notifications });
   });
@@ -3464,6 +3633,16 @@ export function createApp() {
     app.get(/^(?!\/api).*/, (_req: Request, res: Response) => {
       res.sendFile(path.join(distDir, 'index.html'));
     });
+  }
+
+  // Periodic background check for 5-min reminders and 20-min auto-cancellations
+  const alertTimer = setInterval(() => {
+    try {
+      checkTripAlertsAndAutoCancellations(getDb());
+    } catch {}
+  }, 30000);
+  if (typeof alertTimer.unref === 'function') {
+    alertTimer.unref();
   }
 
   return app;

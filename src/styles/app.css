@@ -847,7 +847,79 @@ textarea {
   font-weight: 500;
 }
 
-/* Service Shortcuts Grid (4 cols, max 8 items) */
+/* Hero Action Cards for Primary Features (Book Ride & Schedule) */
+.gf-hero-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: var(--space-4);
+}
+
+.gf-hero-action-card {
+  appearance: none;
+  border: 1px solid var(--color-divider);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-card);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 10px;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: all var(--dur-fast) ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.gf-hero-action-card.is-primary {
+  background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+  border-color: rgba(0, 170, 19, 0.35);
+}
+
+:root[data-theme='dark'] .gf-hero-action-card.is-primary {
+  background: linear-gradient(135deg, #18221c 0%, #102316 100%);
+  border-color: rgba(0, 170, 19, 0.4);
+}
+
+.gf-hero-action-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 170, 19, 0.12);
+  border-color: var(--color-green);
+}
+
+.gf-hero-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--color-green-tint);
+  color: var(--color-green-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.gf-hero-action-card.is-secondary .gf-hero-icon-wrap {
+  background: var(--color-bg-subtle);
+  color: var(--color-text-primary);
+}
+
+.gf-hero-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--color-text-primary);
+  line-height: 1.25;
+}
+
+.gf-hero-desc {
+  font-size: var(--text-caption-size);
+  color: var(--color-text-secondary);
+  line-height: 1.35;
+}
+
+/* Service Shortcuts Grid (4 cols, secondary shortcuts) */
 .gf-shortcut-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -898,6 +970,70 @@ textarea {
   font-weight: 700;
   color: var(--color-text-secondary);
   text-align: center;
+}
+
+/* Schedule Live Availability Board */
+.gf-schedule-board {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.gf-schedule-card {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-card);
+  padding: 14px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gf-timeline-track {
+  width: 100%;
+  height: 28px;
+  background: var(--color-bg-subtle);
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--color-divider);
+}
+
+.gf-timeline-block {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 6px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 4px;
+}
+
+.gf-timeline-block.is-in-progress {
+  background: #dbeafe;
+  color: #1e40af;
+  border-color: #3b82f6;
+}
+
+.gf-timeline-hour-markers {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  padding: 0 2px;
 }
 
 /* OptionRow (Vehicle list 88-92px high) */

@@ -323,12 +323,53 @@ export const MapView: React.FC<MapViewProps> = ({
       });
 
       const marker = L.marker([pin.latitude, pin.longitude], { icon: userDotIcon }).addTo(pinsLayer);
+
+      let driverEtaSection = '';
+      if (isDriver) {
+        const poolLat = -6.19834;
+        const poolLon = 106.88873;
+        const etaPool = estimateRouteMetrics('Driver Position', 'HQ Pool', { lat: pin.latitude, lon: pin.longitude }, { lat: poolLat, lon: poolLon });
+
+        const pickupTarget = originCoords || myCoords;
+        let etaPickupHtml = '';
+        if (pickupTarget) {
+          const etaPickup = estimateRouteMetrics('Driver Position', 'Pickup Location', { lat: pin.latitude, lon: pin.longitude }, pickupTarget);
+          etaPickupHtml = `
+            <div style="background:#e6f7e8;color:#00770d;border-radius:8px;padding:6px 8px;margin-top:6px;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+              <span style="font-weight:700;font-size:12px;">ETA to Pickup:</span>
+              <span style="font-weight:800;font-size:12.5px;">~${etaPickup.durationMin} min (${etaPickup.distanceKm} km)</span>
+            </div>
+          `;
+        }
+
+        const etaPoolHtml = `
+          <div style="background:#f1f5f9;color:#334155;border-radius:8px;padding:6px 8px;margin-top:4px;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <span style="font-weight:700;font-size:11.5px;">Arrival at HQ Pool:</span>
+            <span style="font-weight:800;font-size:12px;">~${etaPool.durationMin} min (${etaPool.distanceKm} km)</span>
+          </div>
+        `;
+
+        driverEtaSection = `
+          <div style="margin-top:6px;border-top:1px solid #e2e8f0;padding-top:6px;">
+            <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px;">Live Driver Estimates</div>
+            ${etaPickupHtml}
+            ${etaPoolHtml}
+          </div>
+        `;
+      }
+
       marker.bindPopup(
-        `<div style="font-family:inherit;font-size:12px;line-height:1.4;">
-          <div style="font-weight:800;font-size:13px;">${escapeHtml(pin.nickname)} (@${escapeHtml(pin.group_username)})</div>
-          <div style="color:#4B5563;">${escapeHtml(pin.group_name || 'Company Group')} • Role: <strong>${escapeHtml(pin.role)}</strong></div>
-          ${pin.address_label ? `<div style="margin-top:4px;font-weight:600;">${escapeHtml(pin.address_label)}</div>` : ''}
-          <div style="margin-top:2px;font-family:monospace;font-size:11px;color:#6B7280;">${Number(pin.latitude).toFixed(5)}, ${Number(pin.longitude).toFixed(5)}</div>
+        `<div style="font-family:inherit;font-size:12.5px;line-height:1.45;min-width:210px;padding:2px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px;">
+            <div style="font-weight:800;font-size:14px;color:#0f172a;">${escapeHtml(pin.nickname)}</div>
+            <span style="font-size:11px;font-weight:700;padding:1px 7px;border-radius:9999px;background:${isDriver ? '#e6f7e8' : '#f1f5f9'};color:${isDriver ? '#00770d' : '#475569'};">${escapeHtml(pin.role)}</span>
+          </div>
+          <div style="color:#475569;font-size:12px;">
+            <span class="notranslate" translate="no">${escapeHtml(pin.group_name || 'Fleet Group')}</span> • @${escapeHtml(pin.group_username)}
+          </div>
+          ${driverEtaSection}
+          ${pin.address_label ? `<div style="margin-top:6px;font-size:11.5px;color:#334155;border-top:1px solid #e2e8f0;padding-top:4px;">📍 ${escapeHtml(pin.address_label)}</div>` : ''}
+          <div style="margin-top:4px;font-family:monospace;font-size:11px;color:#94a3b8;">${Number(pin.latitude).toFixed(5)}, ${Number(pin.longitude).toFixed(5)}</div>
         </div>`
       );
     }
@@ -548,16 +589,21 @@ export const MapView: React.FC<MapViewProps> = ({
             <button
               id="map-locate-me-btn"
               type="button"
-              className="gf-icon-btn-48 pressable"
+              className="pressable"
               style={{
-                width: '44px',
-                height: '44px',
-                minWidth: '44px',
-                minHeight: '44px',
+                width: '54px',
+                height: '54px',
+                minWidth: '54px',
+                minHeight: '54px',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 background: 'var(--color-bg-surface)',
                 color: myCoords ? 'var(--color-green)' : 'var(--color-text-primary)',
                 boxShadow: 'var(--shadow-floating)',
-                border: 'none',
+                border: '1px solid var(--color-divider)',
+                cursor: 'pointer',
               }}
               onClick={() => {
                 onLocateMe();
@@ -568,7 +614,7 @@ export const MapView: React.FC<MapViewProps> = ({
               aria-label="Detect and center on my GPS location"
               title={locatingUser ? 'Detecting GPS location...' : 'Detect & center on my location'}
             >
-              <LocateFixed size={20} />
+              <LocateFixed size={24} />
             </button>
           )}
         </div>
