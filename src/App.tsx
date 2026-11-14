@@ -69,6 +69,16 @@ const FALLBACK_GROUPS = [
   { id: 12, name: 'PRODUCTION CONTROL G', code: 'PROD_CONTROL_G' },
 ];
 
+const QUICK_CORPORATE_POIS = [
+  { label: '🏭 Plant 1 (Sunter)', name: 'Manufacturing Plant 1', address: 'Jl. Danau Sunter Barat No. 8, Sunter Jaya, Jakarta Utara', lat: -6.13842, lon: 106.88561 },
+  { label: '🏭 Plant 2 (Karawang)', name: 'Manufacturing Plant 2', address: 'Kawasan Industri KIIC Lot A-1, Telukjambe Timur, Karawang Barat', lat: -6.34789, lon: 107.28912 },
+  { label: '🚛 Central Pool', name: 'Central Fleet Pool & Operations Base', address: 'Jl. Rawa Gelam IV No. 2, Kawasan Industri Pulogadung, Jakarta Timur', lat: -6.19834, lon: 106.88873 },
+  { label: '🏢 SCBD Head Office', name: 'Head Office - SCBD District 8', address: 'District 8 SCBD, Treasury Tower Lt. 35, Jl. Jend. Sudirman Kav. 52-53, Jakarta Selatan', lat: -6.22728, lon: 106.80816 },
+  { label: '✈️ Soekarno-Hatta (CGK)', name: 'Bandara Internasional Soekarno-Hatta (CGK) - Terminal 3', address: 'Bandara Soekarno-Hatta Terminal 3 Ultimate, Benda, Kota Tangerang', lat: -6.12556, lon: 106.65589 },
+  { label: '🚄 Whoosh Halim (KCIC)', name: 'Stasiun Kereta Cepat Whoosh Halim (KCIC)', address: 'Jl. Akses Stasiun Kereta Cepat Halim, Makasar, Jakarta Timur', lat: -6.24876, lon: 106.88765 },
+  { label: '🏬 Cikarang Hub', name: 'Cikarang Assembly Plant', address: 'Greenland International Industrial Center (GIIC), Deltamas, Cikarang Pusat', lat: -6.37521, lon: 107.16834 },
+];
+
 type BookingStep = 'HOME' | 'ROUTE' | 'VEHICLE' | 'SUMMARY' | 'WAITING' | 'IN_TRIP' | 'SCHEDULE_VIEW';
 
 function getWhatsAppUrl(phone: string, text?: string): string {
@@ -463,11 +473,11 @@ export function App() {
         const res = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(queryText)}`);
         const items: GeoPlace[] = res.results || [];
         setGeoResults(items);
-        // Automatically resolve coordinates for manually typed addresses so route path & ETA calculate immediately
+        // Automatically resolve coordinates for typed addresses so route path & ETA calculate immediately
         if (items.length > 0 && Number.isFinite(items[0].lat) && Number.isFinite(items[0].lon)) {
-          if (activeRouteField === 'pickup' && !originCoords) {
+          if (activeRouteField === 'pickup') {
             setOriginCoords({ lat: items[0].lat, lon: items[0].lon });
-          } else if (activeRouteField === 'destination' && !destCoords) {
+          } else if (activeRouteField === 'destination') {
             setDestCoords({ lat: items[0].lat, lon: items[0].lon });
           }
         }
@@ -476,9 +486,9 @@ export function App() {
       } finally {
         setGeoLoading(false);
       }
-    }, 300);
+    }, 150);
     return () => window.clearTimeout(timer);
-  }, [bookingStep, routeTab, activeRouteField, bookOrigin, bookDest, originCoords, destCoords]);
+  }, [bookingStep, routeTab, activeRouteField, bookOrigin, bookDest]);
 
   // Calculate real road route path, distance (km), ride time (min), and arrival ETA whenever pickup & destination are set
   useEffect(() => {
@@ -534,7 +544,7 @@ export function App() {
       } finally {
         if (!cancelled) setCalculatingRoute(false);
       }
-    }, 280);
+    }, 150);
 
     return () => {
       cancelled = true;
@@ -4904,6 +4914,63 @@ export function App() {
               <StatusBadge label={`ETA ${currentMetrics.etaText}`} tone="green" />
             </div>
           )}
+
+          {/* Instant Quick-Pick Corporate Destinations */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div
+              className="type-caption"
+              style={{
+                fontWeight: 700,
+                color: 'var(--color-text-muted)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                fontSize: '11px',
+              }}
+            >
+              Quick Destinations
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                gap: '8px',
+                overflowX: 'auto',
+                paddingBottom: '4px',
+                scrollbarWidth: 'none',
+              }}
+            >
+              {QUICK_CORPORATE_POIS.map((poi) => (
+                <button
+                  key={poi.name}
+                  type="button"
+                  className="pressable"
+                  onClick={() => {
+                    if (activeRouteField === 'pickup') {
+                      setBookOrigin(poi.name);
+                      setOriginCoords({ lat: poi.lat, lon: poi.lon });
+                      setActiveRouteField('destination');
+                    } else {
+                      setBookDest(poi.name);
+                      setDestCoords({ lat: poi.lat, lon: poi.lon });
+                    }
+                  }}
+                  style={{
+                    flexShrink: 0,
+                    whiteSpace: 'nowrap',
+                    cursor: 'pointer',
+                    fontSize: '12.5px',
+                    fontWeight: 600,
+                    borderRadius: 'var(--radius-pill)',
+                    padding: '6px 14px',
+                    background: 'var(--color-bg-subtle)',
+                    border: '1px solid var(--color-border)',
+                    color: 'var(--color-text-primary)',
+                  }}
+                >
+                  {poi.label}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <Segmented
             ariaLabel="Destination source"

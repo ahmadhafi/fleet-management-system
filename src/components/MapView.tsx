@@ -294,17 +294,17 @@ export const MapView: React.FC<MapViewProps> = ({
 
       const isMe = currentUserId !== undefined && pin.user_id === currentUserId;
       const isDriver = pin.role === 'DRV';
-      const dotColor = isMe ? '#00AA13' : isDriver ? '#00AA13' : '#111827';
-      const ringColor = isMe ? 'rgba(0, 170, 19, 0.25)' : isDriver ? 'rgba(0, 170, 19, 0.18)' : 'rgba(17, 24, 39, 0.15)';
+      const dotColor = isMe ? '#0072de' : isDriver ? '#258cfb' : '#334155';
+      const ringColor = isMe ? 'rgba(0, 114, 222, 0.25)' : isDriver ? 'rgba(37, 140, 251, 0.22)' : 'rgba(51, 65, 85, 0.15)';
       const badgeLabel = isMe ? `You (${escapeHtml(pin.nickname)})` : `${escapeHtml(pin.nickname)} • ${escapeHtml(pin.role)}`;
 
       if (isMe && pin.accuracy_meters) {
         L.circle([pin.latitude, pin.longitude], {
           radius: Math.min(250, Math.max(25, Number(pin.accuracy_meters))),
-          color: '#00AA13',
-          weight: 1,
-          fillColor: '#00AA13',
-          fillOpacity: 0.1,
+          color: '#0072de',
+          weight: 1.5,
+          fillColor: '#0072de',
+          fillOpacity: 0.12,
         }).addTo(pinsLayer);
       }
 
@@ -335,7 +335,7 @@ export const MapView: React.FC<MapViewProps> = ({
         if (pickupTarget) {
           const etaPickup = estimateRouteMetrics('Driver Position', 'Pickup Location', { lat: pin.latitude, lon: pin.longitude }, pickupTarget);
           etaPickupHtml = `
-            <div style="background:#e6f7e8;color:#00770d;border-radius:8px;padding:6px 8px;margin-top:6px;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <div style="background:#e0edff;color:#005bb5;border-radius:10px;padding:6px 10px;margin-top:6px;display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid #bfdbfe;">
               <span style="font-weight:700;font-size:12px;">ETA to Pickup:</span>
               <span style="font-weight:800;font-size:12.5px;">~${etaPickup.durationMin} min (${etaPickup.distanceKm} km)</span>
             </div>
@@ -343,7 +343,7 @@ export const MapView: React.FC<MapViewProps> = ({
         }
 
         const etaPoolHtml = `
-          <div style="background:#f1f5f9;color:#334155;border-radius:8px;padding:6px 8px;margin-top:4px;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <div style="background:#f1f5f9;color:#334155;border-radius:10px;padding:6px 10px;margin-top:4px;display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid #e2e8f0;">
             <span style="font-weight:700;font-size:11.5px;">Arrival at HQ Pool:</span>
             <span style="font-weight:800;font-size:12px;">~${etaPool.durationMin} min (${etaPool.distanceKm} km)</span>
           </div>
@@ -362,7 +362,7 @@ export const MapView: React.FC<MapViewProps> = ({
         `<div style="font-family:inherit;font-size:12.5px;line-height:1.45;min-width:210px;padding:2px;">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px;">
             <div style="font-weight:800;font-size:14px;color:#0f172a;">${escapeHtml(pin.nickname)}</div>
-            <span style="font-size:11px;font-weight:700;padding:1px 7px;border-radius:9999px;background:${isDriver ? '#e6f7e8' : '#f1f5f9'};color:${isDriver ? '#00770d' : '#475569'};">${escapeHtml(pin.role)}</span>
+            <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:9999px;background:${isDriver ? '#e0edff' : '#f1f5f9'};color:${isDriver ? '#005bb5' : '#475569'};">${escapeHtml(pin.role)}</span>
           </div>
           <div style="color:#475569;font-size:12px;">
             <span class="notranslate" translate="no">${escapeHtml(pin.group_name || 'Fleet Group')}</span> • @${escapeHtml(pin.group_username)}
@@ -378,20 +378,20 @@ export const MapView: React.FC<MapViewProps> = ({
     if (myCoords && (!currentUserId || !renderedIds.has(currentUserId))) {
       L.circle([myCoords.lat, myCoords.lon], {
         radius: Math.min(250, Math.max(25, Number(myCoords.accuracy || 40))),
-        color: '#00AA13',
-        weight: 1,
-        fillColor: '#00AA13',
-        fillOpacity: 0.1,
+        color: '#0072de',
+        weight: 1.5,
+        fillColor: '#0072de',
+        fillOpacity: 0.12,
       }).addTo(pinsLayer);
 
       const meIcon = L.divIcon({
         className: 'gf-leaflet-marker',
         html: `
           <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);">
-            <div style="background:#00AA13;color:#ffffff;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.2);margin-bottom:4px;">
+            <div style="background:#0072de;color:#ffffff;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,114,222,0.3);margin-bottom:4px;">
               You
             </div>
-            <div style="width:16px;height:16px;border-radius:9999px;background:#00AA13;outline:3px solid #ffffff;box-shadow:0 0 0 6px rgba(0,170,19,0.25), 0 2px 6px rgba(0,0,0,0.3);"></div>
+            <div style="width:16px;height:16px;border-radius:9999px;background:#0072de;outline:3px solid #ffffff;box-shadow:0 0 0 6px rgba(0,114,222,0.25), 0 2px 6px rgba(0,0,0,0.3);"></div>
           </div>
         `,
         iconSize: [0, 0],
@@ -414,10 +414,10 @@ export const MapView: React.FC<MapViewProps> = ({
         className: 'gf-leaflet-marker',
         html: `
           <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);">
-            <div style="background:#00AA13;color:#ffffff;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.25);margin-bottom:3px;">
+            <div style="background:#0072de;color:#ffffff;padding:3px 10px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 2px 8px rgba(0,114,222,0.35);margin-bottom:3px;">
               Pickup
             </div>
-            <div style="width:18px;height:18px;border-radius:9999px;background:#00AA13;outline:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.25);"></div>
+            <div style="width:18px;height:18px;border-radius:9999px;background:#0072de;outline:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,114,222,0.35);"></div>
           </div>
         `,
         iconSize: [0, 0],
@@ -431,10 +431,10 @@ export const MapView: React.FC<MapViewProps> = ({
         className: 'gf-leaflet-marker',
         html: `
           <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);">
-            <div style="background:#111827;color:#ffffff;padding:3px 9px;border-radius:9999px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.28);margin-bottom:3px;border:1.5px solid #DC2626;">
+            <div style="background:#111827;color:#ffffff;padding:3px 10px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3);margin-bottom:3px;border:1.5px solid #258cfb;">
               ${metrics.etaText ? `ETA ${escapeHtml(metrics.etaText)} • ${metrics.durationMin} min` : 'Destination'}
             </div>
-            <div style="width:18px;height:18px;border-radius:4px;background:#DC2626;outline:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.25);"></div>
+            <div style="width:18px;height:18px;border-radius:6px;background:#0072de;outline:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,114,222,0.35);"></div>
           </div>
         `,
         iconSize: [0, 0],
@@ -449,17 +449,19 @@ export const MapView: React.FC<MapViewProps> = ({
         ? (routeGeometry as L.LatLngExpression[])
         : [effOrigin, [midLat, midLon], effDest];
 
+      // Route Outer Glow Halo
       L.polyline(latlngs, {
         color: '#ffffff',
         weight: 9,
-        opacity: 0.96,
+        opacity: 0.95,
         lineCap: 'round',
         lineJoin: 'round',
       }).addTo(group);
 
+      // Signature Samsung Blue Route Line
       L.polyline(latlngs, {
-        color: '#111827',
-        weight: 4.5,
+        color: '#0072de',
+        weight: 5,
         opacity: 1,
         lineCap: 'round',
         lineJoin: 'round',
@@ -471,9 +473,9 @@ export const MapView: React.FC<MapViewProps> = ({
           : ([midLat, midLon] as [number, number]);
         const drvIcon = L.divIcon({
           className: 'gf-leaflet-marker',
-          html: `<div style="width:26px;height:26px;border-radius:9999px;background:#111827;color:#ffffff;outline:3px solid #00AA13;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;">GF</div>`,
-          iconSize: [26, 26],
-          iconAnchor: [13, 13],
+          html: `<div style="width:28px;height:28px;border-radius:9999px;background:#0f172a;color:#ffffff;outline:3px solid #258cfb;box-shadow:0 3px 8px rgba(37,140,251,0.4);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;">GF</div>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
         });
         L.marker(midPoint, { icon: drvIcon }).addTo(group);
       }
