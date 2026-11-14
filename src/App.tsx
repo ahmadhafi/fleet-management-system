@@ -2352,7 +2352,7 @@ export function App() {
                               <td style={{ fontWeight: 800 }}>{v.registration_plate}</td>
                               <td>{v.make} {v.model} ({v.car_type})</td>
                               <td>
-                                <span className={`gf-badge ${isEv ? 'gf-badge-success' : 'gf-badge-info'}`} style={{ padding: '2px 7px', fontSize: '10px' }}>
+                                <span className={`gf-badge ${isEv ? 'gf-badge-blue' : 'gf-badge-neutral'}`} style={{ padding: '2px 7px', fontSize: '10px' }}>
                                   {isEv ? '⚡ Electric' : '⛽ Gasoline'}
                                 </span>
                               </td>
@@ -6694,7 +6694,7 @@ export function App() {
                     badge={
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                         <span className="type-caption">• {v.seats} seats</span>
-                        <StatusBadge label={isEv ? 'EV' : 'Gasoline'} tone={isEv ? 'green' : 'neutral'} />
+                        <StatusBadge label={isEv ? 'EV' : 'Gasoline'} tone={isEv ? 'blue' : 'neutral'} />
                       </span>
                     }
                     subtitle={availText}

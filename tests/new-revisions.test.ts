@@ -464,6 +464,37 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
       const finalDeptCount = db.prepare('SELECT COUNT(*) as c FROM departments').get() as { c: number };
       expect(finalDeptCount.c).toBe(12);
     });
+
+    it('provides Samsung-style EV and Gasoline car app icon with blue and white accents (no green)', async () => {
+      const fs = await import('fs');
+      const path = await import('path');
+
+      // Check favicon.svg
+      const favPath = path.resolve(__dirname, '../public/favicon.svg');
+      const favContent = fs.readFileSync(favPath, 'utf8');
+      expect(favContent).toContain('evCar');
+      expect(favContent).toContain('gasCar');
+      expect(favContent).toContain('#0072de'); // Samsung signature blue
+      expect(favContent).toContain('#ffffff'); // White accent
+      expect(favContent.toLowerCase()).not.toContain('#10b981');
+      expect(favContent.toLowerCase()).not.toContain('#22c55e');
+
+      // Check icon.svg
+      const iconPath = path.resolve(__dirname, '../public/icons/icon.svg');
+      const iconContent = fs.readFileSync(iconPath, 'utf8');
+      expect(iconContent).toContain('evCar');
+      expect(iconContent).toContain('gasCar');
+      expect(iconContent).toContain('#0072de');
+      expect(iconContent).toContain('#ffffff');
+
+      // Check React Logo Component
+      const logoPath = path.resolve(__dirname, '../src/components/SamsungBusLogo.tsx');
+      const logoContent = fs.readFileSync(logoPath, 'utf8');
+      expect(logoContent).toContain('SamsungFleetLogo');
+      expect(logoContent).toContain('SamsungBusLogo');
+      expect(logoContent).toContain('evCar');
+      expect(logoContent).toContain('gasCar');
+    });
   });
 });
 
