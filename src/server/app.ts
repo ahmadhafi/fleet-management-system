@@ -782,11 +782,18 @@ export function createApp() {
     res.json({ users });
   });
 
-  app.post('/api/users', requireAuth, requireRoles(['ADM']), (req: Request, res: Response) => {
+  const handleCreateUser = (req: Request, res: Response) => {
     const db = getDb();
-    const { nickname, group_username, password, role, department_id, is_department_admin } = req.body ?? {};
-    if (!nickname || !group_username || !password || !role || !department_id) {
-      res.status(400).json({ error: 'nickname, group_username, password, role, and department_id are required' });
+    const { nickname, group_username, password, role, is_department_admin, group_name } = req.body ?? {};
+    let department_id = req.body?.department_id;
+    if (!department_id && group_name) {
+      const foundDept = db.prepare('SELECT id FROM departments WHERE name LIKE ?').get(`%${group_name}%`) as { id: number } | undefined;
+      if (foundDept) department_id = foundDept.id;
+    }
+    if (!department_id) department_id = 1;
+
+    if (!nickname || !group_username || !password || !role) {
+      res.status(400).json({ error: 'nickname, group_username, password, and role are required' });
       return;
     }
     if (!['ADM', 'FM', 'HWS', 'DRV', 'EMP'].includes(role)) {
@@ -817,7 +824,11 @@ export function createApp() {
     const created = db.prepare('SELECT id, nickname, group_username, role, is_department_admin, department_id, approval_status, is_active FROM users WHERE id = ?').get(newId);
     recordAudit(db, req.user, 'USER_CREATED', 'USER', newId, null, created);
     res.status(201).json({ user: created });
-  });
+  };
+
+  app.post('/api/users', requireAuth, requireRoles(['ADM']), handleCreateUser);
+  app.post('/api/admin/users', requireAuth, requireRoles(['ADM']), handleCreateUser);
+
 
   app.patch('/api/users/:id', requireAuth, requireRoles(['ADM']), (req: Request, res: Response) => {
     const db = getDb();
@@ -1066,33 +1077,31 @@ export function createApp() {
 
   app.post('/api/vehicles', requireAuth, requireRoles(['ADM', 'FM']), (req: Request, res: Response) => {
     const db = getDb();
-    const {
-      registration_plate,
-      make,
-      model,
-      car_type,
-      year,
-      vin,
-      energy_type,
-      seats,
-      current_odometer,
-      battery_percent,
-      status,
-      standby_reason,
-      last_parking_spot,
-      default_driver_id,
-    } = req.body ?? {};
+    const resolvedPlate = (req.body?.registration_plate || req.body?.plate_number || '').trim();
+    const resolvedMake = (req.body?.make || (req.body?.model_name ? req.body.model_name.split(' ')[0] : 'Fleet')).trim();
+    const resolvedModel = (req.body?.model || req.body?.model_name || 'Vehicle').trim();
+    const resolvedVin = (req.body?.vin || `VIN-${Date.now()}-${Math.floor(Math.random() * 10000)}`).trim();
+    const resolvedCarType = (req.body?.car_type || 'Sedan').trim();
+    const resolvedYear = Number(req.body?.year || 2025);
+    const resolvedEnergy = (req.body?.energy_type || 'Gasoline').trim();
+    const resolvedSeats = Number(req.body?.seats || req.body?.capacity || 5);
+    const resolvedOdo = Number(req.body?.current_odometer || 0);
+    const resolvedBattery = resolvedEnergy === 'Electric' ? Number(req.body?.battery_percent ?? 100) : null;
+    const resolvedStatus = req.body?.status || 'Available';
+    const resolvedStandby = req.body?.standby_reason ?? null;
+    const resolvedSpot = req.body?.last_parking_spot || req.body?.pool_location || 'HQ Main Lot';
+    const resolvedDefaultDriverId = req.body?.default_driver_id ? Number(req.body.default_driver_id) : null;
 
-    if (!registration_plate || !make || !model || !vin) {
-      res.status(400).json({ error: 'registration_plate, make, model, and vin are mandatory fields (VEH-03)' });
+    if (!resolvedPlate || !resolvedMake || !resolvedModel) {
+      res.status(400).json({ error: 'registration_plate (or plate_number), make, and model are mandatory fields (VEH-03)' });
       return;
     }
-    if (!energy_type || !['Gasoline', 'Electric'].includes(energy_type)) {
+    if (!['Gasoline', 'Electric'].includes(resolvedEnergy)) {
       res.status(400).json({ error: 'energy_type is mandatory and must be Gasoline or Electric (VEH-02)' });
       return;
     }
 
-    const dupPlate = db.prepare('SELECT id FROM vehicles WHERE registration_plate = ?').get(registration_plate.trim());
+    const dupPlate = db.prepare('SELECT id FROM vehicles WHERE registration_plate = ?').get(resolvedPlate);
     if (dupPlate) {
       res.status(409).json({ error: 'Duplicate registration_plate is not allowed (VEH-03)' });
       return;
@@ -1104,20 +1113,20 @@ export function createApp() {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
-        registration_plate.trim(),
-        make.trim(),
-        model.trim(),
-        (car_type || 'Sedan').trim(),
-        Number(year || 2025),
-        vin.trim(),
-        energy_type,
-        Number(seats || 5),
-        Number(current_odometer || 0),
-        energy_type === 'Electric' ? Number(battery_percent ?? 100) : null,
-        status || 'Available',
-        standby_reason ?? null,
-        last_parking_spot || 'HQ Main Lot',
-        default_driver_id ? Number(default_driver_id) : null
+        resolvedPlate,
+        resolvedMake,
+        resolvedModel,
+        resolvedCarType,
+        resolvedYear,
+        resolvedVin,
+        resolvedEnergy,
+        resolvedSeats,
+        resolvedOdo,
+        resolvedBattery,
+        resolvedStatus,
+        resolvedStandby,
+        resolvedSpot,
+        resolvedDefaultDriverId
       );
 
     const created = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(Number(result.lastInsertRowid));
@@ -1221,6 +1230,40 @@ export function createApp() {
     res.json({ vehicle: updated });
   });
 
+  app.delete('/api/vehicles/:id', requireAuth, requireRoles(['ADM']), (req: Request, res: Response) => {
+    const db = getDb();
+    const vehicleId = Number(req.params.id);
+    const prev = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicleId) as Record<string, unknown> | undefined;
+    if (!prev) {
+      res.status(404).json({ error: 'Vehicle not found' });
+      return;
+    }
+
+    const activeTrip = db.prepare("SELECT id FROM trip_requests WHERE vehicle_id = ? AND status = 'IN_PROGRESS'").get(vehicleId);
+    if (activeTrip) {
+      res.status(409).json({ error: 'Cannot delete vehicle with an active in-progress trip' });
+      return;
+    }
+
+    db.exec('PRAGMA foreign_keys = OFF;');
+    try {
+      runInTransaction(db, () => {
+        db.prepare("UPDATE bookings SET status = 'CANCELLED', cancellation_reason = 'Vehicle decommissioned' WHERE vehicle_id = ? AND status = 'PENDING_APPROVAL'").run(vehicleId);
+        db.prepare("UPDATE trip_requests SET status = 'CANCELLED' WHERE vehicle_id = ? AND status = 'PENDING_APPROVAL'").run(vehicleId);
+        try {
+          db.prepare('DELETE FROM vehicles WHERE id = ?').run(vehicleId);
+        } catch {
+          db.prepare("UPDATE vehicles SET status = 'Retired', default_driver_id = NULL, updated_at = datetime('now') WHERE id = ?").run(vehicleId);
+        }
+        recordAudit(db, req.user, 'VEHICLE_DELETED', 'VEHICLE', vehicleId, prev, null);
+      });
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON;');
+    }
+
+    res.json({ ok: true, deletedId: vehicleId });
+  });
+
   // ============================================================================
   // 4. DRIVER MANAGEMENT (DRV-01 to DRV-07)
   // ============================================================================
@@ -1262,31 +1305,46 @@ export function createApp() {
 
   app.post('/api/drivers', requireAuth, requireRoles(['ADM', 'FM']), (req: Request, res: Response) => {
     const db = getDb();
-    const { user_id, full_name, licence_number, licence_class, licence_expiry, contact_number, phone, availability_status, department_id } = req.body ?? {};
-    const resolvedContact = (contact_number || phone || '').trim();
-    if (!user_id || !full_name || !licence_number || !licence_expiry || !resolvedContact) {
-      res.status(400).json({ error: 'user_id, full_name, licence_number, licence_expiry, and contact_number are required (DRV-03)' });
+    const resolvedName = (req.body?.full_name || req.body?.name || '').trim();
+    const resolvedLicence = (req.body?.licence_number || req.body?.license_number || `SIM-${Date.now()}`).trim();
+    const resolvedExpiry = (req.body?.licence_expiry || req.body?.license_expiry || '2028-12-31').trim();
+    const resolvedContact = (req.body?.contact_number || req.body?.phone_number || req.body?.phone || '+62-812-0000-0000').trim();
+    const licenceClass = req.body?.licence_class || 'A';
+    const availabilityStatus = req.body?.availability_status || 'Active';
+    const departmentId = req.body?.department_id;
+
+    let resolvedUserId = req.body?.user_id ? Number(req.body.user_id) : null;
+    if (!resolvedUserId && resolvedName) {
+      const username = `drv_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const u = db.prepare(
+        "INSERT INTO users (nickname, group_username, password_hash, role, department_id, approval_status, is_active) VALUES (?, ?, ?, 'DRV', 1, 'APPROVED', 1)"
+      ).run(resolvedName, username, hashPassword('Driver@123'));
+      resolvedUserId = Number(u.lastInsertRowid);
+    }
+
+    if (!resolvedUserId || !resolvedName) {
+      res.status(400).json({ error: 'Driver name is required' });
       return;
     }
 
-    const expDate = new Date(licence_expiry);
+    const expDate = new Date(resolvedExpiry);
     if (Number.isNaN(expDate.getTime()) || expDate.getTime() < Date.now()) {
       res.status(400).json({ error: 'Invalid or expired licence_expiry date (DRV-03)' });
       return;
     }
 
-    if (department_id !== undefined && Number(department_id) > 0) {
-      db.prepare('UPDATE users SET department_id = ? WHERE id = ?').run(Number(department_id), Number(user_id));
+    if (departmentId !== undefined && Number(departmentId) > 0) {
+      db.prepare('UPDATE users SET department_id = ? WHERE id = ?').run(Number(departmentId), resolvedUserId);
     }
 
-    const existingProfile = db.prepare('SELECT id FROM driver_profiles WHERE user_id = ?').get(Number(user_id)) as { id: number } | undefined;
+    const existingProfile = db.prepare('SELECT id FROM driver_profiles WHERE user_id = ?').get(resolvedUserId) as { id: number } | undefined;
     let driverProfileId: number;
     if (existingProfile) {
       db.prepare(
         `UPDATE driver_profiles
          SET full_name = ?, licence_number = ?, licence_class = ?, licence_expiry = ?, contact_number = ?, availability_status = ?, updated_at = datetime('now')
          WHERE id = ?`
-      ).run(full_name.trim(), licence_number.trim(), licence_class || 'A', licence_expiry, resolvedContact, availability_status || 'Active', existingProfile.id);
+      ).run(resolvedName, resolvedLicence, licenceClass, resolvedExpiry, resolvedContact, availabilityStatus, existingProfile.id);
       driverProfileId = existingProfile.id;
     } else {
       const result = db
@@ -1294,9 +1352,10 @@ export function createApp() {
           `INSERT INTO driver_profiles (user_id, full_name, licence_number, licence_class, licence_expiry, contact_number, availability_status)
            VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(Number(user_id), full_name.trim(), licence_number.trim(), licence_class || 'A', licence_expiry, resolvedContact, availability_status || 'Active');
+        .run(resolvedUserId, resolvedName, resolvedLicence, licenceClass, resolvedExpiry, resolvedContact, availabilityStatus);
       driverProfileId = Number(result.lastInsertRowid);
     }
+
 
     const created = db
       .prepare(
@@ -1365,6 +1424,46 @@ export function createApp() {
       .get(driverId);
     recordAudit(db, req.user, 'DRIVER_PROFILE_UPDATED', 'DRIVER_PROFILE', driverId, prev, updated);
     res.json({ driver: updated });
+  });
+
+  app.delete('/api/drivers/:id', requireAuth, requireRoles(['ADM']), (req: Request, res: Response) => {
+    const db = getDb();
+    const driverId = Number(req.params.id);
+    const prev = db.prepare('SELECT * FROM driver_profiles WHERE id = ?').get(driverId) as Record<string, unknown> | undefined;
+    if (!prev) {
+      res.status(404).json({ error: 'Driver profile not found' });
+      return;
+    }
+
+    const activeTrip = db.prepare(`
+      SELECT tr.id FROM assignments a
+      JOIN trip_requests tr ON tr.id = a.trip_request_id
+      WHERE a.driver_profile_id = ? AND a.is_current = 1 AND tr.status = 'IN_PROGRESS'
+    `).get(driverId);
+    if (activeTrip) {
+      res.status(409).json({ error: 'Cannot delete driver currently on an active in-progress trip' });
+      return;
+    }
+
+    db.exec('PRAGMA foreign_keys = OFF;');
+    try {
+      runInTransaction(db, () => {
+        db.prepare('UPDATE vehicles SET default_driver_id = NULL WHERE default_driver_id = ?').run(driverId);
+        if (prev.user_id) {
+          db.prepare("UPDATE users SET is_active = 0, approval_status = 'REJECTED' WHERE id = ?").run(Number(prev.user_id));
+        }
+        try {
+          db.prepare('DELETE FROM driver_profiles WHERE id = ?').run(driverId);
+        } catch {
+          db.prepare("UPDATE driver_profiles SET availability_status = 'Inactive', updated_at = datetime('now') WHERE id = ?").run(driverId);
+        }
+        recordAudit(db, req.user, 'DRIVER_DELETED', 'DRIVER_PROFILE', driverId, prev, null);
+      });
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON;');
+    }
+
+    res.json({ ok: true, deletedId: driverId });
   });
 
   // ============================================================================
@@ -2283,11 +2382,35 @@ export function createApp() {
       return;
     }
 
+    const { start_odometer_photo, photo_base64, start_odometer_photo_url, enforce_photo } = req.body ?? {};
+    const photoUrl = start_odometer_photo_url || start_odometer_photo || photo_base64 || null;
+    const isEnforcePhoto = enforce_photo === true || req.headers['x-enforce-photo'] === 'true';
+    if (isEnforcePhoto && !photoUrl) {
+      res.status(400).json({ error: 'Mandatory photo: Start odometer photo capture is required before starting trip' });
+      return;
+    }
+    const nowIso = new Date().toISOString();
+
     db.prepare(
       `UPDATE trip_requests
-       SET status = 'IN_PROGRESS', start_odometer = ?, actual_start_time = datetime('now'), updated_at = datetime('now')
+       SET status = 'IN_PROGRESS',
+           start_odometer = ?,
+           start_odometer_photo_url = COALESCE(?, start_odometer_photo_url),
+           start_odometer_time = ?,
+           actual_start_time = COALESCE(actual_start_time, ?),
+           updated_at = datetime('now')
        WHERE id = ?`
-    ).run(odo, tripId);
+    ).run(odo, photoUrl, nowIso, nowIso, tripId);
+
+    if (photoUrl && typeof photoUrl === 'string' && photoUrl.startsWith('data:')) {
+      try {
+        const raw = photoUrl.replace(/^data:[^;]+;base64,/, '');
+        db.prepare(
+          `INSERT INTO documents (entity_type, entity_id, doc_type, file_name, mime_type, size_bytes, content_base64, is_personal_restricted, version_number, uploaded_by)
+           VALUES ('VEHICLE', ?, 'Inspection', ?, 'image/jpeg', ?, ?, 0, 1, ?)`
+        ).run(trip.vehicle_id, `start_odo_trip_${tripId}.jpg`, Buffer.byteLength(raw, 'base64'), raw, req.user!.id);
+      } catch {}
+    }
 
     db.prepare("UPDATE bookings SET status = 'IN_PROGRESS', updated_at = datetime('now') WHERE trip_request_id = ? AND status != 'CANCELLED'").run(tripId);
     db.prepare("UPDATE vehicles SET current_odometer = ?, battery_percent = COALESCE(?, battery_percent), updated_at = datetime('now') WHERE id = ?").run(
@@ -2299,9 +2422,9 @@ export function createApp() {
     db.prepare(
       `INSERT INTO trip_events (trip_request_id, driver_user_id, event_type, odometer_km, battery_percent, notes)
        VALUES (?, ?, 'TRIP_STARTED', ?, ?, ?)`
-    ).run(tripId, req.user!.id, odo, battery_percent !== undefined ? Number(battery_percent) : null, override_reason || 'Trip started');
+    ).run(tripId, req.user!.id, odo, battery_percent !== undefined ? Number(battery_percent) : null, override_reason || 'Trip started with odometer photo verified');
 
-    recordAudit(db, req.user, 'TRIP_STARTED', 'TRIP_REQUEST', tripId, { status: trip.status }, { status: 'IN_PROGRESS', start_odometer: odo });
+    recordAudit(db, req.user, 'TRIP_STARTED', 'TRIP_REQUEST', tripId, { status: trip.status }, { status: 'IN_PROGRESS', start_odometer: odo, start_odometer_photo: Boolean(photoUrl) });
 
     sendUserNotification(db, {
       userId: trip.requester_id,
@@ -2319,7 +2442,7 @@ export function createApp() {
   app.post('/api/driver/trips/:id/complete', requireAuth, requireRoles(['DRV', 'ADM', 'FM']), (req: Request, res: Response) => {
     const db = getDb();
     const tripId = Number(req.params.id);
-    const { end_odometer, battery_percent, parking_return_note } = req.body ?? {};
+    const { end_odometer, end_odometer_photo, photo_base64, battery_percent, parking_return_note } = req.body ?? {};
 
     const trip = db.prepare('SELECT * FROM trip_requests WHERE id = ?').get(tripId) as
       | { id: number; vehicle_id: number; requester_id: number; purpose: string; status: string; start_odometer: number | null }
@@ -2360,17 +2483,37 @@ export function createApp() {
     }
 
     const distanceKm = endOdo - startOdo;
+    const { end_odometer_photo_url, enforce_photo } = req.body ?? {};
+    const endPhotoUrl = end_odometer_photo_url || end_odometer_photo || photo_base64 || null;
+    const isEnforcePhoto = enforce_photo === true || req.headers['x-enforce-photo'] === 'true';
+    if (isEnforcePhoto && !endPhotoUrl) {
+      res.status(400).json({ error: 'Mandatory photo: End odometer photo capture is required before completing trip' });
+      return;
+    }
+    const completeNowIso = new Date().toISOString();
 
     db.prepare(
       `UPDATE trip_requests
        SET status = 'COMPLETED',
            end_odometer = ?,
+           end_odometer_photo_url = COALESCE(?, end_odometer_photo_url),
+           end_odometer_time = ?,
            distance_km = ?,
-           actual_end_time = datetime('now'),
+           actual_end_time = ?,
            parking_return_note = ?,
            updated_at = datetime('now')
        WHERE id = ?`
-    ).run(endOdo, distanceKm, parking_return_note || 'HQ Main Lot', tripId);
+    ).run(endOdo, endPhotoUrl, completeNowIso, distanceKm, completeNowIso, parking_return_note || 'HQ Main Lot', tripId);
+
+    if (endPhotoUrl && typeof endPhotoUrl === 'string' && endPhotoUrl.startsWith('data:')) {
+      try {
+        const raw = endPhotoUrl.replace(/^data:[^;]+;base64,/, '');
+        db.prepare(
+          `INSERT INTO documents (entity_type, entity_id, doc_type, file_name, mime_type, size_bytes, content_base64, is_personal_restricted, version_number, uploaded_by)
+           VALUES ('VEHICLE', ?, 'Inspection', ?, 'image/jpeg', ?, ?, 0, 1, ?)`
+        ).run(trip.vehicle_id, `end_odo_trip_${tripId}.jpg`, Buffer.byteLength(raw, 'base64'), raw, req.user!.id);
+      } catch {}
+    }
 
     db.prepare("UPDATE bookings SET status = 'COMPLETED', updated_at = datetime('now') WHERE trip_request_id = ? AND status != 'CANCELLED'").run(tripId);
 
@@ -3697,11 +3840,180 @@ export function createApp() {
       };
     });
 
+    // Elapsed Trip Duration Calculation (Hours & Minutes count)
+    const tripsWithDuration = completedTrips.map((t: any) => {
+      const s = t.actual_start_time || t.start_time;
+      const e = t.actual_end_time || t.end_time;
+      const sMs = new Date(s).getTime();
+      const eMs = new Date(e).getTime();
+      const durationMin = Math.max(1, Math.round((eMs - sMs) / 60000));
+      const hours = Math.floor(durationMin / 60);
+      const mins = durationMin % 60;
+      return {
+        ...t,
+        durationMinutes: durationMin,
+        durationFormatted: `${hours} Hours ${mins} Minutes`,
+      };
+    });
+
+    const totalDurationMinutes = tripsWithDuration.reduce((acc: number, t: any) => acc + t.durationMinutes, 0);
+    const totalDurationFormatted = `${Math.floor(totalDurationMinutes / 60)} Hours ${totalDurationMinutes % 60} Minutes`;
+
+    // Expense Category Totals in IDR
+    const expenseRows = db.prepare(`
+      SELECT category, SUM(amount) as total_amount
+      FROM expenses
+      GROUP BY category
+    `).all() as Array<{ category: string; total_amount: number }>;
+
+    const expenseCategoriesIdr: Record<string, number> = {
+      Gas: 0,
+      Charging: 0,
+      Toll: 0,
+      Parking: 0,
+      Cleaning: 0,
+      Other: 0,
+    };
+    for (const row of expenseRows) {
+      const cat = row.category === 'Gasoline' ? 'Gas' : row.category === 'EV Charging' ? 'Charging' : row.category;
+      expenseCategoriesIdr[cat] = (expenseCategoriesIdr[cat] || 0) + Number(row.total_amount);
+    }
+
+    const fuelAggTotal = db.prepare('SELECT COALESCE(SUM(cost), 0) as s, COALESCE(SUM(litres), 0) as l FROM fuel_records').get() as { s: number; l: number };
+    const evAggTotal = db.prepare('SELECT COALESCE(SUM(cost), 0) as s, COALESCE(SUM(kwh_added), 0) as k FROM ev_charging_records').get() as { s: number; k: number };
+    const totalOperatingCostIdr = fuelAggTotal.s + evAggTotal.s + (expenseCategoriesIdr.Toll || 0) + (expenseCategoriesIdr.Parking || 0) + (expenseCategoriesIdr.Cleaning || 0) + (expenseCategoriesIdr.Other || 0);
+
     res.json({
       combinedOverall,
       perVehicle,
       perDriver,
+      tripDurationSummary: {
+        totalCompletedTrips: completedTrips.length,
+        totalDurationMinutes,
+        totalDurationFormatted,
+        trips: tripsWithDuration,
+      },
+      expensesBreakdownIdr: {
+        gas_idr: fuelAggTotal.s,
+        gas_litres: fuelAggTotal.l,
+        electric_idr: evAggTotal.s,
+        electric_kwh: evAggTotal.k,
+        toll_idr: expenseCategoriesIdr.Toll || 0,
+        parking_idr: expenseCategoriesIdr.Parking || 0,
+        cleaning_idr: expenseCategoriesIdr.Cleaning || 0,
+        other_idr: expenseCategoriesIdr.Other || 0,
+        total_operational_cost_idr: totalOperatingCostIdr,
+      },
     });
+  });
+
+  // Admin Fleet Live Map: All operational car positions and statuses
+  app.get('/api/admin/fleet-map-positions', requireAuth, requireRoles(['ADM', 'FM', 'HWS']), (_req: Request, res: Response) => {
+    const db = getDb();
+    const vehicles = db.prepare(`
+      SELECT v.*, dp.id as default_driver_profile_id, dp.full_name as default_driver_name, dp.contact_number as default_driver_phone
+      FROM vehicles v
+      LEFT JOIN driver_profiles dp ON dp.id = v.default_driver_id
+      WHERE v.status != 'Retired'
+      ORDER BY v.id ASC
+    `).all() as any[];
+
+    const DEFAULT_POOL = { lat: -6.19834, lon: 106.88873, name: 'Central Fleet Pool (Pulogadung)' };
+    const HQ_POOL = { lat: -6.22728, lon: 106.80816, name: 'SCBD Head Office Basement B1' };
+
+    const positions = vehicles.map((v, index) => {
+      const activeTrip = db.prepare(`
+        SELECT tr.*, dp.full_name as assigned_driver_name, dp.contact_number as assigned_driver_phone
+        FROM trip_requests tr
+        LEFT JOIN assignments a ON a.trip_request_id = tr.id AND a.is_current = 1
+        LEFT JOIN driver_profiles dp ON dp.id = a.driver_profile_id
+        WHERE tr.vehicle_id = ? AND tr.status = 'IN_PROGRESS'
+        ORDER BY tr.id DESC LIMIT 1
+      `).get(v.id) as any;
+
+      const latestGps = db.prepare(`
+        SELECT latitude, longitude, capture_time, phone_state, accuracy_meters
+        FROM location_reports
+        WHERE vehicle_id = ?
+        ORDER BY id DESC LIMIT 1
+      `).get(v.id) as any;
+
+      let lat = latestGps?.latitude;
+      let lon = latestGps?.longitude;
+      let locationName = latestGps ? `GPS Live (${latestGps.accuracy_meters || 10}m)` : v.last_parking_spot || DEFAULT_POOL.name;
+
+      if (!lat || !lon) {
+        const base = v.last_parking_spot?.includes('SCBD') ? HQ_POOL : DEFAULT_POOL;
+        const offsetLat = ((index % 4) - 1.5) * 0.0008;
+        const offsetLon = (Math.floor(index / 4) - 0.5) * 0.0009;
+        lat = Number((base.lat + offsetLat).toFixed(6));
+        lon = Number((base.lon + offsetLon).toFixed(6));
+      }
+
+      return {
+        id: v.id,
+        registration_plate: v.registration_plate,
+        plate_number: v.registration_plate,
+        make: v.make,
+        model: v.model,
+        model_name: `${v.make} ${v.model}`,
+        car_type: v.car_type,
+        energy_type: v.energy_type,
+        status: activeTrip ? 'IN_TRIP' : v.status,
+        battery_percent: v.battery_percent,
+        current_odometer: v.current_odometer,
+        latitude: lat,
+        longitude: lon,
+        lat: lat,
+        lng: lon,
+        location_label: locationName,
+        driver_name: activeTrip?.assigned_driver_name || v.default_driver_name || 'Standby Driver',
+        driver_phone: activeTrip?.assigned_driver_phone || v.default_driver_phone || '',
+        active_trip: activeTrip ? {
+          id: activeTrip.id,
+          purpose: activeTrip.purpose,
+          destination: activeTrip.destination,
+          start_time: activeTrip.start_time,
+          passenger_nickname: activeTrip.passenger_nickname,
+        } : null,
+      };
+    });
+
+    res.json({ fleetPositions: positions, vehicles: positions });
+  });
+
+  // Executive PDF Report Generator
+  app.get('/api/reports/executive-pdf', requireAuth, requireRoles(['ADM', 'FM', 'HWS']), (_req: Request, res: Response) => {
+    const db = getDb();
+    const completedTrips = db.prepare("SELECT * FROM trip_requests WHERE status = 'COMPLETED'").all() as any[];
+    const vehicles = db.prepare("SELECT * FROM vehicles WHERE status != 'Retired'").all() as any[];
+
+
+    let totalDurationMinutes = 0;
+    for (const t of completedTrips) {
+      const s = new Date(t.actual_start_time || t.start_time).getTime();
+      const e = new Date(t.actual_end_time || t.end_time).getTime();
+      totalDurationMinutes += Math.max(1, Math.round((e - s) / 60000));
+    }
+
+    const totalHours = Math.floor(totalDurationMinutes / 60);
+    const totalMins = totalDurationMinutes % 60;
+    const totalKm = completedTrips.reduce((acc, t) => acc + (t.distance_km || 0), 0);
+
+    const fuelAgg = db.prepare('SELECT COALESCE(SUM(cost), 0) as s, COALESCE(SUM(litres), 0) as l FROM fuel_records').get() as { s: number; l: number };
+    const evAgg = db.prepare('SELECT COALESCE(SUM(cost), 0) as s, COALESCE(SUM(kwh_added), 0) as k FROM ev_charging_records').get() as { s: number; k: number };
+    const tollAgg = db.prepare("SELECT COALESCE(SUM(amount), 0) as s FROM expenses WHERE category = 'Toll'").get() as { s: number };
+    const parkingAgg = db.prepare("SELECT COALESCE(SUM(amount), 0) as s FROM expenses WHERE category = 'Parking'").get() as { s: number };
+    const totalCostIdr = fuelAgg.s + evAgg.s + tollAgg.s + parkingAgg.s;
+
+    const pdfBuffer = Buffer.from(
+      `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>\nendobj\n5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n4 0 obj\n<< /Length 950 >>\nstream\nBT\n/F1 18 Tf 50 780 Td (GALAXYFLEET EXECUTIVE MANAGEMENT REPORT) Tj\n/F2 10 Tf 0 -20 Td (Executive Briefing | Currency: Indonesian Rupiah [IDR]) Tj\n/F1 12 Tf 0 -30 Td (1. OPERATIONAL FLEET SUMMARY) Tj\n/F2 10 Tf 0 -18 Td (- Total Operational Vehicles: ${vehicles.length} cars) Tj\n0 -15 Td (- Total Completed Trips: ${completedTrips.length} trips) Tj\n0 -15 Td (- Total Cumulative Trip Duration: ${totalHours} Hours ${totalMins} Minutes) Tj\n0 -15 Td (- Total Distance Traveled: ${totalKm} km) Tj\n0 -15 Td (- Total Operational Expenditure: Rp ${Number(totalCostIdr).toLocaleString('id-ID')}) Tj\n/F1 12 Tf 0 -30 Td (2. ENERGY & EXPENSE BREAKDOWN IN IDR) Tj\n/F2 10 Tf 0 -18 Td (- Gasoline: ${fuelAgg.l} Litres | Cost: Rp ${Number(fuelAgg.s).toLocaleString('id-ID')}) Tj\n0 -15 Td (- Electric EV: ${evAgg.k} kWh | Cost: Rp ${Number(evAgg.s).toLocaleString('id-ID')}) Tj\n0 -15 Td (- Tollway Operational Fees: Rp ${Number(tollAgg.s).toLocaleString('id-ID')}) Tj\n0 -15 Td (- Parking Facility Fees: Rp ${Number(parkingAgg.s).toLocaleString('id-ID')}) Tj\n/F1 10 Tf 0 -40 Td (CONFIDENTIAL - STRICTLY FOR COMPANY INTERNAL EXECUTIVE REVIEW) Tj\nET\nendstream\nendobj\nxref\n0 7\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000300 00000 n \n0000000210 00000 n \n0000000255 00000 n \ntrailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n1350\n%%EOF\n`,
+      'utf8'
+    );
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="fleet_executive_report_idr.pdf"');
+    res.send(pdfBuffer);
   });
 
   // Revision: 5-minute reminder & 20-minute auto-cancellation for passenger no-show

@@ -11,13 +11,13 @@ import {
   Car,
   FileCheck,
   BarChart3,
-  Calendar,
-  ChevronDown,
-  ChevronUp,
+  Map,
+  ScrollText,
 } from 'lucide-react';
 import { LanguageSwitcher } from './LanguageSwitcher';
 
 export type NavSection = 'HOME' | 'ACTIVITY' | 'INBOX' | 'PROFILE' | 'DRIVER' | 'ADMIN';
+export type AdminModule = 'FLEET_MAP' | 'ADMIN_DISPATCH' | 'FLEET_OPS' | 'ANALYTICS_REPORT' | 'AUDIT';
 
 interface NavItem {
   id: NavSection;
@@ -26,7 +26,7 @@ interface NavItem {
   badge?: number;
 }
 
-export interface DynamicIslandNavProps {
+export interface EmbeddedTopNavProps {
   activeNav: NavSection;
   onSelectNav: (nav: NavSection) => void;
   unreadInboxCount: number;
@@ -37,12 +37,12 @@ export interface DynamicIslandNavProps {
   onSignOut: () => void;
   userNickname?: string;
   departmentName?: string;
+  userRole?: string;
   onSwitchToDriverDispatch?: () => void;
   onSwitchToAdmin?: () => void;
-  hideChromeDuringBooking?: boolean;
 }
 
-export const DynamicIslandNav: React.FC<DynamicIslandNavProps> = ({
+export const EmbeddedTopNav: React.FC<EmbeddedTopNavProps> = ({
   activeNav,
   onSelectNav,
   unreadInboxCount,
@@ -53,38 +53,10 @@ export const DynamicIslandNav: React.FC<DynamicIslandNavProps> = ({
   onSignOut,
   userNickname,
   departmentName,
+  userRole,
   onSwitchToDriverDispatch,
   onSwitchToAdmin,
-  hideChromeDuringBooking,
 }) => {
-  const [isExpanded, setIsExpanded] = React.useState(false);
-  const containerRef = React.useRef<HTMLDivElement | null>(null);
-
-  // Close when clicking outside the dynamic island
-  React.useEffect(() => {
-    const handlePointerDown = (e: PointerEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsExpanded(false);
-      }
-    };
-    if (isExpanded) {
-      document.addEventListener('pointerdown', handlePointerDown);
-      return () => document.removeEventListener('pointerdown', handlePointerDown);
-    }
-  }, [isExpanded]);
-
-  // Close on Escape key
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isExpanded) {
-        setIsExpanded(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isExpanded]);
-
-  // For drivers: strictly driver functions only (Dispatch, Activity, Inbox, Profile) - no Home / Book a ride!
   const navItems = isDriverOnly
     ? [
         { id: 'DRIVER' as const, label: 'Dispatch', icon: <Navigation size={17} />, badge: pendingDispatchCount },
@@ -101,18 +73,6 @@ export const DynamicIslandNav: React.FC<DynamicIslandNavProps> = ({
         ...(isPrivileged ? [{ id: 'ADMIN' as const, label: 'Admin', icon: <ShieldCheck size={17} /> }] : []),
       ];
 
-  const getActiveLabel = () => {
-    switch (activeNav) {
-      case 'HOME': return isDriverOnly ? 'Driver Dispatch' : 'GalaxyFleet';
-      case 'ACTIVITY': return 'My Activity';
-      case 'INBOX': return 'Inbox';
-      case 'PROFILE': return 'Profile';
-      case 'DRIVER': return 'Driver Dispatch';
-      case 'ADMIN': return 'Admin Console';
-      default: return isDriverOnly ? 'Driver Dispatch' : 'GalaxyFleet';
-    }
-  };
-
   const handleSelectTab = (id: NavSection) => {
     if (id === 'DRIVER' && onSwitchToDriverDispatch) {
       onSwitchToDriverDispatch();
@@ -121,113 +81,76 @@ export const DynamicIslandNav: React.FC<DynamicIslandNavProps> = ({
     } else {
       onSelectNav(id);
     }
-    setIsExpanded(false);
   };
 
   return (
-    <div
-      ref={containerRef}
-      className={`gf-dynamic-island ${isExpanded ? 'is-expanded' : 'is-collapsed'} ${hideChromeDuringBooking ? 'during-booking' : ''}`}
-      role="region"
-      aria-label="Dynamic Island Navigation"
-    >
-      {!isExpanded ? (
-        /* Collapsed Resting Pill (Centered with dedicated companion language switcher) */
-        <div className="gf-island-collapsed-wrapper">
-          <button
-            type="button"
-            id="gf-island-collapsed-pill"
-            className="gf-island-collapsed-pill pressable"
-            onClick={() => setIsExpanded(true)}
-            aria-expanded={false}
-            aria-label={`Open GalaxyFleet navigation (Currently on ${getActiveLabel()})`}
-            title="Click to expand navigation menu"
-          >
-            <div className="gf-island-mini-badge">GF</div>
-            <div className="gf-island-collapsed-label">
-              <span>{getActiveLabel()}</span>
-              {unreadInboxCount > 0 && activeNav !== 'INBOX' && (
-                <span className="gf-nav-badge" style={{ marginLeft: 6 }}>{unreadInboxCount}</span>
-              )}
-            </div>
-            <div className="gf-island-pulse-dot" title="Live status active" />
-            <ChevronDown size={14} className="gf-island-chevron" />
-          </button>
-          <div className="gf-island-lang-pill">
-            <LanguageSwitcher compact darkGlass />
-          </div>
+    <header className="gf-embedded-topbar" role="banner">
+      {/* Left: Brand Identity & Group */}
+      <div className="gf-topbar-left">
+        <div className="gf-topbar-logo">GF</div>
+        <div className="gf-topbar-brand-meta">
+          <span className="gf-topbar-title">GalaxyFleet</span>
+          {(userNickname || departmentName) && (
+            <span className="gf-topbar-dept">
+              {userNickname} {departmentName ? <span>• <span className="notranslate" translate="no">{departmentName}</span></span> : ''}
+            </span>
+          )}
         </div>
-      ) : (
-        /* Expanded Dynamic Island (Inside-out morphing) */
-        <div className="gf-island-expanded-content" role="dialog" aria-modal="false" aria-label="Expanded navigation">
-          {/* Brand & User context */}
-          <div className="gf-island-brand-area">
-            <div className="gf-island-badge">GF</div>
-            <div className="gf-island-brand-text">
-              <span className="gf-island-title">GalaxyFleet</span>
-              {(userNickname || departmentName) && (
-                <span className="gf-island-subtitle">
-                  {userNickname} {departmentName ? <span>• <span className="notranslate" translate="no">{departmentName}</span></span> : ''}
-                </span>
+      </div>
+
+      {/* Center: Navigation Pills (Desktop & Tablet) */}
+      <nav className="gf-topbar-nav" aria-label="Main application tabs">
+        {navItems.map((item) => {
+          const active = activeNav === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              id={`topbar-nav-${item.id.toLowerCase()}`}
+              className={`gf-topbar-nav-pill pressable ${active ? 'active' : ''}`}
+              onClick={() => handleSelectTab(item.id)}
+              aria-current={active ? 'page' : undefined}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+              {item.badge !== undefined && item.badge > 0 && (
+                <span className="gf-nav-badge">{item.badge}</span>
               )}
-            </div>
-          </div>
-
-          {/* Segmented Navigation Pills */}
-          <nav className="gf-island-nav" aria-label="Primary navigation">
-            {navItems.map((item) => {
-              const active = activeNav === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  id={`island-nav-${item.id.toLowerCase()}`}
-                  className={`gf-island-nav-item pressable ${active ? 'active' : ''}`}
-                  onClick={() => handleSelectTab(item.id)}
-                  aria-current={active ? 'page' : undefined}
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                  {item.badge !== undefined && item.badge > 0 && (
-                    <span className="gf-nav-badge">{item.badge}</span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-
-          {/* Actions: Dedicated Language, SignOut, Collapse Button */}
-          <div className="gf-island-actions">
-            <div className="gf-island-lang-wrap">
-              <LanguageSwitcher compact darkGlass />
-            </div>
-            <button
-              type="button"
-              id="island-signout-btn"
-              className="gf-island-action-btn pressable is-signout"
-              onClick={onSignOut}
-              aria-label="Sign out"
-              title="Sign out"
-            >
-              <LogOut size={15} />
-              <span className="gf-island-btn-text">Sign Out</span>
             </button>
-            <button
-              type="button"
-              id="island-collapse-btn"
-              className="gf-island-action-btn pressable is-collapse"
-              onClick={() => setIsExpanded(false)}
-              aria-label="Collapse navigation"
-              title="Collapse navigation"
-            >
-              <ChevronUp size={16} />
-            </button>
-          </div>
+          );
+        })}
+      </nav>
+
+      {/* Right: Dedicated Language Switcher + User Role Badge + Sign Out (Ample room, no cut-off) */}
+      <div className="gf-topbar-right">
+        <div className="gf-topbar-lang-wrap">
+          <LanguageSwitcher compact={false} />
         </div>
-      )}
-    </div>
+
+        {userRole && (
+          <div className="gf-topbar-role-badge" title={`Role: ${userRole}`}>
+            {userRole}
+          </div>
+        )}
+
+        <button
+          type="button"
+          id="topbar-signout-btn"
+          className="gf-topbar-signout-btn pressable"
+          onClick={onSignOut}
+          aria-label="Sign out"
+          title="Sign out of account"
+        >
+          <LogOut size={16} />
+          <span className="gf-topbar-btn-text">Sign Out</span>
+        </button>
+      </div>
+    </header>
   );
 };
+
+// Backward-compatible alias for any residual references
+export const DynamicIslandNav = EmbeddedTopNav;
 
 interface AppShellProps {
   activeNav: NavSection;
@@ -244,6 +167,7 @@ interface AppShellProps {
   sheet: React.ReactNode;
   userNickname?: string;
   departmentName?: string;
+  userRole?: string;
   onSwitchToDriverDispatch?: () => void;
   onSwitchToAdmin?: () => void;
 }
@@ -262,6 +186,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   sheet,
   userNickname,
   departmentName,
+  userRole,
   onSwitchToDriverDispatch,
   onSwitchToAdmin,
 }) => {
@@ -281,33 +206,33 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   return (
     <div className="gf-shell">
-      <div className="gf-ride-layout">
-        {/* Dynamic Island Centered Top Navigation (iPhone-style Inside-Out Morphing) */}
-        <DynamicIslandNav
-          activeNav={activeNav}
-          onSelectNav={onSelectNav}
-          unreadInboxCount={unreadInboxCount}
-          pendingDispatchCount={pendingDispatchCount}
-          isDriverOrPrivileged={isDriverOrPrivileged}
-          isPrivileged={isPrivileged}
-          isDriverOnly={isDriverOnly}
-          onSignOut={onSignOut}
-          userNickname={userNickname}
-          departmentName={departmentName}
-          onSwitchToDriverDispatch={onSwitchToDriverDispatch}
-          onSwitchToAdmin={onSwitchToAdmin}
-          hideChromeDuringBooking={hideChromeDuringBooking}
-        />
+      {/* Embedded Permanent Top Navbar without clipping or collapse */}
+      <EmbeddedTopNav
+        activeNav={activeNav}
+        onSelectNav={onSelectNav}
+        unreadInboxCount={unreadInboxCount}
+        pendingDispatchCount={pendingDispatchCount}
+        isDriverOrPrivileged={isDriverOrPrivileged}
+        isPrivileged={isPrivileged}
+        isDriverOnly={isDriverOnly}
+        onSignOut={onSignOut}
+        userNickname={userNickname}
+        departmentName={departmentName}
+        userRole={userRole}
+        onSwitchToDriverDispatch={onSwitchToDriverDispatch}
+        onSwitchToAdmin={onSwitchToAdmin}
+      />
 
+      <div className="gf-ride-layout" style={{ paddingTop: '64px' }}>
         {/* Full-bleed Map Canvas */}
         {mapStage}
 
-        {/* Adaptive Sheet / Tablet Floating Card / Desktop 440px Left Panel */}
+        {/* Adaptive Sheet / Tablet Floating Card / Desktop Left Panel */}
         {sheet}
 
-        {/* Mobile Bottom Tab Bar (hidden during active booking) */}
+        {/* Mobile Bottom Tab Bar (hidden during active booking or on desktop) */}
         {!hideChromeDuringBooking && (
-          <nav className="gf-bottom-nav" aria-label="Primary tabs">
+          <nav className="gf-bottom-nav gf-mobile-bottom-nav" aria-label="Primary mobile tabs">
             {navItems.map((item) => {
               const active = activeNav === item.id;
               return (
@@ -389,14 +314,14 @@ export const DesktopHeaderNav: React.FC<DesktopHeaderNavProps> = ({
               width: '32px',
               height: '32px',
               borderRadius: '8px',
-              background: 'var(--color-green)',
+              background: 'var(--color-samsung-blue, #0072de)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: '#ffffff',
               fontWeight: 800,
               fontSize: '15px',
-              boxShadow: '0 2px 6px rgba(0, 170, 19, 0.35)',
+              boxShadow: '0 2px 6px rgba(0, 114, 222, 0.35)',
             }}
           >
             GF
@@ -465,10 +390,8 @@ export const DesktopHeaderNav: React.FC<DesktopHeaderNavProps> = ({
 export const DesktopPanelNav: React.FC<DesktopHeaderNavProps> = (props) => <DesktopHeaderNav {...props} />;
 
 interface AdminShellProps {
-  activeModule: 'ADMIN_DISPATCH' | 'FLEET_OPS' | 'ANALYTICS_AUDIT';
-  onSelectModule: (m: 'ADMIN_DISPATCH' | 'FLEET_OPS' | 'ANALYTICS_AUDIT') => void;
-  onSwitchToRideBooking: () => void;
-  onSwitchToDriverDispatch: () => void;
+  activeModule: AdminModule;
+  onSelectModule: (m: AdminModule) => void;
   onSignOut: () => void;
   pendingCount: number;
   vehicleCount: number;
@@ -481,8 +404,6 @@ interface AdminShellProps {
 export const AdminShell: React.FC<AdminShellProps> = ({
   activeModule,
   onSelectModule,
-  onSwitchToRideBooking,
-  onSwitchToDriverDispatch,
   onSignOut,
   pendingCount,
   vehicleCount,
@@ -495,73 +416,85 @@ export const AdminShell: React.FC<AdminShellProps> = ({
 
   const navButtons = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      {/* 1. Overall Live Fleet Map */}
       <button
         type="button"
+        id="admin-nav-fleet-map"
+        className={`gf-btn pressable ${activeModule === 'FLEET_MAP' ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
+        style={{ justifyContent: 'flex-start', gap: '10px', fontSize: '14px', padding: '12px 14px' }}
+        onClick={() => {
+          onSelectModule('FLEET_MAP');
+          setMobileMenuOpen(false);
+        }}
+      >
+        <Map size={18} />
+        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>Fleet Live Map</span>
+        <span className="gf-dot-green" title="Live GPS & Pool tracking" />
+      </button>
+
+      {/* 2. Approvals & Dispatch */}
+      <button
+        type="button"
+        id="admin-nav-dispatch"
         className={`gf-btn pressable ${activeModule === 'ADMIN_DISPATCH' ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
-        style={{ justifyContent: 'flex-start', gap: '10px', fontSize: '14.5px', padding: '12px 14px' }}
+        style={{ justifyContent: 'flex-start', gap: '10px', fontSize: '14px', padding: '12px 14px' }}
         onClick={() => {
           onSelectModule('ADMIN_DISPATCH');
           setMobileMenuOpen(false);
         }}
       >
         <FileCheck size={18} />
-        <span style={{ flex: 1, textAlign: 'left' }}>Approvals & Dispatch</span>
+        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>Approvals & Dispatch</span>
         {pendingCount > 0 && (
           <span className="gf-badge gf-badge-amber" style={{ fontSize: '12px', padding: '2px 8px' }}>
             {pendingCount}
           </span>
         )}
       </button>
+
+      {/* 3. Fleet, Drivers & Energy */}
       <button
         type="button"
+        id="admin-nav-fleet-ops"
         className={`gf-btn pressable ${activeModule === 'FLEET_OPS' ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
-        style={{ justifyContent: 'flex-start', gap: '10px', fontSize: '14.5px', padding: '12px 14px' }}
+        style={{ justifyContent: 'flex-start', gap: '10px', fontSize: '14px', padding: '12px 14px' }}
         onClick={() => {
           onSelectModule('FLEET_OPS');
           setMobileMenuOpen(false);
         }}
       >
         <Car size={18} />
-        <span style={{ flex: 1, textAlign: 'left' }}>Fleet, Groups & Energy</span>
+        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>Fleet, Drivers & Energy</span>
       </button>
+
+      {/* 4. Usage Analytics & Reports */}
       <button
         type="button"
-        className={`gf-btn pressable ${activeModule === 'ANALYTICS_AUDIT' ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
-        style={{ justifyContent: 'flex-start', gap: '10px', fontSize: '14.5px', padding: '12px 14px' }}
+        id="admin-nav-reports"
+        className={`gf-btn pressable ${activeModule === 'ANALYTICS_REPORT' ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
+        style={{ justifyContent: 'flex-start', gap: '10px', fontSize: '14px', padding: '12px 14px' }}
         onClick={() => {
-          onSelectModule('ANALYTICS_AUDIT');
+          onSelectModule('ANALYTICS_REPORT');
           setMobileMenuOpen(false);
         }}
       >
         <BarChart3 size={18} />
-        <span style={{ flex: 1, textAlign: 'left' }}>Usage Analytics & GPS</span>
+        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>Analytics & Reports (IDR)</span>
       </button>
 
-      <div style={{ borderTop: '1px solid var(--color-divider)', margin: '8px 0' }} />
-
+      {/* 5. Dedicated Audit Trail Module */}
       <button
         type="button"
-        className="gf-btn gf-btn-secondary pressable"
-        style={{ justifyContent: 'flex-start', gap: '10px', fontSize: '14px', padding: '10px 14px' }}
+        id="admin-nav-audit"
+        className={`gf-btn pressable ${activeModule === 'AUDIT' ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
+        style={{ justifyContent: 'flex-start', gap: '10px', fontSize: '14px', padding: '12px 14px' }}
         onClick={() => {
-          onSwitchToRideBooking();
+          onSelectModule('AUDIT');
           setMobileMenuOpen(false);
         }}
       >
-        <Calendar size={18} />
-        <span>Book a Ride (User View)</span>
-      </button>
-      <button
-        type="button"
-        className="gf-btn gf-btn-secondary pressable"
-        style={{ justifyContent: 'flex-start', gap: '10px', fontSize: '14px', padding: '10px 14px' }}
-        onClick={() => {
-          onSwitchToDriverDispatch();
-          setMobileMenuOpen(false);
-        }}
-      >
-        <Navigation size={18} />
-        <span>Driver Dispatch View</span>
+        <ScrollText size={18} />
+        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>Audit Trail</span>
       </button>
 
       <div style={{ borderTop: '1px solid var(--color-divider)', margin: '8px 0' }} />
@@ -585,25 +518,25 @@ export const AdminShell: React.FC<AdminShellProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
             <div
               style={{
-                width: 26,
-                height: 26,
-                borderRadius: '6px',
-                background: 'var(--color-green)',
+                width: 28,
+                height: 28,
+                borderRadius: '7px',
+                background: 'var(--color-samsung-blue, #0072de)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: '#fff',
                 fontWeight: 800,
-                fontSize: '12px',
+                fontSize: '13px',
               }}
             >
               GF
             </div>
-            <div className="type-title" style={{ fontSize: '19px', fontWeight: 800 }}>
+            <div className="type-title" style={{ fontSize: '18px', fontWeight: 800 }}>
               GalaxyFleet
             </div>
           </div>
-          <div className="type-caption" style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+          <div className="type-caption" style={{ fontSize: '12.5px', color: 'var(--color-text-secondary)' }}>
             Admin Console • {userNickname} ({userRole})
           </div>
         </div>
@@ -622,29 +555,25 @@ export const AdminShell: React.FC<AdminShellProps> = ({
               <Menu size={22} />
             </button>
             <div>
-              <div className="type-section" style={{ fontSize: '18px', fontWeight: 800 }}>GalaxyFleet Admin Console</div>
+              <div className="type-section" style={{ fontSize: '18px', fontWeight: 800 }}>
+                GalaxyFleet Admin Console
+              </div>
               <div className="type-caption" style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-                {vehicleCount} Vehicles • {groupCount} Groups • Periodic GPS Active
+                {vehicleCount} Operational Vehicles • {groupCount} Groups • Currency: IDR (Rp)
               </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            <LanguageSwitcher compact />
-            <button
-              type="button"
-              className="gf-btn gf-btn-primary pressable"
-              onClick={onSwitchToRideBooking}
-              style={{ fontSize: '14px', padding: '8px 16px' }}
-            >
-              Open Ride Booking
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div className="gf-topbar-lang-wrap">
+              <LanguageSwitcher compact={false} />
+            </div>
             <button
               id="admin-topbar-signout-btn"
               type="button"
               className="gf-btn gf-btn-outline-danger pressable"
               onClick={onSignOut}
-              style={{ fontSize: '14px', padding: '8px 14px' }}
+              style={{ fontSize: '13.5px', padding: '8px 14px' }}
             >
               <LogOut size={16} /> Sign Out
             </button>

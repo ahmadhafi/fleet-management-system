@@ -392,326 +392,168 @@ textarea {
   box-shadow: 0 2px 6px rgba(0, 114, 222, 0.35);
 }
 
-/* Dynamic Island Top-Centered Navigation (iPhone-style Inside-Out Morphing) */
-.gf-dynamic-island {
+/* ============================================================================
+   EMBEDDED STATIC TOP NAVBAR (GalaxyFleet Samsung Style - Permanent & Unclipped)
+   ============================================================================ */
+.gf-embedded-topbar {
   position: fixed;
-  top: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 45;
-  transform-origin: center top;
-  pointer-events: auto;
-  user-select: none;
-}
-
-.gf-dynamic-island.during-booking {
-  opacity: 0.85;
-}
-.gf-dynamic-island.during-booking:hover {
-  opacity: 1;
-}
-
-/* Collapsed Island Wrapper with Dedicated Language Switcher */
-.gf-island-collapsed-wrapper {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  pointer-events: auto;
-}
-
-.gf-island-lang-pill {
-  display: flex;
-  align-items: center;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.38), 0 3px 10px rgba(0, 0, 0, 0.22);
-  border-radius: 9999px;
-  flex-shrink: 0;
-}
-
-/* Collapsed Resting Pill (Enlarged 52px for easy touch & high visibility) */
-.gf-island-collapsed-pill {
-  appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(15, 23, 42, 0.90);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  color: #ffffff;
-  height: 52px;
-  min-width: 220px;
-  padding: 0 20px 0 14px;
-  border-radius: 9999px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.38), 0 3px 10px rgba(0, 0, 0, 0.22);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-  font-family: inherit;
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease, background 0.25s ease;
-}
-
-.gf-island-collapsed-pill:hover {
-  transform: scale(1.03);
-  background: rgba(15, 23, 42, 0.96);
-  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.28);
-  border-color: rgba(255, 255, 255, 0.38);
-}
-
-.gf-island-collapsed-pill:active {
-  transform: scale(0.97);
-}
-
-.gf-island-mini-badge {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: var(--color-samsung-blue, #0072de);
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 14.5px;
-  letter-spacing: -0.2px;
-  box-shadow: 0 3px 10px rgba(0, 114, 222, 0.45);
-  flex-shrink: 0;
-}
-
-.gf-island-collapsed-label {
-  font-size: 15.5px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  color: #ffffff;
-  letter-spacing: -0.1px;
-}
-
-.gf-island-pulse-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #258cfb;
-  box-shadow: 0 0 10px #258cfb;
-  animation: gf-pulse-live 2s infinite ease-in-out;
-  flex-shrink: 0;
-}
-
-@keyframes gf-pulse-live {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.9;
-  }
-  50% {
-    transform: scale(1.35);
-    opacity: 0.35;
-  }
-}
-
-.gf-island-chevron {
-  color: rgba(255, 255, 255, 0.7);
-  transition: transform 0.2s ease;
-  flex-shrink: 0;
-}
-
-/* Expanded Dynamic Island (Inside-Out Animation with Larger Touch Targets) */
-.gf-island-expanded-content {
-  width: min(94vw, 860px);
-  background: rgba(15, 23, 42, 0.95);
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 30px;
-  box-shadow: 0 20px 52px rgba(0, 0, 0, 0.52), 0 5px 16px rgba(0, 0, 0, 0.3);
-  padding: 10px 18px;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 64px;
+  z-index: 500;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.05);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  animation: gf-island-expand 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  transform-origin: center top;
+  padding: 0 20px;
+  gap: 16px;
+  user-select: none;
 }
 
-@keyframes gf-island-expand {
-  0% {
-    transform: scale(0.88);
-    opacity: 0;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-.gf-island-brand-area {
+.gf-topbar-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-shrink: 0;
-  padding-left: 4px;
 }
 
-.gf-island-badge {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
+.gf-topbar-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
   background: var(--color-samsung-blue, #0072de);
   color: #ffffff;
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: -0.2px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 800;
-  font-size: 15.5px;
-  box-shadow: 0 3px 10px rgba(0, 114, 222, 0.45);
+  box-shadow: 0 3px 10px rgba(0, 114, 222, 0.35);
+  flex-shrink: 0;
 }
 
-.gf-island-brand-text {
+.gf-topbar-brand-meta {
   display: flex;
   flex-direction: column;
 }
 
-.gf-island-title {
-  color: #ffffff;
-  font-size: 16px;
+.gf-topbar-title {
+  font-size: 16.5px;
   font-weight: 800;
-  line-height: 1.2;
+  color: var(--color-text-primary);
+  letter-spacing: -0.2px;
+  line-height: 1.15;
 }
 
-.gf-island-subtitle {
-  color: rgba(255, 255, 255, 0.65);
+.gf-topbar-dept {
   font-size: 12px;
-  line-height: 1.2;
+  color: var(--color-text-secondary);
+  font-weight: 500;
 }
 
-.gf-island-nav {
+.gf-topbar-nav {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.08);
-  padding: 5px;
-  border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  flex-wrap: nowrap;
+  background: var(--color-bg-subtle);
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-divider);
 }
 
-.gf-island-nav-item {
+.gf-topbar-nav-pill {
   appearance: none;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--color-text-secondary);
+  font-size: 13.5px;
+  font-weight: 700;
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 42px;
-  padding: 10px 18px;
-  border-radius: 9999px;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
+  gap: 7px;
+  transition: all 140ms ease;
+  font-family: inherit;
   white-space: nowrap;
-  transition: all 0.18s ease;
 }
 
-.gf-island-nav-item:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.14);
+.gf-topbar-nav-pill:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--color-text-primary);
 }
 
-.gf-island-nav-item.active {
+.gf-topbar-nav-pill.active {
   background: var(--color-samsung-blue, #0072de);
   color: #ffffff;
-  box-shadow: 0 3px 12px rgba(0, 114, 222, 0.45);
+  box-shadow: 0 3px 10px rgba(0, 114, 222, 0.35);
 }
 
-.gf-island-actions {
+.gf-topbar-right {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
 }
 
-.gf-island-lang-wrap {
+.gf-topbar-lang-wrap {
   display: flex;
   align-items: center;
   flex-shrink: 0;
 }
 
-.gf-island-action-btn {
-  appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.09);
-  color: rgba(255, 255, 255, 0.9);
-  height: 42px;
-  padding: 0 14px;
-  border-radius: 9999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  font-size: 13.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.18s ease;
+.gf-topbar-role-badge {
+  font-size: 11.5px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: #e0edff;
+  color: #005bb5;
+  border: 1px solid #bfdbfe;
+  flex-shrink: 0;
 }
 
-.gf-island-action-btn:hover {
-  background: rgba(255, 255, 255, 0.20);
+.gf-topbar-signout-btn {
+  appearance: none;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.06);
+  color: var(--color-status-red-fg, #dc2626);
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 140ms ease;
+  font-family: inherit;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.gf-topbar-signout-btn:hover {
+  background: #dc2626;
   color: #ffffff;
 }
 
-.gf-island-action-btn.is-signout:hover {
-  background: rgba(239, 68, 68, 0.25);
-  border-color: rgba(239, 68, 68, 0.5);
-  color: #fca5a5;
-}
-
-.gf-island-action-btn.is-collapse {
-  width: 42px;
-  height: 42px;
-  padding: 0;
-}
-
-@media (max-width: 639px) {
-  .gf-island-collapsed-wrapper {
-    flex-direction: row;
-    gap: 8px;
-    max-width: 95vw;
-  }
-  .gf-island-collapsed-pill {
-    min-width: 170px;
-    padding: 0 14px 0 10px;
-    gap: 8px;
-  }
-  .gf-island-collapsed-label {
-    font-size: 13.5px;
-  }
-  .gf-island-expanded-content {
-    flex-direction: column;
-    align-items: stretch;
-    border-radius: 20px;
-    padding: 12px;
-    gap: 12px;
-  }
-  .gf-island-brand-area {
-    padding-left: 0;
-  }
-  .gf-island-nav {
-    overflow-x: auto;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-  .gf-island-nav::-webkit-scrollbar {
+@media (max-width: 820px) {
+  .gf-topbar-nav {
     display: none;
   }
-  .gf-island-actions {
-    flex-wrap: wrap;
-    justify-content: space-between;
+  .gf-embedded-topbar {
+    padding: 0 12px;
     gap: 8px;
   }
-  .gf-island-lang-wrap {
-    width: 100%;
-    justify-content: center;
-    margin-bottom: 4px;
+  .gf-topbar-dept {
+    display: none;
   }
 }
 

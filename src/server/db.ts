@@ -190,7 +190,11 @@ function initializeSchema(db: AppDatabase) {
       notes TEXT,
       status TEXT NOT NULL DEFAULT 'PENDING_APPROVAL' CHECK (status IN ('PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS', 'COMPLETED', 'REJECTED', 'CANCELLED')),
       start_odometer INTEGER,
+      start_odometer_photo_url TEXT,
+      start_odometer_time TEXT,
       end_odometer INTEGER,
+      end_odometer_photo_url TEXT,
+      end_odometer_time TEXT,
       distance_km INTEGER,
       actual_start_time TEXT,
       actual_end_time TEXT,
@@ -488,6 +492,18 @@ function initializeSchema(db: AppDatabase) {
   } catch {}
   try {
     db.exec('ALTER TABLE expenses ADD COLUMN receipt_filename TEXT;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN start_odometer_photo_url TEXT;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN start_odometer_time TEXT;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN end_odometer_photo_url TEXT;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN end_odometer_time TEXT;');
   } catch {}
 }
 

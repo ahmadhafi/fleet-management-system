@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { ArrowLeft, Crosshair, LocateFixed, Navigation2, Users, WifiOff } from 'lucide-react';
+import { ArrowLeft, Crosshair, LocateFixed, Navigation2, Users, WifiOff, Layers, Map as MapIcon, Mountain } from 'lucide-react';
 import { apiRequest } from '../api';
 
 export interface GeoPlace {
@@ -24,9 +24,62 @@ export interface UserLocationPin {
   updated_at: string;
 }
 
+export interface FleetVehiclePosition {
+  id: number;
+  registration_plate: string;
+  make: string;
+  model: string;
+  car_type: string;
+  energy_type: string;
+  status: string;
+  battery_percent?: number | null;
+  current_odometer?: number;
+  latitude: number;
+  longitude: number;
+  location_label?: string;
+  driver_name?: string;
+  driver_phone?: string;
+  active_trip?: {
+    id: number;
+    purpose: string;
+    destination: string;
+    start_time: string;
+    passenger_nickname?: string;
+  } | null;
+}
+
 const DEFAULT_CENTER: [number, number] = [-6.19834, 106.88873];
-const MAPTILER_API_KEY = (import.meta as any).env?.VITE_MAPTILER_API_KEY || 'KHmsrWcJhgdZjirijNbw';
-const MAPTILER_OUTDOOR_V4_TILE_URL = `https://api.maptiler.com/maps/outdoor-v4/256/{z}/{x}/{y}.png?key=${MAPTILER_API_KEY}`;
+
+export type MapLayerKey = 'streets' | 'satellite' | 'terrain';
+
+export const MAP_LAYERS: Record<MapLayerKey, { name: string; url: string; options: L.TileLayerOptions }> = {
+  streets: {
+    name: 'Streets',
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    options: {
+      maxZoom: 19,
+      subdomains: ['a', 'b', 'c'],
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
+    },
+  },
+  satellite: {
+    name: 'Satellite',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    options: {
+      maxZoom: 19,
+      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+    },
+  },
+  terrain: {
+    name: 'Terrain',
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    options: {
+      maxZoom: 17,
+      subdomains: ['a', 'b', 'c'],
+      attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
+    },
+  },
+};
 
 function toRadians(deg: number): number {
   return (deg * Math.PI) / 180;
@@ -76,6 +129,26 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
+export function formatWhatsAppUrl(rawPhone: string): string {
+  let clean = (rawPhone || '').replace(/\D/g, '');
+  if (clean.startsWith('0')) {
+    clean = '62' + clean.slice(1);
+  } else if (!clean.startsWith('62')) {
+    clean = '62' + clean;
+  }
+  return `https://wa.me/+${clean}`;
+}
+
+export function formatPhoneCallUrl(rawPhone: string): string {
+  let clean = (rawPhone || '').replace(/[^\d+]/g, '');
+  if (clean.startsWith('0')) {
+    clean = '+62' + clean.slice(1);
+  } else if (!clean.startsWith('+')) {
+    clean = '+62' + clean;
+  }
+  return `tel:${clean}`;
+}
+
 export interface RouteCalculationResult {
   distanceKm: number;
   durationMin: number;
@@ -93,6 +166,7 @@ interface MapViewProps {
   routeMetrics?: RouteCalculationResult | null;
   myCoords?: { lat: number; lon: number; accuracy?: number } | null;
   userPins?: UserLocationPin[];
+  fleetPositions?: FleetVehiclePosition[];
   currentUserId?: number;
   onLocateMe?: () => void;
   locatingUser?: boolean;
@@ -116,6 +190,7 @@ export const MapView: React.FC<MapViewProps> = ({
   routeMetrics,
   myCoords,
   userPins = [],
+  fleetPositions,
   currentUserId,
   onLocateMe,
   locatingUser = false,
@@ -131,12 +206,15 @@ export const MapView: React.FC<MapViewProps> = ({
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const baseTileLayerRef = useRef<L.TileLayer | null>(null);
   const routeLayerRef = useRef<L.LayerGroup | null>(null);
   const pinsLayerRef = useRef<L.LayerGroup | null>(null);
+  const fleetLayerRef = useRef<L.LayerGroup | null>(null);
   const hasCenteredOnMyCoordsRef = useRef<boolean>(false);
   const onPinMoveRef = useRef(onPinMoveAddress);
   onPinMoveRef.current = onPinMoveAddress;
 
+  const [activeLayer, setActiveLayer] = useState<MapLayerKey>('streets');
   const [isDraggingMap, setIsDraggingMap] = useState(false);
   const [pinnedLabel, setPinnedLabel] = useState<string>('Move map to position pin');
   const reverseTimerRef = useRef<number | null>(null);
@@ -186,7 +264,7 @@ export const MapView: React.FC<MapViewProps> = ({
     };
   }, [routeMetrics, origin, destination, effOrigin, effDest]);
 
-  // Initialize Leaflet Map with MapTiler outdoor-v4 tiles
+  // Initialize Leaflet Map with selected tile layer (zero exposed API keys)
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
@@ -197,26 +275,42 @@ export const MapView: React.FC<MapViewProps> = ({
       attributionControl: true,
     });
 
-    L.tileLayer(MAPTILER_OUTDOOR_V4_TILE_URL, {
-      maxZoom: 20,
-      tileSize: 256,
-      attribution:
-        '&copy; <a href="https://www.maptiler.com/copyright/" target="_blank" rel="noreferrer">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
-    }).addTo(map);
+    const config = MAP_LAYERS[activeLayer];
+    const tileLayer = L.tileLayer(config.url, config.options).addTo(map);
+    baseTileLayerRef.current = tileLayer;
 
     const pinsLayer = L.layerGroup().addTo(map);
+    const fleetLayer = L.layerGroup().addTo(map);
     const routeLayer = L.layerGroup().addTo(map);
+
     mapInstanceRef.current = map;
     pinsLayerRef.current = pinsLayer;
+    fleetLayerRef.current = fleetLayer;
     routeLayerRef.current = routeLayer;
 
     return () => {
       map.remove();
       mapInstanceRef.current = null;
+      baseTileLayerRef.current = null;
       pinsLayerRef.current = null;
+      fleetLayerRef.current = null;
       routeLayerRef.current = null;
     };
   }, []);
+
+  // Handle active tile layer swapping (Streets, Satellite, Terrain)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (baseTileLayerRef.current) {
+      map.removeLayer(baseTileLayerRef.current);
+    }
+    const config = MAP_LAYERS[activeLayer];
+    const newLayer = L.tileLayer(config.url, config.options).addTo(map);
+    newLayer.bringToBack();
+    baseTileLayerRef.current = newLayer;
+  }, [activeLayer]);
 
   // Automatically fly to the user's detected GPS location the first time it arrives
   useEffect(() => {
@@ -226,7 +320,7 @@ export const MapView: React.FC<MapViewProps> = ({
     map.setView([myCoords.lat, myCoords.lon], 15, { animate: true });
   }, [myCoords]);
 
-  // Handle Pin-on-Map Drag & Reverse Geocoding via MapTiler / Nominatim
+  // Handle Pin-on-Map Drag & Reverse Geocoding
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -286,7 +380,6 @@ export const MapView: React.FC<MapViewProps> = ({
 
     pinsLayer.clearLayers();
 
-    // Render all reported user locations
     const renderedIds = new Set<number>();
     for (const pin of userPins) {
       if (!Number.isFinite(pin.latitude) || !Number.isFinite(pin.longitude)) continue;
@@ -374,7 +467,6 @@ export const MapView: React.FC<MapViewProps> = ({
       );
     }
 
-    // If current user's browser coordinates are known before the first server refresh finishes, render their dot immediately
     if (myCoords && (!currentUserId || !renderedIds.has(currentUserId))) {
       L.circle([myCoords.lat, myCoords.lon], {
         radius: Math.min(250, Math.max(25, Number(myCoords.accuracy || 40))),
@@ -399,7 +491,101 @@ export const MapView: React.FC<MapViewProps> = ({
       });
       L.marker([myCoords.lat, myCoords.lon], { icon: meIcon }).addTo(pinsLayer);
     }
-  }, [userPins, currentUserId, myCoords]);
+  }, [userPins, currentUserId, myCoords, originCoords]);
+
+  // Render Operational Fleet Vehicles (Admin Fleet Live Map)
+  useEffect(() => {
+    const fleetLayer = fleetLayerRef.current;
+    const map = mapInstanceRef.current;
+    if (!fleetLayer) return;
+
+    fleetLayer.clearLayers();
+
+    if (!fleetPositions || fleetPositions.length === 0) return;
+
+    const bounds = L.latLngBounds([]);
+
+    for (const v of fleetPositions) {
+      if (!Number.isFinite(v.latitude) || !Number.isFinite(v.longitude)) continue;
+      bounds.extend([v.latitude, v.longitude]);
+
+      const isEv = v.energy_type === 'Electric';
+      const isInTrip = v.status === 'IN_TRIP';
+      const mainColor = isEv ? '#059669' : '#0072de';
+      const pulseStyle = isInTrip ? 'box-shadow:0 0 0 6px rgba(37,140,251,0.35);' : '';
+
+      const carIcon = L.divIcon({
+        className: 'gf-leaflet-marker',
+        html: `
+          <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
+            <div style="background:#ffffff;color:#0f172a;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:800;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.22);margin-bottom:4px;border:1.5px solid ${mainColor};display:flex;align-items:center;gap:4px;">
+              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${isInTrip ? '#258cfb' : '#10b981'};"></span>
+              <span>${escapeHtml(v.registration_plate)}</span>
+              <span style="font-size:10px;">${isEv ? '⚡' : '⛽'}</span>
+            </div>
+            <div style="width:26px;height:26px;border-radius:50%;background:${mainColor};color:#ffffff;display:flex;align-items:center;justify-content:center;outline:2.5px solid #ffffff;box-shadow:0 3px 10px rgba(0,0,0,0.28);${pulseStyle}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
+            </div>
+          </div>
+        `,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
+      });
+
+      const marker = L.marker([v.latitude, v.longitude], { icon: carIcon }).addTo(fleetLayer);
+
+      const contactButtons = v.driver_phone ? `
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <a href="${formatWhatsAppUrl(v.driver_phone)}" target="_blank" rel="noreferrer" style="flex:1;background:#25d366;color:#ffffff;text-decoration:none;padding:6px 10px;border-radius:8px;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 2px 5px rgba(37,211,102,0.3);">
+            <span>WhatsApp</span>
+          </a>
+          <a href="${formatPhoneCallUrl(v.driver_phone)}" style="flex:1;background:#0072de;color:#ffffff;text-decoration:none;padding:6px 10px;border-radius:8px;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 2px 5px rgba(0,114,222,0.3);">
+            <span>Call Driver</span>
+          </a>
+        </div>
+      ` : '';
+
+      const tripInfo = v.active_trip ? `
+        <div style="background:#e0edff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 10px;margin-top:8px;">
+          <div style="font-size:10.5px;font-weight:800;color:#005bb5;text-transform:uppercase;letter-spacing:0.04em;">Active Trip In Progress</div>
+          <div style="font-weight:700;font-size:12.5px;color:#0f172a;margin-top:2px;">📍 ${escapeHtml(v.active_trip.destination)}</div>
+          <div style="font-size:11.5px;color:#334155;margin-top:2px;">Passenger: <b>${escapeHtml(v.active_trip.passenger_nickname || 'Employee')}</b></div>
+          <div style="font-size:11px;color:#64748b;margin-top:1px;">Purpose: ${escapeHtml(v.active_trip.purpose)}</div>
+        </div>
+      ` : `
+        <div style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;margin-top:8px;font-size:12px;color:#475569;">
+          🅿️ Parking / Pool: <b>${escapeHtml(v.location_label || 'Central Fleet Pool')}</b>
+        </div>
+      `;
+
+      marker.bindPopup(`
+        <div style="font-family:inherit;font-size:12.5px;line-height:1.45;min-width:240px;padding:3px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;">
+            <div>
+              <div style="font-weight:800;font-size:14.5px;color:#0f172a;">${escapeHtml(v.registration_plate)}</div>
+              <div style="font-size:12px;color:#64748b;">${escapeHtml(v.make)} ${escapeHtml(v.model)} (${escapeHtml(v.car_type)})</div>
+            </div>
+            <span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:9999px;background:${isEv ? '#ecfdf5' : '#e0edff'};color:${isEv ? '#059669' : '#005bb5'};">
+              ${isEv ? `EV ${v.battery_percent ?? 100}%` : 'Gasoline'}
+            </span>
+          </div>
+          <div style="font-size:12px;color:#334155;margin-top:4px;">
+            Assigned Driver: <b>${escapeHtml(v.driver_name || 'Standby Driver')}</b>
+            ${v.driver_phone ? `<span style="color:#64748b;"> (${escapeHtml(v.driver_phone)})</span>` : ''}
+          </div>
+          ${tripInfo}
+          ${contactButtons}
+          <div style="margin-top:6px;font-size:11px;color:#94a3b8;font-family:monospace;">
+            GPS: ${Number(v.latitude).toFixed(5)}, ${Number(v.longitude).toFixed(5)} • Odo: ${Number(v.current_odometer || 0).toLocaleString()} km
+          </div>
+        </div>
+      `);
+    }
+
+    if (map && bounds.isValid() && (!routeGeometry || routeGeometry.length === 0)) {
+      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+    }
+  }, [fleetPositions, routeGeometry]);
 
   // Render Route Pickup, Destination & Polyline whenever route coordinates or mode change
   useEffect(() => {
@@ -508,16 +694,112 @@ export const MapView: React.FC<MapViewProps> = ({
       className="gf-map-stage"
       tabIndex={pinMode ? 0 : -1}
       role={pinMode ? 'application' : undefined}
-      aria-label={pinMode ? 'Interactive MapTiler map. Drag or use arrow keys to position the pin.' : 'MapTiler route and user location view'}
+      aria-label={pinMode ? 'Interactive map. Drag or use arrow keys to position the pin.' : 'Route and live vehicle position view'}
       onKeyDown={handleKeyDown}
     >
       <div ref={mapContainerRef} style={{ width: '100%', height: '100%', zIndex: 1 }} />
 
-      {/* Active User Pinpoints Count Badge + Locate Me GPS Button */}
+      {/* Floating 3-Layer Map Switcher (Streets, Satellite, Terrain) */}
       <div
         style={{
           position: 'absolute',
-          top: 'calc(var(--space-4) + var(--safe-top))',
+          top: 'calc(74px + var(--safe-top))',
+          left: showBackButton ? 'calc(var(--space-4) + 54px)' : 'var(--space-4)',
+          zIndex: 455,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+        }}
+      >
+        <div
+          style={{
+            background: 'var(--color-bg-surface)',
+            borderRadius: 'var(--radius-pill)',
+            boxShadow: 'var(--shadow-floating)',
+            padding: '3px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '3px',
+            border: '1px solid var(--color-divider)',
+          }}
+        >
+          <button
+            type="button"
+            className="pressable"
+            onClick={() => setActiveLayer('streets')}
+            style={{
+              border: 'none',
+              cursor: 'pointer',
+              padding: '6px 12px',
+              borderRadius: 'var(--radius-pill)',
+              fontSize: '12px',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              background: activeLayer === 'streets' ? '#0072de' : 'transparent',
+              color: activeLayer === 'streets' ? '#ffffff' : 'var(--color-text-secondary)',
+              transition: 'all 140ms ease',
+            }}
+            title="Standard street map layer"
+          >
+            <MapIcon size={13} />
+            <span>Streets</span>
+          </button>
+          <button
+            type="button"
+            className="pressable"
+            onClick={() => setActiveLayer('satellite')}
+            style={{
+              border: 'none',
+              cursor: 'pointer',
+              padding: '6px 12px',
+              borderRadius: 'var(--radius-pill)',
+              fontSize: '12px',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              background: activeLayer === 'satellite' ? '#0072de' : 'transparent',
+              color: activeLayer === 'satellite' ? '#ffffff' : 'var(--color-text-secondary)',
+              transition: 'all 140ms ease',
+            }}
+            title="High-resolution aerial satellite imagery"
+          >
+            <Layers size={13} />
+            <span>Satellite</span>
+          </button>
+          <button
+            type="button"
+            className="pressable"
+            onClick={() => setActiveLayer('terrain')}
+            style={{
+              border: 'none',
+              cursor: 'pointer',
+              padding: '6px 12px',
+              borderRadius: 'var(--radius-pill)',
+              fontSize: '12px',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              background: activeLayer === 'terrain' ? '#0072de' : 'transparent',
+              color: activeLayer === 'terrain' ? '#ffffff' : 'var(--color-text-secondary)',
+              transition: 'all 140ms ease',
+            }}
+            title="Topographic elevation terrain layer"
+          >
+            <Mountain size={13} />
+            <span>Terrain</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Top-Right Metrics / Badges / Locate Me GPS Button */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 'calc(74px + var(--safe-top))',
           right: 'var(--space-4)',
           zIndex: 455,
           display: 'flex',
@@ -565,6 +847,27 @@ export const MapView: React.FC<MapViewProps> = ({
         )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {fleetPositions && fleetPositions.length > 0 && (
+            <div
+              style={{
+                background: 'var(--color-bg-surface)',
+                color: 'var(--color-text-primary)',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-pill)',
+                boxShadow: 'var(--shadow-floating)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: 'var(--text-caption-size)',
+                fontWeight: 700,
+              }}
+              title="Operational vehicles on live map"
+            >
+              <span className="gf-dot-green" />
+              <span>{fleetPositions.length} Cars Live</span>
+            </div>
+          )}
+
           {userPins.length > 0 && (
             <div
               style={{
@@ -581,9 +884,8 @@ export const MapView: React.FC<MapViewProps> = ({
               }}
               title="Active users sharing their live pinpoint on the map"
             >
-              <span className="gf-dot-green" />
               <Users size={13} />
-              <span>{userPins.length} live on map</span>
+              <span>{userPins.length} Users</span>
             </div>
           )}
 
@@ -593,10 +895,10 @@ export const MapView: React.FC<MapViewProps> = ({
               type="button"
               className="pressable"
               style={{
-                width: '54px',
-                height: '54px',
-                minWidth: '54px',
-                minHeight: '54px',
+                width: '50px',
+                height: '50px',
+                minWidth: '50px',
+                minHeight: '50px',
                 borderRadius: '50%',
                 display: 'flex',
                 alignItems: 'center',
@@ -616,13 +918,13 @@ export const MapView: React.FC<MapViewProps> = ({
               aria-label="Detect and center on my GPS location"
               title={locatingUser ? 'Detecting GPS location...' : 'Detect & center on my location'}
             >
-              <LocateFixed size={24} />
+              <LocateFixed size={22} />
             </button>
           )}
         </div>
       </div>
 
-      {/* Pulsing Green Radar Rings when Waiting for Approval (3 rings, 2s loop) */}
+      {/* Pulsing Green Radar Rings when Waiting for Approval */}
       {waitingRadar && (
         <div
           style={{
@@ -713,13 +1015,13 @@ export const MapView: React.FC<MapViewProps> = ({
         </div>
       )}
 
-      {/* Top-Left Circular White Back Button (44px, Floating Shadow) */}
+      {/* Top-Left Circular White Back Button */}
       {showBackButton && onBack && (
         <button
           id="map-back-btn"
           type="button"
           className="gf-map-back-btn pressable"
-          style={{ zIndex: 460 }}
+          style={{ zIndex: 460, top: 'calc(74px + var(--safe-top))' }}
           onClick={onBack}
           aria-label="Go back"
         >
@@ -727,7 +1029,7 @@ export const MapView: React.FC<MapViewProps> = ({
         </button>
       )}
 
-      {/* Connection Required Banner Pill (WEB-03) */}
+      {/* Connection Required Banner Pill */}
       {isOffline && (
         <div className="gf-map-offline-pill" style={{ zIndex: 460 }} role="alert">
           <WifiOff size={14} />

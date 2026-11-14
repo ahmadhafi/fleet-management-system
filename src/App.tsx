@@ -33,11 +33,25 @@ import {
   Plus,
   Trash2,
   Power,
+  Camera,
+  FileDown,
+  Printer,
+  BarChart3,
+  ScrollText,
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
-import { AppShell, AdminShell, type NavSection } from './components/AppShell';
+import { AppShell, AdminShell, type NavSection, type AdminModule } from './components/AppShell';
 import { BottomSheet, type SnapPoint } from './components/BottomSheet';
-import { MapView, estimateRouteMetrics, type GeoPlace, type UserLocationPin, type RouteCalculationResult } from './components/MapView';
+import {
+  MapView,
+  estimateRouteMetrics,
+  type GeoPlace,
+  type UserLocationPin,
+  type RouteCalculationResult,
+  type FleetVehiclePosition,
+  formatWhatsAppUrl,
+  formatPhoneCallUrl,
+} from './components/MapView';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
 import { RouteFields } from './components/RouteFields';
 import { VehicleArt } from './components/VehicleArt';
@@ -98,6 +112,11 @@ function getTimeGreeting(): string {
   if (hr < 12) return 'Good morning';
   if (hr < 17) return 'Good afternoon';
   return 'Good evening';
+}
+
+export function formatIdr(amount: number | string | undefined | null): string {
+  const num = Number(amount || 0);
+  return `Rp ${Math.round(num).toLocaleString('id-ID')}`;
 }
 
 function formatPassengersDisplay(passengersJson?: string | null, passengerNickname?: string | null): string {
@@ -172,7 +191,14 @@ export function App() {
   const [navSection, setNavSection] = useState<NavSection>('HOME');
   const [bookingStep, setBookingStep] = useState<BookingStep>('HOME');
   const [sheetSnap, setSheetSnap] = useState<SnapPoint>('half');
-  const [adminModule, setAdminModule] = useState<'ADMIN_DISPATCH' | 'FLEET_OPS' | 'ANALYTICS_AUDIT'>('ADMIN_DISPATCH');
+  const [adminModule, setAdminModule] = useState<AdminModule>('FLEET_MAP');
+  const [fleetPositions, setFleetPositions] = useState<FleetVehiclePosition[]>([]);
+  const [showExecutiveReportModal, setShowExecutiveReportModal] = useState<boolean>(false);
+  const [auditSearchQuery, setAuditSearchQuery] = useState<string>('');
+  const [startOdoPhoto, setStartOdoPhoto] = useState<Record<number, string>>({});
+  const [startOdoTime, setStartOdoTime] = useState<Record<number, string>>({});
+  const [endOdoPhoto, setEndOdoPhoto] = useState<Record<number, string>>({});
+  const [endOdoTime, setEndOdoTime] = useState<Record<number, string>>({});
   const [statusBanner, setStatusBanner] = useState<{ type: 'info' | 'success' | 'warning' | 'danger'; text: string } | null>(null);
 
   // Home / Route / Ride / Activity sub-states
@@ -235,7 +261,7 @@ export function App() {
   const [maintenanceRecords, setMaintenanceRecords] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [documents, setDocuments] = useState<any[]>([]);
-  const [gpsLatest, setGpsLatest] = useState<any>(null);
+  const [_gpsLatest, setGpsLatest] = useState<any>(null);
   const [usageAnalytics, setUsageAnalytics] = useState<any>(null);
   const [auditEvents, setAuditEvents] = useState<any[]>([]);
 
@@ -447,16 +473,18 @@ export function App() {
       setDocuments(docRes.documents || []);
 
       if (['ADM', 'FM', 'HWS'].includes(currentUser.role)) {
-        const [usrRes, gpsRes, anaRes, audRes] = await Promise.all([
+        const [usrRes, gpsRes, anaRes, audRes, fleetRes] = await Promise.all([
           apiRequest('/api/users'),
           apiRequest('/api/gps/latest'),
           apiRequest('/api/analytics/usage'),
           apiRequest('/api/audit'),
+          apiRequest('/api/admin/fleet-map-positions'),
         ]);
         setUsersList(usrRes.users || []);
         setGpsLatest(gpsRes);
         setUsageAnalytics(anaRes);
         setAuditEvents(audRes.auditEvents || []);
+        setFleetPositions(fleetRes.fleetPositions || []);
       }
     } catch (err: any) {
       console.error('Failed loading dashboard data:', err);
@@ -1193,6 +1221,32 @@ export function App() {
       });
       setEditingVehicle(null);
       setStatusBanner({ type: 'success', text: 'Vehicle specifications, license plate, and operational status updated.' });
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message });
+    }
+  };
+
+  const handleDeleteVehicle = async (veh: any) => {
+    if (!window.confirm(`Are you sure you want to delete vehicle ${veh.registration_plate} (${veh.make} ${veh.model})? All pending bookings will be unassigned and the car retired.`)) {
+      return;
+    }
+    try {
+      await apiRequest(`/api/vehicles/${veh.id}`, { method: 'DELETE' });
+      setStatusBanner({ type: 'success', text: `Vehicle ${veh.registration_plate} deleted successfully.` });
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message });
+    }
+  };
+
+  const handleDeleteDriver = async (drv: any) => {
+    if (!window.confirm(`Are you sure you want to delete driver profile ${drv.full_name}?`)) {
+      return;
+    }
+    try {
+      await apiRequest(`/api/drivers/${drv.id}`, { method: 'DELETE' });
+      setStatusBanner({ type: 'success', text: `Driver ${drv.full_name} profile deleted.` });
       await loadAllData(user);
     } catch (err: any) {
       setStatusBanner({ type: 'danger', text: err.message });
@@ -2194,6 +2248,140 @@ export function App() {
           </div>
         </div>
       )}
+
+      {showExecutiveReportModal && usageAnalytics && (
+        <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label="Executive Briefing Report">
+          <div className="gf-modal-card" style={{ maxWidth: '820px', width: '92vw', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '2px solid #e2e8f0', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#0072de', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '16px' }}>GF</div>
+                <div>
+                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: '#0f172a' }}>GalaxyFleet Executive Briefing Report</h2>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>Currency: Indonesian Rupiah (IDR) • Generated {new Date().toLocaleDateString('id-ID', { dateStyle: 'full' })}</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-primary pressable"
+                  onClick={() => window.print()}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Printer size={16} /> Print / Save PDF
+                </button>
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-secondary"
+                  onClick={() => setShowExecutiveReportModal(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Executive Summary Section */}
+              <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '16px', border: '1px solid #e2e8f0' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '12px' }}>1. Operational Overview</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Completed Trips</div>
+                    <div style={{ fontSize: '18px', fontWeight: 800, color: '#0072de' }}>{usageAnalytics.tripDurationSummary?.totalCompletedTrips || 0} Trips</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Cumulative Duration</div>
+                    <div style={{ fontSize: '18px', fontWeight: 800, color: '#059669' }}>{usageAnalytics.tripDurationSummary?.totalDurationFormatted || '0 Hours 0 Minutes'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Distance Traveled</div>
+                    <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>{usageAnalytics.combinedOverall?.allTime?.distanceKm || 0} km</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Operational Expenditure</div>
+                    <div style={{ fontSize: '18px', fontWeight: 800, color: '#b45309' }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.total_operational_cost_idr || 0)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Energy & Operating Cost Breakdown */}
+              <div>
+                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>2. Energy & Cost Breakdown (IDR)</h3>
+                <table className="gf-table" style={{ width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th>Expense Category</th>
+                      <th>Quantity / Usage</th>
+                      <th>Total Cost (IDR)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>⛽ Gasoline Fuel</strong></td>
+                      <td className="mono">{usageAnalytics.expensesBreakdownIdr?.gas_litres || 0} Litres</td>
+                      <td className="mono" style={{ fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.gas_idr || 0)}</td>
+                    </tr>
+                    <tr>
+                      <td><strong>⚡ Electric Charging (EV)</strong></td>
+                      <td className="mono">{usageAnalytics.expensesBreakdownIdr?.electric_kwh || 0} kWh</td>
+                      <td className="mono" style={{ fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.electric_idr || 0)}</td>
+                    </tr>
+                    <tr>
+                      <td><strong>🛣️ Tollway Operational Fees</strong></td>
+                      <td>Automated E-Toll</td>
+                      <td className="mono" style={{ fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.toll_idr || 0)}</td>
+                    </tr>
+                    <tr>
+                      <td><strong>🅿️ Facility & Parking Fees</strong></td>
+                      <td>Receipt-verified reimbursements</td>
+                      <td className="mono" style={{ fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.parking_idr || 0)}</td>
+                    </tr>
+                    <tr style={{ background: '#f8fafc', fontWeight: 800 }}>
+                      <td>TOTAL OPERATIONAL EXPENDITURE</td>
+                      <td>All Fleet Operations</td>
+                      <td className="mono" style={{ color: '#0072de', fontSize: '14px' }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.total_operational_cost_idr || 0)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Completed Trips Detail */}
+              {usageAnalytics.tripDurationSummary?.trips && usageAnalytics.tripDurationSummary.trips.length > 0 && (
+                <div>
+                  <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>3. Trip Elapsed Time Details</h3>
+                  <table className="gf-table" style={{ width: '100%', fontSize: '12px' }}>
+                    <thead>
+                      <tr>
+                        <th>Trip</th>
+                        <th>Driver</th>
+                        <th>Vehicle</th>
+                        <th>Purpose & Destination</th>
+                        <th>Distance</th>
+                        <th>Time Elapsed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {usageAnalytics.tripDurationSummary.trips.map((t: any) => (
+                        <tr key={t.id}>
+                          <td className="mono">#{t.id}</td>
+                          <td><strong>{t.driver_name}</strong></td>
+                          <td className="mono">{t.vehicle_plate}</td>
+                          <td>{t.purpose} (📍 {t.destination})</td>
+                          <td className="mono">{t.distance_km || 0} km</td>
+                          <td style={{ fontWeight: 700, color: '#059669' }}>{t.durationFormatted}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '10px', fontSize: '11px', color: '#94a3b8', textAlign: 'center' }}>
+                CONFIDENTIAL — FOR INTERNAL CORPORATE EXECUTIVE MANAGEMENT REVIEW ONLY
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -2206,15 +2394,6 @@ export function App() {
         <AdminShell
           activeModule={adminModule}
           onSelectModule={setAdminModule}
-          onSwitchToRideBooking={() => {
-            setNavSection('HOME');
-            setBookingStep('HOME');
-            setSheetSnap('half');
-          }}
-          onSwitchToDriverDispatch={() => {
-            setNavSection('DRIVER');
-            setSheetSnap('full');
-          }}
           onSignOut={handleLogout}
           pendingCount={pendingTrips.length + pendingUsers.length}
           userNickname={user.nickname}
@@ -2240,6 +2419,120 @@ export function App() {
               <button type="button" className="gf-btn gf-btn-secondary" style={{ minHeight: '36px', padding: '0 12px' }} onClick={() => setStatusBanner(null)}>
                 Dismiss
               </button>
+            </div>
+          )}
+
+          {adminModule === 'FLEET_MAP' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <MapPin size={20} style={{ color: 'var(--color-samsung-blue)' }} /> Overall Fleet Live Map
+                  </h2>
+                  <p className="type-caption">Live GPS positions and pool parking status for all {fleetPositions.length} operational company vehicles.</p>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span className="gf-badge" style={{ background: '#e0edff', color: '#005bb5', fontWeight: 700, padding: '4px 10px' }}>
+                    ⛽ Gasoline: {fleetPositions.filter((p) => p.energy_type === 'Gasoline').length} Cars
+                  </span>
+                  <span className="gf-badge" style={{ background: '#ecfdf5', color: '#059669', fontWeight: 700, padding: '4px 10px' }}>
+                    ⚡ EV: {fleetPositions.filter((p) => p.energy_type === 'Electric').length} Cars
+                  </span>
+                  <span className="gf-badge" style={{ background: '#fef3c7', color: '#b45309', fontWeight: 700, padding: '4px 10px' }}>
+                    🚗 In Trip: {fleetPositions.filter((p) => p.status === 'IN_TRIP').length} Active
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ height: '560px', width: '100%', borderRadius: '16px', overflow: 'hidden', position: 'relative', border: '1px solid var(--color-border)', boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
+                <MapView
+                  origin=""
+                  destination=""
+                  showRoute={false}
+                  pinMode={false}
+                  fleetPositions={fleetPositions}
+                  userPins={userPins}
+                  currentUserId={user.id}
+                  onLocateMe={() => detectAndReportUserLocation(false)}
+                />
+              </div>
+
+              {/* Quick Fleet Position Directory Table */}
+              <div className="gf-card-flat">
+                <h3 className="type-title" style={{ fontSize: '15px', marginBottom: '10px' }}>Live Vehicle Status Directory</h3>
+                <div className="gf-table-wrap">
+                  <table className="gf-table">
+                    <thead>
+                      <tr>
+                        <th>Plate & Model</th>
+                        <th>Energy / Battery</th>
+                        <th>Assigned Driver</th>
+                        <th>Status</th>
+                        <th>Current Location / Pool</th>
+                        <th>Contact Driver</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fleetPositions.map((pos) => (
+                        <tr key={pos.id}>
+                          <td>
+                            <div style={{ fontWeight: 800 }}>{pos.registration_plate}</div>
+                            <div className="type-caption">{pos.make} {pos.model} ({pos.car_type})</div>
+                          </td>
+                          <td>
+                            <StatusBadge
+                              label={pos.energy_type === 'Electric' ? `EV ${pos.battery_percent ?? 100}%` : 'Gasoline'}
+                              tone={pos.energy_type === 'Electric' ? 'green' : 'neutral'}
+                            />
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{pos.driver_name}</div>
+                            {pos.driver_phone && <div className="type-caption mono">{pos.driver_phone}</div>}
+                          </td>
+                          <td>
+                            <StatusBadge
+                              label={pos.status}
+                              tone={pos.status === 'IN_TRIP' ? 'blue' : pos.status === 'Active' ? 'green' : 'amber'}
+                            />
+                            {pos.active_trip && (
+                              <div className="type-caption" style={{ color: '#005bb5', marginTop: '2px' }}>
+                                To: {pos.active_trip.destination} (Pax: {pos.active_trip.passenger_nickname || 'Employee'})
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ fontSize: '13px' }}>{pos.location_label}</td>
+                          <td>
+                            {pos.driver_phone ? (
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <a
+                                  href={formatWhatsAppUrl(pos.driver_phone)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="gf-btn gf-btn-secondary"
+                                  style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px', background: '#dcfce7', color: '#166534', textDecoration: 'none' }}
+                                  title="WhatsApp Chat"
+                                >
+                                  WhatsApp
+                                </a>
+                                <a
+                                  href={formatPhoneCallUrl(pos.driver_phone)}
+                                  className="gf-btn gf-btn-secondary"
+                                  style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px', textDecoration: 'none' }}
+                                  title="Phone Call"
+                                >
+                                  Call
+                                </a>
+                              </div>
+                            ) : (
+                              <span className="type-caption">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
 
@@ -2739,6 +3032,9 @@ export function App() {
                                   <button type="button" className="gf-btn gf-btn-primary" onClick={() => openVehicle360(v.id)}>
                                     360°
                                   </button>
+                                  <button type="button" className="gf-btn gf-btn-outline-danger" onClick={() => handleDeleteVehicle(v)} title="Delete Vehicle">
+                                    <Trash2 size={15} /> Delete
+                                  </button>
                                 </div>
                               </td>
                             </tr>
@@ -2848,6 +3144,7 @@ export function App() {
                             <th>Expiry</th>
                             <th>Status</th>
                             <th>Toggle Status</th>
+                            <th>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2897,6 +3194,39 @@ export function App() {
                                   <option value="On Leave">On Leave</option>
                                   <option value="Unavailable">Unavailable</option>
                                 </select>
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                  <button
+                                    type="button"
+                                    className="gf-btn gf-btn-secondary"
+                                    style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px' }}
+                                    onClick={() => {
+                                      setNewDriverForm({
+                                        user_id: d.user_id ? String(d.user_id) : '',
+                                        full_name: d.full_name,
+                                        department_id: d.department_id || groupsList[0]?.id || 1,
+                                        licence_number: d.licence_number || '',
+                                        licence_class: d.licence_class || 'A',
+                                        licence_expiry: d.licence_expiry || new Date().toISOString().slice(0, 10),
+                                        contact_number: d.contact_number || '',
+                                        availability_status: d.availability_status || 'Active',
+                                      });
+                                      setStatusBanner({ type: 'info', text: `Loaded driver ${d.full_name} into form above for editing.` });
+                                    }}
+                                  >
+                                    <Edit3 size={13} /> Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="gf-btn gf-btn-outline-danger"
+                                    style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px' }}
+                                    onClick={() => handleDeleteDriver(d)}
+                                    title="Delete Driver Profile"
+                                  >
+                                    <Trash2 size={13} /> Delete
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -2992,7 +3322,7 @@ export function App() {
                         <thead><tr><th>Plate</th><th>Litres</th><th>Cost</th><th>Odo</th></tr></thead>
                         <tbody>
                           {fuelRecords.map((f) => (
-                            <tr key={f.id}><td>{f.registration_plate}</td><td className="mono">{f.litres} L</td><td className="mono">${Number(f.cost).toFixed(2)}</td><td className="mono">{f.odometer_km} km</td></tr>
+                            <tr key={f.id}><td>{f.registration_plate}</td><td className="mono">{f.litres} L</td><td className="mono" style={{ fontWeight: 700 }}>{formatIdr(f.cost)}</td><td className="mono">{f.odometer_km} km</td></tr>
                           ))}
                         </tbody>
                       </table>
@@ -3043,7 +3373,7 @@ export function App() {
                         <thead><tr><th>EV</th><th>kWh</th><th>SoC</th><th>Cost</th></tr></thead>
                         <tbody>
                           {evRecords.map((ev) => (
-                            <tr key={ev.id}><td>{ev.registration_plate}</td><td className="mono">{ev.kwh_added} kWh</td><td className="mono">{ev.battery_start_pct}% → {ev.battery_end_pct}%</td><td className="mono">${Number(ev.cost).toFixed(2)}</td></tr>
+                            <tr key={ev.id}><td>{ev.registration_plate}</td><td className="mono">{ev.kwh_added} kWh</td><td className="mono">{ev.battery_start_pct}% → {ev.battery_end_pct}%</td><td className="mono" style={{ fontWeight: 700 }}>{formatIdr(ev.cost)}</td></tr>
                           ))}
                         </tbody>
                       </table>
@@ -3091,10 +3421,10 @@ export function App() {
                   </form>
                   <div className="gf-table-wrap">
                     <table className="gf-table">
-                      <thead><tr><th>Vehicle</th><th>Type</th><th>Date</th><th>Cost</th><th>Status</th></tr></thead>
+                      <thead><tr><th>Vehicle</th><th>Type</th><th>Date</th><th>Cost (IDR)</th><th>Status</th></tr></thead>
                       <tbody>
                         {maintenanceRecords.map((m) => (
-                          <tr key={m.id}><td>{m.registration_plate}</td><td>{m.maintenance_type} ({m.applicable_energy_type})</td><td className="mono">{new Date(m.service_date).toLocaleDateString()}</td><td className="mono">${Number(m.cost).toFixed(2)}</td><td><StatusBadge label={m.status} tone="amber" /></td></tr>
+                          <tr key={m.id}><td>{m.registration_plate}</td><td>{m.maintenance_type} ({m.applicable_energy_type})</td><td className="mono">{new Date(m.service_date).toLocaleDateString()}</td><td className="mono" style={{ fontWeight: 700 }}>{formatIdr(m.cost)}</td><td><StatusBadge label={m.status} tone="amber" /></td></tr>
                         ))}
                       </tbody>
                     </table>
@@ -3319,45 +3649,153 @@ export function App() {
             </>
           )}
 
-          {adminModule === 'ANALYTICS_AUDIT' && usageAnalytics && (
+          {adminModule === 'ANALYTICS_REPORT' && usageAnalytics && (
             <>
+              {/* Executive Reports Header Toolbar */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+                <div>
+                  <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <BarChart3 size={20} style={{ color: 'var(--color-samsung-blue)' }} /> Usage Analytics & Executive Briefing
+                  </h2>
+                  <p className="type-caption">Financial and operational performance summary. All expenditures strictly denominated in Indonesian Rupiah (IDR).</p>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <a
+                    href="/api/reports/executive-pdf"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="gf-btn gf-btn-primary pressable"
+                    download="GalaxyFleet_Executive_Report.pdf"
+                    style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <FileDown size={16} /> Download Executive PDF Report
+                  </a>
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-secondary pressable"
+                    onClick={() => setShowExecutiveReportModal(true)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Printer size={16} /> Print Executive Briefing
+                  </button>
+                </div>
+              </div>
+
+              {/* Top KPI Grid with Elapsed Duration in Hours & Minutes + All-Time IDR Totals */}
               <div className="gf-kpi-grid">
                 <div className="gf-card-flat">
-                  <div className="type-caption">TODAY (ALL CARS)</div>
-                  <div className="type-title mono">{usageAnalytics.combinedOverall.day.distanceKm} km</div>
-                  <div className="type-caption">{usageAnalytics.combinedOverall.day.trips} trips</div>
+                  <div className="type-caption">TOTAL COMPLETED TRIPS</div>
+                  <div className="type-title mono" style={{ color: '#0072de' }}>
+                    {usageAnalytics.tripDurationSummary?.totalCompletedTrips || usageAnalytics.combinedOverall.allTime.trips}
+                  </div>
+                  <div className="type-caption">{usageAnalytics.combinedOverall.allTime.distanceKm} km traveled</div>
                 </div>
                 <div className="gf-card-flat">
-                  <div className="type-caption">THIS WEEK (ALL CARS)</div>
-                  <div className="type-title mono">{usageAnalytics.combinedOverall.week.distanceKm} km</div>
-                  <div className="type-caption">{usageAnalytics.combinedOverall.week.trips} trips</div>
+                  <div className="type-caption">DRIVER TRIP TIME ELAPSED</div>
+                  <div className="type-title mono" style={{ fontSize: '18px', color: '#059669' }}>
+                    {usageAnalytics.tripDurationSummary?.totalDurationFormatted || '0 Hours 0 Minutes'}
+                  </div>
+                  <div className="type-caption">Cumulative driving hours count</div>
                 </div>
                 <div className="gf-card-flat">
-                  <div className="type-caption">THIS MONTH (ALL CARS)</div>
+                  <div className="type-caption">TOTAL OPERATING COST (IDR)</div>
+                  <div className="type-title mono" style={{ fontSize: '18px', color: '#b45309' }}>
+                    {formatIdr(usageAnalytics.expensesBreakdownIdr?.total_operational_cost_idr || usageAnalytics.combinedOverall.gasolineSummary.totalFuelCost + usageAnalytics.combinedOverall.electricSummary.totalChargingCost)}
+                  </div>
+                  <div className="type-caption">Gas, EV, Toll & Parking</div>
+                </div>
+                <div className="gf-card-flat">
+                  <div className="type-caption">THIS MONTH USAGE</div>
                   <div className="type-title mono">{usageAnalytics.combinedOverall.month.distanceKm} km</div>
-                  <div className="type-caption">{usageAnalytics.combinedOverall.month.trips} trips</div>
-                </div>
-                <div className="gf-card-flat">
-                  <div className="type-caption">OVERALL TOTAL</div>
-                  <div className="type-title mono">{usageAnalytics.combinedOverall.allTime.distanceKm} km</div>
-                  <div className="type-caption">{usageAnalytics.combinedOverall.allTime.trips} trips</div>
+                  <div className="type-caption">{usageAnalytics.combinedOverall.month.trips} trips completed</div>
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
-                <div className="gf-card-flat">
-                  <div className="type-section">Gasoline Summary (Litres)</div>
-                  <div className="type-title mono">{usageAnalytics.combinedOverall.gasolineSummary.totalLitres} L • ${usageAnalytics.combinedOverall.gasolineSummary.totalFuelCost.toFixed(2)}</div>
+              {/* Energy & Operating Fees Breakdown strictly in IDR */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+                <div className="gf-card-flat" style={{ borderLeft: '4px solid #0072de' }}>
+                  <div className="type-section" style={{ fontSize: '14.5px' }}>Gasoline Fleet Summary</div>
+                  <div className="type-title mono" style={{ fontSize: '16.5px', marginTop: '4px' }}>
+                    {usageAnalytics.expensesBreakdownIdr?.gas_litres || usageAnalytics.combinedOverall.gasolineSummary.totalLitres} Litres
+                  </div>
+                  <div className="type-caption" style={{ fontWeight: 700, color: '#005bb5' }}>
+                    Cost: {formatIdr(usageAnalytics.expensesBreakdownIdr?.gas_idr || usageAnalytics.combinedOverall.gasolineSummary.totalFuelCost)}
+                  </div>
                 </div>
-                <div className="gf-card-flat">
-                  <div className="type-section">Electric Summary (kWh)</div>
-                  <div className="type-title mono">{usageAnalytics.combinedOverall.electricSummary.totalKwh} kWh • ${usageAnalytics.combinedOverall.electricSummary.totalChargingCost.toFixed(2)}</div>
+
+                <div className="gf-card-flat" style={{ borderLeft: '4px solid #059669' }}>
+                  <div className="type-section" style={{ fontSize: '14.5px' }}>Electric (EV) Fleet Summary</div>
+                  <div className="type-title mono" style={{ fontSize: '16.5px', marginTop: '4px' }}>
+                    {usageAnalytics.expensesBreakdownIdr?.electric_kwh || usageAnalytics.combinedOverall.electricSummary.totalKwh} kWh
+                  </div>
+                  <div className="type-caption" style={{ fontWeight: 700, color: '#059669' }}>
+                    Cost: {formatIdr(usageAnalytics.expensesBreakdownIdr?.electric_idr || usageAnalytics.combinedOverall.electricSummary.totalChargingCost)}
+                  </div>
+                </div>
+
+                <div className="gf-card-flat" style={{ borderLeft: '4px solid #f59e0b' }}>
+                  <div className="type-section" style={{ fontSize: '14.5px' }}>Tollway Operational Fees</div>
+                  <div className="type-title mono" style={{ fontSize: '16.5px', marginTop: '4px' }}>
+                    {formatIdr(usageAnalytics.expensesBreakdownIdr?.toll_idr || 0)}
+                  </div>
+                  <div className="type-caption">Electronic toll collection</div>
+                </div>
+
+                <div className="gf-card-flat" style={{ borderLeft: '4px solid #8b5cf6' }}>
+                  <div className="type-section" style={{ fontSize: '14.5px' }}>Parking & Facility Fees</div>
+                  <div className="type-title mono" style={{ fontSize: '16.5px', marginTop: '4px' }}>
+                    {formatIdr(usageAnalytics.expensesBreakdownIdr?.parking_idr || 0)}
+                  </div>
+                  <div className="type-caption">Parking receipts verified</div>
                 </div>
               </div>
 
-              <section className="gf-card-flat">
+              {/* Completed Trips Elapsed Time Directory (Hours & Minutes count) */}
+              {usageAnalytics.tripDurationSummary?.trips && usageAnalytics.tripDurationSummary.trips.length > 0 && (
+                <section className="gf-card-flat" style={{ marginBottom: '14px' }}>
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>
+                    Completed Trips Elapsed Driving Time ({usageAnalytics.tripDurationSummary.trips.length} Trips)
+                  </h2>
+                  <div className="gf-table-wrap">
+                    <table className="gf-table">
+                      <thead>
+                        <tr>
+                          <th>Trip ID</th>
+                          <th>Driver</th>
+                          <th>Vehicle</th>
+                          <th>Purpose & Destination</th>
+                          <th>Distance</th>
+                          <th>Time Elapsed (Hours & Mins)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {usageAnalytics.tripDurationSummary.trips.map((t: any) => (
+                          <tr key={t.id}>
+                            <td className="mono">#{t.id}</td>
+                            <td style={{ fontWeight: 700 }}>{t.driver_name}</td>
+                            <td className="mono">{t.vehicle_plate}</td>
+                            <td>
+                              <div style={{ fontWeight: 600 }}>{t.purpose}</div>
+                              <div className="type-caption">📍 {t.destination}</div>
+                            </td>
+                            <td className="mono">{t.distance_km || 0} km</td>
+                            <td>
+                              <span className="gf-badge" style={{ background: '#ecfdf5', color: '#059669', fontWeight: 800 }}>
+                                ⏱️ {t.durationFormatted}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+
+              {/* Vehicle Usage Summary Table */}
+              <section className="gf-card-flat" style={{ marginBottom: '14px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
-                  <h2 className="type-section">Vehicle Usage Summary</h2>
+                  <h2 className="type-section">Vehicle Usage & Cost Breakdown (IDR)</h2>
                   <div style={{ display: 'flex', gap: '6px' }}>
                     {(['day', 'week', 'month', 'overall'] as const).map((p) => (
                       <Chip key={p} active={usagePeriod === p} onClick={() => setUsagePeriod(p)}>{p.toUpperCase()}</Chip>
@@ -3374,7 +3812,7 @@ export function App() {
                         <th>Week</th>
                         <th>Month</th>
                         <th>All-Time</th>
-                        <th>Total Cost</th>
+                        <th>Total Cost (IDR)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -3386,7 +3824,7 @@ export function App() {
                           <td className="mono">{v.week.distanceKm} km ({v.week.trips})</td>
                           <td className="mono">{v.month.distanceKm} km ({v.month.trips})</td>
                           <td className="mono">{v.overall.distanceKm} km ({v.overall.trips})</td>
-                          <td className="mono">${v.totalOperatingCost.toFixed(2)}</td>
+                          <td className="mono" style={{ fontWeight: 700 }}>{formatIdr(v.totalOperatingCost)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -3394,8 +3832,9 @@ export function App() {
                 </div>
               </section>
 
+              {/* Driver Usage Summary Table */}
               <section className="gf-card-flat">
-                <h2 className="type-section" style={{ marginBottom: '12px' }}>Driver Usage Summary</h2>
+                <h2 className="type-section" style={{ marginBottom: '12px' }}>Driver Operational Usage Summary</h2>
                 <div className="gf-table-wrap">
                   <table className="gf-table">
                     <thead><tr><th>Driver</th><th>Status</th><th>Day</th><th>Week</th><th>Month</th><th>Overall</th></tr></thead>
@@ -3414,88 +3853,84 @@ export function App() {
                   </table>
                 </div>
               </section>
+            </>
+          )}
 
-              <section className="gf-card-flat">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                  <div>
-                    <h2 className="type-section">Live User & Driver Location Pinpoints ({userPins.length})</h2>
-                    <p className="type-caption">Detected GPS coordinates reported by active app users & drivers</p>
-                  </div>
-                  <button type="button" className="gf-btn gf-btn-secondary" onClick={() => detectAndReportUserLocation(false)}>
-                    <MapPin size={15} /> Refresh My Location
-                  </button>
+          {/* DEDICATED AUDIT TRAIL MODULE (Independent from Analytics) */}
+          {adminModule === 'AUDIT' && (
+            <section className="gf-card-flat">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+                <div>
+                  <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <ScrollText size={20} style={{ color: 'var(--color-samsung-blue)' }} /> System Audit Trail ({auditEvents.length} Recorded Events)
+                  </h2>
+                  <p className="type-caption">Immutable security log of all system transactions, driver check-ins, trip odometer verifications, and approvals.</p>
                 </div>
-                {userPins.length === 0 ? (
-                  <EmptyState message="No user locations reported yet." />
-                ) : (
-                  <div className="gf-table-wrap">
-                    <table className="gf-table">
-                      <thead>
-                        <tr>
-                          <th>User</th>
-                          <th>Group & Role</th>
-                          <th>Detected Address / Pinpoint</th>
-                          <th>Coordinates</th>
-                          <th>Updated</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {userPins.map((p) => (
-                          <tr key={p.user_id}>
-                            <td style={{ fontWeight: 700 }}>{p.nickname} <span className="mono type-caption">@{p.group_username}</span></td>
-                            <td>{p.group_name || '—'} • <StatusBadge label={p.role} tone="green" /></td>
-                            <td>{p.address_label || 'GPS Pinpoint'}</td>
-                            <td className="mono type-caption">{Number(p.latitude).toFixed(5)}, {Number(p.longitude).toFixed(5)}</td>
-                            <td className="mono type-caption">{new Date(p.updated_at).toLocaleTimeString()}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
+                <input
+                  type="search"
+                  className="gf-input"
+                  style={{ maxWidth: '280px', minHeight: '38px' }}
+                  placeholder="Filter by action or actor..."
+                  value={auditSearchQuery}
+                  onChange={(e) => setAuditSearchQuery(e.target.value)}
+                />
+              </div>
 
-              {gpsLatest && (
-                <section className="gf-card-flat">
-                  <h2 className="type-section" style={{ marginBottom: '8px' }}>Periodic Location Monitor (Best-Effort GPS)</h2>
-                  <p className="type-caption" style={{ marginBottom: '12px' }}>{gpsLatest.notice}</p>
-                  <div className="gf-table-wrap">
-                    <table className="gf-table">
-                      <thead><tr><th>Driver</th><th>State</th><th>Coordinates</th><th>Timestamps</th></tr></thead>
-                      <tbody>
-                        {gpsLatest.drivers.map((d: any) => (
-                          <tr key={d.driver_profile_id}>
-                            <td style={{ fontWeight: 700 }}>{d.driver_name}</td>
-                            <td><StatusBadge label={d.status_label} tone={toneFromStatus(d.display_state)} /></td>
-                            <td className="mono type-caption">{d.report && d.report.latitude !== null ? `${Number(d.report.latitude).toFixed(5)}, ${Number(d.report.longitude).toFixed(5)} (${d.accuracy_label})` : 'No position shown as current'}</td>
-                            <td className="mono type-caption">{d.report ? `Captured: ${d.report.capture_time}` : '—'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              )}
-
-              <section className="gf-card-flat">
-                <h2 className="type-section" style={{ marginBottom: '12px' }}>Audit Trail ({auditEvents.length} Recent)</h2>
-                <div className="gf-table-wrap">
-                  <table className="gf-table">
-                    <thead><tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Entity</th></tr></thead>
-                    <tbody>
-                      {auditEvents.slice(0, 20).map((ev) => (
+              <div className="gf-table-wrap">
+                <table className="gf-table">
+                  <thead>
+                    <tr>
+                      <th>Time (UTC)</th>
+                      <th>Actor</th>
+                      <th>Action</th>
+                      <th>Entity</th>
+                      <th>Audit Details & Payload</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditEvents
+                      .filter((ev) => {
+                        if (!auditSearchQuery.trim()) return true;
+                        const q = auditSearchQuery.toLowerCase();
+                        return (
+                          (ev.action || '').toLowerCase().includes(q) ||
+                          (ev.actor_username || '').toLowerCase().includes(q) ||
+                          (ev.entity_type || '').toLowerCase().includes(q)
+                        );
+                      })
+                      .slice(0, 50)
+                      .map((ev) => (
                         <tr key={ev.id}>
-                          <td className="mono type-caption">{ev.created_at}</td>
-                          <td>{ev.actor_username} ({ev.actor_role})</td>
-                          <td className="mono">{ev.action}</td>
-                          <td className="mono">{ev.entity_type} {ev.entity_id ? `#${ev.entity_id}` : ''}</td>
+                          <td className="mono type-caption" style={{ whiteSpace: 'nowrap' }}>{ev.created_at}</td>
+                          <td>
+                            <div style={{ fontWeight: 700 }}>{ev.actor_username}</div>
+                            <div className="type-caption">Role: {ev.actor_role} • User #{ev.actor_user_id}</div>
+                          </td>
+                          <td>
+                            <span className="gf-badge" style={{ fontWeight: 700, fontSize: '11px', background: '#f1f5f9', color: '#1e293b' }}>
+                              {ev.action}
+                            </span>
+                          </td>
+                          <td className="mono" style={{ fontSize: '12px' }}>
+                            {ev.entity_type} {ev.entity_id ? `#${ev.entity_id}` : ''}
+                          </td>
+                          <td style={{ fontSize: '11.5px', maxWidth: '380px' }}>
+                            <details>
+                              <summary style={{ cursor: 'pointer', color: '#0072de', fontWeight: 600 }}>Inspect State Payload</summary>
+                              <pre style={{ background: '#f8fafc', padding: '6px', borderRadius: '6px', overflowX: 'auto', fontSize: '10.5px', margin: '4px 0 0 0', maxHeight: '180px' }}>
+                                {JSON.stringify({
+                                  previous: ev.prev_state_json ? JSON.parse(ev.prev_state_json) : null,
+                                  new: ev.new_state_json ? JSON.parse(ev.new_state_json) : null,
+                                }, null, 2)}
+                              </pre>
+                            </details>
+                          </td>
                         </tr>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            </>
+                  </tbody>
+                </table>
+              </div>
+            </section>
           )}
         </AdminShell>
         {renderSharedModals()}
@@ -4121,36 +4556,131 @@ export function App() {
                               </button>
                             )}
                             {!isInProgress ? (
-                              <div style={{ display: 'flex', gap: '8px' }}>
-                                <input
-                                  type="number"
-                                  className="gf-input"
-                                  aria-label="Start odometer"
-                                  value={activeTripOdoInput[tripId] ?? d.current_odometer}
-                                  onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
-                                />
-                                <button
-                                  type="button"
-                                  className="gf-btn gf-btn-primary"
-                                  onClick={async () => {
-                                    try {
-                                      await sendDriverLocationReport('GRANTED');
-                                      await apiRequest(`/api/driver/trips/${tripId}/start`, {
-                                        method: 'POST',
-                                        body: JSON.stringify({ start_odometer: Number(activeTripOdoInput[tripId] ?? d.current_odometer) }),
-                                      });
-                                      setStatusBanner({ type: 'success', text: 'Check-in verified & trip started!' });
-                                      await loadAllData(user);
-                                    } catch (err: any) {
-                                      setStatusBanner({ type: 'danger', text: err.message });
-                                    }
-                                  }}
-                                >
-                                  <Play size={16} /> Start Trip
-                                </button>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div style={{ border: '1.5px solid #bfdbfe', background: '#eff6ff', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <label htmlFor={`start-odo-file-${tripId}`} style={{ fontWeight: 800, fontSize: '13px', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <Camera size={16} /> Mandatory Start Odometer Photo
+                                    </label>
+                                    <span style={{ fontSize: '11px', color: '#64748b' }}>
+                                      {startOdoTime[tripId] ? `Recorded: ${startOdoTime[tripId]}` : 'Auto-recorded on capture'}
+                                    </span>
+                                  </div>
+                                  <input
+                                    type="file"
+                                    id={`start-odo-file-${tripId}`}
+                                    accept="image/*"
+                                    capture="environment"
+                                    className="gf-input"
+                                    style={{ background: '#ffffff' }}
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (!file) return;
+                                      const reader = new FileReader();
+                                      reader.onload = () => {
+                                        const b64 = reader.result as string;
+                                        setStartOdoPhoto((prev) => ({ ...prev, [tripId]: b64 }));
+                                        setStartOdoTime((prev) => ({ ...prev, [tripId]: new Date().toLocaleString() }));
+                                      };
+                                      reader.readAsDataURL(file);
+                                    }}
+                                  />
+                                  {startOdoPhoto[tripId] && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                      <img
+                                        src={startOdoPhoto[tripId]}
+                                        alt="Start Odometer preview"
+                                        style={{ width: '70px', height: '50px', objectFit: 'cover', borderRadius: '8px', border: '1.5px solid #3b82f6' }}
+                                      />
+                                      <span style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: 700 }}>
+                                        ✅ Odometer photo verified ({startOdoTime[tripId]})
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  <input
+                                    type="number"
+                                    className="gf-input"
+                                    aria-label="Start odometer"
+                                    placeholder="Start Odometer (km)"
+                                    value={activeTripOdoInput[tripId] ?? d.current_odometer}
+                                    onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="gf-btn gf-btn-primary"
+                                    onClick={async () => {
+                                      if (!startOdoPhoto[tripId]) {
+                                        setStatusBanner({ type: 'danger', text: 'Mandatory: Driver must take a photo of the odometer before starting the trip.' });
+                                        return;
+                                      }
+                                      try {
+                                        await sendDriverLocationReport('GRANTED');
+                                        await apiRequest(`/api/driver/trips/${tripId}/start`, {
+                                          method: 'POST',
+                                          body: JSON.stringify({
+                                            start_odometer: Number(activeTripOdoInput[tripId] ?? d.current_odometer),
+                                            start_odometer_photo: startOdoPhoto[tripId],
+                                            photo_base64: startOdoPhoto[tripId],
+                                          }),
+                                        });
+                                        setStatusBanner({ type: 'success', text: 'Check-in & odometer photo verified, trip started!' });
+                                        await loadAllData(user);
+                                      } catch (err: any) {
+                                        setStatusBanner({ type: 'danger', text: err.message });
+                                      }
+                                    }}
+                                  >
+                                    <Play size={16} /> Start Trip
+                                  </button>
+                                </div>
                               </div>
                             ) : (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div style={{ border: '1.5px solid #bfdbfe', background: '#eff6ff', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <label htmlFor={`end-odo-file-${tripId}`} style={{ fontWeight: 800, fontSize: '13px', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <Camera size={16} /> Mandatory Completion Odometer Photo
+                                    </label>
+                                    <span style={{ fontSize: '11px', color: '#64748b' }}>
+                                      {endOdoTime[tripId] ? `Recorded: ${endOdoTime[tripId]}` : 'Auto-recorded on capture'}
+                                    </span>
+                                  </div>
+                                  <input
+                                    type="file"
+                                    id={`end-odo-file-${tripId}`}
+                                    accept="image/*"
+                                    capture="environment"
+                                    className="gf-input"
+                                    style={{ background: '#ffffff' }}
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (!file) return;
+                                      const reader = new FileReader();
+                                      reader.onload = () => {
+                                        const b64 = reader.result as string;
+                                        setEndOdoPhoto((prev) => ({ ...prev, [tripId]: b64 }));
+                                        setEndOdoTime((prev) => ({ ...prev, [tripId]: new Date().toLocaleString() }));
+                                      };
+                                      reader.readAsDataURL(file);
+                                    }}
+                                  />
+                                  {endOdoPhoto[tripId] && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                      <img
+                                        src={endOdoPhoto[tripId]}
+                                        alt="End Odometer preview"
+                                        style={{ width: '70px', height: '50px', objectFit: 'cover', borderRadius: '8px', border: '1.5px solid #3b82f6' }}
+                                      />
+                                      <span style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: 700 }}>
+                                        ✅ End photo verified ({endOdoTime[tripId]})
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+
                                 <input
                                   type="number"
                                   className="gf-input"
@@ -4178,17 +4708,23 @@ export function App() {
                                   type="button"
                                   className="gf-btn gf-btn-primary gf-btn-full"
                                   onClick={async () => {
+                                    if (!endOdoPhoto[tripId]) {
+                                      setStatusBanner({ type: 'danger', text: 'Mandatory: Driver must take a photo of the odometer upon trip completion.' });
+                                      return;
+                                    }
                                     try {
                                       await sendDriverLocationReport('GRANTED');
                                       await apiRequest(`/api/driver/trips/${tripId}/complete`, {
                                         method: 'POST',
                                         body: JSON.stringify({
                                           end_odometer: Number(activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25),
+                                          end_odometer_photo: endOdoPhoto[tripId],
+                                          photo_base64: endOdoPhoto[tripId],
                                           battery_percent: d.energy_type === 'Electric' ? Number(activeTripBatteryInput[tripId] ?? 72) : undefined,
                                           parking_return_note: activeTripParkingInput[tripId] || 'Main Pool',
                                         }),
                                       });
-                                      setStatusBanner({ type: 'success', text: 'Trip completed & odometer saved.' });
+                                      setStatusBanner({ type: 'success', text: 'Trip completed, odometer photo and timestamp saved!' });
                                       await loadAllData(user);
                                     } catch (err: any) {
                                       setStatusBanner({ type: 'danger', text: err.message });
@@ -5509,7 +6045,7 @@ export function App() {
 
             <div>
               <label className="type-caption" htmlFor="driver-pick-select" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                Preferred Driver
+                Preferred Driver ({selectedVehicle ? selectedVehicle.energy_type : ''} Category)
               </label>
               <select
                 id="driver-pick-select"
@@ -5518,12 +6054,27 @@ export function App() {
                 onChange={(e) => setBookDriverId(e.target.value)}
               >
                 <option value="">Auto-assign on Admin approval</option>
-                {activeDrivers.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.full_name} (Class {d.licence_class}{d.department_name ? ` • ${d.department_name}` : ''})
-                  </option>
-                ))}
+                {activeDrivers
+                  .filter((d) => {
+                    if (!selectedVehicle) return true;
+                    const assignedCar = vehicles.find((v) => v.default_driver_id === d.id);
+                    if (assignedCar) {
+                      return assignedCar.energy_type === selectedVehicle.energy_type;
+                    }
+                    return true;
+                  })
+                  .map((d) => {
+                    const assignedCar = vehicles.find((v) => v.default_driver_id === d.id);
+                    return (
+                      <option key={d.id} value={d.id}>
+                        {d.full_name} ({selectedVehicle.energy_type} Driver{assignedCar ? ` • ${assignedCar.registration_plate}` : ''})
+                      </option>
+                    );
+                  })}
               </select>
+              <div className="type-caption" style={{ marginTop: '4px', color: '#64748b' }}>
+                Drivers are filtered by the {selectedVehicle.energy_type} vehicle category. Final assignment is confirmed upon Admin/Fleet Manager approval.
+              </div>
             </div>
 
             <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: 0.45 }}>
