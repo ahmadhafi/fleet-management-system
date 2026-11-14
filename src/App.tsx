@@ -41,6 +41,7 @@ import {
   Eye,
   EyeOff,
   User,
+  RefreshCw,
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
 import { AppShell, AdminShell, type NavSection, type AdminModule } from './components/AppShell';
@@ -1136,6 +1137,29 @@ export function App() {
       detectAndReportUserLocation(false);
     }, 45 * 1000);
 
+    // Fast real-time trip & dispatch status synchronization poller (runs every 4 seconds)
+    // Synchronizes booking approvals, driver assignments, trip starts, and completions across requester, driver, and admin
+    const syncInterval = window.setInterval(async () => {
+      try {
+        const [trpRes, bkgRes] = await Promise.all([
+          apiRequest('/api/trips'),
+          apiRequest('/api/bookings'),
+        ]);
+        if (Array.isArray(trpRes.trips)) {
+          setTrips(trpRes.trips);
+        }
+        if (Array.isArray(bkgRes.bookings)) {
+          setBookings(bkgRes.bookings);
+        }
+        if (['DRV', 'ADM', 'FM'].includes(user.role)) {
+          const dspRes = await apiRequest('/api/driver/dispatches').catch(() => ({ dispatches: [] }));
+          if (Array.isArray(dspRes.dispatches)) {
+            setDispatches(dspRes.dispatches);
+          }
+        }
+      } catch {}
+    }, 4 * 1000);
+
     // Real-time notification poller (delivers alerts to Driver, User, Admin, Head of WS Part, Fleet Operation PIC)
     const notifInterval = window.setInterval(async () => {
       try {
@@ -1144,17 +1168,22 @@ export function App() {
         setNotifications((prev) => {
           const prevIds = new Set(prev.map((n: any) => n.id));
           const newItems = list.filter((n: any) => !prevIds.has(n.id) && !n.is_read);
-          if (newItems.length > 0 && 'Notification' in window && Notification.permission === 'granted') {
-            for (const item of newItems) {
-              try {
-                new Notification(item.title, { body: item.body, icon: '/icons/icon.svg' });
-              } catch {}
+          if (newItems.length > 0) {
+            // Immediately sync trips and bookings when an alert arrives
+            apiRequest('/api/trips').then((r) => { if (r.trips) setTrips(r.trips); }).catch(() => {});
+            apiRequest('/api/bookings').then((r) => { if (r.bookings) setBookings(r.bookings); }).catch(() => {});
+            if ('Notification' in window && Notification.permission === 'granted') {
+              for (const item of newItems) {
+                try {
+                  new Notification(item.title, { body: item.body, icon: '/icons/icon.svg' });
+                } catch {}
+              }
             }
           }
           return list;
         });
       } catch {}
-    }, 15 * 1000);
+    }, 10 * 1000);
 
     // Real-time Fleet Map GPS positions poller (updates vehicle markers to follow real drivers live)
     let fleetInterval: number | null = null;
@@ -1166,11 +1195,12 @@ export function App() {
             setFleetPositions(res.fleetPositions);
           }
         } catch {}
-      }, 15 * 1000);
+      }, 10 * 1000);
     }
 
     return () => {
       window.clearInterval(locInterval);
+      window.clearInterval(syncInterval);
       window.clearInterval(notifInterval);
       if (fleetInterval) window.clearInterval(fleetInterval);
     };
@@ -1575,7 +1605,6 @@ export function App() {
       trips.filter(
         (t) =>
           (t.status === 'PENDING_APPROVAL' || t.status === 'APPROVED' || t.status === 'IN_PROGRESS') &&
-          t.booking_id !== null &&
           t.booking_status !== 'CANCELLED'
       ),
     [trips]
@@ -1588,14 +1617,13 @@ export function App() {
           t.status === 'COMPLETED' ||
           t.status === 'REJECTED' ||
           t.status === 'CANCELLED' ||
-          t.booking_status === 'CANCELLED' ||
-          t.booking_id === null
+          t.booking_status === 'CANCELLED'
       ),
     [trips]
   );
 
   const focusedTrip = useMemo(
-    () => trips.find((t) => t.id === focusedTripId) || ongoingTrips[0] || null,
+    () => (focusedTripId ? trips.find((t) => t.id === focusedTripId) : null) || ongoingTrips[0] || null,
     [trips, focusedTripId, ongoingTrips]
   );
 
@@ -1610,6 +1638,44 @@ export function App() {
     );
     return drvPin ? { lat: drvPin.latitude, lon: drvPin.longitude } : null;
   }, [focusedTrip, fleetPositions, userPins]);
+
+  // Auto-transition user view when trip status changes (e.g. Approved, Dispatched, In Progress, Completed, Rejected)
+  useEffect(() => {
+    if (!focusedTrip) return;
+
+    if (bookingStep === 'WAITING') {
+      if (focusedTrip.status === 'APPROVED' || focusedTrip.status === 'IN_PROGRESS') {
+        setBookingStep('IN_TRIP');
+        setSheetSnap('half');
+        setStatusBanner({
+          type: 'success',
+          text: `Booking Approved! Driver ${focusedTrip.assigned_driver_name || 'Assigned'} has been dispatched with ${focusedTrip.make} ${focusedTrip.model} (${focusedTrip.registration_plate || 'Company Fleet'}).`,
+        });
+      } else if (focusedTrip.status === 'REJECTED') {
+        const rejReason = focusedTrip.decisions?.find((d: any) => d.decision === 'REJECTED')?.reason;
+        setStatusBanner({
+          type: 'danger',
+          text: `Your booking request was rejected${rejReason ? `: ${rejReason}` : '.'}`,
+        });
+      }
+    } else if (bookingStep === 'IN_TRIP') {
+      if (focusedTrip.status === 'COMPLETED') {
+        setBookingStep('HOME');
+        setSheetSnap('half');
+        setStatusBanner({
+          type: 'success',
+          text: 'Trip completed! Thank you for using GalaxyFleet.',
+        });
+      } else if (focusedTrip.status === 'CANCELLED' || focusedTrip.status === 'REJECTED') {
+        setBookingStep('HOME');
+        setSheetSnap('half');
+        setStatusBanner({
+          type: 'warning',
+          text: 'Trip was cancelled.',
+        });
+      }
+    }
+  }, [focusedTrip?.status, focusedTrip?.id, bookingStep]);
 
   // Real user recent destinations from their actual trip history (no dummy places)
   const recentDestinationChips = useMemo(() => {
@@ -6437,8 +6503,19 @@ export function App() {
                     tall
                     icon={<Car size={20} />}
                     title={`${t.origin} → ${t.destination}`}
-                    subtitle={`${formatPassengersDisplay(t.passengers_json, t.passenger_nickname) !== 'Team' ? `Pax: ${formatPassengersDisplay(t.passengers_json, t.passenger_nickname)} • ` : ''}${new Date(t.start_time).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} • ${t.make} ${t.model} (${t.registration_plate})`}
-                    trailing={<StatusBadge label={t.booking_status === 'CANCELLED' ? 'CANCELLED' : t.status} tone={toneFromStatus(t.booking_status === 'CANCELLED' ? 'CANCELLED' : t.status)} />}
+                    subtitle={`${formatPassengersDisplay(t.passengers_json, t.passenger_nickname) !== 'Team' ? `Pax: ${formatPassengersDisplay(t.passengers_json, t.passenger_nickname)} • ` : ''}${new Date(t.start_time).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} • ${t.make} ${t.model} (${t.registration_plate})${t.assigned_driver_name ? ` • Driver: ${t.assigned_driver_name}` : ''}`}
+                    trailing={
+                      (() => {
+                        if (t.booking_status === 'CANCELLED') return <StatusBadge label="CANCELLED" tone="red" />;
+                        if (t.status === 'APPROVED') return <StatusBadge label="APPROVED" tone="green" />;
+                        if (t.status === 'IN_PROGRESS') return <StatusBadge label="IN TRIP" tone="blue" />;
+                        if (t.status === 'PENDING_APPROVAL' && t.requires_dual_approval) {
+                          if (t.pic_approved) return <StatusBadge label="AWAITING HWS" tone="amber" />;
+                          if (t.hws_approved) return <StatusBadge label="AWAITING PIC" tone="amber" />;
+                        }
+                        return <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />;
+                      })()
+                    }
                     showChevron={activityTab === 'ONGOING'}
                     onClick={
                       activityTab === 'ONGOING'
@@ -7122,31 +7199,59 @@ export function App() {
           </div>
 
           {/* Active ongoing trip card if any */}
-          {ongoingTrips.length > 0 && (
-            <button
-              type="button"
-              className="gf-option-row is-selected pressable"
-              style={{ minHeight: '64px' }}
-              onClick={() => {
-                setFocusedTripId(ongoingTrips[0].id);
-                setBookingStep(ongoingTrips[0].status === 'PENDING_APPROVAL' ? 'WAITING' : 'IN_TRIP');
-                setSheetSnap('half');
-              }}
-            >
-              <div className="gf-circle-icon" style={{ background: 'var(--color-green)', color: '#ffffff' }}>
-                <Car size={18} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="type-body" style={{ fontWeight: 700 }}>
-                  {ongoingTrips[0].status === 'PENDING_APPROVAL' ? 'Waiting for approval' : 'Ride assigned'}
+          {ongoingTrips.length > 0 && (() => {
+            const topTrip = ongoingTrips[0];
+            const isApproved = topTrip.status === 'APPROVED' || topTrip.status === 'IN_PROGRESS';
+            const isDual = topTrip.requires_dual_approval;
+            let statusText = 'Waiting for approval';
+            let badgeTone: 'green' | 'amber' | 'blue' = 'amber';
+            let badgeLabel = 'PENDING';
+
+            if (topTrip.status === 'IN_PROGRESS') {
+              statusText = topTrip.assigned_driver_name ? `In Trip • Driver: ${topTrip.assigned_driver_name}` : 'In Trip';
+              badgeTone = 'blue';
+              badgeLabel = 'IN TRIP';
+            } else if (topTrip.status === 'APPROVED') {
+              statusText = topTrip.assigned_driver_name ? `Ride Assigned • Driver: ${topTrip.assigned_driver_name}` : 'Ride Approved & Dispatched';
+              badgeTone = 'green';
+              badgeLabel = 'APPROVED';
+            } else if (isDual && topTrip.pic_approved) {
+              statusText = 'Approved by Fleet PIC • Awaiting Head of WS Part';
+              badgeTone = 'amber';
+              badgeLabel = 'STAGE 1 APPROVED';
+            } else if (isDual && topTrip.hws_approved) {
+              statusText = 'Approved by Head of WS Part • Awaiting Fleet PIC';
+              badgeTone = 'amber';
+              badgeLabel = 'STAGE 1 APPROVED';
+            }
+
+            return (
+              <button
+                type="button"
+                className="gf-option-row is-selected pressable"
+                style={{ minHeight: '68px', display: 'flex', alignItems: 'center', gap: '12px' }}
+                onClick={() => {
+                  setFocusedTripId(topTrip.id);
+                  setBookingStep(topTrip.status === 'PENDING_APPROVAL' ? 'WAITING' : 'IN_TRIP');
+                  setSheetSnap('half');
+                }}
+              >
+                <div className="gf-circle-icon" style={{ background: isApproved ? 'var(--color-green)' : 'var(--color-amber)', color: '#ffffff', flexShrink: 0 }}>
+                  <Car size={18} />
                 </div>
-                <div className="type-caption" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {ongoingTrips[0].origin} → {ongoingTrips[0].destination}
+                <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    <span className="type-body" style={{ fontWeight: 700 }}>{statusText}</span>
+                    <StatusBadge label={badgeLabel} tone={badgeTone} />
+                  </div>
+                  <div className="type-caption" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }}>
+                    {topTrip.origin} → {topTrip.destination} • {topTrip.make} {topTrip.model} ({topTrip.registration_plate || '—'})
+                  </div>
                 </div>
-              </div>
-              <ChevronRight size={18} style={{ color: 'var(--color-green-text)' }} />
-            </button>
-          )}
+                <ChevronRight size={18} style={{ color: 'var(--color-green-text)', flexShrink: 0 }} />
+              </button>
+            );
+          })()}
 
           {/* Large Rounded "Where to?" Search Pill (height 56px, grey fill, magnifier, green dot) */}
           <button
@@ -7872,28 +7977,102 @@ export function App() {
     // BOOKING FLOW STEP 4: WAITING FOR APPROVAL
     // -------------------------------------------------------------------------
     if (bookingStep === 'WAITING') {
-      const timelineSteps = [
-        { label: 'Request sent & schedule locked', sub: 'Car and driver slot reserved immediately', done: true },
-        { label: 'Admin review in progress', sub: 'Fleet Admin verifies & dispatches your driver', active: true },
-        { label: 'Driver dispatched', sub: 'You will get a push notification once assigned', done: false },
-      ];
+      const isApproved = focusedTrip?.status === 'APPROVED' || focusedTrip?.status === 'IN_PROGRESS';
+      const isRejected = focusedTrip?.status === 'REJECTED';
+      const isDual = focusedTrip?.requires_dual_approval;
+      const picApproved = focusedTrip?.pic_approved;
+      const hwsApproved = focusedTrip?.hws_approved;
+
+      let badgeLabel = 'Request sent';
+      let badgeTone: 'green' | 'amber' | 'red' | 'blue' = 'green';
+      let title = 'Waiting for approval';
+
+      if (isApproved) {
+        badgeLabel = 'APPROVED & DISPATCHED';
+        badgeTone = 'green';
+        title = 'Booking Approved!';
+      } else if (isRejected) {
+        badgeLabel = 'REJECTED';
+        badgeTone = 'red';
+        title = 'Booking Request Rejected';
+      } else if (isDual && picApproved) {
+        badgeLabel = 'Stage 1 Approved';
+        badgeTone = 'amber';
+        title = 'Awaiting Head Of WS Part Review';
+      } else if (isDual && hwsApproved) {
+        badgeLabel = 'Stage 1 Approved';
+        badgeTone = 'amber';
+        title = 'Awaiting Fleet PIC Dispatch';
+      }
+
+      const timelineSteps = isApproved
+        ? [
+            { label: 'Request sent & schedule locked', sub: 'Car and driver slot reserved immediately', done: true },
+            {
+              label: 'Approvals completed',
+              sub: focusedTrip?.adm_delegated
+                ? 'Authorized & delegated directly by System Admin'
+                : isDual
+                ? 'Approved by both Fleet Operation PIC and Head Of WS Part'
+                : 'Approved by Fleet Administration',
+              done: true,
+            },
+            {
+              label: 'Driver dispatched',
+              sub: focusedTrip?.assigned_driver_name
+                ? `Driver ${focusedTrip.assigned_driver_name} is assigned (${focusedTrip.registration_plate || 'Company Car'})`
+                : 'Driver dispatched and arriving',
+              done: true,
+            },
+          ]
+        : isDual
+        ? [
+            { label: 'Request sent & schedule locked', sub: 'Car and driver slot reserved immediately', done: true },
+            {
+              label: 'Fleet Operation PIC approval',
+              sub: picApproved ? 'Approved by Fleet Operation PIC' : 'Awaiting Fleet Operation PIC review',
+              done: Boolean(picApproved),
+              active: !picApproved && !hwsApproved,
+            },
+            {
+              label: 'Head Of WS Part authorization',
+              sub: hwsApproved ? 'Approved by Head Of WS Part' : picApproved ? 'Awaiting Head Of WS Part authorization' : 'Pending',
+              done: Boolean(hwsApproved),
+              active: Boolean(picApproved) && !hwsApproved,
+            },
+            {
+              label: 'Driver dispatched',
+              sub: 'Driver is assigned immediately upon final approval',
+              done: false,
+            },
+          ]
+        : [
+            { label: 'Request sent & schedule locked', sub: 'Car and driver slot reserved immediately', done: true },
+            { label: 'Admin review in progress', sub: 'Fleet Admin verifies & dispatches your driver', active: true },
+            { label: 'Driver dispatched', sub: 'You will get a push notification once assigned', done: false },
+          ];
 
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {feedbackBanner}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-            <h1 className="type-title">Waiting for approval</h1>
-            <StatusBadge label="Request sent" tone="green" />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <h1 className="type-title">{title}</h1>
+            <StatusBadge label={badgeLabel} tone={badgeTone} />
           </div>
 
           {focusedTrip && (
             <div style={{ padding: '12px 14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
               <div className="type-body" style={{ fontWeight: 700 }}>{focusedTrip.origin} → {focusedTrip.destination}</div>
               <div className="type-caption">{focusedTrip.make} {focusedTrip.model} • {focusedTrip.registration_plate}</div>
+              {focusedTrip.assigned_driver_name && (
+                <div className="type-caption" style={{ color: 'var(--color-green-text)', fontWeight: 600, marginTop: '3px' }}>
+                  👤 Assigned Driver: {focusedTrip.assigned_driver_name} {focusedTrip.assigned_driver_phone ? `(${focusedTrip.assigned_driver_phone})` : ''}
+                </div>
+              )}
             </div>
           )}
 
-          {/* 3-step timeline */}
+          {/* Timeline */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '4px 0' }}>
             {timelineSteps.map((st, idx) => (
               <div key={st.label} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
@@ -7923,13 +8102,66 @@ export function App() {
             ))}
           </div>
 
-          <button
-            type="button"
-            className="gf-btn gf-btn-outline-danger gf-btn-full"
-            onClick={() => handleCancelBookingRequest(focusedTrip)}
-          >
-            Cancel request
-          </button>
+          {isApproved ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button
+                type="button"
+                className="gf-btn gf-btn-primary gf-btn-full"
+                onClick={() => {
+                  setBookingStep('IN_TRIP');
+                  setSheetSnap('half');
+                }}
+              >
+                <Car size={16} /> Open Active Trip & Driver Info
+              </button>
+            </div>
+          ) : isRejected ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px 14px' }}>
+                <div style={{ fontWeight: 700, color: '#991b1b', fontSize: '13px' }}>Rejection Reason:</div>
+                <div style={{ color: '#7f1d1d', fontSize: '13px', marginTop: '2px' }}>
+                  {focusedTrip?.decisions?.find((d: any) => d.decision === 'REJECTED')?.reason || 'Booking request was rejected by fleet administration.'}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="gf-btn gf-btn-secondary gf-btn-full"
+                onClick={() => {
+                  setFocusedTripId(null);
+                  setBookingStep('HOME');
+                  setSheetSnap('half');
+                }}
+              >
+                Dismiss & Return to Home
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                className="gf-btn gf-btn-secondary"
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                onClick={async () => {
+                  try {
+                    const [trpRes, bkgRes] = await Promise.all([apiRequest('/api/trips'), apiRequest('/api/bookings')]);
+                    if (trpRes.trips) setTrips(trpRes.trips);
+                    if (bkgRes.bookings) setBookings(bkgRes.bookings);
+                    setStatusBanner({ type: 'info', text: 'Trip status synced.' });
+                  } catch {}
+                }}
+              >
+                <RefreshCw size={14} /> Sync Status
+              </button>
+              <button
+                type="button"
+                className="gf-btn gf-btn-outline-danger"
+                style={{ flex: 1 }}
+                onClick={() => handleCancelBookingRequest(focusedTrip)}
+              >
+                Cancel Request
+              </button>
+            </div>
+          )}
         </div>
       );
     }
