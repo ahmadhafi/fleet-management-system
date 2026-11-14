@@ -60,6 +60,9 @@ export function fetchEnrichedTrip(db: AppDatabase, tripId: number): Record<strin
     pic_approved: picApproved,
     hws_approved: hwsApproved,
     adm_delegated: admDelegated,
+    is_urgent: Number(row.is_urgent || 0) === 1,
+    urgent_reason: (row.urgent_reason as string) || null,
+    requires_pic_urgent_approval: Number(row.is_urgent || 0) === 1 && !picApproved,
   };
 }
 
@@ -1938,6 +1941,9 @@ export function createApp() {
         pic_approved: picApproved,
         hws_approved: hwsApproved,
         adm_delegated: admDelegated,
+        is_urgent: Number(r.is_urgent || 0) === 1,
+        urgent_reason: (r.urgent_reason as string) || null,
+        requires_pic_urgent_approval: Number(r.is_urgent || 0) === 1 && !picApproved,
       };
     });
 
@@ -1984,8 +1990,22 @@ export function createApp() {
   app.post('/api/trips', requireAuth, requireRoles(['EMP', 'ADM', 'FM', 'HWS'], true), (req: Request, res: Response) => {
     const db = getDb();
     const user = req.user!;
-    const { vehicle_id, preferred_driver_id, purpose, origin, destination, start_time, end_time, passenger_count, passenger_nickname, passengers, notes, self_drive } =
-      req.body ?? {};
+    const {
+      vehicle_id,
+      preferred_driver_id,
+      purpose,
+      origin,
+      destination,
+      start_time,
+      end_time,
+      passenger_count,
+      passenger_nickname,
+      passengers,
+      notes,
+      self_drive,
+      is_urgent,
+      urgent_reason,
+    } = req.body ?? {};
 
     // Revision #1: Self-drive is strictly prohibited
     if (self_drive === true || self_drive === 'true' || self_drive === 1) {
@@ -2002,6 +2022,27 @@ export function createApp() {
     const endMs = new Date(end_time).getTime();
     if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) {
       res.status(400).json({ error: 'End time must be after start time (REQ-02)' });
+      return;
+    }
+
+    const now = Date.now();
+    // Allow slight tolerance of 60 seconds for clock skew
+    if (startMs < now - 60000) {
+      res.status(400).json({ error: 'Departure time cannot be in the past' });
+      return;
+    }
+
+    const leadTimeMinutes = Math.round((startMs - now) / 60000);
+    // Booking rule: bookings must be scheduled at least 2 hours (120 minutes) in advance
+    const calculatedIsUrgent = leadTimeMinutes < 120 ? 1 : 0;
+    const finalIsUrgent = is_urgent === 1 || is_urgent === true || calculatedIsUrgent === 1 ? 1 : 0;
+    const finalUrgentReason = urgent_reason ? String(urgent_reason).trim() : null;
+
+    if (finalIsUrgent === 1 && !finalUrgentReason && user.role === 'EMP' && (!notes || !notes.trim()) && (!purpose || purpose.trim().length < 5)) {
+      res.status(400).json({
+        error:
+          'Company fleet rule requires booking at least 2 hours before departure. Urgent requests departing within 2 hours require an urgent justification and mandatory Fleet Operation PIC approval.',
+      });
       return;
     }
 
@@ -2061,8 +2102,9 @@ export function createApp() {
           .prepare(
             `INSERT INTO trip_requests (
               requester_id, department_id, vehicle_id, preferred_driver_id, passenger_nickname, passengers_json,
-              purpose, origin, destination, start_time, end_time, passenger_count, notes, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')`
+              purpose, origin, destination, start_time, end_time, passenger_count, notes, status,
+              is_urgent, urgent_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL', ?, ?)`
           )
           .run(
             user.id,
@@ -2077,7 +2119,9 @@ export function createApp() {
             start_time,
             end_time,
             pax,
-            notes ? String(notes).trim() : null
+            notes ? String(notes).trim() : null,
+            finalIsUrgent,
+            finalUrgentReason
           );
 
         const tripId = Number(tripRes.lastInsertRowid);
@@ -2126,6 +2170,16 @@ export function createApp() {
         relatedEntityType: 'TRIP_REQUEST',
         relatedEntityId: createdPayload.tripId,
       });
+
+      if (finalIsUrgent === 1) {
+        notifyRole(db, 'FM', {
+          triggerType: 'URGENT_TRIP_NEEDS_APPROVAL',
+          title: '🚨 Urgent Car Request (< 2h Advance)',
+          body: `${user.nickname} submitted an URGENT request for "${purpose}" departing at ${start_time} (${leadTimeMinutes} min from now). Fleet Operation PIC authorization is required.`,
+          relatedEntityType: 'TRIP_REQUEST',
+          relatedEntityId: createdPayload.tripId,
+        });
+      }
 
       broadcastTripUpdate(db, createdPayload.tripId, 'TRIP_CREATED');
       res.status(201).json(createdPayload);
@@ -2209,15 +2263,17 @@ export function createApp() {
           return { status: 'REJECTED', isFinal: true, assignedDriverUserId: null as number | null };
         }
 
+        const tripIsUrgent = Number((trip as any).is_urgent || 0) === 1;
+
         // APPROVED path: Determine if this is partial approval or final dispatch
-        if (hasHwsAccount) {
+        if (hasHwsAccount || (tripIsUrgent && !picApprovedPrior)) {
           if (user.role === 'FM') {
             if (picApprovedPrior) {
               const err = new Error('Fleet Operation PIC has already approved this request. Awaiting Head Of WS Part authorization.');
               (err as Error & { status?: number }).status = 400;
               throw err;
             }
-            if (!hwsApprovedPrior) {
+            if (hasHwsAccount && !hwsApprovedPrior) {
               // Stage 1: Approved by Fleet Operation PIC, awaiting Head Of WS Part
               const decRes = db
                 .prepare(
@@ -2236,7 +2292,7 @@ export function createApp() {
                 ).run(vehicle_id ? Number(vehicle_id) : null, driver_profile_id ? Number(driver_profile_id) : null, tripId);
               }
 
-              recordAudit(db, user, 'TRIP_STAGE_APPROVED', 'TRIP_REQUEST', tripId, { status: trip.status }, { stage: 'AWAITING_HWS' });
+              recordAudit(db, user, 'TRIP_STAGE_APPROVED', 'TRIP_REQUEST', tripId, { status: trip.status }, { stage: 'AWAITING_HWS', is_urgent: tripIsUrgent });
               return { status: 'PENDING_APPROVAL', isFinal: false, stage: 'AWAITING_HWS', decisionId: Number(decRes.lastInsertRowid) };
             }
           } else if (user.role === 'HWS') {
@@ -2246,7 +2302,7 @@ export function createApp() {
               throw err;
             }
             if (!picApprovedPrior) {
-              // Stage 1: Approved by Head Of WS Part, awaiting Fleet Operation PIC
+              // Stage 1: Approved by Head Of WS Part, awaiting Fleet Operation PIC (mandatory for urgent trips)
               const decRes = db
                 .prepare(
                   `INSERT INTO approval_decisions (trip_request_id, decider_id, decider_role, decision, reason)
@@ -2254,17 +2310,20 @@ export function createApp() {
                 )
                 .run(tripId, user.id, reason ? String(reason).trim() : 'Approved by Head Of WS Part');
 
-              recordAudit(db, user, 'TRIP_STAGE_APPROVED', 'TRIP_REQUEST', tripId, { status: trip.status }, { stage: 'AWAITING_FM' });
+              recordAudit(db, user, 'TRIP_STAGE_APPROVED', 'TRIP_REQUEST', tripId, { status: trip.status }, { stage: 'AWAITING_FM', is_urgent: tripIsUrgent });
               return { status: 'PENDING_APPROVAL', isFinal: false, stage: 'AWAITING_FM', decisionId: Number(decRes.lastInsertRowid) };
             }
           }
         }
 
-        // Final Approval reached (both approved, or Admin delegation, or no HWS account exists)
-        const isDelegated = user.role === 'ADM' && hasHwsAccount && (!picApprovedPrior || !hwsApprovedPrior);
-        const finalReason = isDelegated
-          ? `${reason ? String(reason).trim() + ' ' : ''}[Approved & Delegated by Admin]`
-          : reason ? String(reason).trim() : 'Approved and dispatched';
+        // Final Approval reached (both approved, or Admin delegation, or non-urgent with single approver)
+        const isDelegated = user.role === 'ADM' && ((hasHwsAccount && (!picApprovedPrior || !hwsApprovedPrior)) || (tripIsUrgent && !picApprovedPrior));
+        let finalReason = reason ? String(reason).trim() : 'Approved and dispatched';
+        if (isDelegated) {
+          finalReason = `${finalReason} [Approved & Delegated by Admin${tripIsUrgent ? ' (Urgent Request)' : ''}]`.trim();
+        } else if (tripIsUrgent && user.role === 'FM') {
+          finalReason = `${finalReason} [Urgent Request Approved by Fleet Operation PIC]`.trim();
+        }
 
         const decRes = db
           .prepare(
@@ -2382,11 +2441,14 @@ export function createApp() {
           relatedEntityId: tripId,
         });
       } else if (!outcome.isFinal && outcome.stage === 'AWAITING_FM') {
-        // Head Of WS Part approved; alert Fleet Operation PIC
+        // Head Of WS Part approved; alert Fleet Operation PIC (mandatory for urgent trips)
+        const isUrgent = Number((trip as any).is_urgent || 0) === 1;
         notifyRole(db, 'FM', {
-          triggerType: 'TRIP_NEEDS_PIC_APPROVAL',
-          title: 'Action Required: Fleet Operation PIC Dispatch',
-          body: `Head Of WS Part approved Trip #${tripId} ("${trip.purpose}"). Please confirm vehicle and driver dispatch.`,
+          triggerType: isUrgent ? 'URGENT_TRIP_NEEDS_PIC_APPROVAL' : 'TRIP_NEEDS_PIC_APPROVAL',
+          title: isUrgent ? '🚨 Action Required: Urgent Trip PIC Authorization' : 'Action Required: Fleet Operation PIC Dispatch',
+          body: isUrgent
+            ? `Head Of WS Part approved Urgent Trip #${tripId} ("${trip.purpose}"). Your mandatory Fleet Operation PIC approval and driver dispatch is required immediately.`
+            : `Head Of WS Part approved Trip #${tripId} ("${trip.purpose}"). Please confirm vehicle and driver dispatch.`,
           relatedEntityType: 'TRIP_REQUEST',
           relatedEntityId: tripId,
         });

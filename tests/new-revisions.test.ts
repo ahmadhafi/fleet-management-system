@@ -1059,6 +1059,219 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         }
       });
     });
+
+    describe('Mandatory Booking Schedule, 2-Hour Advance Policy & Fleet Manager PIC Urgent Approval', () => {
+      it('rejects booking with departure date in the past', async () => {
+        const pastStart = new Date(Date.now() - 15 * 60000).toISOString();
+        const futureEnd = new Date(Date.now() + 60 * 60000).toISOString();
+
+        const res = await request(app)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${currentEmpToken}`)
+          .send({
+            vehicle_id: 1,
+            purpose: 'Site Visit',
+            origin: 'Tower A',
+            destination: 'Depot B',
+            start_time: pastStart,
+            end_time: futureEnd,
+            passenger_count: 1,
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/cannot be in the past/i);
+      });
+
+      it('rejects booking where return time is earlier than or equal to departure time', async () => {
+        const futureStart = new Date(Date.now() + 180 * 60000).toISOString();
+        const earlierEnd = new Date(Date.now() + 120 * 60000).toISOString();
+
+        const res = await request(app)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${currentEmpToken}`)
+          .send({
+            vehicle_id: 1,
+            purpose: 'Site Visit',
+            origin: 'Tower A',
+            destination: 'Depot B',
+            start_time: futureStart,
+            end_time: earlierEnd,
+            passenger_count: 1,
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/(?:Return|End) time must be after (?:departure|start) time/i);
+      });
+
+      it('permits compliant advance booking (>= 2h lead time) with standard approval flow', async () => {
+        // Book 4 hours in advance for 2 hours duration
+        const start = new Date(Date.now() + 240 * 60000).toISOString();
+        const end = new Date(Date.now() + 360 * 60000).toISOString();
+
+        const res = await request(app)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${currentEmpToken}`)
+          .send({
+            vehicle_id: 2,
+            purpose: 'Standard Advance Corporate Meeting',
+            origin: 'Tower A',
+            destination: 'Regional Office',
+            start_time: start,
+            end_time: end,
+            passenger_count: 2,
+          });
+
+        expect(res.status).toBe(201);
+        const tripId = res.body.tripId;
+
+        const db = getDb();
+        const row = db.prepare('SELECT is_urgent, urgent_reason FROM trip_requests WHERE id = ?').get(tripId) as any;
+        expect(row.is_urgent).toBe(0);
+        expect(row.urgent_reason).toBeNull();
+
+        // Verify GET /api/trips returns urgent metadata accurately
+        const getRes = await request(app)
+          .get('/api/trips')
+          .set('Authorization', `Bearer ${currentAdminToken}`);
+        expect(getRes.status).toBe(200);
+        const trip = getRes.body.trips.find((t: any) => t.id === tripId);
+        expect(Boolean(trip.is_urgent)).toBe(false);
+        expect(trip.requires_pic_urgent_approval).toBe(false);
+      });
+
+      it('rejects urgent booking (< 2h lead time) when no urgent justification is provided', async () => {
+        // Book departing in 30 minutes with empty justification
+        const shortStart = new Date(Date.now() + 30 * 60000).toISOString();
+        const shortEnd = new Date(Date.now() + 90 * 60000).toISOString();
+
+        const res = await request(app)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${currentEmpToken}`)
+          .send({
+            vehicle_id: 2,
+            purpose: 'Trip',
+            origin: 'Tower A',
+            destination: 'Depot B',
+            start_time: shortStart,
+            end_time: shortEnd,
+            passenger_count: 1,
+            urgent_reason: '',
+            notes: '',
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/2 hours/i);
+        expect(res.body.error).toMatch(/urgent justification/i);
+      });
+
+      it('accepts urgent booking (< 2h) with justification, marks is_urgent = 1, and strictly requires Fleet Operation PIC approval', async () => {
+        // Book departing in 45 minutes with explicit urgent justification
+        const shortStart = new Date(Date.now() + 45 * 60000).toISOString();
+        const shortEnd = new Date(Date.now() + 105 * 60000).toISOString();
+
+        const createRes = await request(app)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${currentEmpToken}`)
+          .send({
+            vehicle_id: 3,
+            purpose: 'Emergency Site Outage Investigation',
+            origin: 'HQ Tower',
+            destination: 'Cikarang Data Center',
+            start_time: shortStart,
+            end_time: shortEnd,
+            passenger_count: 1,
+            urgent_reason: 'Critical server outage requiring immediate hardware inspection',
+          });
+
+        expect(createRes.status).toBe(201);
+        const tripId = createRes.body.tripId;
+
+        // Verify database and API metadata
+        const db = getDb();
+        const row = db.prepare('SELECT is_urgent, urgent_reason FROM trip_requests WHERE id = ?').get(tripId) as any;
+        expect(row.is_urgent).toBe(1);
+        expect(row.urgent_reason).toBe('Critical server outage requiring immediate hardware inspection');
+
+        const getRes = await request(app)
+          .get('/api/trips')
+          .set('Authorization', `Bearer ${picToken}`);
+        expect(getRes.status).toBe(200);
+        const trip = getRes.body.trips.find((t: any) => t.id === tripId);
+        expect(Boolean(trip.is_urgent)).toBe(true);
+        expect(trip.requires_pic_urgent_approval).toBe(true);
+        expect(trip.urgent_reason).toContain('Critical server outage');
+
+        // Step 1: If Head of WS Part (HWS) approves first, trip remains pending because Fleet Operation PIC urgent approval is mandatory!
+        const hwsDecisionRes = await request(app)
+          .post(`/api/trips/${tripId}/decision`)
+          .set('Authorization', `Bearer ${hwsToken}`)
+          .send({
+            decision: 'APPROVED',
+            reason: 'HWS initial sign-off',
+          });
+        expect(hwsDecisionRes.status).toBe(200);
+        expect(hwsDecisionRes.body.status).toBe('PENDING_APPROVAL');
+        expect(hwsDecisionRes.body.stage).toBe('AWAITING_FM');
+        expect(hwsDecisionRes.body.isFinal).toBe(false);
+
+        // Step 2: Fleet Operation PIC (FM) approves -> Now final approval and dispatch succeeds!
+        const picDecisionRes = await request(app)
+          .post(`/api/trips/${tripId}/decision`)
+          .set('Authorization', `Bearer ${picToken}`)
+          .send({
+            decision: 'APPROVED',
+            reason: 'Fleet Operation PIC emergency authorization granted',
+            driver_profile_id: 3,
+          });
+        expect(picDecisionRes.status).toBe(200);
+        expect(picDecisionRes.body.status).toBe('APPROVED');
+        expect(picDecisionRes.body.isFinal).toBe(true);
+
+        // Verify trip decision history recorded urgent approval
+        const finalGet = await request(app)
+          .get('/api/trips')
+          .set('Authorization', `Bearer ${currentAdminToken}`);
+        const finalTrip = finalGet.body.trips.find((t: any) => t.id === tripId);
+        expect(finalTrip.status).toBe('APPROVED');
+        expect(finalTrip.decisions.some((d: any) => d.reason?.includes('[Urgent Request Approved by Fleet Operation PIC]'))).toBe(true);
+      });
+
+      it('allows Administrator to delegate and immediately authorize urgent trip if Fleet PIC is unavailable', async () => {
+        const shortStart = new Date(Date.now() + 20 * 60000).toISOString();
+        const shortEnd = new Date(Date.now() + 80 * 60000).toISOString();
+
+        const createRes = await request(app)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${currentEmpToken}`)
+          .send({
+            vehicle_id: 4,
+            purpose: 'Urgent VIP Client Pickup',
+            origin: 'Airport T3',
+            destination: 'Headquarters',
+            start_time: shortStart,
+            end_time: shortEnd,
+            passenger_count: 2,
+            urgent_reason: 'Flight arrived early, client waiting at gate',
+          });
+
+        expect(createRes.status).toBe(201);
+        const tripId = createRes.body.tripId;
+
+        // Admin delegates and approves with available driver 4
+        const adminDecision = await request(app)
+          .post(`/api/trips/${tripId}/decision`)
+          .set('Authorization', `Bearer ${currentAdminToken}`)
+          .send({
+            decision: 'APPROVED',
+            reason: 'Admin emergency executive delegation',
+            driver_profile_id: 4,
+          });
+
+        expect(adminDecision.status).toBe(200);
+        expect(adminDecision.body.status).toBe('APPROVED');
+        expect(adminDecision.body.isFinal).toBe(true);
+      });
+    });
   });
 });
 

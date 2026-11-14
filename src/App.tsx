@@ -9,6 +9,7 @@ import {
   Navigation,
   CheckCircle2,
   Clock,
+  AlertTriangle,
   BatteryCharging,
   Fuel,
   UserCheck,
@@ -348,6 +349,8 @@ export function App() {
   const [bookDriverId, setBookDriverId] = useState<string>('');
   const [bookPax, setBookPax] = useState<number>(1);
   const [bookNotes, setBookNotes] = useState('');
+  const [bookUrgentReason, setBookUrgentReason] = useState<string>('');
+  const [bookDurationHours, setBookDurationHours] = useState<number>(2);
   const [liveAvailability, setLiveAvailability] = useState<{ vehicles: any[]; drivers: any[] } | null>(null);
   const [scheduleFilterTab, setScheduleFilterTab] = useState<'ALL' | 'AVAILABLE' | 'BOOKED'>('ALL');
 
@@ -1361,9 +1364,39 @@ export function App() {
       setStatusBanner({ type: 'danger', text: 'Please enter both pickup and destination locations.' });
       return;
     }
-    const startIso = scheduleMode === 'NOW' ? new Date(Date.now() + 5 * 60000).toISOString() : new Date(bookStart).toISOString();
-    const endIso = scheduleMode === 'NOW' ? new Date(Date.now() + 125 * 60000).toISOString() : new Date(bookEnd).toISOString();
+    if (!bookStart || !bookEnd) {
+      setStatusBanner({ type: 'danger', text: 'Please select both departure and return dates/times.' });
+      return;
+    }
+    const startMs = new Date(bookStart).getTime();
+    const endMs = new Date(bookEnd).getTime();
+    const nowMs = Date.now();
+    if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+      setStatusBanner({ type: 'danger', text: 'Please enter valid departure and return dates/times.' });
+      return;
+    }
+    if (startMs < nowMs - 60000) {
+      setStatusBanner({ type: 'danger', text: 'Departure time cannot be in the past. Please select an upcoming departure time.' });
+      return;
+    }
+    if (endMs <= startMs) {
+      setStatusBanner({ type: 'danger', text: 'Return time must be after departure time.' });
+      return;
+    }
+    const leadTimeMin = Math.round((startMs - nowMs) / 60000);
+    const isUrgent = leadTimeMin < 120;
     const effectivePurpose = bookPurpose.trim() || 'Company Business Trip';
+
+    if (isUrgent && !bookUrgentReason.trim() && !bookNotes.trim() && effectivePurpose.length < 5) {
+      setStatusBanner({
+        type: 'danger',
+        text: 'This trip departs in less than 2 hours. Company policy requires an urgent justification for short-notice bookings.',
+      });
+      return;
+    }
+
+    const startIso = new Date(bookStart).toISOString();
+    const endIso = new Date(bookEnd).toISOString();
 
     const cleanPassengers = bookPassengers
       .map((p, idx) => ({ id: idx + 1, nickname: p.nickname.trim() }))
@@ -1388,6 +1421,8 @@ export function App() {
           passenger_nickname: formattedPaxNickname,
           passengers: cleanPassengers,
           notes: bookNotes,
+          is_urgent: isUrgent ? 1 : 0,
+          urgent_reason: isUrgent ? (bookUrgentReason.trim() || effectivePurpose) : null,
         }),
       });
       setBookPurpose('');
@@ -1395,6 +1430,7 @@ export function App() {
       setBookPassengers([{ id: 1, nickname: '' }]);
       setBookPax(1);
       setBookNotes('');
+      setBookUrgentReason('');
       setFocusedTripId(created.tripId);
       setBookingStep('WAITING');
       setSheetSnap('half');
@@ -2184,7 +2220,31 @@ export function App() {
               <div className="type-body" style={{ fontWeight: 700 }}>{dispatchModalTrip.purpose}</div>
               <div className="type-caption">{dispatchModalTrip.origin} → {dispatchModalTrip.destination}</div>
               <div className="type-caption">{dispatchModalTrip.requester_name} ({dispatchModalTrip.department_name})</div>
+              {dispatchModalTrip.start_time && dispatchModalTrip.end_time && (
+                <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
+                  🕒 Schedule: {new Date(dispatchModalTrip.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → {new Date(dispatchModalTrip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              )}
             </div>
+
+            {dispatchModalTrip.is_urgent === 1 && (
+              <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#fef2f2', border: '1.5px solid #f87171', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                  <AlertTriangle size={15} style={{ color: '#dc2626' }} />
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: '#991b1b', textTransform: 'uppercase' }}>
+                    🚨 Urgent Short-Notice Booking (&lt; 2h Departure)
+                  </span>
+                </div>
+                <div style={{ fontSize: '11.5px', color: '#7f1d1d' }}>
+                  <strong>Mandatory Fleet Operation PIC Approval Required.</strong> This trip was booked with less than 2 hours lead time before departure.
+                </div>
+                {dispatchModalTrip.urgent_reason && (
+                  <div style={{ fontSize: '11.5px', color: '#991b1b', marginTop: '4px' }}>
+                    <strong>Justification:</strong> {dispatchModalTrip.urgent_reason}
+                  </div>
+                )}
+              </div>
+            )}
 
             {dispatchModalTrip.requires_dual_approval && (
               <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#eff6ff', border: '1.5px solid #bfdbfe', marginBottom: '12px' }}>
@@ -4031,8 +4091,20 @@ export function App() {
                         {trips.map((t) => (
                           <tr key={t.id}>
                             <td>
-                              <div style={{ fontWeight: 700 }}>#{t.id} — {t.purpose}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontWeight: 700 }}>#{t.id} — {t.purpose}</span>
+                                {t.is_urgent === 1 && (
+                                  <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', whiteSpace: 'nowrap' }}>
+                                    🚨 URGENT (&lt; 2h)
+                                  </span>
+                                )}
+                              </div>
                               <div className="type-caption">{t.origin} → {t.destination} ({t.passenger_count} pax)</div>
+                              {t.urgent_reason && (
+                                <div className="type-caption" style={{ color: '#b91c1c', fontStyle: 'italic', marginTop: '2px' }}>
+                                  Urgent Reason: {t.urgent_reason}
+                                </div>
+                              )}
                             </td>
                             <td>
                               <div style={{ fontWeight: 600 }}>{t.requester_name}</div>
@@ -4048,6 +4120,11 @@ export function App() {
                             </td>
                             <td>
                               <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />
+                              {t.status === 'PENDING_APPROVAL' && t.is_urgent === 1 && (
+                                <div style={{ marginTop: '3px', fontSize: '11px', fontWeight: 700, color: '#dc2626' }}>
+                                  ⚠️ Requires Fleet Operation PIC Urgent Approval
+                                </div>
+                              )}
                               {t.status === 'PENDING_APPROVAL' && t.requires_dual_approval && (
                                 <div style={{ marginTop: '4px', fontSize: '11px', fontWeight: 600 }}>
                                   {t.pic_approved && !t.hws_approved ? (
@@ -7728,44 +7805,203 @@ export function App() {
             )}
           </div>
 
-          <Segmented
-            ariaLabel="Pickup time mode"
-            value={scheduleMode}
-            onChange={(val) => setScheduleMode(val)}
-            options={[
-              { value: 'NOW', label: 'Now' },
-              { value: 'SCHEDULE', label: 'Schedule' },
-            ]}
-          />
+          {/* Mandatory Request Schedule & Hours of Booking */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Clock size={16} style={{ color: 'var(--color-primary)' }} />
+                <span style={{ fontSize: '13px', fontWeight: 800 }}>Schedule & Hours of Booking</span>
+              </div>
+              <span className="type-caption" style={{ fontWeight: 600, color: 'var(--color-text-subtle)' }}>
+                Mandatory
+              </span>
+            </div>
 
-          {scheduleMode === 'SCHEDULE' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', borderRadius: 'var(--radius-control)', background: 'var(--color-bg-subtle)' }}>
+            {/* Quick departure presets */}
+            <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
+              <Chip
+                active={false}
+                onClick={() => {
+                  const now = Date.now();
+                  const s = new Date(now + 2 * 3600000).toISOString().slice(0, 16);
+                  const e = new Date(now + (2 + bookDurationHours) * 3600000).toISOString().slice(0, 16);
+                  setBookStart(s);
+                  setBookEnd(e);
+                }}
+              >
+                In 2h (Standard)
+              </Chip>
+              <Chip
+                active={false}
+                onClick={() => {
+                  const now = Date.now();
+                  const s = new Date(now + 4 * 3600000).toISOString().slice(0, 16);
+                  const e = new Date(now + (4 + bookDurationHours) * 3600000).toISOString().slice(0, 16);
+                  setBookStart(s);
+                  setBookEnd(e);
+                }}
+              >
+                In 4h
+              </Chip>
+              <Chip
+                active={false}
+                onClick={() => {
+                  const tomorrow = new Date();
+                  tomorrow.setDate(tomorrow.getDate() + 1);
+                  tomorrow.setHours(8, 0, 0, 0);
+                  const s = tomorrow.toISOString().slice(0, 16);
+                  const e = new Date(tomorrow.getTime() + bookDurationHours * 3600000).toISOString().slice(0, 16);
+                  setBookStart(s);
+                  setBookEnd(e);
+                }}
+              >
+                Tomorrow 08:00
+              </Chip>
+              <Chip
+                active={false}
+                onClick={() => {
+                  const s = new Date(Date.now() + 15 * 60000).toISOString().slice(0, 16);
+                  const e = new Date(Date.now() + (15 * 60000 + bookDurationHours * 3600000)).toISOString().slice(0, 16);
+                  setBookStart(s);
+                  setBookEnd(e);
+                }}
+              >
+                🚨 Urgent (&lt; 2h)
+              </Chip>
+            </div>
+
+            {/* Departure and Return Datetime Inputs */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
               <div>
                 <label className="type-caption" htmlFor="schedule-start" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Departure
+                  Departure Date & Time *
                 </label>
                 <input
                   id="schedule-start"
                   type="datetime-local"
                   className="gf-input"
+                  required
                   value={bookStart}
-                  onChange={(e) => setBookStart(e.target.value)}
+                  onChange={(e) => {
+                    setBookStart(e.target.value);
+                    if (e.target.value) {
+                      const newStartMs = new Date(e.target.value).getTime();
+                      if (!Number.isNaN(newStartMs)) {
+                        const newEnd = new Date(newStartMs + bookDurationHours * 3600000).toISOString().slice(0, 16);
+                        setBookEnd(newEnd);
+                      }
+                    }
+                  }}
                 />
               </div>
+
               <div>
                 <label className="type-caption" htmlFor="schedule-end" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Return
+                  Return Date & Time *
                 </label>
                 <input
                   id="schedule-end"
                   type="datetime-local"
                   className="gf-input"
+                  required
                   value={bookEnd}
-                  onChange={(e) => setBookEnd(e.target.value)}
+                  onChange={(e) => {
+                    setBookEnd(e.target.value);
+                    if (e.target.value && bookStart) {
+                      const diffHrs = Math.max(1, Math.round((new Date(e.target.value).getTime() - new Date(bookStart).getTime()) / 3600000));
+                      setBookDurationHours(diffHrs);
+                    }
+                  }}
                 />
               </div>
             </div>
-          )}
+
+            {/* Quick Duration Buttons (Hours of Booking) */}
+            <div>
+              <div className="type-caption" style={{ fontWeight: 700, marginBottom: '4px' }}>
+                Booking Duration (Hours)
+              </div>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {[1, 2, 3, 4, 8, 24].map((hrs) => (
+                  <Chip
+                    key={hrs}
+                    active={bookDurationHours === hrs}
+                    onClick={() => {
+                      setBookDurationHours(hrs);
+                      if (bookStart) {
+                        const startMs = new Date(bookStart).getTime();
+                        if (!Number.isNaN(startMs)) {
+                          const nextEnd = new Date(startMs + hrs * 3600000).toISOString().slice(0, 16);
+                          setBookEnd(nextEnd);
+                        }
+                      }
+                    }}
+                  >
+                    {hrs === 24 ? 'Full Day (24h)' : `${hrs} Hour${hrs > 1 ? 's' : ''}`}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+
+            {/* 2-Hour Advance Booking Policy Live Status */}
+            {(() => {
+              const startMs = new Date(bookStart).getTime();
+              const nowMs = Date.now();
+              const diffMin = Math.round((startMs - nowMs) / 60000);
+              const isPast = diffMin < 0;
+              const isUrgent = diffMin >= 0 && diffMin < 120;
+
+              if (isPast) {
+                return (
+                  <div style={{ padding: '8px 10px', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fecaca', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
+                    <span style={{ fontSize: '11.5px', color: '#991b1b', fontWeight: 600 }}>
+                      Departure time cannot be in the past. Please select an upcoming time.
+                    </span>
+                  </div>
+                );
+              }
+
+              if (isUrgent) {
+                return (
+                  <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#fef2f2', border: '1.5px solid #f87171', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <AlertTriangle size={16} style={{ color: '#dc2626', flexShrink: 0 }} />
+                      <span style={{ fontSize: '12px', fontWeight: 800, color: '#991b1b', textTransform: 'uppercase' }}>
+                        🚨 Urgent Request (&lt; 2h Advance) • Fleet PIC Approval Required
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: '#7f1d1d' }}>
+                      Company rule requires booking at least 2 hours before departure. This trip departs in <strong>{diffMin} minutes</strong> and requires mandatory justification and additional authorization from the Fleet Operation PIC.
+                    </div>
+                    <div>
+                      <label className="type-caption" htmlFor="urgent-reason-input" style={{ fontWeight: 700, display: 'block', color: '#991b1b', marginBottom: '2px' }}>
+                        Urgent Justification *
+                      </label>
+                      <input
+                        id="urgent-reason-input"
+                        type="text"
+                        className="gf-input"
+                        required
+                        placeholder="State urgent business reason (e.g. Emergency client site issue, urgent VIP transport)..."
+                        value={bookUrgentReason}
+                        onChange={(e) => setBookUrgentReason(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div style={{ padding: '8px 10px', borderRadius: '8px', background: '#f0fdf4', border: '1px solid #bbf7d0', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <CheckCircle2 size={15} style={{ color: '#16a34a', flexShrink: 0 }} />
+                  <span style={{ fontSize: '11.5px', color: '#166534', fontWeight: 600 }}>
+                    ✓ Standard Advance Booking ({Math.floor(diffMin / 60)}h {diffMin % 60}m before departure • Compliant with 2h advance booking rule)
+                  </span>
+                </div>
+              );
+            })()}
+          </div>
 
           {/* Horizontal Option Rows (80-88px) — Never a grid or table */}
           {loadingData ? (
@@ -7921,8 +8157,41 @@ export function App() {
             </button>
           </div>
 
+          {/* Urgent Warning Banner if departing < 2h */}
+          {Math.round((new Date(bookStart).getTime() - Date.now()) / 60000) < 120 && (
+            <div
+              style={{
+                padding: '10px 12px',
+                borderRadius: '8px',
+                background: '#fef2f2',
+                border: '1.5px solid #f87171',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px',
+              }}
+            >
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
+                <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#991b1b', textTransform: 'uppercase' }}>
+                  🚨 Urgent Short-Notice Request (&lt; 2h Advance)
+                </span>
+              </div>
+              <div style={{ fontSize: '11.5px', color: '#7f1d1d' }}>
+                Requires mandatory Fleet Operation PIC approval. Reason: <strong>{bookUrgentReason || bookPurpose || 'Urgent Short-Notice Departure'}</strong>
+              </div>
+            </div>
+          )}
+
           {/* Plain ListRow Pickers */}
           <div>
+            <ListRow
+              id="summary-schedule-row"
+              icon={<Calendar size={18} />}
+              title="Schedule & Hours"
+              subtitle={`${new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → ${new Date(bookEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${bookDurationHours}h)${Math.round((new Date(bookStart).getTime() - Date.now()) / 60000) < 120 ? ' • 🚨 Urgent (< 2h)' : ' • Standard'}`}
+              showChevron
+              onClick={() => setBookingStep('VEHICLE')}
+            />
             <ListRow
               id="summary-purpose-row"
               icon={<Briefcase size={18} />}
@@ -8121,6 +8390,7 @@ export function App() {
       const isApproved = focusedTrip?.status === 'APPROVED' || focusedTrip?.status === 'IN_PROGRESS';
       const isRejected = focusedTrip?.status === 'REJECTED';
       const isDual = focusedTrip?.requires_dual_approval;
+      const isUrgent = focusedTrip?.is_urgent === 1;
       const picApproved = focusedTrip?.pic_approved;
       const hwsApproved = focusedTrip?.hws_approved;
 
@@ -8136,6 +8406,10 @@ export function App() {
         badgeLabel = 'REJECTED';
         badgeTone = 'red';
         title = 'Booking Request Rejected';
+      } else if (isUrgent && !picApproved) {
+        badgeLabel = '🚨 URGENT (< 2h)';
+        badgeTone = 'red';
+        title = 'Awaiting Fleet Operation PIC Urgent Approval';
       } else if (isDual && picApproved) {
         badgeLabel = 'Stage 1 Approved';
         badgeTone = 'amber';
@@ -8155,6 +8429,8 @@ export function App() {
                 ? 'Authorized & delegated directly by System Admin'
                 : isDual
                 ? 'Approved by both Fleet Operation PIC and Head Of WS Part'
+                : isUrgent
+                ? 'Approved by Fleet Operation PIC (Urgent Short-Notice Authorization)'
                 : 'Approved by Fleet Administration',
               done: true,
             },
@@ -8170,8 +8446,12 @@ export function App() {
         ? [
             { label: 'Request sent & schedule locked', sub: 'Car and driver slot reserved immediately', done: true },
             {
-              label: 'Fleet Operation PIC approval',
-              sub: picApproved ? 'Approved by Fleet Operation PIC' : 'Awaiting Fleet Operation PIC review',
+              label: isUrgent ? 'Fleet Operation PIC urgent approval' : 'Fleet Operation PIC approval',
+              sub: picApproved
+                ? 'Approved by Fleet Operation PIC'
+                : isUrgent
+                ? 'Mandatory Fleet Operation PIC authorization required (< 2h departure)'
+                : 'Awaiting Fleet Operation PIC review',
               done: Boolean(picApproved),
               active: !picApproved && !hwsApproved,
             },
@@ -8189,7 +8469,13 @@ export function App() {
           ]
         : [
             { label: 'Request sent & schedule locked', sub: 'Car and driver slot reserved immediately', done: true },
-            { label: 'Admin review in progress', sub: 'Fleet Admin verifies & dispatches your driver', active: true },
+            {
+              label: isUrgent ? 'Fleet Operation PIC urgent approval' : 'Admin review in progress',
+              sub: isUrgent
+                ? 'Mandatory Fleet Operation PIC authorization required (< 2h departure)'
+                : 'Fleet Admin verifies & dispatches your driver',
+              active: true,
+            },
             { label: 'Driver dispatched', sub: 'You will get a push notification once assigned', done: false },
           ];
 
@@ -8202,9 +8488,26 @@ export function App() {
           </div>
 
           {focusedTrip && (
-            <div style={{ padding: '12px 14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
-              <div className="type-body" style={{ fontWeight: 700 }}>{focusedTrip.origin} → {focusedTrip.destination}</div>
+            <div style={{ padding: '12px 14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="type-body" style={{ fontWeight: 700 }}>{focusedTrip.origin} → {focusedTrip.destination}</div>
+                {focusedTrip.is_urgent === 1 && (
+                  <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' }}>
+                    🚨 URGENT (&lt; 2h)
+                  </span>
+                )}
+              </div>
               <div className="type-caption">{focusedTrip.make} {focusedTrip.model} • {focusedTrip.registration_plate}</div>
+              {focusedTrip.start_time && focusedTrip.end_time && (
+                <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+                  🕒 Schedule: {new Date(focusedTrip.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → {new Date(focusedTrip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              )}
+              {focusedTrip.urgent_reason && (
+                <div className="type-caption" style={{ color: '#991b1b', fontWeight: 600 }}>
+                  🚨 Urgent Justification: {focusedTrip.urgent_reason}
+                </div>
+              )}
               {focusedTrip.assigned_driver_name && (
                 <div className="type-caption" style={{ color: 'var(--color-green-text)', fontWeight: 600, marginTop: '3px' }}>
                   👤 Assigned Driver: {focusedTrip.assigned_driver_name} {focusedTrip.assigned_driver_phone ? `(${focusedTrip.assigned_driver_phone})` : ''}

@@ -203,6 +203,8 @@ function initializeSchema(db: AppDatabase) {
       actual_start_time TEXT,
       actual_end_time TEXT,
       parking_return_note TEXT,
+      is_urgent INTEGER NOT NULL DEFAULT 0,
+      urgent_reason TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -517,6 +519,12 @@ function initializeSchema(db: AppDatabase) {
   } catch {}
   try {
     db.exec('ALTER TABLE users ADD COLUMN photo_url TEXT;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN is_urgent INTEGER NOT NULL DEFAULT 0;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN urgent_reason TEXT;');
   } catch {}
 }
 
