@@ -1,13 +1,13 @@
 {
-  "name": "Company Fleet Management & Dispatch System",
-  "short_name": "FleetOps PWA",
+  "name": "GalaxyFleet — Company Fleet & Dispatch",
+  "short_name": "GalaxyFleet",
   "description": "Internal Company Fleet Management, Vehicle Reservation, Driver Dispatch & Periodic GPS Reporting PWA",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#0b1120",
-  "theme_color": "#0f172a",
+  "background_color": "#ffffff",
+  "theme_color": "#00AA13",
   "categories": ["business", "productivity", "navigation"],
   "icons": [
     {

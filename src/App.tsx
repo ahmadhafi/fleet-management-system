@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Car,
   ShieldCheck,
@@ -7,12 +7,7 @@ import {
   LogOut,
   Calendar,
   Navigation,
-  Wrench,
-  FileText,
-  BarChart3,
   CheckCircle2,
-  XCircle,
-  AlertTriangle,
   Clock,
   BatteryCharging,
   Fuel,
@@ -20,13 +15,42 @@ import {
   Users,
   MapPin,
   Upload,
-  RefreshCw,
   Edit3,
-  PauseCircle,
   Play,
-  Flag,
+  Search,
+  Bookmark,
+  Briefcase,
+  StickyNote,
+  CreditCard,
+  Phone,
+  MessageSquare,
+  Share2,
+  Star,
+  Zap,
+  Smartphone,
+  ChevronRight,
+  Lock,
+  Minus,
+  Plus,
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
+import { AppShell, DesktopPanelNav, AdminShell, type NavSection } from './components/AppShell';
+import { BottomSheet, type SnapPoint } from './components/BottomSheet';
+import { MapView, CORPORATE_HUBS, estimateRouteMetrics } from './components/MapView';
+import { RouteFields } from './components/RouteFields';
+import { VehicleArt } from './components/VehicleArt';
+import {
+  Chip,
+  StatusBadge,
+  toneFromStatus,
+  Segmented,
+  ListRow,
+  OptionRow,
+  StickyActionBar,
+  Skeleton,
+  EmptyState,
+  ErrorState,
+} from './components/ui';
 
 const REGISTRATION_DEPARTMENTS = [
   { id: 1, name: 'Workplace Solution (HWS)' },
@@ -40,11 +64,63 @@ const REGISTRATION_DEPARTMENTS = [
   { id: 9, name: 'Executive Office (EXEC)' },
 ];
 
+type BookingStep = 'HOME' | 'ROUTE' | 'VEHICLE' | 'SUMMARY' | 'WAITING' | 'IN_TRIP';
+
+const SAVED_PLACES = [
+  { name: 'HQ Tower Lobby', address: 'Jl. Jend. Sudirman Kav. 52, South Jakarta', tag: 'HQ' },
+  { name: 'SCBD District 8', address: 'Senopati Suites, Kebayoran Baru', tag: 'Office' },
+  { name: 'Soekarno-Hatta Terminal 3', address: 'International Airport, Tangerang', tag: 'Airport' },
+  { name: 'Data Center Cibitung', address: 'MM2100 Industrial Town, Bekasi', tag: 'Site' },
+];
+
+const ANNOUNCEMENTS = [
+  {
+    title: 'Zero-Emission EV Pool Ready',
+    body: 'Book our Hyundai Ioniq 5, BYD Atto 3, or Tesla Model Y for city rides.',
+    tag: 'Electric Fleet',
+  },
+  {
+    title: 'Instant Schedule Lock',
+    body: 'Vehicle and driver slots lock immediately on submission to prevent double-booking.',
+    tag: 'Anti-Overlap',
+  },
+  {
+    title: 'Install GalaxyFleet PWA',
+    body: 'Get instant push notifications for approvals, reminders, and driver arrivals.',
+    tag: 'Mobile PWA',
+  },
+];
+
+function getTimeGreeting(): string {
+  const hr = new Date().getHours();
+  if (hr < 12) return 'Good morning';
+  if (hr < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
 export function App() {
   const [user, setUser] = useState<any | null>(null);
   const [vapidPublicKey, setVapidPublicKey] = useState<string>('');
   const [loadingAuth, setLoadingAuth] = useState<boolean>(true);
+  const [loadingData, setLoadingData] = useState<boolean>(false);
+  const [dataError, setDataError] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
+
+  // Theme preference (Light / Dark / System via tokens)
+  const [themePref, setThemePref] = useState<'system' | 'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('gf_theme_pref');
+    return saved === 'light' || saved === 'dark' ? saved : 'system';
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (themePref === 'system') {
+      root.removeAttribute('data-theme');
+    } else {
+      root.setAttribute('data-theme', themePref);
+    }
+    localStorage.setItem('gf_theme_pref', themePref);
+  }, [themePref]);
 
   // Auth screen state (Pure Login vs 4-Field Registration — Revision #2)
   const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
@@ -60,15 +136,27 @@ export function App() {
   // PWA Install & Push Notification state (Revision #5)
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(null);
   const [pushSubscribed, setPushSubscribed] = useState<boolean>(false);
-  const [showNotificationsModal, setShowNotificationsModal] = useState<boolean>(false);
   const [showInstallGuideModal, setShowInstallGuideModal] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<any[]>([]);
 
-  // Active Navigation Tab
-  const [activeTab, setActiveTab] = useState<'BOOKING' | 'DRIVER_PWA' | 'ADMIN_DISPATCH' | 'FLEET_OPS' | 'ANALYTICS_AUDIT'>('BOOKING');
+  // Navigation & Presentation State
+  const [navSection, setNavSection] = useState<NavSection>('HOME');
+  const [bookingStep, setBookingStep] = useState<BookingStep>('HOME');
+  const [sheetSnap, setSheetSnap] = useState<SnapPoint>('half');
+  const [adminModule, setAdminModule] = useState<'ADMIN_DISPATCH' | 'FLEET_OPS' | 'ANALYTICS_AUDIT'>('ADMIN_DISPATCH');
   const [statusBanner, setStatusBanner] = useState<{ type: 'info' | 'success' | 'warning' | 'danger'; text: string } | null>(null);
 
-  // Core Application Data
+  // Home / Route / Ride / Activity sub-states
+  const [carouselIdx, setCarouselIdx] = useState(0);
+  const [routeTab, setRouteTab] = useState<'RECENT' | 'SAVED' | 'PIN'>('RECENT');
+  const [activeRouteField, setActiveRouteField] = useState<'pickup' | 'destination'>('destination');
+  const [scheduleMode, setScheduleMode] = useState<'NOW' | 'SCHEDULE'>('NOW');
+  const [vehicleFilter, setVehicleFilter] = useState<'ALL' | 'Electric' | 'MPV'>('ALL');
+  const [activityTab, setActivityTab] = useState<'ONGOING' | 'HISTORY'>('ONGOING');
+  const [summaryPicker, setSummaryPicker] = useState<'PURPOSE' | 'PAX' | 'NOTES' | 'CHARGE' | null>(null);
+  const [focusedTripId, setFocusedTripId] = useState<number | null>(null);
+
+  // Core Application Data (Preserved identically)
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]);
   const [trips, setTrips] = useState<any[]>([]);
@@ -131,13 +219,10 @@ export function App() {
   });
   const [expForm, setExpForm] = useState({ vehicle_id: 1, category: 'Toll', amount: '12.50', description: 'Inner City Toll Gate' });
   const [docForm, setDocForm] = useState({ entity_type: 'VEHICLE', entity_id: 1, doc_type: 'Insurance', file_name: 'policy.pdf', expiry_date: '2027-12-31' });
-
-  // Analytics Granularity Filter (Revision #6: Day / Week / Month / Overall)
   const [usagePeriod, setUsagePeriod] = useState<'day' | 'week' | 'month' | 'overall'>('month');
 
   const isPrivileged = user && ['ADM', 'FM', 'HWS'].includes(user.role);
 
-  // Listen for online/offline (WEB-03) and PWA beforeinstallprompt (WEB-02, Revision #5)
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
     const handleOffline = () => setIsOffline(true);
@@ -151,9 +236,7 @@ export function App() {
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {
-        // Non-blocking in non-HTTPS test environments
-      });
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
 
     return () => {
@@ -164,6 +247,8 @@ export function App() {
   }, []);
 
   const loadAllData = useCallback(async (currentUser: any) => {
+    setLoadingData(true);
+    setDataError(null);
     try {
       const [vehRes, drvRes, trpRes, bkgRes, ntfRes] = await Promise.all([
         apiRequest('/api/vehicles'),
@@ -177,6 +262,7 @@ export function App() {
       setTrips(trpRes.trips || []);
       setBookings(bkgRes.bookings || []);
       setNotifications(ntfRes.notifications || []);
+      setIsOffline(false);
 
       if (['DRV', 'ADM', 'FM'].includes(currentUser.role)) {
         const dspRes = await apiRequest('/api/driver/dispatches');
@@ -208,8 +294,11 @@ export function App() {
         setUsageAnalytics(anaRes);
         setAuditEvents(audRes.auditEvents || []);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed loading dashboard data:', err);
+      setDataError(err.message || 'Unable to load live fleet data.');
+    } finally {
+      setLoadingData(false);
     }
   }, []);
 
@@ -225,11 +314,13 @@ export function App() {
         setUser(res.user);
         setVapidPublicKey(res.vapidPublicKey || '');
         if (res.user.role === 'DRV') {
-          setActiveTab('DRIVER_PWA');
+          setNavSection('DRIVER');
         } else if (['ADM', 'FM', 'HWS'].includes(res.user.role)) {
-          setActiveTab('ADMIN_DISPATCH');
+          setNavSection('ADMIN');
+          setAdminModule('ADMIN_DISPATCH');
         } else {
-          setActiveTab('BOOKING');
+          setNavSection('HOME');
+          setBookingStep('HOME');
         }
         return loadAllData(res.user);
       })
@@ -240,17 +331,18 @@ export function App() {
       .finally(() => setLoadingAuth(false));
   }, [loadAllData]);
 
-  // Live availability check when booking start/end times change
+  // Live availability check when schedule dates change
   useEffect(() => {
     if (!user || !bookStart || !bookEnd) return;
-    const sIso = new Date(bookStart).toISOString();
-    const eIso = new Date(bookEnd).toISOString();
-    apiRequest(`/api/availability?start_time=${encodeURIComponent(sIso)}&end_time=${encodeURIComponent(eIso)}`)
+    const sDate = scheduleMode === 'NOW' ? new Date(Date.now() + 5 * 60000) : new Date(bookStart);
+    const eDate = scheduleMode === 'NOW' ? new Date(Date.now() + 125 * 60000) : new Date(bookEnd);
+    if (Number.isNaN(sDate.getTime()) || Number.isNaN(eDate.getTime()) || eDate <= sDate) return;
+    apiRequest(`/api/availability?start_time=${encodeURIComponent(sDate.toISOString())}&end_time=${encodeURIComponent(eDate.toISOString())}`)
       .then((res) => setLiveAvailability(res))
       .catch(() => {});
-  }, [user, bookStart, bookEnd, trips, bookings, vehicles]);
+  }, [user, bookStart, bookEnd, scheduleMode, trips, bookings, vehicles]);
 
-  // Periodic 20-Minute GPS Reporting + Screen WakeLock for Driver PWA (Section 9)
+  // Periodic 20-Minute GPS Reporting + Screen WakeLock for Driver PWA
   const sendDriverLocationReport = useCallback(
     async (explicitState?: 'GRANTED' | 'DENIED' | 'UNAVAILABLE') => {
       if (!user) return;
@@ -287,7 +379,6 @@ export function App() {
             setGpsPermissionState('GRANTED');
           },
           async () => {
-            // Fallback simulated HQ Jakarta coordinates when desktop browser lacks hardware GPS fix, or record state
             const res = await apiRequest('/api/gps/report', {
               method: 'POST',
               body: JSON.stringify({
@@ -320,7 +411,7 @@ export function App() {
     sendDriverLocationReport('GRANTED');
     const intervalId = window.setInterval(() => {
       sendDriverLocationReport('GRANTED');
-    }, 20 * 60 * 1000); // 20-minute target interval (GPS-02)
+    }, 20 * 60 * 1000);
 
     return () => {
       window.clearInterval(intervalId);
@@ -330,7 +421,7 @@ export function App() {
     };
   }, [gpsReportingActive, gpsNoticeAccepted, sendDriverLocationReport]);
 
-  // Handlers: Login & Registration (Revision #2)
+  // Handlers: Login & Registration
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthMessage(null);
@@ -343,11 +434,13 @@ export function App() {
       setUser(res.user);
       setVapidPublicKey(res.vapidPublicKey || '');
       if (res.user.role === 'DRV') {
-        setActiveTab('DRIVER_PWA');
+        setNavSection('DRIVER');
       } else if (['ADM', 'FM', 'HWS'].includes(res.user.role)) {
-        setActiveTab('ADMIN_DISPATCH');
+        setNavSection('ADMIN');
+        setAdminModule('ADMIN_DISPATCH');
       } else {
-        setActiveTab('BOOKING');
+        setNavSection('HOME');
+        setBookingStep('HOME');
       }
       await loadAllData(res.user);
     } catch (err: any) {
@@ -392,7 +485,6 @@ export function App() {
     setUser(null);
   };
 
-  // Handler: Install PWA & Enable Web Push Notifications (Revision #5)
   const handleInstallPwa = async () => {
     if (deferredInstallPrompt) {
       deferredInstallPrompt.prompt();
@@ -413,7 +505,7 @@ export function App() {
             const sub = await reg.pushManager
               .subscribe({
                 userVisibleOnly: true,
-                applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+                applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
               })
               .catch(() => null);
 
@@ -428,7 +520,6 @@ export function App() {
         }
       }
 
-      // Always register a verified subscription record & trigger a test push/in-app notification
       await apiRequest('/api/notifications/subscribe', {
         method: 'POST',
         body: JSON.stringify({
@@ -444,7 +535,7 @@ export function App() {
       });
 
       if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('FleetOps PWA Push Active', {
+        new Notification('GalaxyFleet PWA Push Active', {
           body: 'You will now receive instant booking, reminder, and dispatch notifications.',
           icon: '/icons/icon.svg',
         });
@@ -453,7 +544,7 @@ export function App() {
       setPushSubscribed(true);
       setStatusBanner({
         type: 'success',
-        text: 'PWA Push Notifications enabled! A test alert was delivered to your notification center.',
+        text: 'Push notifications active. Alerts will appear here and on your lock screen.',
       });
       await loadAllData(user);
     } catch (err: any) {
@@ -461,31 +552,35 @@ export function App() {
     }
   };
 
-  // Handler: Submit Trip Booking (Revision #1 No Self-Drive, Revision #4 Immediate Car/Driver Schedule Lock)
-  const handleCreateTripBooking = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateTripBooking = async () => {
     setStatusBanner(null);
+    const startIso = scheduleMode === 'NOW' ? new Date(Date.now() + 5 * 60000).toISOString() : new Date(bookStart).toISOString();
+    const endIso = scheduleMode === 'NOW' ? new Date(Date.now() + 125 * 60000).toISOString() : new Date(bookEnd).toISOString();
+    const effectivePurpose = bookPurpose.trim() || 'Business Trip';
+
     try {
-      await apiRequest('/api/trips', {
+      const created = await apiRequest('/api/trips', {
         method: 'POST',
         body: JSON.stringify({
           vehicle_id: Number(bookVehicleId),
           preferred_driver_id: bookDriverId ? Number(bookDriverId) : null,
-          purpose: bookPurpose,
-          origin: bookOrigin,
-          destination: bookDest,
-          start_time: new Date(bookStart).toISOString(),
-          end_time: new Date(bookEnd).toISOString(),
+          purpose: effectivePurpose,
+          origin: bookOrigin.trim() || 'HQ Tower Lobby',
+          destination: bookDest.trim(),
+          start_time: startIso,
+          end_time: endIso,
           passenger_count: Number(bookPax),
           notes: bookNotes,
         }),
       });
       setBookPurpose('');
-      setBookDest('');
       setBookNotes('');
+      setFocusedTripId(created.tripId);
+      setBookingStep('WAITING');
+      setSheetSnap('half');
       setStatusBanner({
         type: 'success',
-        text: 'Booking submitted! The selected vehicle and driver schedule are now IMMEDIATELY LOCKED (Pending Approval) so no double-booking can occur.',
+        text: 'Request sent! Vehicle schedule slot locked pending approval.',
       });
       await loadAllData(user);
     } catch (err: any) {
@@ -493,7 +588,30 @@ export function App() {
     }
   };
 
-  // Handler: Admin Approve/Reject User Registration (Revision #2)
+  const handleCancelBookingRequest = async (trip: any) => {
+    if (!trip?.booking_id) {
+      setBookingStep('HOME');
+      setSheetSnap('half');
+      return;
+    }
+    try {
+      await apiRequest(`/api/bookings/${trip.booking_id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          status: 'CANCELLED',
+          cancellation_reason: 'Cancelled by requester',
+        }),
+      });
+      setFocusedTripId(null);
+      setBookingStep('HOME');
+      setSheetSnap('half');
+      setStatusBanner({ type: 'info', text: 'Request cancelled and schedule slot released.' });
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message });
+    }
+  };
+
   const handleApproveUser = async (targetUserId: number, approve: boolean, selectedRole: string) => {
     try {
       await apiRequest(`/api/users/${targetUserId}`, {
@@ -514,7 +632,6 @@ export function App() {
     }
   };
 
-  // Handler: Admin One-Click Approve & Dispatch or Reject Trip Request
   const handleAdminTripDecision = async (decision: 'APPROVED' | 'REJECTED') => {
     if (!dispatchModalTrip) return;
     try {
@@ -533,7 +650,7 @@ export function App() {
         type: 'success',
         text:
           decision === 'APPROVED'
-            ? `Trip #${dispatchModalTrip.id} approved and dispatched! Push notification sent to Driver and Requester.`
+            ? `Trip #${dispatchModalTrip.id} approved and dispatched!`
             : `Trip #${dispatchModalTrip.id} rejected and vehicle schedule slot released.`,
       });
       await loadAllData(user);
@@ -542,7 +659,6 @@ export function App() {
     }
   };
 
-  // Handler: Admin Save Vehicle Changes / Standby Status (Revision #3)
   const handleSaveVehicleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingVehicle) return;
@@ -580,11 +696,74 @@ export function App() {
     }
   };
 
+  // Filtered availability vehicles & derived active trip
+  const rawAvailVehicles = liveAvailability?.vehicles || vehicles;
+  const filteredVehicles = useMemo(() => {
+    if (vehicleFilter === 'Electric') return rawAvailVehicles.filter((v) => v.energy_type === 'Electric');
+    if (vehicleFilter === 'MPV') return rawAvailVehicles.filter((v) => String(v.car_type).toLowerCase().includes('mpv') || v.seats >= 7);
+    return rawAvailVehicles;
+  }, [rawAvailVehicles, vehicleFilter]);
+
+  const selectedVehicle = useMemo(
+    () => rawAvailVehicles.find((v) => v.id === Number(bookVehicleId)) || filteredVehicles[0] || rawAvailVehicles[0],
+    [rawAvailVehicles, filteredVehicles, bookVehicleId]
+  );
+
+  // Auto-select first available vehicle when filtered list changes
+  useEffect(() => {
+    if (filteredVehicles.length > 0 && !filteredVehicles.some((v) => v.id === bookVehicleId)) {
+      const firstAvail = filteredVehicles.find((v) => v.isAvailable !== false && v.status === 'Available') || filteredVehicles[0];
+      if (firstAvail) setBookVehicleId(firstAvail.id);
+    }
+  }, [filteredVehicles, bookVehicleId]);
+
+  const ongoingTrips = useMemo(
+    () =>
+      trips.filter(
+        (t) =>
+          (t.status === 'PENDING_APPROVAL' || t.status === 'APPROVED' || t.status === 'IN_PROGRESS') &&
+          t.booking_id !== null &&
+          t.booking_status !== 'CANCELLED'
+      ),
+    [trips]
+  );
+
+  const historyTrips = useMemo(
+    () =>
+      trips.filter(
+        (t) =>
+          t.status === 'COMPLETED' ||
+          t.status === 'REJECTED' ||
+          t.status === 'CANCELLED' ||
+          t.booking_status === 'CANCELLED' ||
+          t.booking_id === null
+      ),
+    [trips]
+  );
+
+  const focusedTrip = useMemo(
+    () => trips.find((t) => t.id === focusedTripId) || ongoingTrips[0] || null,
+    [trips, focusedTripId, ongoingTrips]
+  );
+
+  const recentDestinationChips = useMemo(() => {
+    const fromHistory = Array.from(new Set(trips.map((t) => String(t.destination)).filter(Boolean)));
+    const defaults = ['SCBD District 8', 'Soekarno-Hatta Terminal 3', 'Data Center Cibitung', 'BSD Green Office Park', 'Tangerang Logistics Hub'];
+    return Array.from(new Set([...fromHistory, ...defaults])).slice(0, 5);
+  }, [trips]);
+
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
+  const pendingUsers = usersList.filter((u) => u.approval_status === 'PENDING_APPROVAL');
+  const pendingTrips = trips.filter((t) => t.status === 'PENDING_APPROVAL');
+
+  // Loading auth screen
   if (loadingAuth) {
     return (
-      <div className="auth-screen">
-        <div className="auth-card" style={{ textAlign: 'center' }}>
-          <h2>Loading Fleet Management System...</h2>
+      <div className="gf-auth-screen">
+        <div className="gf-auth-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <Skeleton height={32} width="60%" />
+          <Skeleton height={48} />
+          <Skeleton height={48} />
         </div>
       </div>
     );
@@ -595,123 +774,138 @@ export function App() {
   // ============================================================================
   if (!user) {
     return (
-      <div className="auth-screen">
-        <div className="auth-card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            <div className="brand-mark">
-              <Car size={22} />
+      <div className="gf-auth-screen">
+        <div className="gf-auth-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+            <div
+              style={{
+                width: '48px',
+                height: '48px',
+                borderRadius: '14px',
+                background: 'var(--color-green)',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Car size={24} />
             </div>
             <div>
-              <h1 style={{ fontSize: '1.25rem', color: 'var(--text-primary)' }}>Company Fleet Management</h1>
-              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                Internal Vehicle Reservation, Dispatch & Android PWA
-              </p>
+              <h1 className="type-title">GalaxyFleet</h1>
+              <p className="type-caption">Company Ride Dispatch & Mobile PWA</p>
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.75rem' }}>
-            <button
-              type="button"
-              id="auth-tab-login"
-              className={`btn ${authMode === 'LOGIN' ? 'btn-primary' : 'btn-secondary'}`}
-              style={{ flex: 1 }}
-              onClick={() => {
-                setAuthMode('LOGIN');
+          <div style={{ marginBottom: '20px' }}>
+            <Segmented
+              ariaLabel="Authentication mode"
+              value={authMode}
+              onChange={(m) => {
+                setAuthMode(m);
                 setAuthMessage(null);
               }}
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              id="auth-tab-register"
-              className={`btn ${authMode === 'REGISTER' ? 'btn-primary' : 'btn-secondary'}`}
-              style={{ flex: 1 }}
-              onClick={() => {
-                setAuthMode('REGISTER');
-                setAuthMessage(null);
-              }}
-            >
-              Register Account
-            </button>
+              options={[
+                { value: 'LOGIN', label: 'Sign In' },
+                { value: 'REGISTER', label: 'Register Account' },
+              ]}
+            />
           </div>
 
           {authMessage && (
-            <div className={`banner ${authMessage.type === 'error' ? 'banner-danger' : 'banner-success'}`}>
-              <span>{authMessage.text}</span>
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-control)',
+                marginBottom: '16px',
+                background: authMessage.type === 'error' ? 'var(--color-status-red-bg)' : 'var(--color-status-green-bg)',
+                color: authMessage.type === 'error' ? 'var(--color-status-red-fg)' : 'var(--color-status-green-fg)',
+                fontSize: 'var(--text-body-size)',
+                fontWeight: 600,
+              }}
+            >
+              {authMessage.text}
             </div>
           )}
 
           {authMode === 'LOGIN' ? (
-            <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '0.95rem' }}>
-              <div className="form-group">
-                <label className="form-label" htmlFor="login-username">
+            <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="type-caption" htmlFor="login-username" style={{ fontWeight: 700, display: 'block', marginBottom: '6px' }}>
                   Group Username
                 </label>
                 <input
                   id="login-username"
-                  className="form-input"
+                  className="gf-input"
                   type="text"
+                  autoComplete="username"
                   required
                   placeholder="e.g., admin, drv_budi, emp_alex"
                   value={loginUsername}
                   onChange={(e) => setLoginUsername(e.target.value)}
                 />
               </div>
-              <div className="form-group">
-                <label className="form-label" htmlFor="login-password">
+              <div>
+                <label className="type-caption" htmlFor="login-password" style={{ fontWeight: 700, display: 'block', marginBottom: '6px' }}>
                   Password
                 </label>
                 <input
                   id="login-password"
-                  className="form-input"
+                  className="gf-input"
                   type="password"
+                  autoComplete="current-password"
                   required
                   placeholder="Enter your password"
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                 />
               </div>
-              <button id="login-submit-btn" type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '0.25rem' }}>
-                Sign In to Fleet System
+              <button id="login-submit-btn" type="submit" className="gf-btn gf-btn-primary gf-btn-full">
+                Sign In to GalaxyFleet
               </button>
 
               <div
                 style={{
-                  marginTop: '0.75rem',
-                  padding: '0.85rem',
-                  background: 'var(--bg-elevated)',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: '0.78rem',
-                  color: 'var(--text-secondary)',
+                  marginTop: '8px',
+                  padding: '12px 14px',
+                  background: 'var(--color-bg-subtle)',
+                  borderRadius: 'var(--radius-control)',
                 }}
               >
-                <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>Pre-Configured Accounts for Testing:</div>
-                <div className="mono" style={{ display: 'grid', gap: '0.2rem' }}>
+                <div className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: '6px' }}>
+                  Test Accounts:
+                </div>
+                <div className="mono type-caption" style={{ display: 'grid', gap: '4px' }}>
                   <div>• Admin: <strong>admin</strong> / <strong>Admin@123</strong></div>
-                  <div>• Fleet Manager: <strong>fleetmgr</strong> / <strong>Fleet@123</strong></div>
-                  <div>• Head of HWS: <strong>hws_head</strong> / <strong>Hws@123</strong></div>
-                  <div>• Driver (PWA): <strong>drv_budi</strong> / <strong>Driver@123</strong></div>
-                  <div>• Employee User: <strong>emp_alex</strong> / <strong>Emp@123</strong></div>
+                  <div>• Fleet Mgr: <strong>fleetmgr</strong> / <strong>Fleet@123</strong></div>
+                  <div>• Approver: <strong>hws_head</strong> / <strong>Hws@123</strong></div>
+                  <div>• Driver: <strong>drv_budi</strong> / <strong>Driver@123</strong></div>
+                  <div>• Employee: <strong>emp_alex</strong> / <strong>Emp@123</strong></div>
                 </div>
               </div>
             </form>
           ) : (
-            <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-              <div className="banner banner-info" style={{ marginBottom: '0.25rem', fontSize: '0.8rem' }}>
-                <span>
-                  <strong>Privacy-First Registration:</strong> No personal contact/ID data required. Accounts require{' '}
-                  <strong>Administrator approval</strong> before sign-in.
-                </span>
+            <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 'var(--radius-control)',
+                  background: 'var(--color-bg-subtle)',
+                  fontSize: 'var(--text-caption-size)',
+                  color: 'var(--color-text-secondary)',
+                }}
+              >
+                <strong>Privacy-First Registration:</strong> Only nickname, department, group username & password needed. Admin approval required before sign-in.
               </div>
 
-              <div className="form-group">
-                <label className="form-label" htmlFor="reg-nickname">
+              <div>
+                <label className="type-caption" htmlFor="reg-nickname" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
                   Nickname
                 </label>
                 <input
                   id="reg-nickname"
-                  className="form-input"
+                  className="gf-input"
                   type="text"
                   required
                   placeholder="e.g., Kevin"
@@ -720,16 +914,11 @@ export function App() {
                 />
               </div>
 
-              <div className="form-group">
-                <label className="form-label" htmlFor="reg-dept">
-                  Department (9 Company Departments)
+              <div>
+                <label className="type-caption" htmlFor="reg-dept" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  Department
                 </label>
-                <select
-                  id="reg-dept"
-                  className="form-select"
-                  value={regDeptId}
-                  onChange={(e) => setRegDeptId(Number(e.target.value))}
-                >
+                <select id="reg-dept" className="gf-select" value={regDeptId} onChange={(e) => setRegDeptId(Number(e.target.value))}>
                   {REGISTRATION_DEPARTMENTS.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.name}
@@ -738,13 +927,13 @@ export function App() {
                 </select>
               </div>
 
-              <div className="form-group">
-                <label className="form-label" htmlFor="reg-username">
+              <div>
+                <label className="type-caption" htmlFor="reg-username" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
                   Group Username
                 </label>
                 <input
                   id="reg-username"
-                  className="form-input"
+                  className="gf-input"
                   type="text"
                   required
                   placeholder="e.g., eng_kevin"
@@ -753,13 +942,13 @@ export function App() {
                 />
               </div>
 
-              <div className="form-group">
-                <label className="form-label" htmlFor="reg-password">
+              <div>
+                <label className="type-caption" htmlFor="reg-password" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
                   Password
                 </label>
                 <input
                   id="reg-password"
-                  className="form-input"
+                  className="gf-input"
                   type="password"
                   required
                   minLength={6}
@@ -769,18 +958,18 @@ export function App() {
                 />
               </div>
 
-              <div className="form-group">
-                <label className="form-label" htmlFor="reg-role">
+              <div>
+                <label className="type-caption" htmlFor="reg-role" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
                   Account Type
                 </label>
-                <select id="reg-role" className="form-select" value={regRole} onChange={(e) => setRegRole(e.target.value as 'EMP' | 'DRV')}>
+                <select id="reg-role" className="gf-select" value={regRole} onChange={(e) => setRegRole(e.target.value as 'EMP' | 'DRV')}>
                   <option value="EMP">User / Employee (Book & Reserve Cars)</option>
                   <option value="DRV">Company Driver (Receive Dispatch Orders)</option>
                 </select>
               </div>
 
-              <button id="register-submit-btn" type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-                Submit Registration for Admin Approval
+              <button id="register-submit-btn" type="submit" className="gf-btn gf-btn-primary gf-btn-full">
+                Submit Registration
               </button>
             </form>
           )}
@@ -789,1849 +978,93 @@ export function App() {
     );
   }
 
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
-  const pendingUsers = usersList.filter((u) => u.approval_status === 'PENDING_APPROVAL');
-  const pendingTrips = trips.filter((t) => t.status === 'PENDING_APPROVAL');
-
-  return (
-    <div className="app-shell">
-      {/* Top Header with Universal PWA Install & Push Notification Controls (Revision #5) */}
-      <header className="top-navbar">
-        <div className="brand-cluster">
-          <div className="brand-mark">
-            <Car size={20} />
-          </div>
-          <div>
-            <div className="brand-title">FleetOps Command & PWA</div>
-            <div className="brand-subtitle">
-              8 Vehicles (5 Gasoline • 3 Electric) • 9 Departments • Periodic GPS
-            </div>
-          </div>
-        </div>
-
-        <div className="nav-actions">
-          <span className="badge badge-info" style={{ padding: '0.35rem 0.7rem' }}>
-            {user.nickname} (@{user.group_username}) • Role: {user.role}
-            {user.is_department_admin === 1 ? ' + Dept Admin' : ''}
-          </span>
-
-          <button id="pwa-install-btn" type="button" className="btn btn-secondary btn-sm" onClick={handleInstallPwa}>
-            <Download size={15} />
-            Install PWA App
-          </button>
-
-          <button
-            id="push-enable-btn"
-            type="button"
-            className={`btn btn-sm ${pushSubscribed ? 'btn-success' : 'btn-primary'}`}
-            onClick={handleEnablePushNotifications}
-          >
-            <Bell size={15} />
-            {pushSubscribed ? 'Push Active (Test)' : 'Enable Push Alerts'}
-          </button>
-
-          <button
-            id="notifications-drawer-btn"
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => setShowNotificationsModal(true)}
-          >
-            <Bell size={15} />
-            Inbox ({unreadCount})
-          </button>
-
-          <button id="logout-btn" type="button" className="btn btn-danger btn-sm" onClick={handleLogout}>
-            <LogOut size={15} />
-            Sign Out
-          </button>
-        </div>
-      </header>
-
-      {/* WEB-03: Explicit Connection-Required Offline Guard */}
-      {isOffline && (
-        <div className="banner banner-danger" style={{ margin: '0.75rem 1.25rem 0', borderRadius: 'var(--radius-sm)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <AlertTriangle size={18} />
-            <strong>Connection Required (WEB-03):</strong> You are currently offline. Live fleet data is not cached offline to prevent stale booking or location decisions.
-          </div>
-        </div>
-      )}
-
-      {/* Navigation Tabs */}
-      <nav className="sub-nav" aria-label="Main Modules">
-        <button
-          type="button"
-          className={`tab-btn ${activeTab === 'BOOKING' ? 'active' : ''}`}
-          onClick={() => setActiveTab('BOOKING')}
-        >
-          <Calendar size={16} />
-          Book / Reserve Car & My Trips
-        </button>
-
-        {(user.role === 'DRV' || isPrivileged) && (
-          <button
-            type="button"
-            className={`tab-btn ${activeTab === 'DRIVER_PWA' ? 'active' : ''}`}
-            onClick={() => setActiveTab('DRIVER_PWA')}
-          >
-            <Navigation size={16} />
-            Driver Dispatch PWA ({dispatches.filter((d) => d.trip_status !== 'COMPLETED' && d.trip_status !== 'REJECTED').length})
-          </button>
-        )}
-
-        {isPrivileged && (
-          <>
-            <button
-              type="button"
-              className={`tab-btn ${activeTab === 'ADMIN_DISPATCH' ? 'active' : ''}`}
-              onClick={() => setActiveTab('ADMIN_DISPATCH')}
-            >
-              <ShieldCheck size={16} />
-              Admin Approvals & Dispatch ({pendingTrips.length + pendingUsers.length})
-            </button>
-
-            <button
-              type="button"
-              className={`tab-btn ${activeTab === 'FLEET_OPS' ? 'active' : ''}`}
-              onClick={() => setActiveTab('FLEET_OPS')}
-            >
-              <Wrench size={16} />
-              Vehicles, Standby, Energy & Docs
-            </button>
-
-            <button
-              type="button"
-              className={`tab-btn ${activeTab === 'ANALYTICS_AUDIT' ? 'active' : ''}`}
-              onClick={() => setActiveTab('ANALYTICS_AUDIT')}
-            >
-              <BarChart3 size={16} />
-              Usage Analytics (Day/Week/Month), GPS & Audit
-            </button>
-          </>
-        )}
-      </nav>
-
-      <main className="main-container">
-        {statusBanner && (
-          <div className={`banner banner-${statusBanner.type}`}>
-            <span>{statusBanner.text}</span>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setStatusBanner(null)}>
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {/* ===================================================================
-            TAB 1: BOOK / RESERVE CAR & MY TRIPS (Revisions #1 & #4)
-           =================================================================== */}
-        {activeTab === 'BOOKING' && (
-          <div className="grid-2">
-            <section className="card">
-              <div className="card-header">
-                <h2 className="card-title">
-                  <Car size={19} />
-                  Reserve Company Vehicle (With Driver)
-                </h2>
-                <span className="badge badge-info">Immediate Schedule Lock on Submit</span>
-              </div>
-
-              <div className="banner banner-info" style={{ fontSize: '0.82rem' }}>
-                <span>
-                  <strong>Anti-Double-Booking Protection:</strong> All trips include a company driver (Self-Drive is disabled). As soon as you submit a booking, the selected{' '}
-                  <strong>car and driver schedule are immediately blocked</strong> even while awaiting Administrator approval.
-                </span>
-              </div>
-
-              <form onSubmit={handleCreateTripBooking} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
-                <div className="form-grid">
-                  <div className="form-group">
-                    <label className="form-label">Departure Date & Time</label>
-                    <input
-                      type="datetime-local"
-                      className="form-input"
-                      required
-                      value={bookStart}
-                      onChange={(e) => setBookStart(e.target.value)}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Return Date & Time</label>
-                    <input
-                      type="datetime-local"
-                      className="form-input"
-                      required
-                      value={bookEnd}
-                      onChange={(e) => setBookEnd(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="form-grid">
-                  <div className="form-group">
-                    <label className="form-label">Select Vehicle (8-Car Shared Pool)</label>
-                    <select
-                      className="form-select"
-                      value={bookVehicleId}
-                      onChange={(e) => setBookVehicleId(Number(e.target.value))}
-                    >
-                      {(liveAvailability?.vehicles || vehicles).map((v: any) => {
-                        const avail = v.isAvailable !== false && v.status === 'Available';
-                        return (
-                          <option key={v.id} value={v.id} disabled={!avail}>
-                            {avail ? '✅ AVAILABLE' : '🔒 BLOCKED'} — {v.registration_plate} • {v.make} {v.model} ({v.car_type}, {v.energy_type}
-                            {v.energy_type === 'Electric' ? ` ${v.battery_percent ?? 100}%` : ''})
-                            {!avail && v.conflictReason ? ` [${v.conflictReason}]` : ''}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Assign / Block Driver</label>
-                    <select
-                      className="form-select"
-                      value={bookDriverId}
-                      onChange={(e) => setBookDriverId(e.target.value)}
-                    >
-                      <option value="">Let Admin Assign on Approval</option>
-                      {(liveAvailability?.drivers || drivers).map((d: any) => {
-                        const avail = d.isAvailable !== false && d.availability_status === 'Active';
-                        return (
-                          <option key={d.id} value={d.id} disabled={!avail}>
-                            {avail ? '✅' : '🔒'} {d.full_name} (Class {d.licence_class}) — {avail ? 'Available' : d.conflictReason || d.availability_status}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="form-grid">
-                  <div className="form-group">
-                    <label className="form-label">Trip Purpose</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      required
-                      placeholder="e.g., Client Contract Signing"
-                      value={bookPurpose}
-                      onChange={(e) => setBookPurpose(e.target.value)}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Passengers</label>
-                    <input
-                      type="number"
-                      className="form-input"
-                      min={1}
-                      max={7}
-                      required
-                      value={bookPax}
-                      onChange={(e) => setBookPax(Number(e.target.value))}
-                    />
-                  </div>
-                </div>
-
-                <div className="form-grid">
-                  <div className="form-group">
-                    <label className="form-label">Origin</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      required
-                      value={bookOrigin}
-                      onChange={(e) => setBookOrigin(e.target.value)}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Destination</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      required
-                      placeholder="e.g., Sudirman Central Business District"
-                      value={bookDest}
-                      onChange={(e) => setBookDest(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Dispatch Notes for Driver / Admin</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Pickup point details or cargo notes"
-                    value={bookNotes}
-                    onChange={(e) => setBookNotes(e.target.value)}
-                  />
-                </div>
-
-                <button id="submit-booking-btn" type="submit" className="btn btn-primary">
-                  <Calendar size={16} />
-                  Reserve Vehicle & Lock Schedule Slot
-                </button>
-              </form>
-            </section>
-
-            {/* Right Column: Live Fleet Availability & User's Reservations */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <section className="card">
-                <div className="card-header">
-                  <h2 className="card-title">Live Fleet Status (8 Vehicles)</h2>
-                </div>
-                <div className="table-wrap">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Plate & Model</th>
-                        <th>Type / Energy</th>
-                        <th>Schedule Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {vehicles.map((v) => (
-                        <tr key={v.id}>
-                          <td>
-                            <div style={{ fontWeight: 600 }}>{v.registration_plate}</div>
-                            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                              {v.make} {v.model} ({v.seats} seats)
-                            </div>
-                          </td>
-                          <td>
-                            <span className={`badge ${v.energy_type === 'Electric' ? 'badge-success' : 'badge-info'}`}>
-                              {v.energy_type === 'Electric' ? `⚡ EV (${v.battery_percent ?? 100}%)` : '⛽ Gasoline'}
-                            </span>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{v.car_type}</div>
-                          </td>
-                          <td>
-                            {v.status !== 'Available' ? (
-                              <span className="badge badge-danger">
-                                {v.status} {v.standby_reason ? `(${v.standby_reason})` : ''}
-                              </span>
-                            ) : v.activeBooking ? (
-                              <div>
-                                <span className="badge badge-warning">
-                                  🔒 Blocked ({v.activeBooking.status})
-                                </span>
-                                <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                                  {new Date(v.activeBooking.start_time).toLocaleString()}
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="badge badge-success">Available to Book</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-
-              <section className="card">
-                <div className="card-header">
-                  <h2 className="card-title">My Bookings & Approval History</h2>
-                </div>
-                <div className="table-wrap">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Trip & Route</th>
-                        <th>Vehicle & Driver</th>
-                        <th>Status & Decisions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {trips.map((t) => (
-                        <tr key={t.id}>
-                          <td>
-                            <div style={{ fontWeight: 600 }}>#{t.id} — {t.purpose}</div>
-                            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                              {t.origin} → {t.destination}
-                            </div>
-                            <div className="mono" style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                              {new Date(t.start_time).toLocaleString()} — {new Date(t.end_time).toLocaleTimeString()}
-                            </div>
-                          </td>
-                          <td>
-                            <div style={{ fontWeight: 600 }}>{t.registration_plate}</div>
-                            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                              Driver: {t.assigned_driver_name || 'Pending Dispatch'}
-                            </div>
-                          </td>
-                          <td>
-                            <span
-                              className={`badge ${
-                                t.status === 'COMPLETED' || t.status === 'APPROVED'
-                                  ? 'badge-success'
-                                  : t.status === 'REJECTED' || t.status === 'CANCELLED'
-                                  ? 'badge-danger'
-                                  : 'badge-warning'
-                              }`}
-                            >
-                              {t.status}
-                            </span>
-                            {t.decisions && t.decisions.length > 0 && (
-                              <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
-                                {t.decisions.map((d: any) => (
-                                  <div key={d.id}>
-                                    • {d.decision} by {d.decider_name} ({d.reason})
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            </div>
-          </div>
-        )}
-
-        {/* ===================================================================
-            TAB 2: DRIVER DISPATCH PWA CONSOLE (Section 7.8 TRP & Section 9 GPS)
-           =================================================================== */}
-        {activeTab === 'DRIVER_PWA' && (
-          <div className="grid-2">
-            {/* Driver Periodic Location Reporting Console (GPS-01 to GPS-18) */}
-            <section className="card">
-              <div className="card-header">
-                <h2 className="card-title">
-                  <Navigation size={19} />
-                  Driver Periodic Location Reporting (Best-Effort PWA GPS)
-                </h2>
-                <span className={`badge ${gpsReportingActive ? 'badge-success' : 'badge-neutral'}`}>
-                  {gpsReportingActive ? 'Reporting Active (Every 20m Target)' : 'Not Tracking'}
-                </span>
-              </div>
-
-              {/* GPS-15: Driver Privacy Notice before reporting starts */}
-              <div className="banner banner-info" style={{ fontSize: '0.82rem' }}>
-                <div>
-                  <strong>Driver Location Notice (GPS-03, GPS-15):</strong> This PWA sends <em>periodic location reports</em> (target every 20 minutes while the app is open and permission is granted) during active duty. It is <strong>not continuous live tracking</strong>. Coordinates, capture time, and accuracy are visible only to authorized Fleet Managers, HWS Head, and Administrators.
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginBottom: '1rem' }}>
-                {!gpsNoticeAccepted ? (
-                  <button
-                    id="driver-accept-gps-notice-btn"
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => {
-                      setGpsNoticeAccepted(true);
-                      setGpsReportingActive(true);
-                    }}
-                  >
-                    <CheckCircle2 size={16} />
-                    Acknowledge Notice & Start Periodic GPS Reporting
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={() => sendDriverLocationReport('GRANTED')}
-                    >
-                      <MapPin size={16} />
-                      Send Periodic GPS Report Now
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        setGpsPermissionState('DENIED');
-                        sendDriverLocationReport('DENIED');
-                      }}
-                    >
-                      Simulate Permission Denied (GPS-07)
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        setGpsPermissionState('UNAVAILABLE');
-                        sendDriverLocationReport('UNAVAILABLE');
-                      }}
-                    >
-                      Simulate Signal Unavailable (GPS-07)
-                    </button>
-                  </>
-                )}
-              </div>
-
-              {lastDriverGpsReport && (
-                <div style={{ padding: '0.9rem', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', fontSize: '0.84rem' }}>
-                  <div style={{ fontWeight: 600, marginBottom: '0.35rem' }}>Latest Report Sent from This Phone:</div>
-                  <div className="mono">
-                    <div>State: {lastDriverGpsReport.permission_state}</div>
-                    {lastDriverGpsReport.latitude && (
-                      <div>
-                        Coordinates: {Number(lastDriverGpsReport.latitude).toFixed(5)}, {Number(lastDriverGpsReport.longitude).toFixed(5)} (±
-                        {lastDriverGpsReport.accuracy_meters ?? 'N/A'}m)
-                      </div>
-                    )}
-                    <div>Phone Capture Time: {lastDriverGpsReport.capture_time}</div>
-                    <div>Server Receipt Time: {lastDriverGpsReport.server_receipt_time}</div>
-                  </div>
-                </div>
-              )}
-            </section>
-
-            {/* Driver Dispatch Orders Queue (TRP-01 to TRP-11) */}
-            <section className="card">
-              <div className="card-header">
-                <h2 className="card-title">
-                  <Flag size={19} />
-                  My Dispatch Orders ({dispatches.length})
-                </h2>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {dispatches.map((d) => {
-                  const tripId = d.trip_request_id;
-                  const isCompleted = d.trip_status === 'COMPLETED';
-                  const isInProgress = d.trip_status === 'IN_PROGRESS';
-
-                  return (
-                    <div
-                      key={d.assignment_id}
-                      style={{
-                        border: '1px solid var(--border-strong)',
-                        borderRadius: 'var(--radius-md)',
-                        padding: '1rem',
-                        background: isInProgress ? 'var(--brand-soft)' : 'var(--bg-surface)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                        <div>
-                          <span className="badge badge-info" style={{ marginBottom: '0.3rem' }}>
-                            {d.registration_plate} • {d.make} {d.model} ({d.energy_type})
-                          </span>
-                          <h3 style={{ fontSize: '1rem' }}>
-                            #{tripId} — {d.purpose || 'Assigned Dispatch'}
-                          </h3>
-                        </div>
-                        <span className={`badge ${isCompleted ? 'badge-success' : isInProgress ? 'badge-warning' : 'badge-info'}`}>
-                          {d.trip_status}
-                        </span>
-                      </div>
-
-                      <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
-                        <div>
-                          <strong>Route:</strong> {d.origin} → {d.destination}
-                        </div>
-                        <div>
-                          <strong>Schedule:</strong> {new Date(d.effective_start).toLocaleString()} — {new Date(d.effective_end).toLocaleTimeString()}
-                        </div>
-                        <div>
-                          <strong>Passenger / Dept:</strong> {d.requester_name} ({d.department_name}) • {d.passenger_count} pax
-                        </div>
-                        <div>
-                          <strong>Vehicle Current Odometer:</strong> <span className="mono">{d.current_odometer} km</span>
-                          {d.energy_type === 'Electric' ? ` • Battery: ${d.battery_percent ?? 100}%` : ''}
-                          {d.last_parking_spot ? ` • Parked at: ${d.last_parking_spot}` : ''}
-                        </div>
-                      </div>
-
-                      {!isCompleted && tripId && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.75rem' }}>
-                          {!d.acknowledged_at && (
-                            <button
-                              type="button"
-                              className="btn btn-primary btn-sm"
-                              onClick={async () => {
-                                await apiRequest(`/api/driver/trips/${tripId}/acknowledge`, { method: 'POST' });
-                                setStatusBanner({ type: 'success', text: `Dispatch order #${tripId} acknowledged.` });
-                                await loadAllData(user);
-                              }}
-                            >
-                              <CheckCircle2 size={15} />
-                              Acknowledge Dispatch Order (TRP-02)
-                            </button>
-                          )}
-
-                          {!isInProgress ? (
-                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                              <input
-                                type="number"
-                                className="form-input"
-                                style={{ maxWidth: '160px' }}
-                                placeholder={`Start Odo (${d.current_odometer})`}
-                                value={activeTripOdoInput[tripId] ?? d.current_odometer}
-                                onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
-                              />
-                              <button
-                                type="button"
-                                className="btn btn-success btn-sm"
-                                onClick={async () => {
-                                  try {
-                                    await apiRequest(`/api/driver/trips/${tripId}/start`, {
-                                      method: 'POST',
-                                      body: JSON.stringify({
-                                        start_odometer: Number(activeTripOdoInput[tripId] ?? d.current_odometer),
-                                      }),
-                                    });
-                                    setStatusBanner({ type: 'success', text: `Trip #${tripId} started!` });
-                                    await loadAllData(user);
-                                  } catch (err: any) {
-                                    setStatusBanner({ type: 'danger', text: err.message });
-                                  }
-                                }}
-                              >
-                                <Play size={15} />
-                                Start Trip (TRP-03)
-                              </button>
-                            </div>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                              <div className="form-grid">
-                                <input
-                                  type="number"
-                                  className="form-input"
-                                  placeholder={`End Odometer (> ${d.start_odometer || d.current_odometer} km)`}
-                                  value={activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25}
-                                  onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
-                                />
-                                {d.energy_type === 'Electric' && (
-                                  <input
-                                    type="number"
-                                    className="form-input"
-                                    min={0}
-                                    max={100}
-                                    placeholder="End EV Battery % (0-100)"
-                                    value={activeTripBatteryInput[tripId] ?? '72'}
-                                    onChange={(e) => setActiveTripBatteryInput({ ...activeTripBatteryInput, [tripId]: e.target.value })}
-                                  />
-                                )}
-                                <input
-                                  type="text"
-                                  className="form-input"
-                                  placeholder="Return Parking Spot (e.g. B1 Slot A02)"
-                                  value={activeTripParkingInput[tripId] ?? 'Basement B1'}
-                                  onChange={(e) => setActiveTripParkingInput({ ...activeTripParkingInput, [tripId]: e.target.value })}
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                className="btn btn-success btn-sm"
-                                onClick={async () => {
-                                  try {
-                                    await apiRequest(`/api/driver/trips/${tripId}/complete`, {
-                                      method: 'POST',
-                                      body: JSON.stringify({
-                                        end_odometer: Number(activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25),
-                                        battery_percent: d.energy_type === 'Electric' ? Number(activeTripBatteryInput[tripId] ?? 72) : undefined,
-                                        parking_return_note: activeTripParkingInput[tripId] || 'Basement B1',
-                                      }),
-                                    });
-                                    setStatusBanner({
-                                      type: 'success',
-                                      text: `Trip #${tripId} completed! Distance and vehicle usage analytics updated automatically.`,
-                                    });
-                                    await loadAllData(user);
-                                  } catch (err: any) {
-                                    setStatusBanner({ type: 'danger', text: err.message });
-                                  }
-                                }}
-                              >
-                                <CheckCircle2 size={15} />
-                                Complete Trip & Update Odometer (TRP-03)
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
-        )}
-
-        {/* ===================================================================
-            TAB 3: ADMIN APPROVALS & ONE-CLICK DISPATCH COMMAND CENTER
-           =================================================================== */}
-        {activeTab === 'ADMIN_DISPATCH' && isPrivileged && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            {/* Pending User Account Registrations Gate (Revision #2) */}
-            <section className="card">
-              <div className="card-header">
-                <h2 className="card-title">
-                  <UserCheck size={19} />
-                  Account Registrations Pending Administrator Approval ({pendingUsers.length})
-                </h2>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={async () => {
-                    const res = await apiRequest('/api/notifications/send-reminders', { method: 'POST' });
-                    setStatusBanner({
-                      type: 'success',
-                      text: `Sent ${res.sentCount} booking & dispatch push reminders to users and drivers.`,
-                    });
-                    await loadAllData(user);
-                  }}
-                >
-                  <Bell size={15} />
-                  Send Upcoming Booking & Dispatch Push Reminders
-                </button>
-              </div>
-
-              {pendingUsers.length === 0 ? (
-                <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)' }}>
-                  All registered accounts have been reviewed. New registrations will appear here for approval.
-                </p>
-              ) : (
-                <div className="table-wrap">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Nickname</th>
-                        <th>Group Username</th>
-                        <th>Department</th>
-                        <th>Requested Role</th>
-                        <th>Admin Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pendingUsers.map((u) => (
-                        <tr key={u.id}>
-                          <td style={{ fontWeight: 600 }}>{u.nickname}</td>
-                          <td className="mono">@{u.group_username}</td>
-                          <td>{u.department_name}</td>
-                          <td>
-                            <span className="badge badge-warning">{u.role}</span>
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap' }}>
-                              <button
-                                type="button"
-                                className="btn btn-success btn-sm"
-                                onClick={() => handleApproveUser(u.id, true, u.role)}
-                              >
-                                <CheckCircle2 size={14} />
-                                Approve ({u.role})
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-danger btn-sm"
-                                onClick={() => handleApproveUser(u.id, false, u.role)}
-                              >
-                                <XCircle size={14} />
-                                Reject
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-
-            {/* All Bookings & One-Click Approve & Dispatch Table */}
-            <section className="card">
-              <div className="card-header">
-                <h2 className="card-title">
-                  <ShieldCheck size={19} />
-                  Vehicle Bookings & Dispatch Queue ({trips.length})
-                </h2>
-              </div>
-
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>ID & Purpose</th>
-                      <th>Requester & Dept</th>
-                      <th>Time Window</th>
-                      <th>Locked Vehicle & Driver</th>
-                      <th>Status</th>
-                      <th>Admin Control</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trips.map((t) => (
-                      <tr key={t.id}>
-                        <td>
-                          <div style={{ fontWeight: 600 }}>#{t.id} — {t.purpose}</div>
-                          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                            {t.origin} → {t.destination} ({t.passenger_count} pax)
-                          </div>
-                        </td>
-                        <td>
-                          <div style={{ fontWeight: 600 }}>{t.requester_name}</div>
-                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{t.department_name}</div>
-                        </td>
-                        <td className="mono" style={{ fontSize: '0.78rem' }}>
-                          <div>Start: {new Date(t.start_time).toLocaleString()}</div>
-                          <div>End: {new Date(t.end_time).toLocaleString()}</div>
-                        </td>
-                        <td>
-                          <div style={{ fontWeight: 600 }}>
-                            {t.registration_plate} ({t.energy_type})
-                          </div>
-                          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                            Driver: {t.assigned_driver_name || 'Unassigned'}
-                          </div>
-                        </td>
-                        <td>
-                          <span
-                            className={`badge ${
-                              t.status === 'APPROVED' || t.status === 'COMPLETED'
-                                ? 'badge-success'
-                                : t.status === 'PENDING_APPROVAL' || t.status === 'IN_PROGRESS'
-                                ? 'badge-warning'
-                                : 'badge-danger'
-                            }`}
-                          >
-                            {t.status}
-                          </span>
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            className="btn btn-primary btn-sm"
-                            onClick={() => {
-                              setDispatchModalTrip(t);
-                              setDispatchVehicleId(t.vehicle_id);
-                              setDispatchDriverId(t.driver_profile_id || t.preferred_driver_id || 1);
-                              setDispatchDecisionReason('');
-                            }}
-                          >
-                            {t.status === 'PENDING_APPROVAL' ? 'Review & Dispatch' : 'Reassign / Manage'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </div>
-        )}
-
-        {/* ===================================================================
-            TAB 4: VEHICLES (EDIT & STANDBY), DRIVERS, ENERGY & DOCUMENTS
-           =================================================================== */}
-        {activeTab === 'FLEET_OPS' && isPrivileged && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              {(['VEHICLES', 'DRIVERS', 'FUEL_EV', 'MAINTENANCE', 'EXPENSES', 'DOCUMENTS'] as const).map((sub) => (
-                <button
-                  key={sub}
-                  type="button"
-                  className={`btn btn-sm ${opsSubTab === sub ? 'btn-primary' : 'btn-secondary'}`}
-                  onClick={() => setOpsSubTab(sub)}
-                >
-                  {sub.replace('_', ' & ')}
-                </button>
-              ))}
-            </div>
-
-            {opsSubTab === 'VEHICLES' && (
-              <section className="card">
-                <div className="card-header">
-                  <h2 className="card-title">
-                    <Car size={19} />
-                    Fleet Register (8 Cars: 5 Gasoline, 3 Electric) — Edit Car Type, Plate & Standby Status
-                  </h2>
-                </div>
-                <div className="table-wrap">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>License Plate</th>
-                        <th>Make / Model</th>
-                        <th>Car Type</th>
-                        <th>Energy & Battery</th>
-                        <th>Odometer & Parking</th>
-                        <th>Operational Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {vehicles.map((v) => (
-                        <tr key={v.id}>
-                          <td className="mono" style={{ fontWeight: 700 }}>{v.registration_plate}</td>
-                          <td>
-                            <div style={{ fontWeight: 600 }}>{v.make} {v.model}</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>VIN: {v.vin} • {v.seats} seats</div>
-                          </td>
-                          <td>{v.car_type}</td>
-                          <td>
-                            <span className={`badge ${v.energy_type === 'Electric' ? 'badge-success' : 'badge-info'}`}>
-                              {v.energy_type === 'Electric' ? `⚡ Electric (${v.battery_percent ?? 100}%)` : '⛽ Gasoline'}
-                            </span>
-                          </td>
-                          <td>
-                            <div className="mono">{v.current_odometer.toLocaleString()} km</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{v.last_parking_spot}</div>
-                          </td>
-                          <td>
-                            <span className={`badge ${v.status === 'Available' ? 'badge-success' : 'badge-danger'}`}>
-                              {v.status}
-                            </span>
-                            {v.standby_reason && (
-                              <div style={{ fontSize: '0.74rem', color: 'var(--status-danger)', marginTop: '0.2rem' }}>
-                                Note: {v.standby_reason}
-                              </div>
-                            )}
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                              <button
-                                type="button"
-                                className="btn btn-secondary btn-sm"
-                                onClick={() => setEditingVehicle({ ...v })}
-                              >
-                                <Edit3 size={14} />
-                                Edit Plate / Type / Standby
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-primary btn-sm"
-                                onClick={() => openVehicle360(v.id)}
-                              >
-                                360° Record
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )}
-
-            {opsSubTab === 'DRIVERS' && (
-              <section className="card">
-                <div className="card-header">
-                  <h2 className="card-title">
-                    <Users size={19} />
-                    Driver Profiles & Account Management
-                  </h2>
-                </div>
-                <div className="table-wrap">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Driver Name</th>
-                        <th>Username</th>
-                        <th>Licence Number & Class</th>
-                        <th>Licence Expiry</th>
-                        <th>Contact</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {drivers.map((d) => (
-                        <tr key={d.id}>
-                          <td style={{ fontWeight: 600 }}>{d.full_name}</td>
-                          <td className="mono">@{d.group_username}</td>
-                          <td className="mono">{d.licence_number} (Class {d.licence_class})</td>
-                          <td className="mono">{d.licence_expiry}</td>
-                          <td className="mono">{d.contact_number}</td>
-                          <td>
-                            <span className={`badge ${d.availability_status === 'Active' ? 'badge-success' : 'badge-warning'}`}>
-                              {d.availability_status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )}
-
-            {opsSubTab === 'FUEL_EV' && (
-              <div className="grid-2">
-                {/* Gasoline Fuel Log */}
-                <section className="card">
-                  <div className="card-header">
-                    <h2 className="card-title">
-                      <Fuel size={19} />
-                      Gasoline Fuel Records (Litres — 5 Gasoline Cars Only)
-                    </h2>
-                  </div>
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      try {
-                        await apiRequest('/api/fuel', {
-                          method: 'POST',
-                          body: JSON.stringify({
-                            vehicle_id: Number(fuelForm.vehicle_id),
-                            litres: Number(fuelForm.litres),
-                            cost: Number(fuelForm.cost),
-                            odometer_km: Number(fuelForm.odometer_km),
-                            station: fuelForm.station,
-                            override_reason: fuelForm.override_reason || undefined,
-                          }),
-                        });
-                        setStatusBanner({ type: 'success', text: 'Gasoline fuel record saved.' });
-                        await loadAllData(user);
-                      } catch (err: any) {
-                        setStatusBanner({ type: 'danger', text: err.message });
-                      }
-                    }}
-                    style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}
-                  >
-                    <div className="form-grid">
-                      <select
-                        className="form-select"
-                        value={fuelForm.vehicle_id}
-                        onChange={(e) => setFuelForm({ ...fuelForm, vehicle_id: Number(e.target.value) })}
-                      >
-                        {vehicles.map((v) => (
-                          <option key={v.id} value={v.id}>
-                            {v.registration_plate} ({v.energy_type}) — Odo: {v.current_odometer} km
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="number"
-                        step="0.1"
-                        className="form-input"
-                        placeholder="Litres"
-                        value={fuelForm.litres}
-                        onChange={(e) => setFuelForm({ ...fuelForm, litres: e.target.value })}
-                      />
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="form-input"
-                        placeholder="Cost ($)"
-                        value={fuelForm.cost}
-                        onChange={(e) => setFuelForm({ ...fuelForm, cost: e.target.value })}
-                      />
-                      <input
-                        type="number"
-                        className="form-input"
-                        placeholder="Odometer (km)"
-                        value={fuelForm.odometer_km}
-                        onChange={(e) => setFuelForm({ ...fuelForm, odometer_km: e.target.value })}
-                      />
-                    </div>
-                    <button type="submit" className="btn btn-primary btn-sm">
-                      Record Gasoline Refuel
-                    </button>
-                  </form>
-
-                  <div className="table-wrap">
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Vehicle</th>
-                          <th>Litres</th>
-                          <th>Cost</th>
-                          <th>Odometer</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {fuelRecords.map((f) => (
-                          <tr key={f.id}>
-                            <td style={{ fontWeight: 600 }}>{f.registration_plate}</td>
-                            <td className="mono">{f.litres} L</td>
-                            <td className="mono">${Number(f.cost).toFixed(2)}</td>
-                            <td className="mono">{f.odometer_km} km</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-
-                {/* EV Charging Log */}
-                <section className="card">
-                  <div className="card-header">
-                    <h2 className="card-title">
-                      <BatteryCharging size={19} />
-                      EV Charging Sessions (kWh & Battery % — 3 Electric Cars Only)
-                    </h2>
-                  </div>
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      try {
-                        await apiRequest('/api/ev-charging', {
-                          method: 'POST',
-                          body: JSON.stringify({
-                            vehicle_id: Number(evForm.vehicle_id),
-                            kwh_added: Number(evForm.kwh_added),
-                            cost: Number(evForm.cost),
-                            battery_start_pct: Number(evForm.battery_start_pct),
-                            battery_end_pct: Number(evForm.battery_end_pct),
-                            odometer_km: Number(evForm.odometer_km),
-                            station: evForm.station,
-                          }),
-                        });
-                        setStatusBanner({ type: 'success', text: 'EV charging session recorded.' });
-                        await loadAllData(user);
-                      } catch (err: any) {
-                        setStatusBanner({ type: 'danger', text: err.message });
-                      }
-                    }}
-                    style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}
-                  >
-                    <div className="form-grid">
-                      <select
-                        className="form-select"
-                        value={evForm.vehicle_id}
-                        onChange={(e) => setEvForm({ ...evForm, vehicle_id: Number(e.target.value) })}
-                      >
-                        {vehicles.map((v) => (
-                          <option key={v.id} value={v.id}>
-                            {v.registration_plate} ({v.energy_type})
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="number"
-                        step="0.1"
-                        className="form-input"
-                        placeholder="Energy Added (kWh)"
-                        value={evForm.kwh_added}
-                        onChange={(e) => setEvForm({ ...evForm, kwh_added: e.target.value })}
-                      />
-                      <input
-                        type="number"
-                        className="form-input"
-                        placeholder="Start SoC %"
-                        value={evForm.battery_start_pct}
-                        onChange={(e) => setEvForm({ ...evForm, battery_start_pct: e.target.value })}
-                      />
-                      <input
-                        type="number"
-                        className="form-input"
-                        placeholder="End SoC %"
-                        value={evForm.battery_end_pct}
-                        onChange={(e) => setEvForm({ ...evForm, battery_end_pct: e.target.value })}
-                      />
-                    </div>
-                    <button type="submit" className="btn btn-success btn-sm">
-                      Record EV Charging Session
-                    </button>
-                  </form>
-
-                  <div className="table-wrap">
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>EV Plate</th>
-                          <th>kWh Added</th>
-                          <th>Battery SoC</th>
-                          <th>Cost</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {evRecords.map((ev) => (
-                          <tr key={ev.id}>
-                            <td style={{ fontWeight: 600 }}>{ev.registration_plate}</td>
-                            <td className="mono">{ev.kwh_added} kWh</td>
-                            <td className="mono">
-                              {ev.battery_start_pct}% → {ev.battery_end_pct}%
-                            </td>
-                            <td className="mono">${Number(ev.cost).toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              </div>
-            )}
-
-            {opsSubTab === 'MAINTENANCE' && (
-              <section className="card">
-                <div className="card-header">
-                  <h2 className="card-title">Maintenance Schedule & Energy-Specific Catalogue (MNT-01 to MNT-07)</h2>
-                </div>
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    try {
-                      await apiRequest('/api/maintenance', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                          ...maintForm,
-                          vehicle_id: Number(maintForm.vehicle_id),
-                          cost: Number(maintForm.cost),
-                          service_date: new Date(maintForm.service_date).toISOString(),
-                          end_date: new Date(maintForm.end_date).toISOString(),
-                        }),
-                      });
-                      setStatusBanner({ type: 'success', text: 'Maintenance record scheduled.' });
-                      await loadAllData(user);
-                    } catch (err: any) {
-                      setStatusBanner({ type: 'danger', text: err.message });
-                    }
-                  }}
-                  style={{ marginBottom: '1rem' }}
-                >
-                  <div className="form-grid" style={{ marginBottom: '0.75rem' }}>
-                    <select
-                      className="form-select"
-                      value={maintForm.vehicle_id}
-                      onChange={(e) => setMaintForm({ ...maintForm, vehicle_id: Number(e.target.value) })}
-                    >
-                      {vehicles.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.registration_plate} ({v.energy_type})
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="Maintenance Type"
-                      value={maintForm.maintenance_type}
-                      onChange={(e) => setMaintForm({ ...maintForm, maintenance_type: e.target.value })}
-                    />
-                    <select
-                      className="form-select"
-                      value={maintForm.applicable_energy_type}
-                      onChange={(e) => setMaintForm({ ...maintForm, applicable_energy_type: e.target.value })}
-                    >
-                      <option value="Both">Applies to Both Gas & EV</option>
-                      <option value="Gasoline">Gasoline Only (e.g., Engine Oil / Spark Plugs)</option>
-                      <option value="Electric">Electric Only (e.g., HV Battery Coolant)</option>
-                    </select>
-                    <input
-                      type="number"
-                      className="form-input"
-                      placeholder="Cost ($)"
-                      value={maintForm.cost}
-                      onChange={(e) => setMaintForm({ ...maintForm, cost: e.target.value })}
-                    />
-                  </div>
-                  <button type="submit" className="btn btn-primary btn-sm">
-                    Schedule Maintenance (Blocks Vehicle Bookings)
-                  </button>
-                </form>
-
-                <div className="table-wrap">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Vehicle</th>
-                        <th>Type & Energy Rule</th>
-                        <th>Service Window</th>
-                        <th>Cost</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {maintenanceRecords.map((m) => (
-                        <tr key={m.id}>
-                          <td style={{ fontWeight: 600 }}>{m.registration_plate}</td>
-                          <td>
-                            {m.maintenance_type} <span className="badge badge-neutral">{m.applicable_energy_type}</span>
-                          </td>
-                          <td className="mono">{new Date(m.service_date).toLocaleDateString()}</td>
-                          <td className="mono">${Number(m.cost).toFixed(2)}</td>
-                          <td>
-                            <span className="badge badge-warning">{m.status}</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )}
-
-            {opsSubTab === 'EXPENSES' && (
-              <section className="card">
-                <div className="card-header">
-                  <h2 className="card-title">Vehicle Expenses & Reimbursement Approvals (EXP-01 to EXP-08)</h2>
-                </div>
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    try {
-                      await apiRequest('/api/expenses', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                          vehicle_id: Number(expForm.vehicle_id),
-                          category: expForm.category,
-                          amount: Number(expForm.amount),
-                          description: expForm.description,
-                        }),
-                      });
-                      setStatusBanner({ type: 'success', text: 'Expense recorded.' });
-                      await loadAllData(user);
-                    } catch (err: any) {
-                      setStatusBanner({ type: 'danger', text: err.message });
-                    }
-                  }}
-                  style={{ marginBottom: '1rem' }}
-                >
-                  <div className="form-grid" style={{ marginBottom: '0.75rem' }}>
-                    <select
-                      className="form-select"
-                      value={expForm.vehicle_id}
-                      onChange={(e) => setExpForm({ ...expForm, vehicle_id: Number(e.target.value) })}
-                    >
-                      {vehicles.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.registration_plate}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className="form-select"
-                      value={expForm.category}
-                      onChange={(e) => setExpForm({ ...expForm, category: e.target.value })}
-                    >
-                      <option value="Toll">Toll</option>
-                      <option value="Parking">Parking</option>
-                      <option value="Cleaning">Cleaning</option>
-                      <option value="Accessories">Accessories</option>
-                      <option value="Other">Other</option>
-                    </select>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="form-input"
-                      placeholder="Amount ($)"
-                      value={expForm.amount}
-                      onChange={(e) => setExpForm({ ...expForm, amount: e.target.value })}
-                    />
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="Description"
-                      value={expForm.description}
-                      onChange={(e) => setExpForm({ ...expForm, description: e.target.value })}
-                    />
-                  </div>
-                  <button type="submit" className="btn btn-primary btn-sm">
-                    Submit Expense
-                  </button>
-                </form>
-
-                <div className="table-wrap">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Vehicle</th>
-                        <th>Category & Description</th>
-                        <th>Amount</th>
-                        <th>Approval & Reimbursement</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {expenses.map((ex) => (
-                        <tr key={ex.id}>
-                          <td style={{ fontWeight: 600 }}>{ex.registration_plate}</td>
-                          <td>
-                            <strong>{ex.category}:</strong> {ex.description}
-                          </td>
-                          <td className="mono">${Number(ex.amount).toFixed(2)}</td>
-                          <td>
-                            <span className="badge badge-info">{ex.approval_status}</span> •{' '}
-                            <span className="badge badge-neutral">{ex.reimbursement_status}</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )}
-
-            {opsSubTab === 'DOCUMENTS' && (
-              <section className="card">
-                <div className="card-header">
-                  <h2 className="card-title">Protected Document Vault (Server Magic-Byte & Antivirus Validated — DOC-01 to 08)</h2>
-                </div>
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    try {
-                      // Sample valid %PDF-1.4 payload encoded as base64
-                      const validPdfBase64 = btoa('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF');
-                      await apiRequest('/api/documents', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                          entity_type: docForm.entity_type,
-                          entity_id: Number(docForm.entity_id),
-                          doc_type: docForm.doc_type,
-                          file_name: docForm.file_name,
-                          mime_type: 'application/pdf',
-                          content_base64: validPdfBase64,
-                          expiry_date: docForm.expiry_date,
-                        }),
-                      });
-                      setStatusBanner({ type: 'success', text: 'Protected document validated and stored in vault.' });
-                      await loadAllData(user);
-                    } catch (err: any) {
-                      setStatusBanner({ type: 'danger', text: err.message });
-                    }
-                  }}
-                  style={{ marginBottom: '1rem' }}
-                >
-                  <div className="form-grid" style={{ marginBottom: '0.75rem' }}>
-                    <select
-                      className="form-select"
-                      value={docForm.entity_id}
-                      onChange={(e) => setDocForm({ ...docForm, entity_id: Number(e.target.value) })}
-                    >
-                      {vehicles.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          Vehicle: {v.registration_plate}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className="form-select"
-                      value={docForm.doc_type}
-                      onChange={(e) => setDocForm({ ...docForm, doc_type: e.target.value })}
-                    >
-                      <option value="Registration">Registration (STNK)</option>
-                      <option value="Insurance">Insurance Policy</option>
-                      <option value="Inspection">Inspection Certificate</option>
-                    </select>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="Document Filename"
-                      value={docForm.file_name}
-                      onChange={(e) => setDocForm({ ...docForm, file_name: e.target.value })}
-                    />
-                    <input
-                      type="date"
-                      className="form-input"
-                      value={docForm.expiry_date}
-                      onChange={(e) => setDocForm({ ...docForm, expiry_date: e.target.value })}
-                    />
-                  </div>
-                  <button type="submit" className="btn btn-primary btn-sm">
-                    <Upload size={15} />
-                    Upload Protected PDF Document
-                  </button>
-                </form>
-
-                <div className="table-wrap">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>ID & Version</th>
-                        <th>Entity</th>
-                        <th>Type & Filename</th>
-                        <th>Expiry Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {documents.map((doc) => (
-                        <tr key={doc.id}>
-                          <td className="mono">
-                            #{doc.id} (v{doc.version_number})
-                          </td>
-                          <td>
-                            {doc.entity_type} #{doc.entity_id}
-                          </td>
-                          <td>
-                            <strong>{doc.doc_type}:</strong> {doc.file_name}
-                          </td>
-                          <td className="mono">{doc.expiry_date || 'N/A'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )}
-          </div>
-        )}
-
-        {/* ===================================================================
-            TAB 5: ADMIN USAGE ANALYTICS (Revision #6), GPS MONITOR & AUDIT LOG
-           =================================================================== */}
-        {activeTab === 'ANALYTICS_AUDIT' && isPrivileged && usageAnalytics && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            {/* Overall Fleet Combined KPIs (All 8 Cars Combined — Day, Week, Month, All-Time) */}
-            <div className="grid-kpi">
-              <div className="kpi-card">
-                <div className="kpi-label">Today (All Cars Combined)</div>
-                <div className="kpi-value">{usageAnalytics.combinedOverall.day.distanceKm} km</div>
-                <div className="kpi-meta">{usageAnalytics.combinedOverall.day.trips} completed trips today</div>
-              </div>
-              <div className="kpi-card">
-                <div className="kpi-label">This Week (All Cars Combined)</div>
-                <div className="kpi-value">{usageAnalytics.combinedOverall.week.distanceKm} km</div>
-                <div className="kpi-meta">{usageAnalytics.combinedOverall.week.trips} completed trips (last 7 days)</div>
-              </div>
-              <div className="kpi-card">
-                <div className="kpi-label">This Month (All Cars Combined)</div>
-                <div className="kpi-value">{usageAnalytics.combinedOverall.month.distanceKm} km</div>
-                <div className="kpi-meta">{usageAnalytics.combinedOverall.month.trips} completed trips this month</div>
-              </div>
-              <div className="kpi-card">
-                <div className="kpi-label">Overall Total (All 8 Cars)</div>
-                <div className="kpi-value">{usageAnalytics.combinedOverall.allTime.distanceKm} km</div>
-                <div className="kpi-meta">{usageAnalytics.combinedOverall.allTime.trips} total completed trips</div>
-              </div>
-            </div>
-
-            {/* Separate Gasoline Litres vs EV kWh Summary (EV-05, RPT-04) */}
-            <div className="grid-2">
-              <div className="card">
-                <h3 style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}>⛽ Gasoline Fleet Energy Summary (5 Vehicles — Litres Only)</h3>
-                <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 700 }}>
-                  {usageAnalytics.combinedOverall.gasolineSummary.totalLitres} Litres • $
-                  {usageAnalytics.combinedOverall.gasolineSummary.totalFuelCost.toFixed(2)}
-                </div>
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                  Strictly separated from Electric kWh per Requirement EV-05 & RPT-04.
-                </p>
-              </div>
-              <div className="card">
-                <h3 style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}>⚡ Electric Fleet Energy Summary (3 EVs — kWh Only)</h3>
-                <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 700 }}>
-                  {usageAnalytics.combinedOverall.electricSummary.totalKwh} kWh • $
-                  {usageAnalytics.combinedOverall.electricSummary.totalChargingCost.toFixed(2)}
-                </div>
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                  Strictly separated from Gasoline Litres per Requirement EV-05 & RPT-04.
-                </p>
-              </div>
-            </div>
-
-            {/* Per-Vehicle Usage Table (Day, Week, Month, Overall + Energy Efficiency) */}
-            <section className="card">
-              <div className="card-header">
-                <h2 className="card-title">
-                  <BarChart3 size={19} />
-                  Vehicle Usage & Distance Summary (Per Day, Week, Month & Overall per Car)
-                </h2>
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  {(['day', 'week', 'month', 'overall'] as const).map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      className={`btn btn-sm ${usagePeriod === p ? 'btn-primary' : 'btn-secondary'}`}
-                      onClick={() => setUsagePeriod(p)}
-                    >
-                      Highlight: {p.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Vehicle Plate & Model</th>
-                      <th>Energy Type</th>
-                      <th>Today (Trips / km)</th>
-                      <th>This Week (Trips / km)</th>
-                      <th>This Month (Trips / km)</th>
-                      <th>All-Time (Trips / km)</th>
-                      <th>Energy Consumption & Efficiency</th>
-                      <th>Total Cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {usageAnalytics.perVehicle.map((v: any) => (
-                      <tr key={v.vehicle_id}>
-                        <td>
-                          <div style={{ fontWeight: 600 }}>{v.registration_plate}</div>
-                          <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                            {v.make} {v.model} ({v.car_type})
-                          </div>
-                        </td>
-                        <td>
-                          <span className={`badge ${v.energy_type === 'Electric' ? 'badge-success' : 'badge-info'}`}>
-                            {v.energy_type}
-                          </span>
-                        </td>
-                        <td className="mono">
-                          <strong>{v.day.distanceKm} km</strong> ({v.day.trips} trips)
-                        </td>
-                        <td className="mono">
-                          <strong>{v.week.distanceKm} km</strong> ({v.week.trips} trips)
-                        </td>
-                        <td className="mono">
-                          <strong>{v.month.distanceKm} km</strong> ({v.month.trips} trips)
-                        </td>
-                        <td className="mono">
-                          <strong>{v.overall.distanceKm} km</strong> ({v.overall.trips} trips)
-                        </td>
-                        <td className="mono" style={{ fontSize: '0.8rem' }}>
-                          {v.energy.measureUnit === 'Litres' ? (
-                            <>
-                              {v.energy.totalLitres} L {v.energy.efficiencyKmPerLitre ? `(${v.energy.efficiencyKmPerLitre} km/L)` : ''}
-                            </>
-                          ) : (
-                            <>
-                              {v.energy.totalKwh} kWh {v.energy.efficiencyKwhPer100Km ? `(${v.energy.efficiencyKwhPer100Km} kWh/100km)` : ''}
-                            </>
-                          )}
-                        </td>
-                        <td className="mono">${v.totalOperatingCost.toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            {/* Per-Driver Usage Summary Table */}
-            <section className="card">
-              <div className="card-header">
-                <h2 className="card-title">
-                  <Users size={19} />
-                  Driver Completed Trips & Distance Summary (Day, Week, Month & Overall)
-                </h2>
-              </div>
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Driver Name</th>
-                      <th>Status</th>
-                      <th>Today (Trips / km)</th>
-                      <th>This Week (Trips / km)</th>
-                      <th>This Month (Trips / km)</th>
-                      <th>Overall Total (Trips / km)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {usageAnalytics.perDriver.map((d: any) => (
-                      <tr key={d.driver_profile_id}>
-                        <td style={{ fontWeight: 600 }}>{d.driver_name}</td>
-                        <td>
-                          <span className="badge badge-success">{d.availability_status}</span>
-                        </td>
-                        <td className="mono">
-                          {d.day.distanceKm} km ({d.day.trips} trips)
-                        </td>
-                        <td className="mono">
-                          {d.week.distanceKm} km ({d.week.trips} trips)
-                        </td>
-                        <td className="mono">
-                          {d.month.distanceKm} km ({d.month.trips} trips)
-                        </td>
-                        <td className="mono" style={{ fontWeight: 700 }}>
-                          {d.overall.distanceKm} km ({d.overall.trips} trips)
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            {/* Best-Effort Periodic GPS Monitor (Section 9) */}
-            {gpsLatest && (
-              <section className="card">
-                <div className="card-header">
-                  <h2 className="card-title">
-                    <MapPin size={19} />
-                    Periodic Driver Phone Location Monitor (Best-Effort — Stale Threshold: {gpsLatest.staleThresholdMinutes}m)
-                  </h2>
-                </div>
-                <div className="banner banner-info" style={{ fontSize: '0.8rem' }}>
-                  <span>{gpsLatest.notice}</span>
-                </div>
-                <div className="table-wrap">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Driver</th>
-                        <th>Display Status (Recent vs Stale)</th>
-                        <th>Text Coordinates & Accuracy (GPS-17)</th>
-                        <th>Capture & Server Receipt Timestamps (GPS-05)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {gpsLatest.drivers.map((d: any) => (
-                        <tr key={d.driver_profile_id}>
-                          <td style={{ fontWeight: 600 }}>{d.driver_name}</td>
-                          <td>
-                            <span
-                              className={`badge ${
-                                d.display_state === 'RECENT'
-                                  ? 'badge-success'
-                                  : d.display_state === 'STALE'
-                                  ? 'badge-warning'
-                                  : 'badge-danger'
-                              }`}
-                            >
-                              {d.status_label}
-                            </span>
-                          </td>
-                          <td className="mono" style={{ fontSize: '0.8rem' }}>
-                            {d.report && d.report.latitude !== null ? (
-                              <>
-                                {Number(d.report.latitude).toFixed(5)}, {Number(d.report.longitude).toFixed(5)} ({d.accuracy_label})
-                              </>
-                            ) : (
-                              'No position shown as current'
-                            )}
-                          </td>
-                          <td className="mono" style={{ fontSize: '0.76rem' }}>
-                            {d.report ? (
-                              <>
-                                <div>Captured: {d.report.capture_time}</div>
-                                <div>Received: {d.report.server_receipt_time}</div>
-                              </>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )}
-
-            {/* Immutable Audit History (AUD-01 to AUD-05) */}
-            <section className="card">
-              <div className="card-header">
-                <h2 className="card-title">
-                  <FileText size={19} />
-                  Immutable Audit Trail ({auditEvents.length} Recent Events)
-                </h2>
-              </div>
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Time (UTC)</th>
-                      <th>Actor</th>
-                      <th>Action</th>
-                      <th>Entity</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auditEvents.slice(0, 25).map((ev) => (
-                      <tr key={ev.id}>
-                        <td className="mono" style={{ fontSize: '0.76rem' }}>{ev.created_at}</td>
-                        <td>
-                          {ev.actor_username} <span className="badge badge-neutral">{ev.actor_role}</span>
-                        </td>
-                        <td className="mono" style={{ fontWeight: 600 }}>{ev.action}</td>
-                        <td className="mono">
-                          {ev.entity_type} {ev.entity_id ? `#${ev.entity_id}` : ''}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </div>
-        )}
-      </main>
-
-      {/* =====================================================================
-          MODAL 1: ADMIN EDIT VEHICLE (Plate, Car Type, Standby / Deactivate)
-         ===================================================================== */}
+  // ============================================================================
+  // SHARED MODALS (Edit Vehicle, Dispatch Modal, 360° Record, PWA Guide)
+  // ============================================================================
+  const renderSharedModals = () => (
+    <>
       {editingVehicle && (
-        <div className="modal-backdrop">
-          <div className="modal-panel">
-            <div className="card-header">
-              <h3 className="card-title">Edit Vehicle #{editingVehicle.id} & Standby Control</h3>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditingVehicle(null)}>
+        <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label="Edit vehicle">
+          <div className="gf-modal-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 className="type-title">Edit Vehicle #{editingVehicle.id}</h3>
+              <button type="button" className="gf-btn gf-btn-secondary" onClick={() => setEditingVehicle(null)}>
                 Close
               </button>
             </div>
-            <form onSubmit={handleSaveVehicleEdit} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-              <div className="form-grid">
-                <div className="form-group">
-                  <label className="form-label">License Plate</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    required
-                    value={editingVehicle.registration_plate}
-                    onChange={(e) => setEditingVehicle({ ...editingVehicle, registration_plate: e.target.value })}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Car Type / Classification</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    required
-                    value={editingVehicle.car_type}
-                    onChange={(e) => setEditingVehicle({ ...editingVehicle, car_type: e.target.value })}
-                  />
-                </div>
+            <form onSubmit={handleSaveVehicleEdit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>License Plate</label>
+                <input
+                  type="text"
+                  className="gf-input"
+                  required
+                  value={editingVehicle.registration_plate}
+                  onChange={(e) => setEditingVehicle({ ...editingVehicle, registration_plate: e.target.value })}
+                />
               </div>
-
-              <div className="form-grid">
-                <div className="form-group">
-                  <label className="form-label">Make</label>
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Car Type</label>
+                <input
+                  type="text"
+                  className="gf-input"
+                  required
+                  value={editingVehicle.car_type}
+                  onChange={(e) => setEditingVehicle({ ...editingVehicle, car_type: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Make</label>
                   <input
                     type="text"
-                    className="form-input"
+                    className="gf-input"
                     required
                     value={editingVehicle.make}
                     onChange={(e) => setEditingVehicle({ ...editingVehicle, make: e.target.value })}
                   />
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Model</label>
+                <div>
+                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Model</label>
                   <input
                     type="text"
-                    className="form-input"
+                    className="gf-input"
                     required
                     value={editingVehicle.model}
                     onChange={(e) => setEditingVehicle({ ...editingVehicle, model: e.target.value })}
                   />
                 </div>
               </div>
-
-              <div className="form-grid">
-                <div className="form-group">
-                  <label className="form-label">Operational Status (Standby / Deactivate)</label>
-                  <select
-                    className="form-select"
-                    value={editingVehicle.status}
-                    onChange={(e) => setEditingVehicle({ ...editingVehicle, status: e.target.value })}
-                  >
-                    <option value="Available">Available (Bookable)</option>
-                    <option value="Standby">Standby (Reserved for Executive / Special Purpose)</option>
-                    <option value="Deactivated">Deactivated (Temporarily Offline)</option>
-                    <option value="In Maintenance">In Maintenance</option>
-                    <option value="Retired">Retired</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Standby / Deactivation Reason</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g., Reserved for Board VIP Visit"
-                    value={editingVehicle.standby_reason || ''}
-                    onChange={(e) => setEditingVehicle({ ...editingVehicle, standby_reason: e.target.value })}
-                  />
-                </div>
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Operational Status</label>
+                <select
+                  className="gf-select"
+                  value={editingVehicle.status}
+                  onChange={(e) => setEditingVehicle({ ...editingVehicle, status: e.target.value })}
+                >
+                  <option value="Available">Available (Bookable)</option>
+                  <option value="Standby">Standby (Reserved / Executive)</option>
+                  <option value="Deactivated">Deactivated (Temporarily Offline)</option>
+                  <option value="In Maintenance">In Maintenance</option>
+                  <option value="Retired">Retired</option>
+                </select>
               </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setEditingVehicle(null)}>
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Standby / Deactivation Reason</label>
+                <input
+                  type="text"
+                  className="gf-input"
+                  placeholder="e.g., Reserved for Board VIP Visit"
+                  value={editingVehicle.standby_reason || ''}
+                  onChange={(e) => setEditingVehicle({ ...editingVehicle, standby_reason: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                <button type="button" className="gf-btn gf-btn-secondary" style={{ flex: 1 }} onClick={() => setEditingVehicle(null)}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  Save Vehicle Changes
+                <button type="submit" className="gf-btn gf-btn-primary" style={{ flex: 1 }}>
+                  Save Changes
                 </button>
               </div>
             </form>
@@ -2639,54 +1072,34 @@ export function App() {
         </div>
       )}
 
-      {/* =====================================================================
-          MODAL 2: ADMIN ONE-CLICK APPROVE & DISPATCH / REJECT MODAL
-         ===================================================================== */}
       {dispatchModalTrip && (
-        <div className="modal-backdrop">
-          <div className="modal-panel">
-            <div className="card-header">
-              <h3 className="card-title">Dispatch & Approval — Trip #{dispatchModalTrip.id}</h3>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDispatchModalTrip(null)}>
+        <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label="Dispatch approval">
+          <div className="gf-modal-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 className="type-title">Dispatch Trip #{dispatchModalTrip.id}</h3>
+              <button type="button" className="gf-btn gf-btn-secondary" onClick={() => setDispatchModalTrip(null)}>
                 Close
               </button>
             </div>
-
-            <div style={{ fontSize: '0.86rem', marginBottom: '1rem', color: 'var(--text-secondary)' }}>
-              <div>
-                <strong>Purpose:</strong> {dispatchModalTrip.purpose} ({dispatchModalTrip.origin} → {dispatchModalTrip.destination})
-              </div>
-              <div>
-                <strong>Requester:</strong> {dispatchModalTrip.requester_name} ({dispatchModalTrip.department_name})
-              </div>
-              <div>
-                <strong>Window:</strong> {new Date(dispatchModalTrip.start_time).toLocaleString()} — {new Date(dispatchModalTrip.end_time).toLocaleString()}
-              </div>
+            <div style={{ padding: '12px', borderRadius: 'var(--radius-control)', background: 'var(--color-bg-subtle)', marginBottom: '14px' }}>
+              <div className="type-body" style={{ fontWeight: 700 }}>{dispatchModalTrip.purpose}</div>
+              <div className="type-caption">{dispatchModalTrip.origin} → {dispatchModalTrip.destination}</div>
+              <div className="type-caption">{dispatchModalTrip.requester_name} ({dispatchModalTrip.department_name})</div>
             </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-              <div className="form-group">
-                <label className="form-label">Assigned Vehicle</label>
-                <select
-                  className="form-select"
-                  value={dispatchVehicleId}
-                  onChange={(e) => setDispatchVehicleId(Number(e.target.value))}
-                >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Assigned Vehicle</label>
+                <select className="gf-select" value={dispatchVehicleId} onChange={(e) => setDispatchVehicleId(Number(e.target.value))}>
                   {vehicles.map((v) => (
                     <option key={v.id} value={v.id}>
-                      {v.registration_plate} — {v.make} {v.model} ({v.energy_type}, Status: {v.status})
+                      {v.registration_plate} — {v.make} {v.model} ({v.energy_type}, {v.status})
                     </option>
                   ))}
                 </select>
               </div>
-
-              <div className="form-group">
-                <label className="form-label">Assigned Driver (Receives Dispatch Order in PWA)</label>
-                <select
-                  className="form-select"
-                  value={dispatchDriverId}
-                  onChange={(e) => setDispatchDriverId(Number(e.target.value))}
-                >
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Assigned Driver</label>
+                <select className="gf-select" value={dispatchDriverId} onChange={(e) => setDispatchDriverId(Number(e.target.value))}>
                   {drivers.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.full_name} (Class {d.licence_class} • {d.availability_status})
@@ -2694,26 +1107,22 @@ export function App() {
                   ))}
                 </select>
               </div>
-
-              <div className="form-group">
-                <label className="form-label">Approval Note / Rejection Reason (Mandatory if Rejecting)</label>
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Approval Note / Rejection Reason</label>
                 <input
                   type="text"
-                  className="form-input"
-                  placeholder="Enter dispatch note or reason for rejection"
+                  className="gf-input"
+                  placeholder="Enter note or mandatory reason if rejecting"
                   value={dispatchDecisionReason}
                   onChange={(e) => setDispatchDecisionReason(e.target.value)}
                 />
               </div>
-
-              <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-                <button type="button" className="btn btn-danger" onClick={() => handleAdminTripDecision('REJECTED')}>
-                  <XCircle size={16} />
-                  Reject & Release Locked Slot
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                <button type="button" className="gf-btn gf-btn-outline-danger" style={{ flex: 1 }} onClick={() => handleAdminTripDecision('REJECTED')}>
+                  Reject
                 </button>
-                <button type="button" className="btn btn-success" onClick={() => handleAdminTripDecision('APPROVED')}>
-                  <CheckCircle2 size={16} />
-                  Approve & Dispatch Driver
+                <button type="button" className="gf-btn gf-btn-primary" style={{ flex: 1 }} onClick={() => handleAdminTripDecision('APPROVED')}>
+                  Approve & Dispatch
                 </button>
               </div>
             </div>
@@ -2721,130 +1130,2175 @@ export function App() {
         </div>
       )}
 
-      {/* =====================================================================
-          MODAL 3: 360° VEHICLE DETAIL VIEW (VEH-05)
-         ===================================================================== */}
       {vehicleDetail360 && (
-        <div className="modal-backdrop">
-          <div className="modal-panel" style={{ maxWidth: '720px' }}>
-            <div className="card-header">
-              <h3 className="card-title">
-                360° Vehicle Record — {vehicleDetail360.vehicle.registration_plate} ({vehicleDetail360.vehicle.make} {vehicleDetail360.vehicle.model})
+        <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label="Vehicle 360 detail">
+          <div className="gf-modal-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 className="type-title">
+                {vehicleDetail360.vehicle.registration_plate} — {vehicleDetail360.vehicle.make} {vehicleDetail360.vehicle.model}
               </h3>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setVehicleDetail360(null)}>
+              <button type="button" className="gf-btn gf-btn-secondary" onClick={() => setVehicleDetail360(null)}>
                 Close
               </button>
             </div>
-            <div style={{ display: 'grid', gap: '0.75rem', fontSize: '0.84rem' }}>
-              <div>
-                <strong>Energy Type:</strong> {vehicleDetail360.vehicle.energy_type} • <strong>Odometer:</strong>{' '}
-                {vehicleDetail360.vehicle.current_odometer} km • <strong>Status:</strong> {vehicleDetail360.vehicle.status}
-              </div>
-              <div>
-                <strong>Bookings ({vehicleDetail360.bookings.length}):</strong>{' '}
-                {vehicleDetail360.bookings.map((b: any) => `#${b.id} (${b.status})`).join(', ') || 'None'}
-              </div>
-              <div>
-                <strong>Assignments ({vehicleDetail360.assignments.length}):</strong>{' '}
-                {vehicleDetail360.assignments.map((a: any) => `${a.driver_name} (${a.effective_start.slice(0, 10)})`).join(', ') || 'None'}
-              </div>
-              <div>
-                <strong>Energy Logs:</strong>{' '}
-                {vehicleDetail360.vehicle.energy_type === 'Gasoline'
-                  ? `${vehicleDetail360.fuelRecords.length} Gasoline fuel records`
-                  : `${vehicleDetail360.evRecords.length} EV charging records`}
-              </div>
-              <div>
-                <strong>Maintenance ({vehicleDetail360.maintenanceRecords.length}) & Expenses ({vehicleDetail360.expenses.length}) & Protected Docs ({vehicleDetail360.documents.length})</strong>
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }} className="type-body">
+              <div><strong>Energy Type:</strong> {vehicleDetail360.vehicle.energy_type} • <strong>Odometer:</strong> {vehicleDetail360.vehicle.current_odometer} km</div>
+              <div><strong>Bookings ({vehicleDetail360.bookings.length}):</strong> {vehicleDetail360.bookings.map((b: any) => `#${b.id} (${b.status})`).join(', ') || 'None'}</div>
+              <div><strong>Assignments ({vehicleDetail360.assignments.length}):</strong> {vehicleDetail360.assignments.map((a: any) => `${a.driver_name} (${a.effective_start.slice(0, 10)})`).join(', ') || 'None'}</div>
+              <div><strong>Maintenance:</strong> {vehicleDetail360.maintenanceRecords.length} • <strong>Expenses:</strong> {vehicleDetail360.expenses.length} • <strong>Docs:</strong> {vehicleDetail360.documents.length}</div>
             </div>
           </div>
         </div>
       )}
 
-      {/* =====================================================================
-          MODAL 4: IN-APP & PUSH NOTIFICATIONS DRAWER (NTF-05, Revision #5)
-         ===================================================================== */}
-      {showNotificationsModal && (
-        <div className="modal-backdrop">
-          <div className="modal-panel">
-            <div className="card-header">
-              <h3 className="card-title">Notification Center (Push & In-App Alerts)</h3>
-              <div style={{ display: 'flex', gap: '0.4rem' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={async () => {
-                    await apiRequest('/api/notifications/read-all', { method: 'POST' });
-                    await loadAllData(user);
-                  }}
-                >
-                  Mark All Read
-                </button>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowNotificationsModal(false)}>
-                  Close
-                </button>
-              </div>
+      {showInstallGuideModal && (
+        <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label="Install GalaxyFleet PWA">
+          <div className="gf-modal-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 className="type-title">Install GalaxyFleet App</h3>
+              <button type="button" className="gf-btn gf-btn-secondary" onClick={() => setShowInstallGuideModal(false)}>
+                Close
+              </button>
             </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }} className="type-body">
+              <p>GalaxyFleet includes a full PWA manifest and service worker for standalone installation:</p>
+              <div><strong>Android (Chrome):</strong> Tap the menu (⋮) and choose <strong>Add to Home screen</strong> or <strong>Install app</strong>.</div>
+              <div><strong>iOS (Safari):</strong> Tap <strong>Share</strong> then <strong>Add to Home Screen</strong>.</div>
+              <div><strong>Desktop (Chrome / Edge):</strong> Click the <strong>Install</strong> button inside the address bar.</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-              {notifications.length === 0 ? (
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No notifications yet.</p>
-              ) : (
-                notifications.map((n) => (
-                  <div
-                    key={n.id}
-                    style={{
-                      padding: '0.75rem',
-                      borderRadius: 'var(--radius-sm)',
-                      background: n.is_read ? 'var(--bg-surface)' : 'var(--brand-soft)',
-                      border: '1px solid var(--border-subtle)',
+  // ============================================================================
+  // ADMIN CONSOLE MODE (Left Sidebar + Clean Flat Tables)
+  // ============================================================================
+  if (navSection === 'ADMIN' && isPrivileged) {
+    return (
+      <>
+        <AdminShell
+          activeModule={adminModule}
+          onSelectModule={setAdminModule}
+          onSwitchToRideBooking={() => {
+            setNavSection('HOME');
+            setBookingStep('HOME');
+            setSheetSnap('half');
+          }}
+          onSwitchToDriverDispatch={() => {
+            setNavSection('DRIVER');
+            setSheetSnap('half');
+          }}
+          pendingCount={pendingTrips.length + pendingUsers.length}
+          userNickname={user.nickname}
+          userRole={user.role}
+        >
+          {isOffline && <ErrorState message="Connection required (WEB-03). Fleet mutations require active network connectivity." />}
+          {statusBanner && (
+            <div
+              style={{
+                padding: '12px 16px',
+                borderRadius: 'var(--radius-control)',
+                background: statusBanner.type === 'danger' ? 'var(--color-status-red-bg)' : 'var(--color-status-green-bg)',
+                color: statusBanner.type === 'danger' ? 'var(--color-status-red-fg)' : 'var(--color-status-green-fg)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+              }}
+            >
+              <span className="type-body" style={{ fontWeight: 600 }}>{statusBanner.text}</span>
+              <button type="button" className="gf-btn gf-btn-secondary" style={{ minHeight: '36px', padding: '0 12px' }} onClick={() => setStatusBanner(null)}>
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {adminModule === 'ADMIN_DISPATCH' && (
+            <>
+              <section className="gf-card-flat">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                  <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <UserCheck size={18} /> Account Registrations ({pendingUsers.length})
+                  </h2>
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-primary"
+                    onClick={async () => {
+                      const res = await apiRequest('/api/notifications/send-reminders', { method: 'POST' });
+                      setStatusBanner({ type: 'success', text: `Sent ${res.sentCount} booking & dispatch push reminders.` });
+                      await loadAllData(user);
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      <span className="mono">{n.trigger_type}</span>
-                      <span>{n.created_at}</span>
-                    </div>
-                    <div style={{ fontWeight: 600, fontSize: '0.9rem', marginTop: '0.2rem' }}>{n.title}</div>
-                    <div style={{ fontSize: '0.83rem', color: 'var(--text-secondary)' }}>{n.body}</div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+                    <Bell size={16} /> Send Upcoming Push Reminders
+                  </button>
+                </div>
 
-      {/* =====================================================================
-          MODAL 5: PWA INSTALLATION GUIDE FOR ANDROID / DESKTOP
-         ===================================================================== */}
-      {showInstallGuideModal && (
-        <div className="modal-backdrop">
-          <div className="modal-panel">
-            <div className="card-header">
-              <h3 className="card-title">Install FleetOps PWA (Driver, Admin & User)</h3>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowInstallGuideModal(false)}>
-                Close
+                {pendingUsers.length === 0 ? (
+                  <EmptyState message="All registered accounts have been reviewed." />
+                ) : (
+                  <div className="gf-table-wrap">
+                    <table className="gf-table">
+                      <thead>
+                        <tr>
+                          <th>Nickname</th>
+                          <th>Group Username</th>
+                          <th>Department</th>
+                          <th>Requested Role</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pendingUsers.map((u) => (
+                          <tr key={u.id}>
+                            <td style={{ fontWeight: 700 }}>{u.nickname}</td>
+                            <td className="mono">@{u.group_username}</td>
+                            <td>{u.department_name}</td>
+                            <td><StatusBadge label={u.role} tone="amber" /></td>
+                            <td>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <button type="button" className="gf-btn gf-btn-primary" onClick={() => handleApproveUser(u.id, true, u.role)}>
+                                  Approve
+                                </button>
+                                <button type="button" className="gf-btn gf-btn-outline-danger" onClick={() => handleApproveUser(u.id, false, u.role)}>
+                                  Reject
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+
+              <section className="gf-card-flat">
+                <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                  <ShieldCheck size={18} /> Vehicle Bookings & Dispatch Queue ({trips.length})
+                </h2>
+                <div className="gf-table-wrap">
+                  <table className="gf-table">
+                    <thead>
+                      <tr>
+                        <th>ID & Purpose</th>
+                        <th>Requester & Dept</th>
+                        <th>Window</th>
+                        <th>Vehicle & Driver</th>
+                        <th>Status</th>
+                        <th>Control</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {trips.map((t) => (
+                        <tr key={t.id}>
+                          <td>
+                            <div style={{ fontWeight: 700 }}>#{t.id} — {t.purpose}</div>
+                            <div className="type-caption">{t.origin} → {t.destination} ({t.passenger_count} pax)</div>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{t.requester_name}</div>
+                            <div className="type-caption">{t.department_name}</div>
+                          </td>
+                          <td className="mono type-caption">
+                            <div>{new Date(t.start_time).toLocaleString()}</div>
+                            <div>{new Date(t.end_time).toLocaleTimeString()}</div>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 700 }}>{t.registration_plate}</div>
+                            <div className="type-caption">Driver: {t.assigned_driver_name || 'Unassigned'}</div>
+                          </td>
+                          <td><StatusBadge label={t.status} tone={toneFromStatus(t.status)} /></td>
+                          <td>
+                            <button
+                              type="button"
+                              className="gf-btn gf-btn-primary"
+                              onClick={() => {
+                                setDispatchModalTrip(t);
+                                setDispatchVehicleId(t.vehicle_id);
+                                setDispatchDriverId(t.driver_profile_id || t.preferred_driver_id || 1);
+                                setDispatchDecisionReason('');
+                              }}
+                            >
+                              {t.status === 'PENDING_APPROVAL' ? 'Review & Dispatch' : 'Manage'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </>
+          )}
+
+          {adminModule === 'FLEET_OPS' && (
+            <>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {(['VEHICLES', 'DRIVERS', 'FUEL_EV', 'MAINTENANCE', 'EXPENSES', 'DOCUMENTS'] as const).map((sub) => (
+                  <Chip key={sub} active={opsSubTab === sub} onClick={() => setOpsSubTab(sub)}>
+                    {sub.replace('_', ' & ')}
+                  </Chip>
+                ))}
+              </div>
+
+              {opsSubTab === 'VEHICLES' && (
+                <section className="gf-card-flat">
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Fleet Register (8 Cars — Edit Plate, Type & Standby)</h2>
+                  <div className="gf-table-wrap">
+                    <table className="gf-table">
+                      <thead>
+                        <tr>
+                          <th>Plate</th>
+                          <th>Model</th>
+                          <th>Type</th>
+                          <th>Energy</th>
+                          <th>Odometer</th>
+                          <th>Status</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {vehicles.map((v) => (
+                          <tr key={v.id}>
+                            <td className="mono" style={{ fontWeight: 700 }}>{v.registration_plate}</td>
+                            <td>
+                              <div style={{ fontWeight: 700 }}>{v.make} {v.model}</div>
+                              <div className="type-caption">{v.seats} seats • VIN {v.vin}</div>
+                            </td>
+                            <td>{v.car_type}</td>
+                            <td>
+                              <StatusBadge
+                                label={v.energy_type === 'Electric' ? `EV ${v.battery_percent ?? 100}%` : 'Gasoline'}
+                                tone={v.energy_type === 'Electric' ? 'green' : 'neutral'}
+                              />
+                            </td>
+                            <td className="mono">{v.current_odometer.toLocaleString()} km</td>
+                            <td>
+                              <StatusBadge label={v.status} tone={toneFromStatus(v.status)} />
+                              {v.standby_reason && <div className="type-caption">{v.standby_reason}</div>}
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <button type="button" className="gf-btn gf-btn-secondary" onClick={() => setEditingVehicle({ ...v })}>
+                                  <Edit3 size={15} /> Edit
+                                </button>
+                                <button type="button" className="gf-btn gf-btn-primary" onClick={() => openVehicle360(v.id)}>
+                                  360°
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+
+              {opsSubTab === 'DRIVERS' && (
+                <section className="gf-card-flat">
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Driver Profiles</h2>
+                  <div className="gf-table-wrap">
+                    <table className="gf-table">
+                      <thead>
+                        <tr>
+                          <th>Driver</th>
+                          <th>Username</th>
+                          <th>Licence</th>
+                          <th>Expiry</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {drivers.map((d) => (
+                          <tr key={d.id}>
+                            <td style={{ fontWeight: 700 }}>{d.full_name}</td>
+                            <td className="mono">@{d.group_username}</td>
+                            <td className="mono">{d.licence_number} (Class {d.licence_class})</td>
+                            <td className="mono">{d.licence_expiry}</td>
+                            <td><StatusBadge label={d.availability_status} tone={toneFromStatus(d.availability_status)} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+
+              {opsSubTab === 'FUEL_EV' && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+                  <section className="gf-card-flat">
+                    <h2 className="type-section" style={{ marginBottom: '12px' }}>Gasoline Fuel Records (Litres)</h2>
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        try {
+                          await apiRequest('/api/fuel', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                              vehicle_id: Number(fuelForm.vehicle_id),
+                              litres: Number(fuelForm.litres),
+                              cost: Number(fuelForm.cost),
+                              odometer_km: Number(fuelForm.odometer_km),
+                              station: fuelForm.station,
+                            }),
+                          });
+                          setStatusBanner({ type: 'success', text: 'Gasoline fuel record saved.' });
+                          await loadAllData(user);
+                        } catch (err: any) {
+                          setStatusBanner({ type: 'danger', text: err.message });
+                        }
+                      }}
+                      style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '12px' }}
+                    >
+                      <select className="gf-select" value={fuelForm.vehicle_id} onChange={(e) => setFuelForm({ ...fuelForm, vehicle_id: Number(e.target.value) })}>
+                        {vehicles.map((v) => (
+                          <option key={v.id} value={v.id}>{v.registration_plate} ({v.energy_type})</option>
+                        ))}
+                      </select>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                        <input type="number" step="0.1" className="gf-input" placeholder="Litres" value={fuelForm.litres} onChange={(e) => setFuelForm({ ...fuelForm, litres: e.target.value })} />
+                        <input type="number" step="0.01" className="gf-input" placeholder="Cost" value={fuelForm.cost} onChange={(e) => setFuelForm({ ...fuelForm, cost: e.target.value })} />
+                        <input type="number" className="gf-input" placeholder="Odo km" value={fuelForm.odometer_km} onChange={(e) => setFuelForm({ ...fuelForm, odometer_km: e.target.value })} />
+                      </div>
+                      <button type="submit" className="gf-btn gf-btn-primary">Record Fuel</button>
+                    </form>
+                    <div className="gf-table-wrap">
+                      <table className="gf-table">
+                        <thead><tr><th>Plate</th><th>Litres</th><th>Cost</th><th>Odo</th></tr></thead>
+                        <tbody>
+                          {fuelRecords.map((f) => (
+                            <tr key={f.id}><td>{f.registration_plate}</td><td className="mono">{f.litres} L</td><td className="mono">${Number(f.cost).toFixed(2)}</td><td className="mono">{f.odometer_km} km</td></tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+
+                  <section className="gf-card-flat">
+                    <h2 className="type-section" style={{ marginBottom: '12px' }}>EV Charging Records (kWh)</h2>
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        try {
+                          await apiRequest('/api/ev-charging', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                              vehicle_id: Number(evForm.vehicle_id),
+                              kwh_added: Number(evForm.kwh_added),
+                              cost: Number(evForm.cost),
+                              battery_start_pct: Number(evForm.battery_start_pct),
+                              battery_end_pct: Number(evForm.battery_end_pct),
+                              odometer_km: Number(evForm.odometer_km),
+                              station: evForm.station,
+                            }),
+                          });
+                          setStatusBanner({ type: 'success', text: 'EV charging session recorded.' });
+                          await loadAllData(user);
+                        } catch (err: any) {
+                          setStatusBanner({ type: 'danger', text: err.message });
+                        }
+                      }}
+                      style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '12px' }}
+                    >
+                      <select className="gf-select" value={evForm.vehicle_id} onChange={(e) => setEvForm({ ...evForm, vehicle_id: Number(e.target.value) })}>
+                        {vehicles.map((v) => (
+                          <option key={v.id} value={v.id}>{v.registration_plate} ({v.energy_type})</option>
+                        ))}
+                      </select>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                        <input type="number" step="0.1" className="gf-input" placeholder="kWh" value={evForm.kwh_added} onChange={(e) => setEvForm({ ...evForm, kwh_added: e.target.value })} />
+                        <input type="number" className="gf-input" placeholder="Start %" value={evForm.battery_start_pct} onChange={(e) => setEvForm({ ...evForm, battery_start_pct: e.target.value })} />
+                        <input type="number" className="gf-input" placeholder="End %" value={evForm.battery_end_pct} onChange={(e) => setEvForm({ ...evForm, battery_end_pct: e.target.value })} />
+                      </div>
+                      <button type="submit" className="gf-btn gf-btn-primary">Record EV Session</button>
+                    </form>
+                    <div className="gf-table-wrap">
+                      <table className="gf-table">
+                        <thead><tr><th>EV</th><th>kWh</th><th>SoC</th><th>Cost</th></tr></thead>
+                        <tbody>
+                          {evRecords.map((ev) => (
+                            <tr key={ev.id}><td>{ev.registration_plate}</td><td className="mono">{ev.kwh_added} kWh</td><td className="mono">{ev.battery_start_pct}% → {ev.battery_end_pct}%</td><td className="mono">${Number(ev.cost).toFixed(2)}</td></tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                </div>
+              )}
+
+              {opsSubTab === 'MAINTENANCE' && (
+                <section className="gf-card-flat">
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Maintenance Schedule (MNT-01..07)</h2>
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      try {
+                        await apiRequest('/api/maintenance', {
+                          method: 'POST',
+                          body: JSON.stringify({
+                            ...maintForm,
+                            vehicle_id: Number(maintForm.vehicle_id),
+                            cost: Number(maintForm.cost),
+                            service_date: new Date(maintForm.service_date).toISOString(),
+                            end_date: new Date(maintForm.end_date).toISOString(),
+                          }),
+                        });
+                        setStatusBanner({ type: 'success', text: 'Maintenance scheduled.' });
+                        await loadAllData(user);
+                      } catch (err: any) {
+                        setStatusBanner({ type: 'danger', text: err.message });
+                      }
+                    }}
+                    style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}
+                  >
+                    <select className="gf-select" style={{ flex: '1 1 180px' }} value={maintForm.vehicle_id} onChange={(e) => setMaintForm({ ...maintForm, vehicle_id: Number(e.target.value) })}>
+                      {vehicles.map((v) => <option key={v.id} value={v.id}>{v.registration_plate} ({v.energy_type})</option>)}
+                    </select>
+                    <input type="text" className="gf-input" style={{ flex: '1 1 200px' }} value={maintForm.maintenance_type} onChange={(e) => setMaintForm({ ...maintForm, maintenance_type: e.target.value })} />
+                    <select className="gf-select" style={{ flex: '1 1 160px' }} value={maintForm.applicable_energy_type} onChange={(e) => setMaintForm({ ...maintForm, applicable_energy_type: e.target.value })}>
+                      <option value="Both">Both Gas & EV</option>
+                      <option value="Gasoline">Gasoline Only</option>
+                      <option value="Electric">Electric Only</option>
+                    </select>
+                    <button type="submit" className="gf-btn gf-btn-primary">Schedule</button>
+                  </form>
+                  <div className="gf-table-wrap">
+                    <table className="gf-table">
+                      <thead><tr><th>Vehicle</th><th>Type</th><th>Date</th><th>Cost</th><th>Status</th></tr></thead>
+                      <tbody>
+                        {maintenanceRecords.map((m) => (
+                          <tr key={m.id}><td>{m.registration_plate}</td><td>{m.maintenance_type} ({m.applicable_energy_type})</td><td className="mono">{new Date(m.service_date).toLocaleDateString()}</td><td className="mono">${Number(m.cost).toFixed(2)}</td><td><StatusBadge label={m.status} tone="amber" /></td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+
+              {opsSubTab === 'EXPENSES' && (
+                <section className="gf-card-flat">
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Expenses</h2>
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      try {
+                        await apiRequest('/api/expenses', {
+                          method: 'POST',
+                          body: JSON.stringify({
+                            vehicle_id: Number(expForm.vehicle_id),
+                            category: expForm.category,
+                            amount: Number(expForm.amount),
+                            description: expForm.description,
+                          }),
+                        });
+                        setStatusBanner({ type: 'success', text: 'Expense submitted.' });
+                        await loadAllData(user);
+                      } catch (err: any) {
+                        setStatusBanner({ type: 'danger', text: err.message });
+                      }
+                    }}
+                    style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}
+                  >
+                    <select className="gf-select" style={{ flex: '1 1 150px' }} value={expForm.vehicle_id} onChange={(e) => setExpForm({ ...expForm, vehicle_id: Number(e.target.value) })}>
+                      {vehicles.map((v) => <option key={v.id} value={v.id}>{v.registration_plate}</option>)}
+                    </select>
+                    <select className="gf-select" style={{ flex: '1 1 140px' }} value={expForm.category} onChange={(e) => setExpForm({ ...expForm, category: e.target.value })}>
+                      <option value="Toll">Toll</option>
+                      <option value="Parking">Parking</option>
+                      <option value="Cleaning">Cleaning</option>
+                      <option value="Accessories">Accessories</option>
+                      <option value="Other">Other</option>
+                    </select>
+                    <input type="number" step="0.01" className="gf-input" style={{ flex: '1 1 120px' }} value={expForm.amount} onChange={(e) => setExpForm({ ...expForm, amount: e.target.value })} />
+                    <input type="text" className="gf-input" style={{ flex: '1 1 200px' }} value={expForm.description} onChange={(e) => setExpForm({ ...expForm, description: e.target.value })} />
+                    <button type="submit" className="gf-btn gf-btn-primary">Submit</button>
+                  </form>
+                  <div className="gf-table-wrap">
+                    <table className="gf-table">
+                      <thead><tr><th>Plate</th><th>Category</th><th>Amount</th><th>Status</th></tr></thead>
+                      <tbody>
+                        {expenses.map((ex) => (
+                          <tr key={ex.id}><td>{ex.registration_plate}</td><td>{ex.category}: {ex.description}</td><td className="mono">${Number(ex.amount).toFixed(2)}</td><td><StatusBadge label={ex.approval_status} tone="blue" /></td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+
+              {opsSubTab === 'DOCUMENTS' && (
+                <section className="gf-card-flat">
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Document Vault (DOC-01..08)</h2>
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      try {
+                        const validPdfBase64 = btoa('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF');
+                        await apiRequest('/api/documents', {
+                          method: 'POST',
+                          body: JSON.stringify({
+                            entity_type: docForm.entity_type,
+                            entity_id: Number(docForm.entity_id),
+                            doc_type: docForm.doc_type,
+                            file_name: docForm.file_name,
+                            mime_type: 'application/pdf',
+                            content_base64: validPdfBase64,
+                            expiry_date: docForm.expiry_date,
+                          }),
+                        });
+                        setStatusBanner({ type: 'success', text: 'Document stored.' });
+                        await loadAllData(user);
+                      } catch (err: any) {
+                        setStatusBanner({ type: 'danger', text: err.message });
+                      }
+                    }}
+                    style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}
+                  >
+                    <select className="gf-select" style={{ flex: '1 1 160px' }} value={docForm.entity_id} onChange={(e) => setDocForm({ ...docForm, entity_id: Number(e.target.value) })}>
+                      {vehicles.map((v) => <option key={v.id} value={v.id}>{v.registration_plate}</option>)}
+                    </select>
+                    <input type="text" className="gf-input" style={{ flex: '1 1 180px' }} value={docForm.file_name} onChange={(e) => setDocForm({ ...docForm, file_name: e.target.value })} />
+                    <button type="submit" className="gf-btn gf-btn-primary"><Upload size={15} /> Upload PDF</button>
+                  </form>
+                  <div className="gf-table-wrap">
+                    <table className="gf-table">
+                      <thead><tr><th>Version</th><th>Entity</th><th>Document</th><th>Expiry</th></tr></thead>
+                      <tbody>
+                        {documents.map((doc) => (
+                          <tr key={doc.id}><td className="mono">#{doc.id} (v{doc.version_number})</td><td>{doc.entity_type} #{doc.entity_id}</td><td>{doc.doc_type}: {doc.file_name}</td><td className="mono">{doc.expiry_date || 'N/A'}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+
+          {adminModule === 'ANALYTICS_AUDIT' && usageAnalytics && (
+            <>
+              <div className="gf-kpi-grid">
+                <div className="gf-card-flat">
+                  <div className="type-caption">TODAY (ALL CARS)</div>
+                  <div className="type-title mono">{usageAnalytics.combinedOverall.day.distanceKm} km</div>
+                  <div className="type-caption">{usageAnalytics.combinedOverall.day.trips} trips</div>
+                </div>
+                <div className="gf-card-flat">
+                  <div className="type-caption">THIS WEEK (ALL CARS)</div>
+                  <div className="type-title mono">{usageAnalytics.combinedOverall.week.distanceKm} km</div>
+                  <div className="type-caption">{usageAnalytics.combinedOverall.week.trips} trips</div>
+                </div>
+                <div className="gf-card-flat">
+                  <div className="type-caption">THIS MONTH (ALL CARS)</div>
+                  <div className="type-title mono">{usageAnalytics.combinedOverall.month.distanceKm} km</div>
+                  <div className="type-caption">{usageAnalytics.combinedOverall.month.trips} trips</div>
+                </div>
+                <div className="gf-card-flat">
+                  <div className="type-caption">OVERALL TOTAL</div>
+                  <div className="type-title mono">{usageAnalytics.combinedOverall.allTime.distanceKm} km</div>
+                  <div className="type-caption">{usageAnalytics.combinedOverall.allTime.trips} trips</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
+                <div className="gf-card-flat">
+                  <div className="type-section">Gasoline Summary (Litres)</div>
+                  <div className="type-title mono">{usageAnalytics.combinedOverall.gasolineSummary.totalLitres} L • ${usageAnalytics.combinedOverall.gasolineSummary.totalFuelCost.toFixed(2)}</div>
+                </div>
+                <div className="gf-card-flat">
+                  <div className="type-section">Electric Summary (kWh)</div>
+                  <div className="type-title mono">{usageAnalytics.combinedOverall.electricSummary.totalKwh} kWh • ${usageAnalytics.combinedOverall.electricSummary.totalChargingCost.toFixed(2)}</div>
+                </div>
+              </div>
+
+              <section className="gf-card-flat">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                  <h2 className="type-section">Vehicle Usage Summary</h2>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {(['day', 'week', 'month', 'overall'] as const).map((p) => (
+                      <Chip key={p} active={usagePeriod === p} onClick={() => setUsagePeriod(p)}>{p.toUpperCase()}</Chip>
+                    ))}
+                  </div>
+                </div>
+                <div className="gf-table-wrap">
+                  <table className="gf-table">
+                    <thead>
+                      <tr>
+                        <th>Vehicle</th>
+                        <th>Energy</th>
+                        <th>Day</th>
+                        <th>Week</th>
+                        <th>Month</th>
+                        <th>All-Time</th>
+                        <th>Total Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {usageAnalytics.perVehicle.map((v: any) => (
+                        <tr key={v.vehicle_id}>
+                          <td><strong>{v.registration_plate}</strong> <div className="type-caption">{v.make} {v.model}</div></td>
+                          <td><StatusBadge label={v.energy_type} tone={v.energy_type === 'Electric' ? 'green' : 'neutral'} /></td>
+                          <td className="mono">{v.day.distanceKm} km ({v.day.trips})</td>
+                          <td className="mono">{v.week.distanceKm} km ({v.week.trips})</td>
+                          <td className="mono">{v.month.distanceKm} km ({v.month.trips})</td>
+                          <td className="mono">{v.overall.distanceKm} km ({v.overall.trips})</td>
+                          <td className="mono">${v.totalOperatingCost.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section className="gf-card-flat">
+                <h2 className="type-section" style={{ marginBottom: '12px' }}>Driver Usage Summary</h2>
+                <div className="gf-table-wrap">
+                  <table className="gf-table">
+                    <thead><tr><th>Driver</th><th>Status</th><th>Day</th><th>Week</th><th>Month</th><th>Overall</th></tr></thead>
+                    <tbody>
+                      {usageAnalytics.perDriver.map((d: any) => (
+                        <tr key={d.driver_profile_id}>
+                          <td style={{ fontWeight: 700 }}>{d.driver_name}</td>
+                          <td><StatusBadge label={d.availability_status} tone="green" /></td>
+                          <td className="mono">{d.day.distanceKm} km ({d.day.trips})</td>
+                          <td className="mono">{d.week.distanceKm} km ({d.week.trips})</td>
+                          <td className="mono">{d.month.distanceKm} km ({d.month.trips})</td>
+                          <td className="mono">{d.overall.distanceKm} km ({d.overall.trips})</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              {gpsLatest && (
+                <section className="gf-card-flat">
+                  <h2 className="type-section" style={{ marginBottom: '8px' }}>Periodic Location Monitor (Best-Effort GPS)</h2>
+                  <p className="type-caption" style={{ marginBottom: '12px' }}>{gpsLatest.notice}</p>
+                  <div className="gf-table-wrap">
+                    <table className="gf-table">
+                      <thead><tr><th>Driver</th><th>State</th><th>Coordinates</th><th>Timestamps</th></tr></thead>
+                      <tbody>
+                        {gpsLatest.drivers.map((d: any) => (
+                          <tr key={d.driver_profile_id}>
+                            <td style={{ fontWeight: 700 }}>{d.driver_name}</td>
+                            <td><StatusBadge label={d.status_label} tone={toneFromStatus(d.display_state)} /></td>
+                            <td className="mono type-caption">{d.report && d.report.latitude !== null ? `${Number(d.report.latitude).toFixed(5)}, ${Number(d.report.longitude).toFixed(5)} (${d.accuracy_label})` : 'No position shown as current'}</td>
+                            <td className="mono type-caption">{d.report ? `Captured: ${d.report.capture_time}` : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+
+              <section className="gf-card-flat">
+                <h2 className="type-section" style={{ marginBottom: '12px' }}>Audit Trail ({auditEvents.length} Recent)</h2>
+                <div className="gf-table-wrap">
+                  <table className="gf-table">
+                    <thead><tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Entity</th></tr></thead>
+                    <tbody>
+                      {auditEvents.slice(0, 20).map((ev) => (
+                        <tr key={ev.id}>
+                          <td className="mono type-caption">{ev.created_at}</td>
+                          <td>{ev.actor_username} ({ev.actor_role})</td>
+                          <td className="mono">{ev.action}</td>
+                          <td className="mono">{ev.entity_type} {ev.entity_id ? `#${ev.entity_id}` : ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </>
+          )}
+        </AdminShell>
+        {renderSharedModals()}
+      </>
+    );
+  }
+
+  // ============================================================================
+  // RIDE-HAILING SHELL (Mobile Map+Sheet, Tablet Rail+Floating Card, Desktop 420px+Map)
+  // ============================================================================
+  const inActiveBookingFlow = navSection === 'HOME' && bookingStep !== 'HOME';
+  const currentMetrics = estimateRouteMetrics(bookOrigin, bookDest);
+
+  // Determine Map visual state
+  const mapOrigin =
+    bookingStep === 'WAITING' || bookingStep === 'IN_TRIP'
+      ? focusedTrip?.origin || bookOrigin
+      : bookOrigin;
+  const mapDest =
+    bookingStep === 'WAITING' || bookingStep === 'IN_TRIP'
+      ? focusedTrip?.destination || bookDest
+      : bookDest;
+
+  const showRouteOnMap =
+    navSection === 'HOME' &&
+    ((bookingStep === 'ROUTE' && Boolean(bookDest.trim()) && routeTab !== 'PIN') ||
+      bookingStep === 'VEHICLE' ||
+      bookingStep === 'SUMMARY' ||
+      bookingStep === 'IN_TRIP');
+
+  const handleMapBack = () => {
+    if (navSection === 'DRIVER') {
+      setNavSection('HOME');
+      setBookingStep('HOME');
+      setSheetSnap('half');
+      return;
+    }
+    if (bookingStep === 'ROUTE') {
+      setBookingStep('HOME');
+      setSheetSnap('half');
+    } else if (bookingStep === 'VEHICLE') {
+      setBookingStep('ROUTE');
+      setSheetSnap('full');
+    } else if (bookingStep === 'SUMMARY') {
+      setBookingStep('VEHICLE');
+      setSheetSnap('full');
+    } else if (bookingStep === 'WAITING' || bookingStep === 'IN_TRIP') {
+      setBookingStep('HOME');
+      setSheetSnap('half');
+    }
+  };
+
+  // Sticky Footer per Booking Step
+  let stickyFooter: React.ReactNode = null;
+  if (navSection === 'HOME') {
+    if (bookingStep === 'ROUTE') {
+      if (routeTab === 'PIN') {
+        stickyFooter = (
+          <StickyActionBar>
+            <button
+              id="confirm-pin-btn"
+              type="button"
+              className="gf-btn gf-btn-primary gf-btn-full"
+              onClick={() => {
+                if (!bookDest.trim()) {
+                  setBookDest('SCBD District 8');
+                }
+                setRouteTab('RECENT');
+                setBookingStep('VEHICLE');
+                setSheetSnap('full');
+              }}
+            >
+              Confirm location
+            </button>
+          </StickyActionBar>
+        );
+      } else if (bookOrigin.trim() && bookDest.trim()) {
+        stickyFooter = (
+          <StickyActionBar>
+            <div className="gf-sticky-row">
+              <div>
+                <div className="type-caption">Estimated route</div>
+                <div className="type-body" style={{ fontWeight: 700 }}>
+                  {currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min
+                </div>
+              </div>
+              <button
+                id="route-continue-btn"
+                type="button"
+                className="gf-btn gf-btn-primary"
+                onClick={() => {
+                  setBookingStep('VEHICLE');
+                  setSheetSnap('full');
+                }}
+              >
+                Pick your ride
               </button>
             </div>
-            <div style={{ fontSize: '0.88rem', display: 'grid', gap: '0.75rem', color: 'var(--text-secondary)' }}>
-              <p>
-                This application includes a full Web App Manifest (<code className="mono">/manifest.webmanifest</code>) and Service Worker (<code className="mono">/sw.js</code>) for standalone installation on Android and Desktop:
-              </p>
-              <div>
-                <strong>On Android (Chrome):</strong> Tap the browser menu (⋮) and select <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong>.
+          </StickyActionBar>
+        );
+      }
+    } else if (bookingStep === 'VEHICLE' && selectedVehicle) {
+      const availSelected = selectedVehicle.isAvailable !== false && selectedVehicle.status === 'Available';
+      stickyFooter = (
+        <StickyActionBar>
+          <div className="gf-sticky-row">
+            <div style={{ minWidth: 0 }}>
+              <div className="type-body" style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {selectedVehicle.make} {selectedVehicle.model}
               </div>
-              <div>
-                <strong>On Desktop (Chrome / Edge):</strong> Click the <strong>Install icon</strong> on the right side of the address bar.
+              <div className="type-caption">
+                {scheduleMode === 'NOW' ? 'Departing now' : new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
               </div>
-              <div>
-                <strong>Push Notifications:</strong> Click <strong>"Enable Push Alerts"</strong> in the top bar to subscribe your device to booking updates, reminders, and driver dispatch notifications.
+            </div>
+            <button
+              id="vehicle-continue-btn"
+              type="button"
+              className="gf-btn gf-btn-primary"
+              disabled={!availSelected}
+              onClick={() => {
+                setBookingStep('SUMMARY');
+                setSheetSnap('half');
+              }}
+            >
+              Continue
+            </button>
+          </div>
+        </StickyActionBar>
+      );
+    } else if (bookingStep === 'SUMMARY' && selectedVehicle) {
+      stickyFooter = (
+        <StickyActionBar>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div className="type-caption" style={{ textAlign: 'center' }}>
+              {selectedVehicle.make} {selectedVehicle.model} • {selectedVehicle.registration_plate}
+            </div>
+            <button
+              id="submit-booking-btn"
+              type="button"
+              className="gf-btn gf-btn-primary gf-btn-full"
+              disabled={isOffline}
+              onClick={handleCreateTripBooking}
+            >
+              Request GalaxyFleet
+            </button>
+          </div>
+        </StickyActionBar>
+      );
+    }
+  }
+
+  // Last GPS age caption helper for IN_TRIP (without implying live tracking!)
+  const getLastGpsAgeText = () => {
+    const tripVeh = vehicles.find((v) => v.id === focusedTrip?.vehicle_id);
+    if (tripVeh?.latestGps?.capture_time) {
+      const mins = Math.max(1, Math.round((Date.now() - new Date(tripVeh.latestGps.capture_time).getTime()) / 60000));
+      return `Last location update ${mins} min ago`;
+    }
+    return 'Periodic location updates active during duty';
+  };
+
+  // Active sheet body content
+  const renderSheetContent = () => {
+    if (dataError) {
+      return <ErrorState message={dataError} onRetry={() => loadAllData(user)} />;
+    }
+
+    // Banner feedback inside sheet
+    const feedbackBanner = statusBanner ? (
+      <div
+        style={{
+          padding: '10px 14px',
+          borderRadius: 'var(--radius-control)',
+          marginBottom: '12px',
+          background: statusBanner.type === 'danger' ? 'var(--color-status-red-bg)' : 'var(--color-status-green-bg)',
+          color: statusBanner.type === 'danger' ? 'var(--color-status-red-fg)' : 'var(--color-status-green-fg)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '8px',
+        }}
+      >
+        <span className="type-caption" style={{ fontWeight: 700, color: 'inherit' }}>{statusBanner.text}</span>
+        <button
+          type="button"
+          onClick={() => setStatusBanner(null)}
+          style={{ border: 'none', background: 'transparent', color: 'inherit', fontWeight: 700, cursor: 'pointer', minHeight: '32px' }}
+        >
+          OK
+        </button>
+      </div>
+    ) : null;
+
+    // -------------------------------------------------------------------------
+    // DRIVER DISPATCH SHEET (No tables, flat cards/rows, periodic GPS)
+    // -------------------------------------------------------------------------
+    if (navSection === 'DRIVER') {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {feedbackBanner}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+            <div>
+              <h1 className="type-title">Driver Dispatch</h1>
+              <p className="type-caption">Assigned orders & periodic location check-ins</p>
+            </div>
+            <StatusBadge label={gpsReportingActive ? 'Duty Active' : 'Standby'} tone={gpsReportingActive ? 'green' : 'neutral'} />
+          </div>
+
+          {/* Periodic GPS Notice & Controls (GPS-03, GPS-15) */}
+          <div style={{ padding: '14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+              <strong>Periodic Location Notice:</strong> Sends a report every 20 minutes while the app stays open during active duty (not continuous live tracking).
+            </div>
+            {!gpsNoticeAccepted ? (
+              <button
+                id="driver-accept-gps-notice-btn"
+                type="button"
+                className="gf-btn gf-btn-primary gf-btn-full"
+                onClick={() => {
+                  setGpsNoticeAccepted(true);
+                  setGpsReportingActive(true);
+                }}
+              >
+                <Navigation size={16} /> Start Duty & Location Check-In
+              </button>
+            ) : (
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button type="button" className="gf-btn gf-btn-primary" style={{ flex: 1 }} onClick={() => sendDriverLocationReport('GRANTED')}>
+                  <MapPin size={16} /> Send Check-In
+                </button>
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-secondary"
+                  onClick={() => {
+                    setGpsPermissionState('DENIED');
+                    sendDriverLocationReport('DENIED');
+                  }}
+                >
+                  Permission Denied
+                </button>
+              </div>
+            )}
+            {lastDriverGpsReport && (
+              <div className="type-caption mono">
+                Last check-in: {lastDriverGpsReport.permission_state} • {new Date(lastDriverGpsReport.capture_time).toLocaleTimeString()}
+              </div>
+            )}
+          </div>
+
+          <h2 className="type-section">Assigned Trips ({dispatches.length})</h2>
+          {loadingData ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <Skeleton height={84} />
+              <Skeleton height={84} />
+            </div>
+          ) : dispatches.length === 0 ? (
+            <EmptyState message="No dispatch orders assigned to you yet." />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {dispatches.map((d) => {
+                const tripId = d.trip_request_id;
+                const isCompleted = d.trip_status === 'COMPLETED';
+                const isInProgress = d.trip_status === 'IN_PROGRESS';
+
+                return (
+                  <div
+                    key={d.assignment_id}
+                    style={{
+                      padding: '16px',
+                      borderRadius: 'var(--radius-card)',
+                      border: `1px solid ${isInProgress ? 'var(--color-green)' : 'var(--color-divider)'}`,
+                      background: isInProgress ? 'var(--color-green-tint)' : 'var(--color-bg-surface)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                      <span className="mono type-body" style={{ fontWeight: 700 }}>{d.registration_plate} • {d.make} {d.model}</span>
+                      <StatusBadge label={d.trip_status} tone={toneFromStatus(d.trip_status)} />
+                    </div>
+                    <div className="type-body" style={{ fontWeight: 700 }}>{d.purpose || 'Assigned Trip'}</div>
+                    <div className="type-caption">{d.origin} → {d.destination}</div>
+                    <div className="type-caption">
+                      Passenger: {d.requester_name} ({d.passenger_count} pax) • Odo: {d.current_odometer} km
+                      {d.energy_type === 'Electric' ? ` • ${d.battery_percent ?? 100}%` : ''}
+                    </div>
+
+                    {!isCompleted && tripId && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--color-divider)' }}>
+                        {!d.acknowledged_at && (
+                          <button
+                            type="button"
+                            className="gf-btn gf-btn-primary gf-btn-full"
+                            onClick={async () => {
+                              await apiRequest(`/api/driver/trips/${tripId}/acknowledge`, { method: 'POST' });
+                              setStatusBanner({ type: 'success', text: 'Dispatch order acknowledged.' });
+                              await loadAllData(user);
+                            }}
+                          >
+                            Acknowledge Order
+                          </button>
+                        )}
+                        {!isInProgress ? (
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <input
+                              type="number"
+                              className="gf-input"
+                              aria-label="Start odometer"
+                              value={activeTripOdoInput[tripId] ?? d.current_odometer}
+                              onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
+                            />
+                            <button
+                              type="button"
+                              className="gf-btn gf-btn-primary"
+                              onClick={async () => {
+                                try {
+                                  await apiRequest(`/api/driver/trips/${tripId}/start`, {
+                                    method: 'POST',
+                                    body: JSON.stringify({ start_odometer: Number(activeTripOdoInput[tripId] ?? d.current_odometer) }),
+                                  });
+                                  setStatusBanner({ type: 'success', text: 'Trip started!' });
+                                  await loadAllData(user);
+                                } catch (err: any) {
+                                  setStatusBanner({ type: 'danger', text: err.message });
+                                }
+                              }}
+                            >
+                              <Play size={16} /> Start Trip
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <input
+                              type="number"
+                              className="gf-input"
+                              placeholder={`End Odometer (> ${d.start_odometer || d.current_odometer})`}
+                              value={activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25}
+                              onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
+                            />
+                            {d.energy_type === 'Electric' && (
+                              <input
+                                type="number"
+                                className="gf-input"
+                                placeholder="End Battery %"
+                                value={activeTripBatteryInput[tripId] ?? '72'}
+                                onChange={(e) => setActiveTripBatteryInput({ ...activeTripBatteryInput, [tripId]: e.target.value })}
+                              />
+                            )}
+                            <input
+                              type="text"
+                              className="gf-input"
+                              placeholder="Return parking spot"
+                              value={activeTripParkingInput[tripId] ?? 'Basement B1'}
+                              onChange={(e) => setActiveTripParkingInput({ ...activeTripParkingInput, [tripId]: e.target.value })}
+                            />
+                            <button
+                              type="button"
+                              className="gf-btn gf-btn-primary gf-btn-full"
+                              onClick={async () => {
+                                try {
+                                  await apiRequest(`/api/driver/trips/${tripId}/complete`, {
+                                    method: 'POST',
+                                    body: JSON.stringify({
+                                      end_odometer: Number(activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25),
+                                      battery_percent: d.energy_type === 'Electric' ? Number(activeTripBatteryInput[tripId] ?? 72) : undefined,
+                                      parking_return_note: activeTripParkingInput[tripId] || 'Basement B1',
+                                    }),
+                                  });
+                                  setStatusBanner({ type: 'success', text: 'Trip completed & odometer saved.' });
+                                  await loadAllData(user);
+                                } catch (err: any) {
+                                  setStatusBanner({ type: 'danger', text: err.message });
+                                }
+                              }}
+                            >
+                              Complete Trip
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // ACTIVITY TAB (Ongoing & History underline tabs, no tables)
+    // -------------------------------------------------------------------------
+    if (navSection === 'ACTIVITY') {
+      const shownList = activityTab === 'ONGOING' ? ongoingTrips : historyTrips;
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {feedbackBanner}
+          <h1 className="type-title">Activity</h1>
+
+          <div className="gf-underline-tabs" role="tablist" aria-label="Trip history tabs">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activityTab === 'ONGOING'}
+              className={`gf-underline-tab ${activityTab === 'ONGOING' ? 'is-active' : ''}`}
+              onClick={() => setActivityTab('ONGOING')}
+            >
+              Ongoing ({ongoingTrips.length})
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activityTab === 'HISTORY'}
+              className={`gf-underline-tab ${activityTab === 'HISTORY' ? 'is-active' : ''}`}
+              onClick={() => setActivityTab('HISTORY')}
+            >
+              History ({historyTrips.length})
+            </button>
+          </div>
+
+          {loadingData ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <Skeleton height={64} />
+              <Skeleton height={64} />
+              <Skeleton height={64} />
+            </div>
+          ) : shownList.length === 0 ? (
+            <EmptyState
+              message={activityTab === 'ONGOING' ? 'No ongoing rides right now.' : 'No completed trips yet.'}
+              action={
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-primary"
+                  onClick={() => {
+                    setNavSection('HOME');
+                    setBookingStep('ROUTE');
+                    setSheetSnap('full');
+                  }}
+                >
+                  Book a ride
+                </button>
+              }
+            />
+          ) : (
+            <div>
+              {shownList.map((t) => (
+                <ListRow
+                  key={t.id}
+                  tall
+                  icon={<Car size={20} />}
+                  title={`${t.origin} → ${t.destination}`}
+                  subtitle={`${new Date(t.start_time).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} • ${t.make} ${t.model} (${t.registration_plate})`}
+                  trailing={<StatusBadge label={t.booking_status === 'CANCELLED' ? 'CANCELLED' : t.status} tone={toneFromStatus(t.booking_status === 'CANCELLED' ? 'CANCELLED' : t.status)} />}
+                  showChevron={activityTab === 'ONGOING'}
+                  onClick={
+                    activityTab === 'ONGOING'
+                      ? () => {
+                          setFocusedTripId(t.id);
+                          setNavSection('HOME');
+                          setBookingStep(t.status === 'PENDING_APPROVAL' ? 'WAITING' : 'IN_TRIP');
+                          setSheetSnap('half');
+                        }
+                      : undefined
+                  }
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // INBOX TAB
+    // -------------------------------------------------------------------------
+    if (navSection === 'INBOX') {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {feedbackBanner}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+            <h1 className="type-title">Inbox</h1>
+            {unreadCount > 0 && (
+              <button
+                type="button"
+                className="gf-btn gf-btn-ghost"
+                onClick={async () => {
+                  await apiRequest('/api/notifications/read-all', { method: 'POST' });
+                  await loadAllData(user);
+                }}
+              >
+                Mark all read
+              </button>
+            )}
+          </div>
+
+          <button type="button" className="gf-btn gf-btn-secondary gf-btn-full" onClick={handleEnablePushNotifications}>
+            <Bell size={16} />
+            {pushSubscribed ? 'Push notifications enabled (Send test)' : 'Enable Push Alerts'}
+          </button>
+
+          {notifications.length === 0 ? (
+            <EmptyState message="You're all caught up! Alerts appear here." />
+          ) : (
+            <div>
+              {notifications.map((n) => (
+                <ListRow
+                  key={n.id}
+                  tall
+                  icon={<Bell size={18} style={{ color: n.is_read ? 'var(--color-text-muted)' : 'var(--color-green)' }} />}
+                  title={n.title}
+                  subtitle={n.body}
+                  trailing={!n.is_read ? <span className="gf-dot-green" aria-label="Unread" /> : undefined}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // PROFILE TAB
+    // -------------------------------------------------------------------------
+    if (navSection === 'PROFILE') {
+      const initials = (user.nickname || 'U').slice(0, 2).toUpperCase();
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {feedbackBanner}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div
+              style={{
+                width: '56px',
+                height: '56px',
+                borderRadius: 'var(--radius-pill)',
+                background: 'var(--color-green-tint)',
+                color: 'var(--color-green-text)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 800,
+                fontSize: '18px',
+                flexShrink: 0,
+              }}
+            >
+              {initials}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <h1 className="type-title">{user.nickname}</h1>
+              <div className="type-caption">@{user.group_username} • {user.department_name || `Dept #${user.department_id}`}</div>
+              <div style={{ marginTop: '4px', display: 'flex', gap: '6px' }}>
+                <StatusBadge label={`Role: ${user.role}`} tone="green" />
+                {user.is_department_admin === 1 && <StatusBadge label="Dept Admin" tone="blue" />}
               </div>
             </div>
           </div>
+
+          <div style={{ padding: '12px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
+            <div className="type-caption" style={{ fontWeight: 700, marginBottom: '8px' }}>Appearance</div>
+            <Segmented
+              ariaLabel="Theme preference"
+              value={themePref}
+              onChange={setThemePref}
+              options={[
+                { value: 'system', label: 'Auto' },
+                { value: 'light', label: 'Light' },
+                { value: 'dark', label: 'Dark' },
+              ]}
+            />
+          </div>
+
+          <div>
+            <ListRow
+              icon={<Bell size={18} />}
+              title="Push Notifications"
+              subtitle={pushSubscribed ? 'Active on this device' : 'Receive booking & dispatch updates'}
+              showChevron
+              onClick={handleEnablePushNotifications}
+            />
+            <ListRow
+              icon={<Smartphone size={18} />}
+              title="Install GalaxyFleet App"
+              subtitle="Add shortcut to your home screen"
+              showChevron
+              onClick={handleInstallPwa}
+            />
+            {(user.role === 'DRV' || isPrivileged) && (
+              <ListRow
+                icon={<Navigation size={18} />}
+                title="Driver Dispatch Console"
+                subtitle="View assigned orders & periodic GPS check-ins"
+                showChevron
+                onClick={() => {
+                  setNavSection('DRIVER');
+                  setSheetSnap('full');
+                }}
+              />
+            )}
+            {isPrivileged && (
+              <ListRow
+                icon={<ShieldCheck size={18} />}
+                title="Admin Command Console"
+                subtitle="Approvals, vehicles, analytics & audit log"
+                showChevron
+                onClick={() => setNavSection('ADMIN')}
+              />
+            )}
+            <ListRow
+              icon={<LogOut size={18} />}
+              title="Sign Out"
+              danger
+              onClick={handleLogout}
+            />
+          </div>
         </div>
-      )}
-    </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // BOOKING FLOW STEP 0: HOME
+    // -------------------------------------------------------------------------
+    if (bookingStep === 'HOME') {
+      const shortcutCount = isPrivileged || user.role === 'DRV' ? 8 : 7;
+      const shortcuts = [
+        {
+          id: 'sc-ride',
+          label: 'Book Ride',
+          green: true,
+          icon: <Car size={24} />,
+          action: () => {
+            setVehicleFilter('ALL');
+            setScheduleMode('NOW');
+            setBookingStep('ROUTE');
+            setSheetSnap('full');
+          },
+        },
+        {
+          id: 'sc-schedule',
+          label: 'Schedule',
+          green: false,
+          icon: <Calendar size={22} />,
+          action: () => {
+            setVehicleFilter('ALL');
+            setScheduleMode('SCHEDULE');
+            setBookingStep('ROUTE');
+            setSheetSnap('full');
+          },
+        },
+        {
+          id: 'sc-ev',
+          label: 'EV Pool',
+          green: true,
+          icon: <Zap size={22} />,
+          action: () => {
+            setVehicleFilter('Electric');
+            setBookingStep('ROUTE');
+            setSheetSnap('full');
+          },
+        },
+        {
+          id: 'sc-mpv',
+          label: '7-Seater',
+          green: false,
+          icon: <Users size={22} />,
+          action: () => {
+            setVehicleFilter('MPV');
+            setBookingStep('ROUTE');
+            setSheetSnap('full');
+          },
+        },
+        {
+          id: 'sc-trips',
+          label: 'My Trips',
+          green: false,
+          icon: <Clock size={22} />,
+          action: () => setNavSection('ACTIVITY'),
+        },
+        {
+          id: 'sc-push',
+          label: 'Alerts',
+          green: false,
+          icon: <Bell size={22} />,
+          action: handleEnablePushNotifications,
+        },
+        {
+          id: 'sc-install',
+          label: 'Install App',
+          green: false,
+          icon: <Download size={22} />,
+          action: handleInstallPwa,
+        },
+        ...(shortcutCount === 8
+          ? [
+              {
+                id: 'sc-ops',
+                label: isPrivileged ? 'Admin' : 'Dispatch',
+                green: true,
+                icon: isPrivileged ? <ShieldCheck size={22} /> : <Navigation size={22} />,
+                action: () => setNavSection(isPrivileged ? 'ADMIN' : 'DRIVER'),
+              },
+            ]
+          : []),
+      ];
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {feedbackBanner}
+
+          {/* Greeting + Dept Chip + Notification Bell */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+            <div style={{ minWidth: 0 }}>
+              <h1 className="type-title">
+                {getTimeGreeting()}, {user.nickname}
+              </h1>
+              <div style={{ marginTop: '6px' }}>
+                <Chip subtle>{user.department_name || 'Company Team'}</Chip>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="gf-icon-btn-48 pressable"
+              onClick={() => setNavSection('INBOX')}
+              aria-label={`Notifications (${unreadCount} unread)`}
+            >
+              <Bell size={20} />
+              {unreadCount > 0 && (
+                <span className="gf-nav-badge" style={{ top: '6px', right: '6px' }}>
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Active ongoing trip card if any */}
+          {ongoingTrips.length > 0 && (
+            <button
+              type="button"
+              className="gf-option-row is-selected pressable"
+              style={{ minHeight: '64px' }}
+              onClick={() => {
+                setFocusedTripId(ongoingTrips[0].id);
+                setBookingStep(ongoingTrips[0].status === 'PENDING_APPROVAL' ? 'WAITING' : 'IN_TRIP');
+                setSheetSnap('half');
+              }}
+            >
+              <div className="gf-circle-icon" style={{ background: 'var(--color-green)', color: '#ffffff' }}>
+                <Car size={18} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="type-body" style={{ fontWeight: 700 }}>
+                  {ongoingTrips[0].status === 'PENDING_APPROVAL' ? 'Waiting for approval' : 'Ride assigned'}
+                </div>
+                <div className="type-caption" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {ongoingTrips[0].origin} → {ongoingTrips[0].destination}
+                </div>
+              </div>
+              <ChevronRight size={18} style={{ color: 'var(--color-green-text)' }} />
+            </button>
+          )}
+
+          {/* Large Rounded "Where to?" Search Pill (height 56px, grey fill, magnifier, green dot) */}
+          <button
+            id="home-where-to-btn"
+            type="button"
+            className="gf-search-pill pressable"
+            onClick={() => {
+              setBookingStep('ROUTE');
+              setSheetSnap('full');
+            }}
+          >
+            <Search size={20} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
+            <span className="type-section" style={{ flex: 1, color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+              Where to?
+            </span>
+            <span className="gf-dot-green" aria-hidden="true" />
+          </button>
+
+          {/* Service Shortcuts (4 columns, 56px tiles, 12px labels, max 8 items, zero borders) */}
+          <div className="gf-shortcut-grid">
+            {shortcuts.map((sc) => (
+              <button key={sc.id} id={sc.id} type="button" className="gf-shortcut-btn pressable" onClick={sc.action}>
+                <div className={`gf-shortcut-tile ${sc.green ? 'is-green' : ''}`}>{sc.icon}</div>
+                <span className="gf-shortcut-label">{sc.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Horizontal Scroll Chips for Recent Destinations */}
+          <div>
+            <div className="type-caption" style={{ fontWeight: 700, marginBottom: '8px' }}>
+              Recent destinations
+            </div>
+            <div className="gf-hscroll">
+              {recentDestinationChips.map((dest) => (
+                <Chip
+                  key={dest}
+                  icon={<MapPin size={14} style={{ color: 'var(--color-green)' }} />}
+                  onClick={() => {
+                    setBookDest(dest);
+                    setBookingStep('ROUTE');
+                    setSheetSnap('full');
+                  }}
+                >
+                  {dest}
+                </Chip>
+              ))}
+            </div>
+          </div>
+
+          {/* Announcement Carousel (16:9 cards + dot pagination) */}
+          <div>
+            <div className="gf-promo-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <StatusBadge label={ANNOUNCEMENTS[carouselIdx].tag} tone="green" />
+                <Car size={28} style={{ color: 'var(--color-green)', opacity: 0.7 }} />
+              </div>
+              <div>
+                <div className="type-section">{ANNOUNCEMENTS[carouselIdx].title}</div>
+                <p className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+                  {ANNOUNCEMENTS[carouselIdx].body}
+                </p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '10px' }}>
+              {ANNOUNCEMENTS.map((item, idx) => (
+                <button
+                  key={item.title}
+                  type="button"
+                  aria-label={`Slide ${idx + 1}: ${item.title}`}
+                  onClick={() => setCarouselIdx(idx)}
+                  style={{
+                    width: carouselIdx === idx ? '20px' : '8px',
+                    height: '8px',
+                    padding: 0,
+                    border: 'none',
+                    borderRadius: '9999px',
+                    background: carouselIdx === idx ? 'var(--color-green)' : 'var(--color-border)',
+                    cursor: 'pointer',
+                    transition: 'width 200ms ease',
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // BOOKING FLOW STEP 1: WHERE TO? (ROUTE)
+    // -------------------------------------------------------------------------
+    if (bookingStep === 'ROUTE') {
+      const baseList = routeTab === 'SAVED' ? SAVED_PLACES : CORPORATE_HUBS;
+      const placeList =
+        activeRouteField === 'destination'
+          ? baseList.filter((p) => p.name.toLowerCase() !== bookOrigin.toLowerCase().trim())
+          : baseList;
+      const filterText = (activeRouteField === 'pickup' ? bookOrigin : bookDest).toLowerCase().trim();
+      const filteredPlaces =
+        filterText && activeRouteField === 'destination'
+          ? placeList.filter((p) => p.name.toLowerCase().includes(filterText) || p.address.toLowerCase().includes(filterText))
+          : placeList;
+      const rowsToRender = filteredPlaces.length > 0 ? filteredPlaces : placeList;
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h1 className="type-title">Where to?</h1>
+          </div>
+
+          <RouteFields
+            pickup={bookOrigin}
+            destination={bookDest}
+            onPickupChange={setBookOrigin}
+            onDestinationChange={setBookDest}
+            activeField={activeRouteField}
+            onFocusField={setActiveRouteField}
+          />
+
+          <Segmented
+            ariaLabel="Destination source"
+            value={routeTab}
+            onChange={(val) => {
+              setRouteTab(val);
+              if (val === 'PIN') {
+                setSheetSnap('peek');
+              } else {
+                setSheetSnap('full');
+              }
+            }}
+            options={[
+              { value: 'RECENT', label: 'Recent' },
+              { value: 'SAVED', label: 'Saved' },
+              { value: 'PIN', label: 'Pin on map' },
+            ]}
+          />
+
+          {routeTab === 'PIN' ? (
+            <div style={{ padding: '12px 0' }}>
+              <div className="type-body" style={{ fontWeight: 700 }}>Drag map to set location</div>
+              <p className="type-caption" style={{ marginTop: '4px' }}>
+                Move the map or use arrow keys to place the pin for your {activeRouteField === 'pickup' ? 'pickup point' : 'destination'}.
+              </p>
+              <div className="type-body" style={{ marginTop: '10px', fontWeight: 600, color: 'var(--color-green-text)' }}>
+                {activeRouteField === 'pickup' ? bookOrigin : bookDest || 'Center pin active'}
+              </div>
+            </div>
+          ) : loadingData ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <Skeleton height={64} />
+              <Skeleton height={64} />
+              <Skeleton height={64} />
+            </div>
+          ) : (
+            <div>
+              {rowsToRender.map((p) => (
+                <ListRow
+                  key={p.name}
+                  tall
+                  icon={routeTab === 'SAVED' ? <Bookmark size={18} /> : <MapPin size={18} />}
+                  title={p.name}
+                  subtitle={p.address}
+                  onClick={() => {
+                    if (activeRouteField === 'pickup') {
+                      setBookOrigin(p.name);
+                      setActiveRouteField('destination');
+                    } else {
+                      setBookDest(p.name);
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // BOOKING FLOW STEP 2: PICK YOUR RIDE (VEHICLE)
+    // -------------------------------------------------------------------------
+    if (bookingStep === 'VEHICLE') {
+      const activeDrivers = (liveAvailability?.drivers || drivers).filter(
+        (d) => d.isAvailable !== false && d.availability_status === 'Active'
+      );
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {feedbackBanner}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <h1 className="type-title">Pick your ride</h1>
+            {vehicleFilter !== 'ALL' && (
+              <Chip active onClick={() => setVehicleFilter('ALL')}>
+                {vehicleFilter} ✕
+              </Chip>
+            )}
+          </div>
+
+          <Segmented
+            ariaLabel="Pickup time mode"
+            value={scheduleMode}
+            onChange={(val) => setScheduleMode(val)}
+            options={[
+              { value: 'NOW', label: 'Now' },
+              { value: 'SCHEDULE', label: 'Schedule' },
+            ]}
+          />
+
+          {scheduleMode === 'SCHEDULE' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', borderRadius: 'var(--radius-control)', background: 'var(--color-bg-subtle)' }}>
+              <div>
+                <label className="type-caption" htmlFor="schedule-start" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  Departure
+                </label>
+                <input
+                  id="schedule-start"
+                  type="datetime-local"
+                  className="gf-input"
+                  value={bookStart}
+                  onChange={(e) => setBookStart(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="type-caption" htmlFor="schedule-end" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  Return
+                </label>
+                <input
+                  id="schedule-end"
+                  type="datetime-local"
+                  className="gf-input"
+                  value={bookEnd}
+                  onChange={(e) => setBookEnd(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Horizontal Option Rows (80-88px) — Never a grid or table */}
+          {loadingData ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <Skeleton height={84} />
+              <Skeleton height={84} />
+              <Skeleton height={84} />
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {filteredVehicles.map((v) => {
+                const isAvail = v.isAvailable !== false && v.status === 'Available';
+                const isSelected = Number(bookVehicleId) === v.id;
+                const isEv = v.energy_type === 'Electric';
+                const pct = isEv ? Number(v.battery_percent ?? 100) : 85;
+                const availText = isAvail
+                  ? scheduleMode === 'NOW'
+                    ? 'Available now'
+                    : `Available at ${new Date(bookStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                  : v.status !== 'Available'
+                  ? `${v.status}${v.standby_reason ? ` • ${v.standby_reason}` : ''}`
+                  : v.conflictReason || 'Booked for this slot';
+
+                return (
+                  <OptionRow
+                    key={v.id}
+                    id={`vehicle-opt-${v.id}`}
+                    selected={isSelected}
+                    disabled={!isAvail}
+                    onClick={() => setBookVehicleId(v.id)}
+                    leading={<VehicleArt carType={v.car_type} energyType={v.energy_type} size={64} />}
+                    title={`${v.make} ${v.model}`}
+                    badge={
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <span className="type-caption">• {v.seats} seats</span>
+                        <StatusBadge label={isEv ? 'EV' : 'Gasoline'} tone={isEv ? 'green' : 'neutral'} />
+                      </span>
+                    }
+                    subtitle={availText}
+                    rightMetric={
+                      <div style={{ width: '52px' }}>
+                        <div className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '2px' }}>
+                          {isEv ? <BatteryCharging size={12} /> : <Fuel size={12} />}
+                          {isEv ? `${pct}%` : 'Full'}
+                        </div>
+                        <div style={{ height: '4px', width: '100%', background: 'var(--color-bg-subtle)', borderRadius: '9999px', marginTop: '4px', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: isAvail ? 'var(--color-green)' : 'var(--color-border)' }} />
+                        </div>
+                      </div>
+                    }
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {/* Driver provided / Self-drive policy row */}
+          <div style={{ borderRadius: 'var(--radius-card)', border: '1px solid var(--color-divider)', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+              <div>
+                <div className="type-body" style={{ fontWeight: 700 }}>Driver provided</div>
+                <div className="type-caption">Company driver assigned & schedule locked</div>
+              </div>
+              <StatusBadge label="Included" tone="green" />
+            </div>
+
+            <div>
+              <label className="type-caption" htmlFor="driver-pick-select" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                Preferred Driver
+              </label>
+              <select
+                id="driver-pick-select"
+                className="gf-select"
+                value={bookDriverId}
+                onChange={(e) => setBookDriverId(e.target.value)}
+              >
+                <option value="">Auto-assign on Admin approval</option>
+                {activeDrivers.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.full_name} (Class {d.licence_class})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: 0.45 }}>
+              <div>
+                <div className="type-body" style={{ fontWeight: 600 }}>Self-drive</div>
+                <div className="type-caption">Disabled by company policy</div>
+              </div>
+              <Lock size={16} />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // BOOKING FLOW STEP 3: ORDER SUMMARY ("Almost there")
+    // -------------------------------------------------------------------------
+    if (bookingStep === 'SUMMARY') {
+      const chosenDriverObj = drivers.find((d) => String(d.id) === String(bookDriverId));
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {feedbackBanner}
+          <h1 className="type-title">Almost there</h1>
+
+          {/* Compact route card with Edit link */}
+          <div style={{ padding: '14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '10px', minWidth: 0 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '5px 0', gap: '4px' }}>
+                <span className="gf-dot-green" />
+                <span style={{ width: 0, height: '14px', borderLeft: '2px dotted var(--color-border)' }} />
+                <span className="gf-square-red" />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div className="type-body" style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bookOrigin}</div>
+                <div className="type-body" style={{ fontWeight: 700, marginTop: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bookDest}</div>
+                <div className="type-caption" style={{ marginTop: '4px' }}>
+                  {currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min
+                </div>
+              </div>
+            </div>
+            <button type="button" className="gf-btn gf-btn-ghost" onClick={() => setBookingStep('ROUTE')}>
+              Edit
+            </button>
+          </div>
+
+          {/* Plain ListRow Pickers */}
+          <div>
+            <ListRow
+              id="summary-purpose-row"
+              icon={<Briefcase size={18} />}
+              title="Purpose"
+              subtitle={bookPurpose || 'Tap to select trip purpose'}
+              showChevron
+              onClick={() => setSummaryPicker('PURPOSE')}
+            />
+            <ListRow
+              id="summary-pax-row"
+              icon={<Users size={18} />}
+              title="Passengers"
+              subtitle={`${bookPax} passenger${bookPax > 1 ? 's' : ''}`}
+              showChevron
+              onClick={() => setSummaryPicker('PAX')}
+            />
+            <ListRow
+              id="summary-notes-row"
+              icon={<StickyNote size={18} />}
+              title="Notes"
+              subtitle={bookNotes || 'Add pickup instructions for driver'}
+              showChevron
+              onClick={() => setSummaryPicker('NOTES')}
+            />
+            <ListRow
+              id="summary-charge-row"
+              icon={<CreditCard size={18} />}
+              title="Charge to"
+              subtitle={`${user.department_name || 'Department'} • Driver: ${chosenDriverObj ? chosenDriverObj.full_name : 'Auto-assign'}`}
+              showChevron
+              onClick={() => setSummaryPicker('CHARGE')}
+            />
+          </div>
+
+          {/* Small Picker Sub-Modal */}
+          {summaryPicker && (
+            <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label={`Edit ${summaryPicker.toLowerCase()}`}>
+              <div className="gf-modal-card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                  <h3 className="type-section">
+                    {summaryPicker === 'PURPOSE' && 'Trip purpose'}
+                    {summaryPicker === 'PAX' && 'Number of passengers'}
+                    {summaryPicker === 'NOTES' && 'Dispatch notes'}
+                    {summaryPicker === 'CHARGE' && 'Department & driver'}
+                  </h3>
+                  <button type="button" className="gf-btn gf-btn-primary" style={{ minHeight: '40px' }} onClick={() => setSummaryPicker(null)}>
+                    Done
+                  </button>
+                </div>
+
+                {summaryPicker === 'PURPOSE' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {['Client visit', 'Site audit', 'Airport transfer', 'Executive briefing'].map((preset) => (
+                        <Chip key={preset} active={bookPurpose === preset} onClick={() => setBookPurpose(preset)}>
+                          {preset}
+                        </Chip>
+                      ))}
+                    </div>
+                    <input
+                      type="text"
+                      className="gf-input"
+                      placeholder="Or enter custom purpose"
+                      value={bookPurpose}
+                      onChange={(e) => setBookPurpose(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                )}
+
+                {summaryPicker === 'PAX' && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px', padding: '12px 0' }}>
+                    <button
+                      type="button"
+                      className="gf-icon-btn-48"
+                      aria-label="Decrease passengers"
+                      onClick={() => setBookPax((p) => Math.max(1, p - 1))}
+                    >
+                      <Minus size={18} />
+                    </button>
+                    <span className="type-title" style={{ minWidth: '48px', textAlign: 'center' }}>{bookPax}</span>
+                    <button
+                      type="button"
+                      className="gf-icon-btn-48"
+                      aria-label="Increase passengers"
+                      onClick={() => setBookPax((p) => Math.min(selectedVehicle?.seats || 7, p + 1))}
+                    >
+                      <Plus size={18} />
+                    </button>
+                  </div>
+                )}
+
+                {summaryPicker === 'NOTES' && (
+                  <textarea
+                    className="gf-textarea"
+                    rows={3}
+                    placeholder="Pickup gate, luggage, or contact note"
+                    value={bookNotes}
+                    onChange={(e) => setBookNotes(e.target.value)}
+                    autoFocus
+                  />
+                )}
+
+                {summaryPicker === 'CHARGE' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }} className="type-body">
+                    <div><strong>Department:</strong> {user.department_name || `Dept #${user.department_id}`}</div>
+                    <div><strong>Driver:</strong> {chosenDriverObj ? chosenDriverObj.full_name : 'Assigned on approval'}</div>
+                    <p className="type-caption">Requests are routed automatically to Fleet & HWS Admin for approval.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // BOOKING FLOW STEP 4: WAITING FOR APPROVAL
+    // -------------------------------------------------------------------------
+    if (bookingStep === 'WAITING') {
+      const timelineSteps = [
+        { label: 'Request sent & schedule locked', sub: 'Car and driver slot reserved immediately', done: true },
+        { label: 'Admin review in progress', sub: 'Fleet Admin verifies & dispatches your driver', active: true },
+        { label: 'Driver dispatched', sub: 'You will get a push notification once assigned', done: false },
+      ];
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {feedbackBanner}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+            <h1 className="type-title">Waiting for approval</h1>
+            <StatusBadge label="Request sent" tone="green" />
+          </div>
+
+          {focusedTrip && (
+            <div style={{ padding: '12px 14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
+              <div className="type-body" style={{ fontWeight: 700 }}>{focusedTrip.origin} → {focusedTrip.destination}</div>
+              <div className="type-caption">{focusedTrip.make} {focusedTrip.model} • {focusedTrip.registration_plate}</div>
+            </div>
+          )}
+
+          {/* 3-step timeline */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '4px 0' }}>
+            {timelineSteps.map((st, idx) => (
+              <div key={st.label} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                <div
+                  style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '9999px',
+                    background: st.done ? 'var(--color-green)' : st.active ? 'var(--color-green-tint)' : 'var(--color-bg-subtle)',
+                    border: st.active ? '2px solid var(--color-green)' : 'none',
+                    color: st.done ? '#ffffff' : 'var(--color-green-text)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}
+                >
+                  {st.done ? <CheckCircle2 size={14} /> : idx + 1}
+                </div>
+                <div>
+                  <div className="type-body" style={{ fontWeight: 700 }}>{st.label}</div>
+                  <div className="type-caption">{st.sub}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            className="gf-btn gf-btn-outline-danger gf-btn-full"
+            onClick={() => handleCancelBookingRequest(focusedTrip)}
+          >
+            Cancel request
+          </button>
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // BOOKING FLOW STEP 5: ASSIGNED AND IN TRIP
+    // -------------------------------------------------------------------------
+    const tripToShow = focusedTrip;
+    const isStarted = tripToShow?.status === 'IN_PROGRESS';
+    const driverInitials = (tripToShow?.assigned_driver_name || 'DR').slice(0, 2).toUpperCase();
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        {feedbackBanner}
+        <div>
+          <StatusBadge label={isStarted ? 'In Trip' : 'Driver Assigned'} tone={isStarted ? 'blue' : 'green'} />
+          <h1 className="type-title" style={{ marginTop: '6px' }}>
+            {isStarted ? `Arriving in ~${Math.max(8, currentMetrics.durationMin || 18)} min` : 'Driver arriving in ~10 min'}
+          </h1>
+          {tripToShow && (
+            <div className="type-caption">{tripToShow.origin} → {tripToShow.destination}</div>
+          )}
+        </div>
+
+        {/* Driver Row: Round Photo, Name, Rating, Bold Plate Box */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '14px', borderRadius: 'var(--radius-card)', border: '1px solid var(--color-divider)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+            <div
+              style={{
+                width: '48px',
+                height: '48px',
+                borderRadius: '9999px',
+                background: 'var(--color-bg-subtle)',
+                color: 'var(--color-text-primary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 800,
+                flexShrink: 0,
+              }}
+            >
+              {driverInitials}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div className="type-body" style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {tripToShow?.assigned_driver_name || 'Assigned Company Driver'}
+              </div>
+              <div className="type-caption" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <Star size={12} style={{ color: 'var(--color-green)', fill: 'var(--color-green)' }} />
+                <span>4.9 • {tripToShow?.make} {tripToShow?.model}</span>
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="mono"
+            style={{
+              padding: '6px 10px',
+              borderRadius: '10px',
+              border: '1.5px solid var(--color-text-primary)',
+              fontWeight: 800,
+              fontSize: 'var(--text-caption-size)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {tripToShow?.registration_plate || 'B 1001 FMS'}
+          </div>
+        </div>
+
+        {/* Three 48px Round Action Buttons: Call, Chat, Share */}
+        <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => setStatusBanner({ type: 'info', text: `Driver dispatch desk: ${tripToShow?.assigned_driver_name || 'Driver'} is notified of your call.` })}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', background: 'transparent', border: 'none', cursor: 'pointer' }}
+          >
+            <span className="gf-icon-btn-48"><Phone size={20} /></span>
+            <span className="type-caption" style={{ fontWeight: 600 }}>Call</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusBanner({ type: 'info', text: 'Quick dispatch note sent to your driver.' })}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', background: 'transparent', border: 'none', cursor: 'pointer' }}
+          >
+            <span className="gf-icon-btn-48"><MessageSquare size={20} /></span>
+            <span className="type-caption" style={{ fontWeight: 600 }}>Chat</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (navigator.clipboard) {
+                navigator.clipboard.writeText(`${tripToShow?.make} ${tripToShow?.model} (${tripToShow?.registration_plate}) -> ${tripToShow?.destination}`).catch(() => {});
+              }
+              setStatusBanner({ type: 'success', text: 'Trip summary copied to clipboard.' });
+            }}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', background: 'transparent', border: 'none', cursor: 'pointer' }}
+          >
+            <span className="gf-icon-btn-48"><Share2 size={20} /></span>
+            <span className="type-caption" style={{ fontWeight: 600 }}>Share</span>
+          </button>
+        </div>
+
+        {/* Periodic GPS disclaimer caption — never implies live tracking */}
+        <div className="type-caption" style={{ textAlign: 'center', paddingTop: '8px', borderTop: '1px solid var(--color-divider)' }}>
+          {getLastGpsAgeText()}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <AppShell
+        activeNav={navSection}
+        onSelectNav={(n) => {
+          setNavSection(n);
+          if (n === 'HOME') {
+            setBookingStep('HOME');
+            setSheetSnap('half');
+          } else {
+            setSheetSnap('full');
+          }
+        }}
+        hideChromeDuringBooking={inActiveBookingFlow || navSection === 'DRIVER'}
+        isDriverOrPrivileged={user.role === 'DRV' || Boolean(isPrivileged)}
+        isPrivileged={Boolean(isPrivileged)}
+        unreadInboxCount={unreadCount}
+        pendingDispatchCount={dispatches.filter((d) => d.trip_status !== 'COMPLETED' && d.trip_status !== 'REJECTED').length}
+        pendingAdminCount={pendingTrips.length + pendingUsers.length}
+        mapStage={
+          <MapView
+            origin={mapOrigin}
+            destination={mapDest}
+            showRoute={showRouteOnMap}
+            pinMode={navSection === 'HOME' && bookingStep === 'ROUTE' && routeTab === 'PIN'}
+            onPinMoveAddress={(addr) => {
+              if (activeRouteField === 'pickup') setBookOrigin(addr);
+              else setBookDest(addr);
+            }}
+            waitingRadar={navSection === 'HOME' && bookingStep === 'WAITING'}
+            driverActive={navSection === 'HOME' && bookingStep === 'IN_TRIP'}
+            driverName={focusedTrip?.assigned_driver_name}
+            showBackButton={inActiveBookingFlow || navSection === 'DRIVER'}
+            onBack={handleMapBack}
+            isOffline={isOffline}
+          />
+        }
+        sheet={
+          <BottomSheet
+            snap={sheetSnap}
+            onSnapChange={setSheetSnap}
+            onEscape={inActiveBookingFlow ? handleMapBack : undefined}
+            hasBottomNav={!inActiveBookingFlow && navSection !== 'DRIVER'}
+            stepKey={`${navSection}:${bookingStep}`}
+            footer={stickyFooter}
+            desktopNav={
+              !inActiveBookingFlow && navSection !== 'DRIVER' ? (
+                <DesktopPanelNav
+                  activeNav={navSection}
+                  onSelectNav={(n) => {
+                    setNavSection(n);
+                    if (n === 'HOME') setBookingStep('HOME');
+                  }}
+                  unreadInboxCount={unreadCount}
+                />
+              ) : undefined
+            }
+            ariaLabel="GalaxyFleet booking sheet"
+          >
+            {renderSheetContent()}
+          </BottomSheet>
+        }
+      />
+      {renderSharedModals()}
+    </>
   );
 }
 
