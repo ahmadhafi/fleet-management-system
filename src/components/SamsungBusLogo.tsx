@@ -14,15 +14,13 @@ export interface SamsungFleetLogoProps {
 }
 
 /**
- * Samsung-Style Dual Fleet Logo Component (EV & Gasoline Car)
+ * Samsung-Style Corporate Fleet Logo Component
  * Designed in strict accordance with Samsung One UI aesthetics:
+ * - Simple yet elegant centered modern executive fleet car
  * - Continuous squircle container with vibrant Samsung signature blue gradient (#2a8eff -> #0072de -> #0052b4)
  * - Pure Blue and White color harmony with zero green
- * - Dual Fleet composition featuring:
- *   1. Modern Electric Vehicle (EV): Aerodynamic closed fascia, cyan/white parametric pixel LED lightbar,
- *      panoramic tinted canopy with white sheen, and central electric energy spark badge
- *   2. Executive Modern Gasoline Car: Sculpted aerodynamic hood, horizontal executive multi-slat chrome grille,
- *      and dual projector LED headlamps with ambient blue corona rings
+ * - Sculpted aerodynamic hood, horizontal horizon LED lightbar, panoramic tinted windshield,
+ *   dual projector LED headlamps with ambient blue corona rings, and chrome multi-louver grille
  * - Scalable, pixel-perfect rendering from 24px navigation bar to 512px app icon
  */
 export const SamsungFleetLogo: React.FC<SamsungFleetLogoProps> = ({
@@ -30,7 +28,7 @@ export const SamsungFleetLogo: React.FC<SamsungFleetLogoProps> = ({
   variant = 'squircle',
   className = '',
   style,
-  title = 'GalaxyFleet Samsung EV & Gasoline Fleet Logo',
+  title = 'GalaxyFleet Corporate Mobility Logo',
 }) => {
   if (variant === 'icon-only') {
     return (
@@ -47,101 +45,69 @@ export const SamsungFleetLogo: React.FC<SamsungFleetLogoProps> = ({
       >
         <title>{title}</title>
         <defs>
-          <filter id="iconOnlyCarShadow" x="60" y="110" width="392" height="280" filterUnits="userSpaceOnUse">
-            <feDropShadow dx="0" dy="8" stdDeviation="10" floodColor="#021024" floodOpacity="0.32" />
+          <filter id="iconOnlyCarShadow" x="80" y="110" width="352" height="280" filterUnits="userSpaceOnUse">
+            <feDropShadow dx="0" dy="10" stdDeviation="12" floodColor="#021024" floodOpacity="0.35" />
           </filter>
         </defs>
 
-        <g filter="url(#iconOnlyCarShadow)">
-          {/* Ground Shadows */}
-          <ellipse cx="168" cy="358" rx="74" ry="10" fill="#061833" fillOpacity="0.25" />
-          <ellipse cx="344" cy="358" rx="74" ry="10" fill="#061833" fillOpacity="0.25" />
+        <g id="fleetCar" filter="url(#iconOnlyCarShadow)">
+          {/* Ground Contact Shadow */}
+          <ellipse cx="256" cy="358" rx="138" ry="14" fill="#04142b" fillOpacity="0.30" />
 
-          {/* ==================== LEFT CAR: ELECTRIC VEHICLE (EV) ==================== */}
-          <g id="io-evCar">
-            <rect x="104" y="322" width="22" height="30" rx="8" fill="#081b33" />
-            <rect x="210" y="322" width="22" height="30" rx="8" fill="#081b33" />
+          {/* Performance Tires */}
+          <rect x="138" y="322" width="28" height="38" rx="10" fill="#091b30" />
+          <rect x="346" y="322" width="28" height="38" rx="10" fill="#091b30" />
 
-            {/* EV Mirrors */}
-            <path d="M96 238 L78 244 C74 246 72 250 72 254 C72 260 78 264 84 263 L96 260 Z" fill="#0072de" />
-            <rect x="74" y="247" width="12" height="13" rx="3" fill="#071b36" />
-            <path d="M240 238 L258 244 C262 246 264 250 264 254 C264 260 258 264 252 263 L240 260 Z" fill="#0072de" />
-            <rect x="250" y="247" width="12" height="13" rx="3" fill="#071b36" />
+          {/* Aerodynamic Side Mirrors */}
+          <path d="M136 230 L108 238 C102 240 98 245 98 251 C98 259 106 265 114 263 L136 258 Z" fill="#0072de" />
+          <rect x="104" y="243" width="16" height="15" rx="4" fill="#071b36" />
+          <path d="M376 230 L404 238 C410 240 414 245 414 251 C414 259 406 265 398 263 L376 258 Z" fill="#0072de" />
+          <rect x="392" y="243" width="16" height="15" rx="4" fill="#071b36" />
 
-            {/* EV Cabin / Tinted Windshield */}
-            <path d="M126 236 L138 182 C141 172 150 167 160 167 L176 167 C186 167 195 172 198 182 L210 236 Z" fill="#081c36" />
-            <path d="M142 232 L154 176 L170 176 L158 232 Z" fill="#ffffff" fillOpacity="0.28" />
+          {/* Cabin / Aerodynamic Windshield Canopy */}
+          <path d="M174 228 L192 152 C196 140 208 134 222 134 L290 134 C304 134 316 140 320 152 L338 228 Z" fill="#071b34" />
+          <path d="M196 222 L214 144 L236 144 L218 222 Z" fill="#ffffff" fillOpacity="0.28" />
+          <path d="M246 222 L258 144 L270 144 L258 222 Z" fill="#ffffff" fillOpacity="0.14" />
+          <rect x="246" y="146" width="20" height="8" rx="3" fill="#ffffff" fillOpacity="0.5" />
 
-            {/* EV Body Shell */}
-            <rect x="96" y="232" width="144" height="104" rx="28" fill="#ffffff" stroke="#0072de" strokeWidth="4" />
+          {/* Main Sculpted Body Shell */}
+          <rect x="132" y="222" width="248" height="126" rx="36" fill="#ffffff" stroke="#0072de" strokeWidth="4" />
 
-            {/* EV Aerodynamic Hood Creases */}
-            <path d="M116 232 L168 244 L220 232" stroke="#bcdcff" strokeWidth="2.5" fill="none" />
+          {/* Elegant Hood Character Creases */}
+          <path d="M162 222 L256 238 L350 222" stroke="#bcdcff" strokeWidth="3" strokeLinecap="round" fill="none" />
+          <line x1="256" y1="222" x2="256" y2="238" stroke="#bcdcff" strokeWidth="2" strokeLinecap="round" />
 
-            {/* EV Closed Aerodynamic Fascia */}
-            <rect x="108" y="264" width="120" height="20" rx="8" fill="#071b36" />
+          {/* Horizon LED Lightbar across Upper Fascia */}
+          <rect x="150" y="258" width="212" height="8" rx="4" fill="#0072de" />
+          <rect x="154" y="260" width="204" height="4" rx="2" fill="#e0f2fe" />
 
-            {/* EV Parametric Pixel LED Lightbar in Cyan & White */}
-            <rect x="114" y="269" width="24" height="10" rx="4" fill="#00e5ff" />
-            <rect x="117" y="271" width="8" height="6" rx="2" fill="#ffffff" />
-            <circle cx="146" cy="274" r="3.5" fill="#00e5ff" />
-            <line x1="156" y1="274" x2="180" y2="274" stroke="#00e5ff" strokeWidth="3.5" strokeLinecap="round" />
-            <circle cx="190" cy="274" r="3.5" fill="#00e5ff" />
-            <rect x="198" y="269" width="24" height="10" rx="4" fill="#00e5ff" />
-            <rect x="211" y="271" width="8" height="6" rx="2" fill="#ffffff" />
+          {/* Deep Obsidian Aero Center Grille / Fascia */}
+          <rect x="156" y="274" width="200" height="44" rx="14" fill="#081d38" stroke="#0072de" strokeWidth="2" />
 
-            {/* Central Electric Energy Badge */}
-            <circle cx="168" cy="302" r="14" fill="#0072de" />
-            <path d="M169 293 L162 302 L167 302 L165 311 L174 300 L169 300 Z" fill="#00e5ff" />
+          {/* Dual Projector LED Headlamps with Blue Corona Rings */}
+          <rect x="136" y="260" width="30" height="20" rx="7" fill="#0072de" />
+          <circle cx="151" cy="270" r="6.5" fill="#ffffff" />
+          <circle cx="151" cy="270" r="3" fill="#99d1ff" />
 
-            {/* EV Lower Aero Intake Vents */}
-            <rect x="126" y="322" width="84" height="10" rx="5" fill="#081b33" />
-            <line x1="136" y1="327" x2="200" y2="327" stroke="#00e5ff" strokeWidth="2" strokeLinecap="round" />
-          </g>
+          <rect x="346" y="260" width="30" height="20" rx="7" fill="#0072de" />
+          <circle cx="361" cy="270" r="6.5" fill="#ffffff" />
+          <circle cx="361" cy="270" r="3" fill="#99d1ff" />
 
-          {/* ==================== RIGHT CAR: GASOLINE CAR (EXECUTIVE) ==================== */}
-          <g id="io-gasCar">
-            <rect x="280" y="322" width="22" height="30" rx="8" fill="#081b33" />
-            <rect x="386" y="322" width="22" height="30" rx="8" fill="#081b33" />
+          {/* Chrome Multi-Louver Grille Slats */}
+          <line x1="172" y1="284" x2="340" y2="284" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
+          <line x1="176" y1="294" x2="336" y2="294" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
+          <line x1="182" y1="304" x2="330" y2="304" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
 
-            {/* Gasoline Mirrors */}
-            <path d="M272 238 L254 244 C250 246 248 250 248 254 C248 260 254 264 260 263 L272 260 Z" fill="#0072de" />
-            <rect x="250" y="247" width="12" height="13" rx="3" fill="#071b36" />
-            <path d="M416 238 L434 244 C438 246 440 250 440 254 C440 260 434 264 428 263 L416 260 Z" fill="#0072de" />
-            <rect x="426" y="247" width="12" height="13" rx="3" fill="#071b36" />
+          {/* Signature Samsung Blue Crest Emblem */}
+          <circle cx="256" cy="268" r="9" fill="#0072de" stroke="#ffffff" strokeWidth="2" />
+          <circle cx="256" cy="268" r="4.5" fill="#ffffff" />
 
-            {/* Gasoline Cabin / Tinted Windshield */}
-            <path d="M302 236 L314 182 C317 172 326 167 336 167 L352 167 C362 167 371 172 374 182 L386 236 Z" fill="#081c36" />
-            <path d="M318 232 L330 176 L346 176 L334 232 Z" fill="#ffffff" fillOpacity="0.28" />
-
-            {/* Gasoline Main Body Shell */}
-            <rect x="272" y="232" width="144" height="104" rx="28" fill="#ffffff" stroke="#0072de" strokeWidth="4" />
-
-            {/* Gasoline Hood Crease */}
-            <path d="M292 232 L344 244 L396 232" stroke="#bcdcff" strokeWidth="2.5" fill="none" />
-
-            {/* Gasoline Executive Multi-Slat Radiator Grille */}
-            <rect x="304" y="278" width="80" height="36" rx="8" fill="#091d36" stroke="#0072de" strokeWidth="1.8" />
-            <line x1="312" y1="285" x2="376" y2="285" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
-            <line x1="312" y1="294" x2="376" y2="294" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
-            <line x1="312" y1="303" x2="376" y2="303" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
-
-            {/* Gasoline Dual Projector Headlights with Blue Corona Ring */}
-            <rect x="280" y="264" width="22" height="16" rx="6" fill="#0072de" />
-            <circle cx="291" cy="272" r="5" fill="#ffffff" />
-            <rect x="386" y="264" width="22" height="16" rx="6" fill="#0072de" />
-            <circle cx="397" cy="272" r="5" fill="#ffffff" />
-            <line x1="302" y1="272" x2="386" y2="272" stroke="#bcdcff" strokeWidth="2" strokeLinecap="round" />
-
-            {/* Brand Emblem */}
-            <circle cx="344" cy="268" r="6" fill="#0072de" />
-            <circle cx="344" cy="268" r="3" fill="#ffffff" />
-
-            {/* Lower Bumper & White Fog Lamps */}
-            <rect x="302" y="322" width="84" height="10" rx="5" fill="#081b33" />
-            <circle cx="290" cy="327" r="4" fill="#0072de" />
-            <circle cx="398" cy="327" r="4" fill="#0072de" />
-          </g>
+          {/* Lower Aero Bumper & High-Luminance LED Fog Lamps */}
+          <rect x="176" y="326" width="160" height="12" rx="6" fill="#07182c" />
+          <circle cx="154" cy="332" r="5" fill="#0072de" />
+          <circle cx="154" cy="332" r="2.5" fill="#ffffff" />
+          <circle cx="358" cy="332" r="5" fill="#0072de" />
+          <circle cx="358" cy="332" r="2.5" fill="#ffffff" />
         </g>
       </svg>
     );
@@ -175,9 +141,9 @@ export const SamsungFleetLogo: React.FC<SamsungFleetLogoProps> = ({
           <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
         </linearGradient>
 
-        {/* Drop Shadow on Vehicle Bodies */}
-        <filter id="carShadowFleet" x="60" y="110" width="392" height="280" filterUnits="userSpaceOnUse">
-          <feDropShadow dx="0" dy="10" stdDeviation="12" floodColor="#031633" floodOpacity="0.38" />
+        {/* Drop Shadow on Vehicle Body */}
+        <filter id="carShadowFleet" x="80" y="110" width="352" height="280" filterUnits="userSpaceOnUse">
+          <feDropShadow dx="0" dy="12" stdDeviation="14" floodColor="#031633" floodOpacity="0.40" />
         </filter>
       </defs>
 
@@ -188,125 +154,78 @@ export const SamsungFleetLogo: React.FC<SamsungFleetLogoProps> = ({
       <rect x="6" y="6" width="500" height="500" rx="120" stroke="url(#samsungRimGlowFleet)" strokeWidth="6" fill="none" />
 
       {/* Decorative Ambient Tech Wave/Rings (Samsung Mobility DNA) */}
-      <circle cx="256" cy="256" r="215" stroke="#ffffff" strokeOpacity="0.10" strokeWidth="3" fill="none" />
-      <circle cx="256" cy="256" r="185" stroke="#ffffff" strokeOpacity="0.06" strokeWidth="2" fill="none" />
+      <circle cx="256" cy="256" r="215" stroke="#ffffff" strokeOpacity="0.08" strokeWidth="3" fill="none" />
+      <circle cx="256" cy="256" r="185" stroke="#ffffff" strokeOpacity="0.05" strokeWidth="2" fill="none" />
 
-      {/* Top Badges Header: EV and GASOLINE Indicator Pills */}
-      <g>
-        {/* Left Pill: EV in Cyan & White */}
-        <rect x="124" y="128" width="88" height="26" rx="13" fill="#071b36" fillOpacity="0.88" stroke="#00e5ff" strokeWidth="1.8" />
-        <path d="M145 135 L140 142 L145 142 L143 148 L150 140 L146 140 Z" fill="#00e5ff" />
-        <text x="168" y="145" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" fontSize="11.5" fontWeight="800" fill="#ffffff" letterSpacing="1" textAnchor="middle">EV</text>
+      {/* Center Vehicle Composition */}
+      <g id="fleetCar" filter="url(#carShadowFleet)">
+        {/* Ground Contact Shadow */}
+        <ellipse cx="256" cy="358" rx="138" ry="14" fill="#04142b" fillOpacity="0.45" />
 
-        {/* Right Pill: GASOLINE in White & Samsung Blue */}
-        <rect x="300" y="128" width="88" height="26" rx="13" fill="#071b36" fillOpacity="0.88" stroke="#ffffff" strokeWidth="1.8" />
-        <text x="344" y="145" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" fontSize="11.5" fontWeight="800" fill="#ffffff" letterSpacing="1" textAnchor="middle">GAS</text>
+        {/* Performance Tires */}
+        <rect x="138" y="322" width="28" height="38" rx="10" fill="#091b30" />
+        <rect x="346" y="322" width="28" height="38" rx="10" fill="#091b30" />
+
+        {/* Aerodynamic Side Mirrors */}
+        <path d="M136 230 L108 238 C102 240 98 245 98 251 C98 259 106 265 114 263 L136 258 Z" fill="#ffffff" />
+        <rect x="104" y="243" width="16" height="15" rx="4" fill="#0c2340" />
+        <path d="M376 230 L404 238 C410 240 414 245 414 251 C414 259 406 265 398 263 L376 258 Z" fill="#ffffff" />
+        <rect x="392" y="243" width="16" height="15" rx="4" fill="#0c2340" />
+
+        {/* Cabin / Aerodynamic Windshield Canopy */}
+        <path d="M174 228 L192 152 C196 140 208 134 222 134 L290 134 C304 134 316 140 320 152 L338 228 Z" fill="#071b34" />
+        {/* Panoramic Glass Reflections */}
+        <path d="M196 222 L214 144 L236 144 L218 222 Z" fill="#ffffff" fillOpacity="0.25" />
+        <path d="M246 222 L258 144 L270 144 L258 222 Z" fill="#ffffff" fillOpacity="0.12" />
+        <rect x="246" y="146" width="20" height="8" rx="3" fill="#ffffff" fillOpacity="0.4" />
+
+        {/* Main Sculpted Body Shell (Pure White Executive Stance) */}
+        <rect x="132" y="222" width="248" height="126" rx="36" fill="#ffffff" />
+
+        {/* Elegant Hood Character Creases */}
+        <path d="M162 222 L256 238 L350 222" stroke="#cbe2ff" strokeWidth="3" strokeLinecap="round" fill="none" />
+        <line x1="256" y1="222" x2="256" y2="238" stroke="#cbe2ff" strokeWidth="2" strokeLinecap="round" />
+
+        {/* Horizon LED Lightbar across Upper Fascia */}
+        <rect x="150" y="258" width="212" height="8" rx="4" fill="#ffffff" />
+        <rect x="154" y="260" width="204" height="4" rx="2" fill="#d9edff" />
+
+        {/* Deep Obsidian Aero Center Grille / Fascia */}
+        <rect x="156" y="274" width="200" height="44" rx="14" fill="#081d38" stroke="#0072de" strokeWidth="2" />
+
+        {/* Dual Projector LED Headlamps (Left & Right) with Blue Corona Rings */}
+        <rect x="136" y="260" width="30" height="20" rx="7" fill="#0072de" />
+        <circle cx="151" cy="270" r="6.5" fill="#ffffff" />
+        <circle cx="151" cy="270" r="3" fill="#99d1ff" />
+
+        <rect x="346" y="260" width="30" height="20" rx="7" fill="#0072de" />
+        <circle cx="361" cy="270" r="6.5" fill="#ffffff" />
+        <circle cx="361" cy="270" r="3" fill="#99d1ff" />
+
+        {/* Chrome Multi-Louver Grille Slats */}
+        <line x1="172" y1="284" x2="340" y2="284" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="176" y1="294" x2="336" y2="294" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="182" y1="304" x2="330" y2="304" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
+
+        {/* Signature Samsung Blue Crest Emblem */}
+        <circle cx="256" cy="268" r="9" fill="#0072de" stroke="#ffffff" strokeWidth="2" />
+        <circle cx="256" cy="268" r="4.5" fill="#ffffff" />
+
+        {/* Lower Aero Bumper & High-Luminance LED Fog Lamps */}
+        <rect x="176" y="326" width="160" height="12" rx="6" fill="#07182c" />
+        <circle cx="154" cy="332" r="5" fill="#ffffff" />
+        <circle cx="154" cy="332" r="2.5" fill="#0072de" />
+        <circle cx="358" cy="332" r="5" fill="#ffffff" />
+        <circle cx="358" cy="332" r="2.5" fill="#0072de" />
       </g>
 
-      <g filter="url(#carShadowFleet)">
-        {/* Ground Contact Shadows */}
-        <ellipse cx="168" cy="356" rx="74" ry="10" fill="#04142b" fillOpacity="0.4" />
-        <ellipse cx="344" cy="356" rx="74" ry="10" fill="#04142b" fillOpacity="0.4" />
-
-        {/* ==================== LEFT CAR: ELECTRIC VEHICLE (EV) ==================== */}
-        <g id="evCar">
-          {/* EV Tires */}
-          <rect x="104" y="322" width="22" height="30" rx="8" fill="#081b33" />
-          <rect x="210" y="322" width="22" height="30" rx="8" fill="#081b33" />
-
-          {/* EV Aerodynamic Mirrors */}
-          <path d="M96 238 L78 244 C74 246 72 250 72 254 C72 260 78 264 84 263 L96 260 Z" fill="#ffffff" />
-          <rect x="74" y="247" width="12" height="13" rx="3" fill="#0c2340" />
-          <path d="M240 238 L258 244 C262 246 264 250 264 254 C264 260 258 264 252 263 L240 260 Z" fill="#ffffff" />
-          <rect x="250" y="247" width="12" height="13" rx="3" fill="#0c2340" />
-
-          {/* EV Cabin / Tinted Windshield with Ambient Glass Reflections */}
-          <path d="M126 236 L138 182 C141 172 150 167 160 167 L176 167 C186 167 195 172 198 182 L210 236 Z" fill="#081c36" />
-          <path d="M142 232 L154 176 L170 176 L158 232 Z" fill="#ffffff" fillOpacity="0.22" />
-          <path d="M178 232 L186 176 L194 176 L186 232 Z" fill="#ffffff" fillOpacity="0.12" />
-
-          {/* EV Main Body Shell (Pure White Aerodynamic Crossover) */}
-          <rect x="96" y="232" width="144" height="104" rx="28" fill="#ffffff" />
-
-          {/* EV Sculpted Hood Crease */}
-          <path d="M116 232 L168 244 L220 232" stroke="#bcdcff" strokeWidth="2.5" fill="none" />
-
-          {/* EV Closed Aerodynamic Fascia in Deep Blue Gloss */}
-          <rect x="108" y="264" width="120" height="20" rx="8" fill="#071b36" />
-
-          {/* EV Parametric Pixel LED Lightbar in Cyan & White */}
-          <rect x="114" y="269" width="24" height="10" rx="4" fill="#00e5ff" />
-          <rect x="117" y="271" width="8" height="6" rx="2" fill="#ffffff" />
-          <circle cx="146" cy="274" r="3.5" fill="#00e5ff" />
-          <line x1="156" y1="274" x2="180" y2="274" stroke="#00e5ff" strokeWidth="3.5" strokeLinecap="round" />
-          <circle cx="190" cy="274" r="3.5" fill="#00e5ff" />
-          <rect x="198" y="269" width="24" height="10" rx="4" fill="#00e5ff" />
-          <rect x="211" y="271" width="8" height="6" rx="2" fill="#ffffff" />
-
-          {/* Central Electric Energy Badge */}
-          <circle cx="168" cy="302" r="14" fill="#0072de" />
-          <circle cx="168" cy="302" r="12" fill="#005bb5" />
-          <path d="M169 293 L162 302 L167 302 L165 311 L174 300 L169 300 Z" fill="#00e5ff" />
-
-          {/* EV Lower Aero Intake Vents */}
-          <rect x="126" y="322" width="84" height="10" rx="5" fill="#081b33" />
-          <line x1="136" y1="327" x2="200" y2="327" stroke="#00e5ff" strokeWidth="2" strokeLinecap="round" />
-        </g>
-
-        {/* ==================== RIGHT CAR: GASOLINE CAR (EXECUTIVE) ==================== */}
-        <g id="gasCar">
-          {/* Gasoline Tires */}
-          <rect x="280" y="322" width="22" height="30" rx="8" fill="#081b33" />
-          <rect x="386" y="322" width="22" height="30" rx="8" fill="#081b33" />
-
-          {/* Gasoline Mirrors */}
-          <path d="M272 238 L254 244 C250 246 248 250 248 254 C248 260 254 264 260 263 L272 260 Z" fill="#ffffff" />
-          <rect x="250" y="247" width="12" height="13" rx="3" fill="#0c2340" />
-          <path d="M416 238 L434 244 C438 246 440 250 440 254 C440 260 434 264 428 263 L416 260 Z" fill="#ffffff" />
-          <rect x="426" y="247" width="12" height="13" rx="3" fill="#0c2340" />
-
-          {/* Gasoline Cabin / Tinted Windshield with Reflections */}
-          <path d="M302 236 L314 182 C317 172 326 167 336 167 L352 167 C362 167 371 172 374 182 L386 236 Z" fill="#081c36" />
-          <path d="M318 232 L330 176 L346 176 L334 232 Z" fill="#ffffff" fillOpacity="0.22" />
-          <path d="M354 232 L362 176 L370 176 L362 232 Z" fill="#ffffff" fillOpacity="0.12" />
-
-          {/* Gasoline Main Body Shell (Pure White Executive Sedan) */}
-          <rect x="272" y="232" width="144" height="104" rx="28" fill="#ffffff" />
-
-          {/* Gasoline Hood Crease */}
-          <path d="M292 232 L344 244 L396 232" stroke="#bcdcff" strokeWidth="2.5" fill="none" />
-
-          {/* Gasoline Executive Multi-Slat Radiator Grille */}
-          <rect x="304" y="278" width="80" height="36" rx="8" fill="#091d36" stroke="#0072de" strokeWidth="1.8" />
-          <line x1="312" y1="285" x2="376" y2="285" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
-          <line x1="312" y1="294" x2="376" y2="294" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
-          <line x1="312" y1="303" x2="376" y2="303" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" />
-
-          {/* Gasoline Dual Projector Headlights with Blue Corona Ring */}
-          <rect x="280" y="264" width="22" height="16" rx="6" fill="#0072de" />
-          <circle cx="291" cy="272" r="5" fill="#ffffff" />
-          <rect x="386" y="264" width="22" height="16" rx="6" fill="#0072de" />
-          <circle cx="397" cy="272" r="5" fill="#ffffff" />
-          <line x1="302" y1="272" x2="386" y2="272" stroke="#bcdcff" strokeWidth="2" strokeLinecap="round" />
-
-          {/* Brand Emblem Above Grille */}
-          <circle cx="344" cy="268" r="6" fill="#0072de" />
-          <circle cx="344" cy="268" r="3" fill="#ffffff" />
-
-          {/* Lower Bumper & White Fog Lamps */}
-          <rect x="302" y="322" width="84" height="10" rx="5" fill="#081b33" />
-          <circle cx="290" cy="327" r="4" fill="#ffffff" />
-          <circle cx="398" cy="327" r="4" fill="#ffffff" />
-        </g>
-      </g>
-
-      {/* Speed Lane Divider / Road Baseline */}
-      <rect x="156" y="378" width="200" height="6" rx="3" fill="#ffffff" fillOpacity="0.25" />
-      <rect x="220" y="378" width="72" height="6" rx="3" fill="#ffffff" />
+      {/* Speed Lane Road Baseline */}
+      <rect x="166" y="382" width="180" height="6" rx="3" fill="#ffffff" fillOpacity="0.25" />
+      <rect x="226" y="382" width="60" height="6" rx="3" fill="#ffffff" />
 
       {/* Typography: Samsung One UI Mobility Branding */}
-      <text x="256" y="420" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" fontSize="21" fontWeight="900" fill="#ffffff" letterSpacing="4" textAnchor="middle">GALAXY FLEET</text>
-      <text x="256" y="444" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" fontSize="11.5" fontWeight="700" fill="#9ecaff" letterSpacing="2" textAnchor="middle">EV • GASOLINE MOBILITY</text>
+      <text x="256" y="424" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" fontSize="22" fontWeight="900" fill="#ffffff" letterSpacing="4" textAnchor="middle">GALAXY FLEET</text>
+      <text x="256" y="448" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" fontSize="11.5" fontWeight="700" fill="#9ecaff" letterSpacing="2.5" textAnchor="middle">CORPORATE MOBILITY</text>
     </svg>
   );
 };

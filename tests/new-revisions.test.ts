@@ -465,15 +465,14 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
       expect(finalDeptCount.c).toBe(12);
     });
 
-    it('provides Samsung-style EV and Gasoline car app icon with blue and white accents (no green)', async () => {
+    it('provides Samsung-style simple yet elegant fleet car app icon with blue and white accents (no green)', async () => {
       const fs = await import('fs');
       const path = await import('path');
 
       // Check favicon.svg
       const favPath = path.resolve(__dirname, '../public/favicon.svg');
       const favContent = fs.readFileSync(favPath, 'utf8');
-      expect(favContent).toContain('evCar');
-      expect(favContent).toContain('gasCar');
+      expect(favContent).toContain('fleetCar');
       expect(favContent).toContain('#0072de'); // Samsung signature blue
       expect(favContent).toContain('#ffffff'); // White accent
       expect(favContent.toLowerCase()).not.toContain('#10b981');
@@ -482,18 +481,18 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
       // Check icon.svg
       const iconPath = path.resolve(__dirname, '../public/icons/icon.svg');
       const iconContent = fs.readFileSync(iconPath, 'utf8');
-      expect(iconContent).toContain('evCar');
-      expect(iconContent).toContain('gasCar');
+      expect(iconContent).toContain('fleetCar');
       expect(iconContent).toContain('#0072de');
       expect(iconContent).toContain('#ffffff');
+      expect(iconContent.toLowerCase()).not.toContain('#10b981');
+      expect(iconContent.toLowerCase()).not.toContain('#22c55e');
 
       // Check React Logo Component
       const logoPath = path.resolve(__dirname, '../src/components/SamsungBusLogo.tsx');
       const logoContent = fs.readFileSync(logoPath, 'utf8');
       expect(logoContent).toContain('SamsungFleetLogo');
       expect(logoContent).toContain('SamsungBusLogo');
-      expect(logoContent).toContain('evCar');
-      expect(logoContent).toContain('gasCar');
+      expect(logoContent).toContain('fleetCar');
     });
 
     it('provides public L4/L7 healthcheck and deep readiness probes for load balancers', async () => {
