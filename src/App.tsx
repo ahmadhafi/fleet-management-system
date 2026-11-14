@@ -35,7 +35,7 @@ import {
   Power,
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
-import { AppShell, DesktopHeaderNav, AdminShell, type NavSection } from './components/AppShell';
+import { AppShell, AdminShell, type NavSection } from './components/AppShell';
 import { BottomSheet, type SnapPoint } from './components/BottomSheet';
 import { MapView, estimateRouteMetrics, type GeoPlace, type UserLocationPin, type RouteCalculationResult } from './components/MapView';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
@@ -5292,6 +5292,10 @@ export function App() {
         unreadInboxCount={unreadCount}
         pendingDispatchCount={dispatches.filter((d) => d.trip_status !== 'COMPLETED' && d.trip_status !== 'REJECTED').length}
         pendingAdminCount={pendingTrips.length + pendingUsers.length}
+        userNickname={user?.nickname}
+        departmentName={user?.department_name}
+        onSwitchToDriverDispatch={() => setNavSection('DRIVER')}
+        onSwitchToAdmin={() => setNavSection('ADMIN')}
         mapStage={
           <MapView
             origin={mapOrigin}
@@ -5332,25 +5336,7 @@ export function App() {
             hasBottomNav={!inActiveBookingFlow && navSection !== 'DRIVER'}
             stepKey={`${navSection}:${bookingStep}`}
             footer={stickyFooter}
-            topNav={
-              !inActiveBookingFlow && navSection !== 'DRIVER' ? (
-                <DesktopHeaderNav
-                  activeNav={navSection}
-                  onSelectNav={(n) => {
-                    setNavSection(n);
-                    if (n === 'HOME') setBookingStep('HOME');
-                  }}
-                  unreadInboxCount={unreadCount}
-                  isDriverOrPrivileged={user.role === 'DRV' || Boolean(isPrivileged)}
-                  isPrivileged={Boolean(isPrivileged)}
-                  onSignOut={handleLogout}
-                  userNickname={user?.nickname}
-                  departmentName={user?.department_name}
-                  onSwitchToDriverDispatch={() => setNavSection('DRIVER')}
-                  onSwitchToAdmin={() => setNavSection('ADMIN')}
-                />
-              ) : undefined
-            }
+            topNav={undefined}
             ariaLabel="GalaxyFleet booking sheet"
           >
             {renderSheetContent()}

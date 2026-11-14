@@ -12,6 +12,8 @@ import {
   FileCheck,
   BarChart3,
   Calendar,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { LanguageSwitcher } from './LanguageSwitcher';
 
@@ -23,6 +25,192 @@ interface NavItem {
   icon: React.ReactNode;
   badge?: number;
 }
+
+export interface DynamicIslandNavProps {
+  activeNav: NavSection;
+  onSelectNav: (nav: NavSection) => void;
+  unreadInboxCount: number;
+  pendingDispatchCount?: number;
+  isDriverOrPrivileged?: boolean;
+  isPrivileged?: boolean;
+  onSignOut: () => void;
+  userNickname?: string;
+  departmentName?: string;
+  onSwitchToDriverDispatch?: () => void;
+  onSwitchToAdmin?: () => void;
+  hideChromeDuringBooking?: boolean;
+}
+
+export const DynamicIslandNav: React.FC<DynamicIslandNavProps> = ({
+  activeNav,
+  onSelectNav,
+  unreadInboxCount,
+  pendingDispatchCount = 0,
+  isDriverOrPrivileged,
+  isPrivileged,
+  onSignOut,
+  userNickname,
+  departmentName,
+  onSwitchToDriverDispatch,
+  onSwitchToAdmin,
+  hideChromeDuringBooking,
+}) => {
+  const [isExpanded, setIsExpanded] = React.useState(false);
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+
+  // Close when clicking outside the dynamic island
+  React.useEffect(() => {
+    const handlePointerDown = (e: PointerEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsExpanded(false);
+      }
+    };
+    if (isExpanded) {
+      document.addEventListener('pointerdown', handlePointerDown);
+      return () => document.removeEventListener('pointerdown', handlePointerDown);
+    }
+  }, [isExpanded]);
+
+  // Close on Escape key
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isExpanded) {
+        setIsExpanded(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isExpanded]);
+
+  const navItems = [
+    { id: 'HOME' as const, label: 'Home', icon: <Home size={17} /> },
+    { id: 'ACTIVITY' as const, label: 'Activity', icon: <Clock size={17} /> },
+    { id: 'INBOX' as const, label: 'Inbox', icon: <Inbox size={17} />, badge: unreadInboxCount },
+    { id: 'PROFILE' as const, label: 'Profile', icon: <User size={17} /> },
+    ...(isDriverOrPrivileged ? [{ id: 'DRIVER' as const, label: 'Dispatch', icon: <Navigation size={17} />, badge: pendingDispatchCount }] : []),
+    ...(isPrivileged ? [{ id: 'ADMIN' as const, label: 'Admin', icon: <ShieldCheck size={17} /> }] : []),
+  ];
+
+  const getActiveLabel = () => {
+    switch (activeNav) {
+      case 'HOME': return 'GalaxyFleet';
+      case 'ACTIVITY': return 'My Activity';
+      case 'INBOX': return 'Inbox';
+      case 'PROFILE': return 'Profile';
+      case 'DRIVER': return 'Driver Dispatch';
+      case 'ADMIN': return 'Admin Console';
+      default: return 'GalaxyFleet';
+    }
+  };
+
+  const handleSelectTab = (id: NavSection) => {
+    if (id === 'DRIVER' && onSwitchToDriverDispatch) {
+      onSwitchToDriverDispatch();
+    } else if (id === 'ADMIN' && onSwitchToAdmin) {
+      onSwitchToAdmin();
+    } else {
+      onSelectNav(id);
+    }
+    setIsExpanded(false);
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      className={`gf-dynamic-island ${isExpanded ? 'is-expanded' : 'is-collapsed'} ${hideChromeDuringBooking ? 'during-booking' : ''}`}
+      role="region"
+      aria-label="Dynamic Island Navigation"
+    >
+      {!isExpanded ? (
+        /* Collapsed Resting Pill (Centered, compact, unobtrusive) */
+        <button
+          type="button"
+          id="gf-island-collapsed-pill"
+          className="gf-island-collapsed-pill pressable"
+          onClick={() => setIsExpanded(true)}
+          aria-expanded={false}
+          aria-label={`Open GalaxyFleet navigation (Currently on ${getActiveLabel()})`}
+          title="Click to expand navigation menu"
+        >
+          <div className="gf-island-mini-badge">GF</div>
+          <div className="gf-island-collapsed-label">
+            <span>{getActiveLabel()}</span>
+            {unreadInboxCount > 0 && activeNav !== 'INBOX' && (
+              <span className="gf-nav-badge" style={{ marginLeft: 6 }}>{unreadInboxCount}</span>
+            )}
+          </div>
+          <div className="gf-island-pulse-dot" title="Live status active" />
+          <ChevronDown size={14} className="gf-island-chevron" />
+        </button>
+      ) : (
+        /* Expanded Dynamic Island (Inside-out morphing) */
+        <div className="gf-island-expanded-content" role="dialog" aria-modal="false" aria-label="Expanded navigation">
+          {/* Brand & User context */}
+          <div className="gf-island-brand-area">
+            <div className="gf-island-badge">GF</div>
+            <div className="gf-island-brand-text">
+              <span className="gf-island-title">GalaxyFleet</span>
+              {(userNickname || departmentName) && (
+                <span className="gf-island-subtitle">
+                  {userNickname} {departmentName ? <span>• <span className="notranslate" translate="no">{departmentName}</span></span> : ''}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Segmented Navigation Pills */}
+          <nav className="gf-island-nav" aria-label="Primary navigation">
+            {navItems.map((item) => {
+              const active = activeNav === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  id={`island-nav-${item.id.toLowerCase()}`}
+                  className={`gf-island-nav-item pressable ${active ? 'active' : ''}`}
+                  onClick={() => handleSelectTab(item.id)}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                  {item.badge !== undefined && item.badge > 0 && (
+                    <span className="gf-nav-badge">{item.badge}</span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Actions: Language, SignOut, Collapse Button */}
+          <div className="gf-island-actions">
+            <LanguageSwitcher compact />
+            <button
+              type="button"
+              id="island-signout-btn"
+              className="gf-island-action-btn pressable is-signout"
+              onClick={onSignOut}
+              aria-label="Sign out"
+              title="Sign out"
+            >
+              <LogOut size={15} />
+              <span className="gf-island-btn-text">Sign Out</span>
+            </button>
+            <button
+              type="button"
+              id="island-collapse-btn"
+              className="gf-island-action-btn pressable is-collapse"
+              onClick={() => setIsExpanded(false)}
+              aria-label="Collapse navigation"
+              title="Collapse navigation"
+            >
+              <ChevronUp size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface AppShellProps {
   activeNav: NavSection;
@@ -36,6 +224,10 @@ interface AppShellProps {
   pendingAdminCount: number;
   mapStage: React.ReactNode;
   sheet: React.ReactNode;
+  userNickname?: string;
+  departmentName?: string;
+  onSwitchToDriverDispatch?: () => void;
+  onSwitchToAdmin?: () => void;
 }
 
 export const AppShell: React.FC<AppShellProps> = ({
@@ -49,6 +241,10 @@ export const AppShell: React.FC<AppShellProps> = ({
   pendingDispatchCount,
   mapStage,
   sheet,
+  userNickname,
+  departmentName,
+  onSwitchToDriverDispatch,
+  onSwitchToAdmin,
 }) => {
   const navItems: NavItem[] = [
     { id: 'HOME', label: 'Home', icon: <Home size={22} /> },
@@ -57,68 +253,24 @@ export const AppShell: React.FC<AppShellProps> = ({
     { id: 'PROFILE', label: 'Profile', icon: <User size={22} /> },
   ];
 
-  const tabletItems: NavItem[] = [
-    ...navItems,
-    ...(isDriverOrPrivileged ? [{ id: 'DRIVER' as const, label: 'Dispatch', icon: <Navigation size={20} />, badge: pendingDispatchCount }] : []),
-    ...(isPrivileged ? [{ id: 'ADMIN' as const, label: 'Admin', icon: <ShieldCheck size={20} /> }] : []),
-  ];
-
   return (
     <div className="gf-shell">
       <div className="gf-ride-layout">
-        {/* Tablet Floating Capsule Navigation (640-1023px) */}
-        <nav
-          className={`gf-tablet-nav ${hideChromeDuringBooking ? 'is-hidden' : ''}`}
-          aria-label="Tablet navigation"
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '8px', paddingRight: '4px' }}>
-            <div
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: '50%',
-                background: 'var(--color-green)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#ffffff',
-                fontWeight: 800,
-                fontSize: '13px',
-                boxShadow: '0 2px 6px rgba(0, 170, 19, 0.35)',
-              }}
-            >
-              GF
-            </div>
-          </div>
-          {tabletItems.map((item) => {
-            const active = activeNav === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={`gf-tablet-nav-item pressable ${active ? 'active' : ''}`}
-                onClick={() => onSelectNav(item.id)}
-                aria-current={active ? 'page' : undefined}
-              >
-                {item.icon}
-                <span>{item.label}</span>
-                {item.badge !== undefined && item.badge > 0 && <span className="gf-nav-badge">{item.badge}</span>}
-              </button>
-            );
-          })}
-          <div style={{ width: '1px', height: '22px', background: 'var(--color-divider)', margin: '0 4px' }} />
-          <LanguageSwitcher compact />
-          <button
-            type="button"
-            className="gf-tablet-nav-item pressable"
-            style={{ color: 'var(--color-status-red-fg)', padding: '8px 12px' }}
-            onClick={onSignOut}
-            aria-label="Sign out"
-            title="Sign out"
-          >
-            <LogOut size={18} />
-          </button>
-        </nav>
+        {/* Dynamic Island Centered Top Navigation (iPhone-style Inside-Out Morphing) */}
+        <DynamicIslandNav
+          activeNav={activeNav}
+          onSelectNav={onSelectNav}
+          unreadInboxCount={unreadInboxCount}
+          pendingDispatchCount={pendingDispatchCount}
+          isDriverOrPrivileged={isDriverOrPrivileged}
+          isPrivileged={isPrivileged}
+          onSignOut={onSignOut}
+          userNickname={userNickname}
+          departmentName={departmentName}
+          onSwitchToDriverDispatch={onSwitchToDriverDispatch}
+          onSwitchToAdmin={onSwitchToAdmin}
+          hideChromeDuringBooking={hideChromeDuringBooking}
+        />
 
         {/* Full-bleed Map Canvas */}
         {mapStage}
@@ -126,7 +278,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         {/* Adaptive Sheet / Tablet Floating Card / Desktop 440px Left Panel */}
         {sheet}
 
-        {/* Mobile Bottom Tab Bar (68px Dock with soft pill indicator, hidden during active booking) */}
+        {/* Mobile Bottom Tab Bar (hidden during active booking) */}
         {!hideChromeDuringBooking && (
           <nav className="gf-bottom-nav" aria-label="Primary tabs">
             {navItems.map((item) => {
