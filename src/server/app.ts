@@ -23,6 +23,14 @@ export function createApp() {
 
   app.use(express.json({ limit: '12mb' }));
 
+  // Normalize API route prefix for Vercel serverless function invocations
+  app.use((req, _res, next) => {
+    if (!req.url.startsWith('/api') && !req.url.startsWith('/assets') && !req.url.startsWith('/icons') && !req.url.startsWith('/sw.js') && !req.url.startsWith('/manifest')) {
+      req.url = `/api${req.url.startsWith('/') ? '' : '/'}${req.url}`;
+    }
+    next();
+  });
+
   // ============================================================================
   // 1. AUTHENTICATION & ACCOUNT REGISTRATION (AUTH-01 to AUTH-08, Revision #2)
   // ============================================================================

@@ -53,7 +53,11 @@ export function getDb(customPath?: string): AppDatabase {
 
   const db = new DatabaseSync(resolvedPath);
   if (resolvedPath !== ':memory:') {
-    db.exec('PRAGMA journal_mode = WAL;');
+    if (isVercel) {
+      db.exec('PRAGMA journal_mode = DELETE;');
+    } else {
+      db.exec('PRAGMA journal_mode = WAL;');
+    }
   }
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec('PRAGMA busy_timeout = 5000;');
@@ -505,7 +509,12 @@ function seedDatabaseIfEmpty(db: AppDatabase) {
 
   const now = new Date();
   const fmt = (d: Date) => d.toISOString();
-  const daysAgo = (days: number, hoursOffset = 0) => new Date(now.getTime() - days * 86400000 + hoursOffset * 3600000);
+  const daysAgo = (days: number, hoursOffset = 0) => {
+    if (days === 0) {
+      return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), Math.max(0, 10 + hoursOffset), 0, 0));
+    }
+    return new Date(now.getTime() - days * 86400000 + hoursOffset * 3600000);
+  };
 
   const insertCompletedTrip = db.prepare(`
     INSERT INTO trip_requests (requester_id, department_id, vehicle_id, preferred_driver_id, purpose, origin, destination, start_time, end_time, passenger_count, notes, status, start_odometer, end_odometer, distance_km, actual_start_time, actual_end_time, parking_return_note, created_at)
