@@ -63,6 +63,9 @@ export function extractToken(req: Request): string | null {
       return decodeURIComponent(match.split('=')[1]);
     }
   }
+  if (req.query && typeof req.query.token === 'string' && req.query.token.trim()) {
+    return req.query.token.trim();
+  }
   return null;
 }
 

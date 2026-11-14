@@ -149,6 +149,43 @@ function formatPassengersMultiLine(passengersJson?: string | null, passengerNick
   return passengerNickname || 'Team';
 }
 
+export function playNotificationChime(): void {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+    const now = ctx.currentTime;
+
+    // Harmonic crystalline dual chime (Note 1: E6 1318.51Hz, Note 2: B6 1975.53Hz)
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(1318.51, now);
+    gain1.gain.setValueAtTime(0.18, now);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.35);
+
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(1975.53, now + 0.08);
+    gain2.gain.setValueAtTime(0.2, now + 0.08);
+    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(now + 0.08);
+    osc2.stop(now + 0.6);
+  } catch {
+    // AudioContext blocked or unsupported in environment
+  }
+}
+
 export function App() {
   const [user, setUser] = useState<any | null>(null);
   const [vapidPublicKey, setVapidPublicKey] = useState<string>('');
@@ -1198,7 +1235,111 @@ export function App() {
       }, 10 * 1000);
     }
 
+    // Ultra-low latency Real-Time Server-Sent Events (SSE) Stream (< 50ms push)
+    let sseSource: EventSource | null = null;
+    const authToken = getStoredToken();
+    if (authToken && typeof EventSource !== 'undefined') {
+      try {
+        const streamUrl = `/api/live/stream?token=${encodeURIComponent(authToken)}`;
+        sseSource = new EventSource(streamUrl);
+
+        sseSource.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            if (!payload || !payload.type) return;
+
+            if (
+              [
+                'TRIP_APPROVED',
+                'TRIP_DECISION',
+                'TRIP_STAGE_APPROVED',
+                'TRIP_REJECTED',
+                'TRIP_STARTED',
+                'TRIP_COMPLETED',
+                'TRIP_ACKNOWLEDGED',
+                'TRIP_CREATED',
+                'TRIP_RESUBMITTED',
+                'TRIP_UPDATED',
+              ].includes(payload.type)
+            ) {
+              const trip = payload.data?.trip;
+              if (trip && trip.id) {
+                setTrips((prev: any[]) => {
+                  const idx = prev.findIndex((t: any) => t.id === trip.id);
+                  if (idx >= 0) {
+                    const nextList = [...prev];
+                    nextList[idx] = { ...nextList[idx], ...trip };
+                    return nextList;
+                  }
+                  return [trip, ...prev];
+                });
+
+                if (payload.type === 'TRIP_APPROVED') {
+                  playNotificationChime();
+                  if ('Notification' in window && Notification.permission === 'granted') {
+                    try {
+                      new Notification('Booking Approved & Dispatched!', {
+                        body: `Driver ${trip.assigned_driver_name || 'Assigned'} has been dispatched with ${trip.make} ${trip.model} (${trip.registration_plate || 'Company Fleet'}).`,
+                        icon: '/icons/icon.svg',
+                      });
+                    } catch {}
+                  }
+                  setStatusBanner({
+                    type: 'success',
+                    text: `Booking Approved! Driver ${trip.assigned_driver_name || 'Assigned'} has been dispatched with ${trip.make} ${trip.model} (${trip.registration_plate || 'Company Fleet'}).`,
+                  });
+                } else if (payload.type === 'TRIP_STAGE_APPROVED') {
+                  playNotificationChime();
+                  const stageDesc =
+                    payload.data?.stage === 'AWAITING_HWS'
+                      ? 'Approved by Fleet Operation PIC, awaiting Head Of WS Part review.'
+                      : 'Approved by Head Of WS Part, awaiting Fleet Operation PIC dispatch.';
+                  setStatusBanner({
+                    type: 'info',
+                    text: `Booking Update: ${stageDesc}`,
+                  });
+                } else if (payload.type === 'TRIP_REJECTED') {
+                  playNotificationChime();
+                  const rejReason = trip.decisions?.find((d: any) => d.decision === 'REJECTED')?.reason || 'Booking request rejected';
+                  setStatusBanner({
+                    type: 'danger',
+                    text: `Booking Rejected: ${rejReason}`,
+                  });
+                }
+
+                // If user is driver or admin, also refresh dispatches immediately
+                if (['DRV', 'ADM', 'FM'].includes(user.role)) {
+                  apiRequest('/api/driver/dispatches')
+                    .then((dsp) => {
+                      if (Array.isArray(dsp.dispatches)) setDispatches(dsp.dispatches);
+                    })
+                    .catch(() => {});
+                }
+              }
+            } else if (payload.type === 'NOTIFICATION') {
+              const notif = payload.data;
+              if (notif && notif.id) {
+                setNotifications((prev: any[]) => {
+                  if (prev.some((n: any) => n.id === notif.id)) return prev;
+                  return [notif, ...prev];
+                });
+                playNotificationChime();
+                if ('Notification' in window && Notification.permission === 'granted') {
+                  try {
+                    new Notification(notif.title, { body: notif.body, icon: '/icons/icon.svg' });
+                  } catch {}
+                }
+                apiRequest('/api/trips').then((r) => { if (r.trips) setTrips(r.trips); }).catch(() => {});
+                apiRequest('/api/bookings').then((r) => { if (r.bookings) setBookings(r.bookings); }).catch(() => {});
+              }
+            }
+          } catch {}
+        };
+      } catch {}
+    }
+
     return () => {
+      if (sseSource) sseSource.close();
       window.clearInterval(locInterval);
       window.clearInterval(syncInterval);
       window.clearInterval(notifInterval);

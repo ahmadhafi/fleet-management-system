@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/server/app.ts';
 import { getDb, resetDbForTesting } from '../src/server/db.ts';
+import { liveEvents } from '../src/server/events.ts';
 
 describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Security Defense', () => {
   let app: ReturnType<typeof createApp>;
@@ -1000,6 +1001,63 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
       expect(vehiclePos.is_following_driver).toBe(true);
       expect(vehiclePos.latitude).toBeCloseTo(-6.175402, 4);
       expect(vehiclePos.longitude).toBeCloseTo(106.827153, 4);
+    });
+
+    describe('Ultra-Low Latency Real-Time Synchronization & Server-Sent Events (SSE)', () => {
+      it('rejects unauthorized connection to /api/live/stream', async () => {
+        const res = await request(app).get('/api/live/stream');
+        expect(res.status).toBe(401);
+      });
+
+      it('immediately broadcasts live events upon trip submission and approval', async () => {
+        const receivedEvents: any[] = [];
+        const listener = (event: any) => {
+          receivedEvents.push(event);
+        };
+        liveEvents.on('live_event', listener);
+
+        try {
+          // 1. Submit trip
+          const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+          const subRes = await request(app)
+            .post('/api/trips')
+            .set('Authorization', `Bearer ${currentEmpToken}`)
+            .send({
+              vehicle_id: 1,
+              purpose: 'Ultra-low latency live sync test',
+              origin: 'Plant 1',
+              destination: 'Head Office',
+              start_time: `${tomorrow}T14:00:00Z`,
+              end_time: `${tomorrow}T16:00:00Z`,
+              passenger_count: 1,
+            });
+          expect(subRes.status).toBe(201);
+          const tripId = subRes.body.tripId;
+
+          // Verify TRIP_CREATED event broadcast
+          const createdEvent = receivedEvents.find((e) => e.type === 'TRIP_CREATED' && e.data?.trip?.id === tripId);
+          expect(createdEvent).toBeDefined();
+
+          // 2. Admin approves trip
+          const decRes = await request(app)
+            .post(`/api/trips/${tripId}/decision`)
+            .set('Authorization', `Bearer ${currentAdminToken}`)
+            .send({
+              decision: 'APPROVED',
+              reason: 'Fast real-time approval',
+            });
+          expect(decRes.status).toBe(200);
+
+          // Verify TRIP_APPROVED event broadcast with full enriched trip data
+          const approvedEvent = receivedEvents.find((e) => e.type === 'TRIP_APPROVED' && e.data?.trip?.id === tripId);
+          expect(approvedEvent).toBeDefined();
+          expect(approvedEvent.data?.decision).toBe('APPROVED');
+          expect(approvedEvent.data?.trip?.status).toBe('APPROVED');
+          expect(approvedEvent.data?.trip?.requester_name).toBeDefined();
+        } finally {
+          liveEvents.removeListener('live_event', listener);
+        }
+      });
     });
   });
 });

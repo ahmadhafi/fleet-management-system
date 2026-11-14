@@ -1,5 +1,6 @@
 import * as webpush from 'web-push';
 import type { AppDatabase } from './db.ts';
+import { liveEvents } from './events.ts';
 
 let vapidInitialized = false;
 let publicVapidKey = '';
@@ -111,7 +112,28 @@ export function sendUserNotification(
     }
   }
 
-  return Number(result.lastInsertRowid);
+  const notificationId = Number(result.lastInsertRowid);
+  try {
+    liveEvents.broadcast({
+      type: 'NOTIFICATION',
+      userId: params.userId,
+      data: {
+        id: notificationId,
+        user_id: params.userId,
+        trigger_type: params.triggerType,
+        title: safeTitle,
+        body: safeBody,
+        related_entity_type: params.relatedEntityType ?? null,
+        related_entity_id: params.relatedEntityId ?? null,
+        channel: params.channel ?? 'IN_APP_AND_PUSH',
+        delivery_status: deliveryStatus,
+        is_read: 0,
+        created_at: new Date().toISOString(),
+      },
+    });
+  } catch {}
+
+  return notificationId;
 }
 
 export function notifyAdmins(

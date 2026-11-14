@@ -2,12 +2,117 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import express, { type Request, type Response } from 'express';
-import { getDb, hashPassword, verifyPassword, runInTransaction } from './db.ts';
+import { getDb, hashPassword, verifyPassword, runInTransaction, type AppDatabase } from './db.ts';
 import { createSessionToken, isPrivilegedRole, requireAuth, requireRoles } from './auth.ts';
 import { recordAudit } from './audit.ts';
 import { ensureVapidKeys, notifyAdmins, notifyRole, sendUserNotification } from './push.ts';
 import { checkDriverConflict, checkVehicleConflict } from './conflict.ts';
 import { createRateLimiter } from './rate-limit.ts';
+import { liveEvents, type LiveEvent } from './events.ts';
+
+export function fetchEnrichedTrip(db: AppDatabase, tripId: number): Record<string, unknown> | null {
+  const baseSelect = `
+    SELECT tr.*,
+           u.nickname as requester_name,
+           u.group_username as requester_username,
+           d.name as department_name,
+           v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.battery_percent,
+           b.id as booking_id, b.status as booking_status,
+           a.id as assignment_id, a.driver_profile_id, a.acknowledged_at,
+           dp.full_name as assigned_driver_name,
+           dp.contact_number as assigned_driver_phone
+    FROM trip_requests tr
+    JOIN users u ON u.id = tr.requester_id
+    JOIN departments d ON d.id = tr.department_id
+    JOIN vehicles v ON v.id = tr.vehicle_id
+    LEFT JOIN bookings b ON b.trip_request_id = tr.id AND b.status != 'CANCELLED'
+    LEFT JOIN assignments a ON a.trip_request_id = tr.id AND a.is_current = 1
+    LEFT JOIN driver_profiles dp ON dp.id = a.driver_profile_id
+    WHERE tr.id = ?
+  `;
+  const row = db.prepare(baseSelect).get(tripId) as Record<string, unknown> | undefined;
+  if (!row) return null;
+
+  const hwsCountRow = db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'HWS' AND is_active = 1 AND approval_status = 'APPROVED'").get() as { c: number };
+  const hasHwsAccount = (hwsCountRow?.c ?? 0) > 0;
+
+  const decisions = db
+    .prepare(
+      `SELECT ad.*, u.nickname as decider_name
+       FROM approval_decisions ad
+       JOIN users u ON u.id = ad.decider_id
+       WHERE ad.trip_request_id = ?
+       ORDER BY ad.id ASC`
+    )
+    .all(tripId) as any[];
+  const events = db.prepare('SELECT * FROM trip_events WHERE trip_request_id = ? ORDER BY id ASC').all(tripId);
+  const assignments = db.prepare('SELECT * FROM assignments WHERE trip_request_id = ? ORDER BY id ASC').all(tripId);
+  const picApproved = decisions.some((d: any) => d.decider_role === 'FM' && d.decision === 'APPROVED');
+  const hwsApproved = decisions.some((d: any) => d.decider_role === 'HWS' && d.decision === 'APPROVED');
+  const admDelegated = decisions.some((d: any) => d.decider_role === 'ADM' && d.decision === 'APPROVED');
+
+  return {
+    ...row,
+    decisions,
+    events,
+    assignments,
+    requires_dual_approval: hasHwsAccount,
+    pic_approved: picApproved,
+    hws_approved: hwsApproved,
+    adm_delegated: admDelegated,
+  };
+}
+
+export function broadcastTripUpdate(db: AppDatabase, tripId: number, eventType = 'TRIP_UPDATED', extraData?: any) {
+  try {
+    const enrichedTrip = fetchEnrichedTrip(db, tripId);
+    if (!enrichedTrip) return null;
+
+    // Send to requester
+    liveEvents.broadcast({
+      type: eventType,
+      userId: enrichedTrip.requester_id as number,
+      data: { trip: enrichedTrip, ...extraData },
+    });
+
+    // Send to assigned driver if one exists
+    const driverRow = db.prepare(`
+      SELECT dp.user_id
+      FROM assignments a
+      JOIN driver_profiles dp ON dp.id = a.driver_profile_id
+      WHERE a.trip_request_id = ? AND a.is_current = 1
+    `).get(tripId) as { user_id: number } | undefined;
+
+    if (driverRow?.user_id) {
+      liveEvents.broadcast({
+        type: eventType,
+        userId: driverRow.user_id,
+        data: { trip: enrichedTrip, ...extraData },
+      });
+    }
+
+    // Broadcast to privileged roles (ADM, FM, HWS)
+    liveEvents.broadcast({
+      type: eventType,
+      role: 'ADM',
+      data: { trip: enrichedTrip, ...extraData },
+    });
+    liveEvents.broadcast({
+      type: eventType,
+      role: 'FM',
+      data: { trip: enrichedTrip, ...extraData },
+    });
+    liveEvents.broadcast({
+      type: eventType,
+      role: 'HWS',
+      data: { trip: enrichedTrip, ...extraData },
+    });
+
+    return enrichedTrip;
+  } catch {
+    return null;
+  }
+}
 
 export function createApp() {
   const app = express();
@@ -326,6 +431,55 @@ export function createApp() {
       user: req.user,
       vapidPublicKey: publicKey,
       unreadNotifications: unread.count,
+    });
+  });
+
+  // Real-Time Server-Sent Events (SSE) Stream for Ultra-Low Latency Updates (< 50ms)
+  app.get('/api/live/stream', requireAuth, (req: Request, res: Response) => {
+    const user = req.user!;
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    res.write(`: connected (user ${user.id}, role ${user.role})\n\n`);
+
+    const onLiveEvent = (event: LiveEvent) => {
+      try {
+        const matchesUser = event.userId === undefined || event.userId === user.id;
+        const matchesRole =
+          event.role === undefined ||
+          event.role === user.role ||
+          (user.role === 'ADM' && ['FM', 'HWS'].includes(event.role));
+
+        if (matchesUser && matchesRole) {
+          res.write(`data: ${JSON.stringify(event)}\n\n`);
+          if (typeof (res as any).flush === 'function') {
+            (res as any).flush();
+          }
+        }
+      } catch {
+        // Socket closed
+      }
+    };
+
+    liveEvents.on('live_event', onLiveEvent);
+
+    const heartbeatTimer = setInterval(() => {
+      try {
+        res.write(': heartbeat\n\n');
+      } catch {
+        clearInterval(heartbeatTimer);
+      }
+    }, 15_000);
+    heartbeatTimer.unref();
+
+    req.on('close', () => {
+      clearInterval(heartbeatTimer);
+      liveEvents.removeListener('live_event', onLiveEvent);
     });
   });
 
@@ -1973,6 +2127,7 @@ export function createApp() {
         relatedEntityId: createdPayload.tripId,
       });
 
+      broadcastTripUpdate(db, createdPayload.tripId, 'TRIP_CREATED');
       res.status(201).json(createdPayload);
     } catch (err) {
       const status = (err as Error & { status?: number }).status || 400;
@@ -2274,10 +2429,17 @@ export function createApp() {
         });
       }
 
+      const eventType = outcome.status === 'APPROVED' ? 'TRIP_APPROVED' : outcome.status === 'REJECTED' ? 'TRIP_REJECTED' : 'TRIP_STAGE_APPROVED';
+      const enrichedTrip = broadcastTripUpdate(db, tripId, eventType, {
+        decision: outcome.status,
+        stage: (outcome as any).stage,
+        isFinal: outcome.isFinal,
+        isDelegated: Boolean((outcome as any).isDelegated),
+      });
+
       const decisions = db.prepare('SELECT * FROM approval_decisions WHERE trip_request_id = ? ORDER BY id ASC').all(tripId);
-      const updatedTrip = db.prepare('SELECT * FROM trip_requests WHERE id = ?').get(tripId);
       res.json({
-        trip: updatedTrip,
+        trip: enrichedTrip || db.prepare('SELECT * FROM trip_requests WHERE id = ?').get(tripId),
         decisions,
         status: outcome.status,
         stage: (outcome as any).stage,
@@ -2353,6 +2515,7 @@ export function createApp() {
         return row;
       });
 
+      broadcastTripUpdate(db, tripId, 'TRIP_RESUBMITTED');
       res.json({ trip: updated });
     } catch (err) {
       const status = (err as Error & { status?: number }).status || 400;
@@ -2702,6 +2865,7 @@ export function createApp() {
     ).run(tripId, asn.id, req.user!.id);
 
     recordAudit(db, req.user, 'DISPATCH_ACKNOWLEDGED', 'TRIP_REQUEST', tripId);
+    broadcastTripUpdate(db, tripId, 'TRIP_ACKNOWLEDGED');
     res.json({ acknowledged: true, acknowledged_at: new Date().toISOString() });
   });
 
@@ -2800,7 +2964,8 @@ export function createApp() {
       relatedEntityId: tripId,
     });
 
-    res.json({ trip: db.prepare('SELECT * FROM trip_requests WHERE id = ?').get(tripId) });
+    const enriched = broadcastTripUpdate(db, tripId, 'TRIP_STARTED', { odometer: odo });
+    res.json({ trip: enriched || db.prepare('SELECT * FROM trip_requests WHERE id = ?').get(tripId) });
   });
 
   // TRP-03, TRP-04, TRP-06: End trip, record end odometer, EV battery %, and parking return spot
@@ -2925,7 +3090,8 @@ export function createApp() {
       relatedEntityId: tripId,
     });
 
-    res.json({ trip: db.prepare('SELECT * FROM trip_requests WHERE id = ?').get(tripId) });
+    const enriched = broadcastTripUpdate(db, tripId, 'TRIP_COMPLETED', { distance_km: distanceKm });
+    res.json({ trip: enriched || db.prepare('SELECT * FROM trip_requests WHERE id = ?').get(tripId) });
   });
 
   // TRP-08 & TRP-09: Vehicle inspection & damage report
