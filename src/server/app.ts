@@ -1482,9 +1482,9 @@ export function createApp() {
 
     let targetDriverId: number | null = null;
     if (user.role === 'ADM' || user.role === 'FM') {
-      targetDriverId = driver_id ? Number(driver_id) : user.driver_profile_id;
+      targetDriverId = driver_id ? Number(driver_id) : (user.driver_profile_id ?? null);
     } else if (user.role === 'DRV') {
-      targetDriverId = user.driver_profile_id;
+      targetDriverId = user.driver_profile_id ?? null;
     }
 
     if (!targetDriverId) {
