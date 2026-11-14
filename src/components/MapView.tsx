@@ -1,60 +1,67 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { ArrowLeft, WifiOff, Navigation2, Crosshair } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { ArrowLeft, Crosshair, Navigation2, WifiOff } from 'lucide-react';
+import { apiRequest } from '../api';
 
-export interface MapHub {
+export interface GeoPlace {
   name: string;
   address: string;
-  x: number; // 0..1000 SVG coordinate space
-  y: number; // 0..700 SVG coordinate space
-  category?: 'hq' | 'cbd' | 'airport' | 'tech' | 'logistics';
+  lat: number;
+  lon: number;
 }
 
-export const CORPORATE_HUBS: MapHub[] = [
-  { name: 'HQ Tower Lobby', address: 'Jl. Jend. Sudirman Kav. 52, South Jakarta', x: 460, y: 360, category: 'hq' },
-  { name: 'SCBD District 8', address: 'Senopati Suites, Kebayoran Baru', x: 415, y: 415, category: 'cbd' },
-  { name: 'Kuningan Business District', address: 'Jl. H.R. Rasuna Said, South Jakarta', x: 540, y: 395, category: 'cbd' },
-  { name: 'Data Center Cibitung', address: 'MM2100 Industrial Town, Bekasi', x: 820, y: 345, category: 'tech' },
-  { name: 'Soekarno-Hatta Terminal 3', address: 'International Airport, Tangerang', x: 165, y: 175, category: 'airport' },
-  { name: 'BSD Green Office Park', address: 'Jl. Grand Boulevard BSD City, Tangerang', x: 225, y: 530, category: 'cbd' },
-  { name: 'Tangerang Logistics Hub', address: 'Karawaci Cargo Complex, Tangerang', x: 255, y: 325, category: 'logistics' },
-  { name: 'Kemayoran Tech Park', address: 'Bandar Kemayoran Blok C, Central Jakarta', x: 565, y: 215, category: 'tech' },
-];
+const DEFAULT_CENTER: [number, number] = [-6.2088, 106.8456];
 
-export function resolvePlaceCoords(placeName: string): { x: number; y: number; label: string } {
-  const lower = (placeName || '').toLowerCase().trim();
-  const exact = CORPORATE_HUBS.find(
-    (h) => h.name.toLowerCase() === lower || lower.includes(h.name.toLowerCase().split(' ')[0])
-  );
-  if (exact) return { x: exact.x, y: exact.y, label: exact.name };
+function toRadians(deg: number): number {
+  return (deg * Math.PI) / 180;
+}
 
-  if (!lower) return { x: 460, y: 360, label: 'HQ Tower Lobby' };
+export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
-  // Deterministic pseudo-coordinates from place name hash so every address sits cleanly on the road network
-  let hash = 0;
-  for (let i = 0; i < lower.length; i++) {
-    hash = (hash * 31 + lower.charCodeAt(i)) >>> 0;
+export function estimateRouteMetrics(
+  origin?: string,
+  destination?: string,
+  originCoords?: { lat: number; lon: number } | null,
+  destCoords?: { lat: number; lon: number } | null
+): { distanceKm: number; durationMin: number } {
+  if (!destination || !destination.trim()) {
+    return { distanceKm: 0, durationMin: 0 };
   }
-  const x = 180 + (hash % 640);
-  const y = 160 + ((hash >> 8) % 380);
-  return { x, y, label: placeName };
-}
-
-export function estimateRouteMetrics(origin: string, destination: string): { distanceKm: number; durationMin: number } {
-  if (!destination.trim()) return { distanceKm: 0, durationMin: 0 };
-  const a = resolvePlaceCoords(origin);
-  const b = resolvePlaceCoords(destination);
-  const pxDist = Math.hypot(b.x - a.x, b.y - a.y);
-  const km = Math.max(2.4, Number((pxDist * 0.068).toFixed(1)));
-  const min = Math.max(9, Math.round(km * 2.15 + 4));
-  return { distanceKm: km, durationMin: min };
+  if (originCoords && destCoords) {
+    const straightKm = haversineKm(originCoords.lat, originCoords.lon, destCoords.lat, destCoords.lon);
+    const roadKm = Math.max(0.8, Number((straightKm * 1.28).toFixed(1)));
+    const durationMin = Math.max(4, Math.round(roadKm * 2.4 + 4));
+    return { distanceKm: roadKm, durationMin };
+  }
+  // Deterministic road estimate from string hashes when coordinates aren't resolved yet
+  const str = `${origin || ''}->${destination}`;
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = (h * 31 + str.charCodeAt(i)) % 1000;
+  }
+  const distanceKm = Number((2.5 + (h % 180) / 10).toFixed(1));
+  const durationMin = Math.max(6, Math.round(distanceKm * 2.3 + 5));
+  return { distanceKm, durationMin };
 }
 
 interface MapViewProps {
   origin: string;
   destination: string;
-  showRoute?: boolean;
-  pinMode?: boolean;
-  onPinMoveAddress?: (address: string) => void;
+  originCoords?: { lat: number; lon: number } | null;
+  destCoords?: { lat: number; lon: number } | null;
+  showRoute: boolean;
+  pinMode: boolean;
+  onPinMoveAddress?: (place: GeoPlace) => void;
   waitingRadar?: boolean;
   driverActive?: boolean;
   driverName?: string;
@@ -66,8 +73,10 @@ interface MapViewProps {
 export const MapView: React.FC<MapViewProps> = ({
   origin,
   destination,
-  showRoute = false,
-  pinMode = false,
+  originCoords,
+  destCoords,
+  showRoute,
+  pinMode,
   onPinMoveAddress,
   waitingRadar = false,
   driverActive = false,
@@ -76,277 +85,257 @@ export const MapView: React.FC<MapViewProps> = ({
   onBack,
   isOffline = false,
 }) => {
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const layerGroupRef = useRef<L.LayerGroup | null>(null);
+  const onPinMoveRef = useRef(onPinMoveAddress);
+  onPinMoveRef.current = onPinMoveAddress;
+
   const [isDraggingMap, setIsDraggingMap] = useState(false);
-  const dragStartRef = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
+  const [pinnedLabel, setPinnedLabel] = useState<string>('Move map to position pin');
+  const reverseTimerRef = useRef<number | null>(null);
 
-  const pickupPt = useMemo(() => resolvePlaceCoords(origin || 'HQ Tower Lobby'), [origin]);
-  const destPt = useMemo(() => (destination ? resolvePlaceCoords(destination) : null), [destination]);
-
-  // Nearest hub to current center when panning in Pin on map mode
-  const pinCenterX = 500 - panOffset.x;
-  const pinCenterY = 340 - panOffset.y;
-
-  const pinnedLabel = useMemo(() => {
-    if (!pinMode) return '';
-    let closest = CORPORATE_HUBS[0];
-    let bestDist = Infinity;
-    for (const h of CORPORATE_HUBS) {
-      const d = Math.hypot(h.x - pinCenterX, h.y - pinCenterY);
-      if (d < bestDist) {
-        bestDist = d;
-        closest = h;
-      }
+  const effOrigin = useMemo<[number, number]>(() => {
+    if (originCoords && Number.isFinite(originCoords.lat) && Number.isFinite(originCoords.lon)) {
+      return [originCoords.lat, originCoords.lon];
     }
-    return bestDist < 120 ? closest.name : `Pinned Point (${( -6.18 - (pinCenterY - 350) * 0.0004).toFixed(4)}, ${(106.82 + (pinCenterX - 500) * 0.0004).toFixed(4)})`;
-  }, [pinMode, pinCenterX, pinCenterY]);
+    return DEFAULT_CENTER;
+  }, [originCoords]);
 
-  // Fit route cleanly inside upper-center / visible canvas
-  const cameraTransform = useMemo(() => {
-    if (pinMode) {
-      return `translate(${panOffset.x}px, ${panOffset.y}px)`;
+  const effDest = useMemo<[number, number] | null>(() => {
+    if (destCoords && Number.isFinite(destCoords.lat) && Number.isFinite(destCoords.lon)) {
+      return [destCoords.lat, destCoords.lon];
     }
-    if (showRoute && destPt) {
-      const midX = (pickupPt.x + destPt.x) / 2;
-      const midY = (pickupPt.y + destPt.y) / 2;
-      const shiftX = (500 - midX) * 0.45;
-      const shiftY = (290 - midY) * 0.45;
-      return `translate(${Math.round(shiftX)}px, ${Math.round(shiftY)}px)`;
+    if (destination && destination.trim()) {
+      return [effOrigin[0] - 0.018, effOrigin[1] + 0.022];
     }
-    const shiftX = (500 - pickupPt.x) * 0.3;
-    const shiftY = (270 - pickupPt.y) * 0.3;
-    return `translate(${Math.round(shiftX)}px, ${Math.round(shiftY)}px)`;
-  }, [pinMode, panOffset, showRoute, destPt, pickupPt]);
+    return null;
+  }, [destCoords, destination, effOrigin]);
 
-  const metrics = useMemo(() => estimateRouteMetrics(origin, destination), [origin, destination]);
+  const metrics = useMemo(
+    () =>
+      estimateRouteMetrics(
+        origin,
+        destination,
+        { lat: effOrigin[0], lon: effOrigin[1] },
+        effDest ? { lat: effDest[0], lon: effDest[1] } : null
+      ),
+    [origin, destination, effOrigin, effDest]
+  );
 
-  const routePathD = useMemo(() => {
-    if (!destPt) return '';
-    const ctrlX = (pickupPt.x + destPt.x) / 2 + (destPt.y - pickupPt.y) * 0.16;
-    const ctrlY = (pickupPt.y + destPt.y) / 2 - (destPt.x - pickupPt.x) * 0.12;
-    return `M ${pickupPt.x} ${pickupPt.y} Q ${ctrlX} ${ctrlY} ${destPt.x} ${destPt.y}`;
-  }, [pickupPt, destPt]);
+  // Initialize Leaflet Map with real OpenStreetMap tiles
+  useEffect(() => {
+    if (!mapContainerRef.current || mapInstanceRef.current) return;
 
-  // Driver vehicle midpoint along curve
-  const driverPt = useMemo(() => {
-    if (!driverActive) return null;
-    if (!destPt) return { x: pickupPt.x - 36, y: pickupPt.y - 24 };
-    const t = 0.32;
-    const ctrlX = (pickupPt.x + destPt.x) / 2 + (destPt.y - pickupPt.y) * 0.16;
-    const ctrlY = (pickupPt.y + destPt.y) / 2 - (destPt.x - pickupPt.x) * 0.12;
-    const x = (1 - t) * (1 - t) * pickupPt.x + 2 * (1 - t) * t * ctrlX + t * t * destPt.x;
-    const y = (1 - t) * (1 - t) * pickupPt.y + 2 * (1 - t) * t * ctrlY + t * t * destPt.y;
-    return { x, y };
-  }, [driverActive, pickupPt, destPt]);
-
-  const handleMapPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!pinMode) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setIsDraggingMap(true);
-    dragStartRef.current = { x: e.clientX, y: e.clientY, ox: panOffset.x, oy: panOffset.y };
-  };
-
-  const handleMapPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!pinMode || !isDraggingMap) return;
-    const dx = e.clientX - dragStartRef.current.x;
-    const dy = e.clientY - dragStartRef.current.y;
-    setPanOffset({
-      x: Math.max(-280, Math.min(280, dragStartRef.current.ox + dx)),
-      y: Math.max(-200, Math.min(200, dragStartRef.current.oy + dy)),
+    const map = L.map(mapContainerRef.current, {
+      center: effOrigin,
+      zoom: 14,
+      zoomControl: false,
+      attributionControl: true,
     });
-  };
 
-  const handleMapPointerUp = () => {
-    if (!pinMode || !isDraggingMap) return;
-    setIsDraggingMap(false);
-    if (onPinMoveAddress) {
-      onPinMoveAddress(pinnedLabel);
+    // OpenStreetMap Voyager raster tiles (reliable CDN, crisp street & building labels)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+      subdomains: 'abcd',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map);
+
+    const group = L.layerGroup().addTo(map);
+    mapInstanceRef.current = map;
+    layerGroupRef.current = group;
+
+    // Try browser geolocation once to center map near user if no explicit coordinates yet
+    if ('geolocation' in navigator && !originCoords) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.setView([pos.coords.latitude, pos.coords.longitude], 15);
+          }
+        },
+        () => {
+          // keep default center
+        },
+        { timeout: 4000 }
+      );
     }
-  };
 
-  const handleMapKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!pinMode) return;
-    const step = 28;
-    let nx = panOffset.x;
-    let ny = panOffset.y;
-    if (e.key === 'ArrowLeft') nx += step;
-    else if (e.key === 'ArrowRight') nx -= step;
-    else if (e.key === 'ArrowUp') ny += step;
-    else if (e.key === 'ArrowDown') ny -= step;
-    else return;
-    e.preventDefault();
-    const clamped = { x: Math.max(-280, Math.min(280, nx)), y: Math.max(-200, Math.min(200, ny)) };
-    setPanOffset(clamped);
-    if (onPinMoveAddress) onPinMoveAddress(pinnedLabel);
+    return () => {
+      map.remove();
+      mapInstanceRef.current = null;
+      layerGroupRef.current = null;
+    };
+  }, []);
+
+  // Handle Pin-on-Map Drag & Reverse Geocoding via OpenStreetMap Nominatim
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    const handleMoveStart = () => {
+      if (pinMode) setIsDraggingMap(true);
+    };
+
+    const handleMoveEnd = () => {
+      if (!pinMode) return;
+      setIsDraggingMap(false);
+      const center = map.getCenter();
+      if (reverseTimerRef.current) {
+        window.clearTimeout(reverseTimerRef.current);
+      }
+      reverseTimerRef.current = window.setTimeout(async () => {
+        try {
+          const res = await apiRequest(`/api/geocode/reverse?lat=${center.lat}&lon=${center.lng}`);
+          const label = res.name || `${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}`;
+          setPinnedLabel(label);
+          if (onPinMoveRef.current) {
+            onPinMoveRef.current({
+              name: label,
+              address: res.address || label,
+              lat: center.lat,
+              lon: center.lng,
+            });
+          }
+        } catch {
+          const fallback = `${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}`;
+          setPinnedLabel(fallback);
+          if (onPinMoveRef.current) {
+            onPinMoveRef.current({
+              name: fallback,
+              address: `Pinned coordinates (${fallback})`,
+              lat: center.lat,
+              lon: center.lng,
+            });
+          }
+        }
+      }, 280);
+    };
+
+    map.on('movestart', handleMoveStart);
+    map.on('moveend', handleMoveEnd);
+
+    return () => {
+      map.off('movestart', handleMoveStart);
+      map.off('moveend', handleMoveEnd);
+    };
+  }, [pinMode]);
+
+  // Render Markers & Route Polyline whenever coordinates or mode change
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const group = layerGroupRef.current;
+    if (!map || !group) return;
+
+    group.clearLayers();
+
+    // Pickup Marker (Green dot)
+    const pickupIcon = L.divIcon({
+      className: 'gf-leaflet-marker',
+      html: `<div style="width:18px;height:18px;border-radius:9999px;background:#00AA13;outline:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.25);"></div>`,
+      iconSize: [18, 18],
+      iconAnchor: [9, 9],
+    });
+    L.marker(effOrigin, { icon: pickupIcon }).addTo(group);
+
+    // Destination Marker & Route Polyline (Dark 4px line with white outline)
+    if (showRoute && effDest && !pinMode) {
+      const destIcon = L.divIcon({
+        className: 'gf-leaflet-marker',
+        html: `<div style="width:18px;height:18px;border-radius:4px;background:#DC2626;outline:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.25);"></div>`,
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+      });
+      L.marker(effDest, { icon: destIcon }).addTo(group);
+
+      const midLat = (effOrigin[0] + effDest[0]) / 2 + (effDest[1] - effOrigin[1]) * 0.12;
+      const midLon = (effOrigin[1] + effDest[1]) / 2 - (effDest[0] - effOrigin[0]) * 0.12;
+      const latlngs: L.LatLngExpression[] = [effOrigin, [midLat, midLon], effDest];
+
+      // White outline under dark 4px route line
+      L.polyline(latlngs, {
+        color: '#ffffff',
+        weight: 8,
+        opacity: 0.95,
+        lineCap: 'round',
+        lineJoin: 'round',
+      }).addTo(group);
+
+      L.polyline(latlngs, {
+        color: '#111827',
+        weight: 4,
+        opacity: 1,
+        lineCap: 'round',
+        lineJoin: 'round',
+      }).addTo(group);
+
+      if (driverActive) {
+        const drvIcon = L.divIcon({
+          className: 'gf-leaflet-marker',
+          html: `<div style="width:26px;height:26px;border-radius:9999px;background:#111827;color:#ffffff;outline:3px solid #00AA13;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;">GF</div>`,
+          iconSize: [26, 26],
+          iconAnchor: [13, 13],
+        });
+        L.marker([midLat, midLon], { icon: drvIcon }).addTo(group);
+      }
+
+      const bounds = L.latLngBounds([effOrigin, effDest]);
+      map.fitBounds(bounds, { padding: [70, 70], maxZoom: 16 });
+    } else if (!pinMode) {
+      map.setView(effOrigin, map.getZoom() || 14);
+    }
+  }, [effOrigin, effDest, showRoute, pinMode, driverActive]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!pinMode || !mapInstanceRef.current) return;
+    const step = 60;
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      mapInstanceRef.current.panBy([0, -step]);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      mapInstanceRef.current.panBy([0, step]);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      mapInstanceRef.current.panBy([-step, 0]);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      mapInstanceRef.current.panBy([step, 0]);
+    }
   };
 
   return (
     <div
       className="gf-map-stage"
-      onPointerDown={handleMapPointerDown}
-      onPointerMove={handleMapPointerMove}
-      onPointerUp={handleMapPointerUp}
-      onPointerCancel={handleMapPointerUp}
-      onKeyDown={handleMapKeyDown}
       tabIndex={pinMode ? 0 : -1}
-      aria-label={pinMode ? 'Interactive map: drag or use arrow keys to place pin' : 'Route map view'}
-      style={{
-        background: 'var(--color-map-land)',
-        cursor: pinMode ? (isDraggingMap ? 'grabbing' : 'grab') : 'default',
-        touchAction: pinMode ? 'none' : 'auto',
-      }}
+      role={pinMode ? 'application' : undefined}
+      aria-label={pinMode ? 'Interactive OpenStreetMap. Drag or use arrow keys to position the pin.' : 'OpenStreetMap route view'}
+      onKeyDown={handleKeyDown}
     >
-      {/* Clean SVG Map Canvas */}
-      <svg
-        viewBox="0 0 1000 700"
-        preserveAspectRatio="xMidYMid slice"
-        style={{
-          width: '100%',
-          height: '100%',
-          display: 'block',
-          transform: cameraTransform,
-          transition: isDraggingMap ? 'none' : 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)',
-        }}
-      >
-        {/* Water / Bay & River */}
-        <path d="M 0 0 L 1000 0 L 1000 85 Q 720 120 500 72 Q 250 115 0 92 Z" fill="var(--color-map-water)" />
-        <path d="M 520 85 Q 505 260 535 420 Q 550 560 515 700" fill="none" stroke="var(--color-map-water)" strokeWidth="16" />
+      <div ref={mapContainerRef} style={{ width: '100%', height: '100%', zIndex: 1 }} />
 
-        {/* Green Parks & Campuses */}
-        <rect x="425" y="255" width="70" height="58" rx="14" fill="var(--color-map-park)" />
-        <rect x="190" y="485" width="95" height="80" rx="18" fill="var(--color-map-park)" />
-        <rect x="760" y="300" width="110" height="90" rx="16" fill="var(--color-map-park)" />
-
-        {/* Minor Grid Streets */}
-        <g stroke="var(--color-map-road-minor)" strokeWidth="5" fill="none">
-          <path d="M 80 180 H 920" />
-          <path d="M 80 280 H 920" />
-          <path d="M 80 380 H 920" />
-          <path d="M 80 480 H 920" />
-          <path d="M 220 110 V 640" />
-          <path d="M 360 110 V 640" />
-          <path d="M 640 110 V 640" />
-          <path d="M 780 110 V 640" />
-        </g>
-
-        {/* Arterial Roads & Ring Highway */}
-        <path
-          d="M 90 175 L 340 245 L 560 215 L 860 250"
-          fill="none"
-          stroke="var(--color-map-highway)"
-          strokeWidth="12"
-          strokeLinecap="round"
-        />
-        <path
-          d="M 140 530 Q 380 440 500 370 T 850 345"
-          fill="none"
-          stroke="var(--color-map-road)"
-          strokeWidth="11"
-          strokeLinecap="round"
-        />
-        <path
-          d="M 455 120 L 460 360 L 415 580"
-          fill="none"
-          stroke="var(--color-map-road)"
-          strokeWidth="12"
-          strokeLinecap="round"
-        />
-        <path
-          d="M 240 165 L 415 415 L 610 560"
-          fill="none"
-          stroke="var(--color-map-road)"
-          strokeWidth="9"
-          strokeLinecap="round"
-        />
-
-        {/* Subtle District Labels */}
-        {CORPORATE_HUBS.map((hub) => (
-          <g key={hub.name} transform={`translate(${hub.x}, ${hub.y})`}>
-            <circle r="4" fill="var(--color-border)" />
-            <text
-              y="-10"
-              textAnchor="middle"
-              fill="var(--color-map-label)"
-              fontSize="12"
-              fontWeight="600"
-              fontFamily="var(--font-sans)"
-            >
-              {hub.name.split(' ')[0]} {hub.name.split(' ')[1] || ''}
-            </text>
-          </g>
-        ))}
-
-        {/* Route Polyline (4px dark line + white outline) */}
-        {showRoute && destPt && (
-          <>
-            <path
-              d={routePathD}
-              fill="none"
-              stroke="var(--color-route-outline)"
-              strokeWidth="8"
-              strokeLinecap="round"
-            />
-            <path
-              d={routePathD}
-              fill="none"
-              stroke="var(--color-route-line)"
-              strokeWidth="4"
-              strokeLinecap="round"
-            />
-          </>
-        )}
-
-        {/* Pickup Marker (Green Dot) */}
-        {!pinMode && (
-          <g transform={`translate(${pickupPt.x}, ${pickupPt.y})`}>
-            <circle r="14" fill="var(--color-green)" fillOpacity="0.2" />
-            <circle r="8" fill="var(--color-green)" stroke="#ffffff" strokeWidth="3" />
-          </g>
-        )}
-
-        {/* Destination Marker (Red Square) */}
-        {!pinMode && showRoute && destPt && (
-          <g transform={`translate(${destPt.x}, ${destPt.y})`}>
-            <rect x="-11" y="-11" width="22" height="22" rx="6" fill="#ffffff" />
-            <rect x="-7" y="-7" width="14" height="14" rx="3" fill="var(--color-status-red)" />
-          </g>
-        )}
-
-        {/* Assigned Vehicle Marker */}
-        {driverPt && (
-          <g transform={`translate(${driverPt.x}, ${driverPt.y})`}>
-            <circle r="18" fill="var(--color-bg-surface)" stroke="var(--color-green)" strokeWidth="3" />
-            <path d="M0 -8 L7 7 L0 3 L-7 7 Z" fill="var(--color-green)" />
-          </g>
-        )}
-      </svg>
-
-      {/* Waiting Radar Rings centered on Pickup Screen Space */}
+      {/* Pulsing Green Radar Rings when Waiting for Approval (3 rings, 2s loop) */}
       {waitingRadar && (
         <div
           style={{
             position: 'absolute',
             left: '50%',
-            top: '36%',
+            top: '38%',
+            transform: 'translate(-50%, -50%)',
             pointerEvents: 'none',
+            zIndex: 400,
           }}
-          aria-hidden="true"
         >
-          <div className="gf-radar-ring" />
-          <div className="gf-radar-ring" />
-          <div className="gf-radar-ring" />
+          <span className="gf-radar-ring" />
+          <span className="gf-radar-ring gf-radar-ring-2" />
+          <span className="gf-radar-ring gf-radar-ring-3" />
           <div
             style={{
-              position: 'absolute',
-              left: 0,
-              top: 0,
-              transform: 'translate(-50%, -50%)',
               width: '18px',
               height: '18px',
               borderRadius: '9999px',
               background: 'var(--color-green)',
-              border: '3px solid #ffffff',
-              boxShadow: 'var(--shadow-floating)',
+              outline: '3px solid #ffffff',
+              transform: 'translate(-50%, -50%)',
             }}
           />
         </div>
@@ -358,13 +347,14 @@ export const MapView: React.FC<MapViewProps> = ({
           style={{
             position: 'absolute',
             left: '50%',
-            top: '40%',
+            top: '42%',
             transform: 'translate(-50%, -100%)',
             pointerEvents: 'none',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             gap: '8px',
+            zIndex: 450,
           }}
         >
           <div
@@ -377,12 +367,12 @@ export const MapView: React.FC<MapViewProps> = ({
               fontSize: 'var(--text-caption-size)',
               fontWeight: 700,
               whiteSpace: 'nowrap',
-              maxWidth: '240px',
+              maxWidth: '260px',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
             }}
           >
-            {isDraggingMap ? 'Release to drop pin...' : pinnedLabel}
+            {isDraggingMap ? 'Release to set pin...' : pinnedLabel}
           </div>
           <div
             style={{
@@ -415,13 +405,13 @@ export const MapView: React.FC<MapViewProps> = ({
       )}
 
       {/* Distance & Duration Chip when Route is Drawn */}
-      {showRoute && destPt && !pinMode && (
+      {showRoute && effDest && !pinMode && (
         <div
           style={{
             position: 'absolute',
             top: 'calc(var(--space-4) + var(--safe-top))',
             right: 'var(--space-4)',
-            zIndex: 'var(--z-map-overlay)',
+            zIndex: 450,
             background: 'var(--color-bg-surface)',
             color: 'var(--color-text-primary)',
             padding: '8px 14px',
@@ -448,7 +438,7 @@ export const MapView: React.FC<MapViewProps> = ({
             position: 'absolute',
             top: 'calc(var(--space-4) + var(--safe-top))',
             right: 'var(--space-4)',
-            zIndex: 'var(--z-map-overlay)',
+            zIndex: 450,
             background: 'var(--color-bg-surface)',
             color: 'var(--color-text-primary)',
             padding: '8px 14px',
@@ -458,7 +448,7 @@ export const MapView: React.FC<MapViewProps> = ({
             fontWeight: 700,
           }}
         >
-          Driver en route • {driverName}
+          Driver assigned • {driverName}
         </div>
       )}
 
@@ -468,6 +458,7 @@ export const MapView: React.FC<MapViewProps> = ({
           id="map-back-btn"
           type="button"
           className="gf-map-back-btn pressable"
+          style={{ zIndex: 460 }}
           onClick={onBack}
           aria-label="Go back"
         >
@@ -477,7 +468,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
       {/* Connection Required Banner Pill (WEB-03) */}
       {isOffline && (
-        <div className="gf-map-offline-pill" role="alert">
+        <div className="gf-map-offline-pill" style={{ zIndex: 460 }} role="alert">
           <WifiOff size={14} />
           Connection required (WEB-03)
         </div>

@@ -42,7 +42,7 @@ export function getDb(customPath?: string): AppDatabase {
   const resolvedPath =
     customPath ||
     process.env.DB_PATH ||
-    (isVercel ? '/tmp/fleet-management.db' : path.join(process.cwd(), 'data', 'fleet-management.db'));
+    (isVercel ? '/tmp/fleet-management-v2.db' : path.join(process.cwd(), 'data', 'fleet-management-v2.db'));
 
   if (resolvedPath !== ':memory:') {
     const dir = path.dirname(resolvedPath);
@@ -71,7 +71,7 @@ export function getDb(customPath?: string): AppDatabase {
   return db;
 }
 
-export function resetDbForTesting(customPath = ':memory:'): AppDatabase {
+export function resetDbForTesting(customPath = ':memory:', includeTestFixtures = true): AppDatabase {
   if (dbInstance) {
     try {
       dbInstance.close();
@@ -81,6 +81,9 @@ export function resetDbForTesting(customPath = ':memory:'): AppDatabase {
     dbInstance = null;
   }
   dbInstance = getDb(customPath);
+  if (includeTestFixtures) {
+    seedTestFixturesForVitest(dbInstance);
+  }
   return dbInstance;
 }
 
@@ -440,24 +443,28 @@ function initializeSchema(db: AppDatabase) {
   `);
 }
 
+export const COMPANY_GROUPS: ReadonlyArray<readonly [string, string]> = [
+  ['Innovation G', 'INNOV'],
+  ['Management Support G', 'MSUP'],
+  ['Utility & EHS G', 'UEHS'],
+  ['People G', 'PEOPLE'],
+  ['Main Production G', 'MPROD'],
+  ['SMD Production G', 'SMDP'],
+  ['CS G', 'CS'],
+  ['PURCHASING G', 'PURCH'],
+  ['BUSINESS SUPPORT G', 'BSUP'],
+  ['PE G', 'PE'],
+  ['ME G', 'ME'],
+  ['PRODUCTION CONTROL G', 'PCTRL'],
+];
+
 function seedDatabaseIfEmpty(db: AppDatabase) {
   const deptCount = (db.prepare('SELECT COUNT(*) as count FROM departments').get() as { count: number }).count;
-  if (deptCount > 0) return;
-
-  const insertDept = db.prepare('INSERT INTO departments (name, code) VALUES (?, ?)');
-  const depts = [
-    ['Workplace Solution', 'HWS'],
-    ['Operations & Field Services', 'OPS'],
-    ['Engineering & Technology', 'ENG'],
-    ['Finance & Accounting', 'FIN'],
-    ['Human Resources', 'HR'],
-    ['Sales & Marketing', 'SLS'],
-    ['Logistics & Supply Chain', 'LOG'],
-    ['Corporate Legal & Compliance', 'LEG'],
-    ['Executive Office', 'EXEC'],
-  ];
-  for (const [name, code] of depts) {
-    insertDept.run(name, code);
+  if (deptCount === 0) {
+    const insertDept = db.prepare('INSERT INTO departments (name, code) VALUES (?, ?)');
+    for (const [name, code] of COMPANY_GROUPS) {
+      insertDept.run(name, code);
+    }
   }
 
   const insertSetting = db.prepare('INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)');
@@ -467,12 +474,29 @@ function seedDatabaseIfEmpty(db: AppDatabase) {
   insertSetting.run('session_idle_timeout_minutes', '60');
   insertSetting.run('tracking_rule', 'ASSIGNED_TRIP_OR_ACTIVE_DUTY');
 
+  // Create initial Administrator account only once when no users exist in the database
+  const userCount = (db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }).count;
+  if (userCount === 0) {
+    const adminUsername = (process.env.ADMIN_USERNAME || 'admin').trim();
+    const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@123';
+    const adminNickname = (process.env.ADMIN_NICKNAME || 'System Admin').trim();
+
+    db.prepare(`
+      INSERT INTO users (nickname, group_username, password_hash, role, is_department_admin, department_id, approval_status, approved_at, is_active)
+      VALUES (?, ?, ?, 'ADM', 1, 1, 'APPROVED', datetime('now'), 1)
+    `).run(adminNickname, adminUsername, hashPassword(adminPassword));
+  }
+}
+
+function seedTestFixturesForVitest(db: AppDatabase) {
+  const userCount = (db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }).count;
+  if (userCount > 1) return;
+
   const insertUser = db.prepare(`
     INSERT INTO users (nickname, group_username, password_hash, role, is_department_admin, department_id, approval_status, approved_at, is_active)
     VALUES (?, ?, ?, ?, ?, ?, 'APPROVED', datetime('now'), 1)
   `);
 
-  insertUser.run('System Admin', 'admin', hashPassword('Admin@123'), 'ADM', 1, 1);
   insertUser.run('Rina (Fleet Manager)', 'fleetmgr', hashPassword('Fleet@123'), 'FM', 0, 1);
   insertUser.run('Hendra (Head of HWS)', 'hws_head', hashPassword('Hws@123'), 'HWS', 1, 1);
   insertUser.run('Budi Santoso', 'drv_budi', hashPassword('Driver@123'), 'DRV', 0, 2);
@@ -496,13 +520,11 @@ function seedDatabaseIfEmpty(db: AppDatabase) {
     INSERT INTO vehicles (registration_plate, make, model, car_type, year, vin, energy_type, seats, current_odometer, battery_percent, status, last_parking_spot)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Available', ?)
   `);
-  // 5 Gasoline cars
   insertVehicle.run('B 1001 FMS', 'Toyota', 'Camry 2.5 V', 'Executive Sedan', 2024, 'MHF11CAMRY0001001', 'Gasoline', 4, 34200, null, 'Basement B1 - Slot A01');
   insertVehicle.run('B 1002 FMS', 'Toyota', 'Kijang Innova Zenix', 'MPV 7-Seater', 2025, 'MHF11ZENIX0001002', 'Gasoline', 7, 28510, null, 'Basement B1 - Slot A02');
   insertVehicle.run('B 1003 FMS', 'Honda', 'CR-V 1.5 Turbo', 'SUV', 2024, 'MHR11CRV000001003', 'Gasoline', 5, 41890, null, 'Basement B1 - Slot A03');
   insertVehicle.run('B 1004 FMS', 'Mitsubishi', 'Xpander Ultimate', 'MPV 7-Seater', 2025, 'MMB11XPAND0001004', 'Gasoline', 7, 19340, null, 'Basement B1 - Slot A04');
   insertVehicle.run('B 1005 FMS', 'Nissan', 'Serena Highway Star', 'Passenger Van', 2024, 'MNT11SEREN0001005', 'Gasoline', 7, 52100, null, 'Basement B1 - Slot A05');
-  // 3 Electric cars
   insertVehicle.run('B 2001 EV', 'Hyundai', 'Ioniq 5 Signature', 'Electric SUV', 2025, 'KMH11IONIQ0002001', 'Electric', 5, 15620, 88, 'Basement B1 - EV Charger 01');
   insertVehicle.run('B 2002 EV', 'BYD', 'Atto 3 Extended', 'Electric SUV', 2025, 'LC011ATTO30002002', 'Electric', 5, 11400, 92, 'Basement B1 - EV Charger 02');
   insertVehicle.run('B 2003 EV', 'Tesla', 'Model Y Long Range', 'Electric Crossover', 2025, '5YJ11MODLY0002003', 'Electric', 5, 22780, 79, 'Basement B1 - EV Charger 03');

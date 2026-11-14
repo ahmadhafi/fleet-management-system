@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { put, head } from '@vercel/blob';
 
-const DB_FILENAME = 'fleet-management.db';
+const DB_FILENAME = 'fleet-management-v2.db';
 
 export function getResolvedDbPath(): string {
   const isVercel = Boolean(process.env.VERCEL);
@@ -31,7 +31,7 @@ export async function ensureCloudSync(): Promise<void> {
   }
 
   try {
-    const meta = await head(DB_FILENAME).catch(() => null);
+    const meta = await head(DB_FILENAME, { token }).catch(() => null);
     if (meta && meta.downloadUrl) {
       console.log(`[Vercel Blob Sync] Downloading persisted database from ${meta.downloadUrl}...`);
       const resp = await fetch(meta.downloadUrl);
@@ -45,7 +45,7 @@ export async function ensureCloudSync(): Promise<void> {
       }
     }
   } catch (err) {
-    console.warn('[Vercel Blob Sync] Notice on restore (will use seeded database):', (err as Error).message);
+    console.warn('[Vercel Blob Sync] Notice on restore (will use fresh production database):', (err as Error).message);
   }
 }
 
@@ -74,6 +74,7 @@ export function persistDatabaseToCloud(): void {
           access: 'public',
           addRandomSuffix: false,
           allowOverwrite: true,
+          token,
         });
         console.log(`[Vercel Blob Sync] Persisted database (${buffer.length} bytes) to Vercel Blob`);
       }

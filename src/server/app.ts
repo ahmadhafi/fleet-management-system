@@ -230,8 +230,95 @@ export function createApp() {
   });
 
   // ============================================================================
-  // 2. DEPARTMENTS & USERS (ORG-01 to ORG-05 + Admin Account Approval)
+  // 2. GROUPS / DEPARTMENTS & USERS (ORG-01 to ORG-05 + Admin Account Approval)
   // ============================================================================
+
+  // Public active groups list for registration dropdown
+  app.get('/api/public/groups', (_req: Request, res: Response) => {
+    const db = getDb();
+    const groups = db.prepare('SELECT id, name, code, is_active FROM departments WHERE is_active = 1 ORDER BY id ASC').all();
+    res.json({ groups });
+  });
+
+  // OpenStreetMap Nominatim Geocoding & Reverse Geocoding Proxy (with custom User-Agent)
+  app.get('/api/geocode/search', requireAuth, async (req: Request, res: Response) => {
+    const q = String(req.query.q || '').trim();
+    if (!q || q.length < 2) {
+      res.json({ results: [] });
+      return;
+    }
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&q=${encodeURIComponent(q)}`;
+      const resp = await fetch(url, {
+        headers: {
+          'User-Agent': 'GalaxyFleet/2.0 (Corporate Fleet Management System)',
+          'Accept-Language': 'en,id',
+        },
+      });
+      if (!resp.ok) {
+        res.json({ results: [] });
+        return;
+      }
+      const data = (await resp.json()) as Array<any>;
+      const results = (Array.isArray(data) ? data : []).map((item) => {
+        const display = String(item.display_name || '');
+        const primary = item.name || display.split(',')[0] || q;
+        return {
+          place_id: item.place_id,
+          name: String(primary).trim(),
+          address: display,
+          lat: Number(item.lat),
+          lon: Number(item.lon),
+        };
+      });
+      res.json({ results });
+    } catch {
+      res.json({ results: [] });
+    }
+  });
+
+  app.get('/api/geocode/reverse', requireAuth, async (req: Request, res: Response) => {
+    const lat = Number(req.query.lat);
+    const lon = Number(req.query.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      res.status(400).json({ error: 'Valid lat and lon are required' });
+      return;
+    }
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lon))}`;
+      const resp = await fetch(url, {
+        headers: {
+          'User-Agent': 'GalaxyFleet/2.0 (Corporate Fleet Management System)',
+          'Accept-Language': 'en,id',
+        },
+      });
+      if (!resp.ok) {
+        res.json({
+          name: `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+          address: `Coordinates ${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+          lat,
+          lon,
+        });
+        return;
+      }
+      const item = (await resp.json()) as any;
+      const display = String(item.display_name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+      const primary = item.name || display.split(',')[0] || `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+      res.json({
+        name: String(primary).trim(),
+        address: display,
+        lat,
+        lon,
+      });
+    } catch {
+      res.json({
+        name: `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+        address: `Coordinates ${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+        lat,
+        lon,
+      });
+    }
+  });
 
   app.get('/api/departments', requireAuth, (_req: Request, res: Response) => {
     const db = getDb();
@@ -239,12 +326,49 @@ export function createApp() {
     res.json({ departments });
   });
 
+  app.post('/api/departments', requireAuth, requireRoles(['ADM']), (req: Request, res: Response) => {
+    const db = getDb();
+    const { name, code } = req.body ?? {};
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      res.status(400).json({ error: 'Group name is required' });
+      return;
+    }
+    const cleanName = name.trim();
+    const cleanCode = (code ? String(code).trim() : cleanName.replace(/[^A-Za-z0-9]/g, '').slice(0, 8)).toUpperCase() || `GRP${Date.now() % 1000}`;
+    const existing = db.prepare('SELECT id FROM departments WHERE name = ? OR code = ?').get(cleanName, cleanCode);
+    if (existing) {
+      res.status(409).json({ error: 'Group name or code already exists' });
+      return;
+    }
+    const result = db.prepare('INSERT INTO departments (name, code, is_active) VALUES (?, ?, 1)').run(cleanName, cleanCode);
+    const created = db.prepare('SELECT * FROM departments WHERE id = ?').get(Number(result.lastInsertRowid));
+    recordAudit(db, req.user, 'DEPARTMENT_CREATED', 'DEPARTMENT', Number(result.lastInsertRowid), null, created);
+    res.status(201).json({ department: created });
+  });
+
+  app.patch('/api/departments/:id', requireAuth, requireRoles(['ADM']), (req: Request, res: Response) => {
+    const db = getDb();
+    const deptId = Number(req.params.id);
+    const prev = db.prepare('SELECT * FROM departments WHERE id = ?').get(deptId) as { id: number; name: string; code: string; is_active: number } | undefined;
+    if (!prev) {
+      res.status(404).json({ error: 'Group not found' });
+      return;
+    }
+    const nextName = req.body?.name !== undefined ? String(req.body.name).trim() : prev.name;
+    const nextCode = req.body?.code !== undefined ? String(req.body.code).trim().toUpperCase() : prev.code;
+    const nextActive = req.body?.is_active !== undefined ? (req.body.is_active ? 1 : 0) : prev.is_active;
+    db.prepare('UPDATE departments SET name = ?, code = ?, is_active = ? WHERE id = ?').run(nextName, nextCode, nextActive, deptId);
+    const next = db.prepare('SELECT * FROM departments WHERE id = ?').get(deptId);
+    recordAudit(db, req.user, 'DEPARTMENT_UPDATED', 'DEPARTMENT', deptId, prev, next);
+    res.json({ department: next });
+  });
+
   app.post('/api/departments/:id/deactivate', requireAuth, requireRoles(['ADM']), (req: Request, res: Response) => {
     const db = getDb();
     const deptId = Number(req.params.id);
     const prev = db.prepare('SELECT * FROM departments WHERE id = ?').get(deptId);
     if (!prev) {
-      res.status(404).json({ error: 'Department not found' });
+      res.status(404).json({ error: 'Group not found' });
       return;
     }
     db.prepare('UPDATE departments SET is_active = 0 WHERE id = ?').run(deptId);
@@ -597,17 +721,17 @@ export function createApp() {
        WHERE id = ?`
     ).run(
       nextPlate,
-      make !== undefined ? String(make).trim() : prev.make,
-      model !== undefined ? String(model).trim() : prev.model,
-      car_type !== undefined ? String(car_type).trim() : prev.car_type,
-      year !== undefined ? Number(year) : prev.year,
+      make !== undefined ? String(make).trim() : String(prev.make),
+      model !== undefined ? String(model).trim() : String(prev.model),
+      car_type !== undefined ? String(car_type).trim() : String(prev.car_type),
+      year !== undefined ? Number(year) : Number(prev.year),
       nextEnergy,
-      seats !== undefined ? Number(seats) : prev.seats,
-      current_odometer !== undefined ? Number(current_odometer) : prev.current_odometer,
-      battery_percent !== undefined ? (battery_percent === null ? null : Number(battery_percent)) : prev.battery_percent,
+      seats !== undefined ? Number(seats) : Number(prev.seats),
+      current_odometer !== undefined ? Number(current_odometer) : Number(prev.current_odometer),
+      battery_percent !== undefined ? (battery_percent === null ? null : Number(battery_percent)) : (prev.battery_percent === null ? null : Number(prev.battery_percent)),
       nextStatus,
-      standby_reason !== undefined ? standby_reason : prev.standby_reason,
-      last_parking_spot !== undefined ? last_parking_spot : prev.last_parking_spot,
+      standby_reason !== undefined ? (standby_reason === null ? null : String(standby_reason)) : (prev.standby_reason === null ? null : String(prev.standby_reason)),
+      last_parking_spot !== undefined ? (last_parking_spot === null ? null : String(last_parking_spot)) : (prev.last_parking_spot === null ? null : String(prev.last_parking_spot)),
       vehicleId
     );
 
@@ -1289,6 +1413,7 @@ export function createApp() {
     const prev = db.prepare('SELECT * FROM bookings WHERE id = ?').get(bookingId) as
       | {
           id: number;
+          trip_request_id: number | null;
           vehicle_id: number;
           booked_by: number;
           purpose: string;
@@ -1330,6 +1455,19 @@ export function createApp() {
            SET purpose = ?, start_time = ?, end_time = ?, status = ?, cancellation_reason = ?, updated_at = datetime('now')
            WHERE id = ?`
         ).run(nextPurpose, nextStart, nextEnd, nextStatus, req.body?.cancellation_reason ?? null, bookingId);
+
+        if (nextStatus === 'CANCELLED') {
+          db.prepare('UPDATE assignments SET is_current = 0 WHERE booking_id = ?').run(bookingId);
+          if (prev.trip_request_id) {
+            db.prepare('UPDATE assignments SET is_current = 0 WHERE trip_request_id = ?').run(prev.trip_request_id);
+            db.prepare(
+              `UPDATE trip_requests
+               SET status = CASE WHEN status IN ('PENDING_APPROVAL', 'APPROVED') THEN 'CANCELLED' ELSE status END,
+                   updated_at = datetime('now')
+               WHERE id = ?`
+            ).run(prev.trip_request_id);
+          }
+        }
 
         const nextRow = db.prepare('SELECT * FROM bookings WHERE id = ?').get(bookingId);
         db.prepare(
@@ -1859,10 +1997,10 @@ export function createApp() {
        SET litres = ?, cost = ?, odometer_km = ?, station = ?, updated_at = datetime('now')
        WHERE id = ?`
     ).run(
-      litres !== undefined ? Number(litres) : prev.litres,
-      cost !== undefined ? Number(cost) : prev.cost,
-      odometer_km !== undefined ? Number(odometer_km) : prev.odometer_km,
-      station !== undefined ? station : prev.station,
+      litres !== undefined ? Number(litres) : Number(prev.litres),
+      cost !== undefined ? Number(cost) : Number(prev.cost),
+      odometer_km !== undefined ? Number(odometer_km) : Number(prev.odometer_km),
+      station !== undefined ? (station === null ? null : String(station)) : (prev.station === null ? null : String(prev.station)),
       recordId
     );
 
@@ -2059,10 +2197,10 @@ export function createApp() {
        SET cost = ?, status = ?, notes = ?, provider = ?, updated_at = datetime('now')
        WHERE id = ?`
     ).run(
-      cost !== undefined ? Number(cost) : prev.cost,
-      status ?? prev.status,
-      notes !== undefined ? notes : prev.notes,
-      provider ?? prev.provider,
+      cost !== undefined ? Number(cost) : Number(prev.cost),
+      status !== undefined ? String(status) : String(prev.status),
+      notes !== undefined ? (notes === null ? null : String(notes)) : (prev.notes === null ? null : String(prev.notes)),
+      provider !== undefined ? String(provider) : String(prev.provider),
       id
     );
 
@@ -2142,10 +2280,10 @@ export function createApp() {
        SET amount = ?, description = ?, approval_status = ?, reimbursement_status = ?, updated_at = datetime('now')
        WHERE id = ?`
     ).run(
-      amount !== undefined ? Number(amount) : prev.amount,
-      description ?? prev.description,
-      approval_status ?? prev.approval_status,
-      reimbursement_status ?? prev.reimbursement_status,
+      amount !== undefined ? Number(amount) : Number(prev.amount),
+      description !== undefined ? String(description) : String(prev.description),
+      approval_status !== undefined ? String(approval_status) : String(prev.approval_status),
+      reimbursement_status !== undefined ? String(reimbursement_status) : String(prev.reimbursement_status),
       id
     );
 

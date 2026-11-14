@@ -36,7 +36,7 @@ import {
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
 import { AppShell, DesktopPanelNav, AdminShell, type NavSection } from './components/AppShell';
 import { BottomSheet, type SnapPoint } from './components/BottomSheet';
-import { MapView, CORPORATE_HUBS, estimateRouteMetrics } from './components/MapView';
+import { MapView, estimateRouteMetrics, type GeoPlace } from './components/MapView';
 import { RouteFields } from './components/RouteFields';
 import { VehicleArt } from './components/VehicleArt';
 import {
@@ -52,44 +52,22 @@ import {
   ErrorState,
 } from './components/ui';
 
-const REGISTRATION_DEPARTMENTS = [
-  { id: 1, name: 'Workplace Solution (HWS)' },
-  { id: 2, name: 'Operations & Field Services (OPS)' },
-  { id: 3, name: 'Engineering & Technology (ENG)' },
-  { id: 4, name: 'Finance & Accounting (FIN)' },
-  { id: 5, name: 'Human Resources (HR)' },
-  { id: 6, name: 'Sales & Marketing (SLS)' },
-  { id: 7, name: 'Logistics & Supply Chain (LOG)' },
-  { id: 8, name: 'Corporate Legal & Compliance (LEG)' },
-  { id: 9, name: 'Executive Office (EXEC)' },
+const FALLBACK_GROUPS = [
+  { id: 1, name: 'Innovation G', code: 'INNOVATION_G' },
+  { id: 2, name: 'Management Support G', code: 'MGMT_SUPPORT_G' },
+  { id: 3, name: 'Utility & EHS G', code: 'UTILITY_EHS_G' },
+  { id: 4, name: 'People G', code: 'PEOPLE_G' },
+  { id: 5, name: 'Main Production G', code: 'MAIN_PROD_G' },
+  { id: 6, name: 'SMD Production G', code: 'SMD_PROD_G' },
+  { id: 7, name: 'CS G', code: 'CS_G' },
+  { id: 8, name: 'PURCHASING G', code: 'PURCHASING_G' },
+  { id: 9, name: 'BUSINESS SUPPORT G', code: 'BIZ_SUPPORT_G' },
+  { id: 10, name: 'PE G', code: 'PE_G' },
+  { id: 11, name: 'ME G', code: 'ME_G' },
+  { id: 12, name: 'PRODUCTION CONTROL G', code: 'PROD_CONTROL_G' },
 ];
 
 type BookingStep = 'HOME' | 'ROUTE' | 'VEHICLE' | 'SUMMARY' | 'WAITING' | 'IN_TRIP';
-
-const SAVED_PLACES = [
-  { name: 'HQ Tower Lobby', address: 'Jl. Jend. Sudirman Kav. 52, South Jakarta', tag: 'HQ' },
-  { name: 'SCBD District 8', address: 'Senopati Suites, Kebayoran Baru', tag: 'Office' },
-  { name: 'Soekarno-Hatta Terminal 3', address: 'International Airport, Tangerang', tag: 'Airport' },
-  { name: 'Data Center Cibitung', address: 'MM2100 Industrial Town, Bekasi', tag: 'Site' },
-];
-
-const ANNOUNCEMENTS = [
-  {
-    title: 'Zero-Emission EV Pool Ready',
-    body: 'Book our Hyundai Ioniq 5, BYD Atto 3, or Tesla Model Y for city rides.',
-    tag: 'Electric Fleet',
-  },
-  {
-    title: 'Instant Schedule Lock',
-    body: 'Vehicle and driver slots lock immediately on submission to prevent double-booking.',
-    tag: 'Anti-Overlap',
-  },
-  {
-    title: 'Install GalaxyFleet PWA',
-    body: 'Get instant push notifications for approvals, reminders, and driver arrivals.',
-    tag: 'Mobile PWA',
-  },
-];
 
 function getTimeGreeting(): string {
   const hr = new Date().getHours();
@@ -105,6 +83,9 @@ export function App() {
   const [loadingData, setLoadingData] = useState<boolean>(false);
   const [dataError, setDataError] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
+
+  // Official Company Groups (12 Groups)
+  const [groupsList, setGroupsList] = useState<Array<{ id: number; name: string; code?: string; is_active?: number }>>(FALLBACK_GROUPS);
 
   // Theme preference (Light / Dark / System via tokens)
   const [themePref, setThemePref] = useState<'system' | 'light' | 'dark'>(() => {
@@ -122,12 +103,12 @@ export function App() {
     localStorage.setItem('gf_theme_pref', themePref);
   }, [themePref]);
 
-  // Auth screen state (Pure Login vs 4-Field Registration — Revision #2)
+  // Auth screen state (Pure Login vs Registration — Revision #2)
   const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [regNickname, setRegNickname] = useState('');
-  const [regDeptId, setRegDeptId] = useState(3);
+  const [regDeptId, setRegDeptId] = useState(1);
   const [regUsername, setRegUsername] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regRole, setRegRole] = useState<'EMP' | 'DRV'>('EMP');
@@ -156,7 +137,30 @@ export function App() {
   const [summaryPicker, setSummaryPicker] = useState<'PURPOSE' | 'PAX' | 'NOTES' | 'CHARGE' | null>(null);
   const [focusedTripId, setFocusedTripId] = useState<number | null>(null);
 
-  // Core Application Data (Preserved identically)
+  // Live OpenStreetMap Geocoding & User Saved Places
+  const [originCoords, setOriginCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [destCoords, setDestCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [geoResults, setGeoResults] = useState<GeoPlace[]>([]);
+  const [geoLoading, setGeoLoading] = useState<boolean>(false);
+  const [savedPlaces, setSavedPlaces] = useState<GeoPlace[]>(() => {
+    try {
+      const raw = localStorage.getItem('gf_saved_places');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const toggleSavePlace = (place: GeoPlace) => {
+    setSavedPlaces((prev) => {
+      const exists = prev.some((p) => p.name === place.name && p.address === place.address);
+      const next = exists ? prev.filter((p) => !(p.name === place.name && p.address === place.address)) : [place, ...prev];
+      localStorage.setItem('gf_saved_places', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // Core Application Data
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]);
   const [trips, setTrips] = useState<any[]>([]);
@@ -172,27 +176,66 @@ export function App() {
   const [usageAnalytics, setUsageAnalytics] = useState<any>(null);
   const [auditEvents, setAuditEvents] = useState<any[]>([]);
 
-  // Booking Form State (Revision #1 No Self-Drive, Revision #4 Immediate Vehicle/Driver Block)
+  // Booking Form State
   const defaultStart = new Date(Date.now() + 2 * 3600000).toISOString().slice(0, 16);
   const defaultEnd = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 16);
   const [bookPurpose, setBookPurpose] = useState('');
-  const [bookOrigin, setBookOrigin] = useState('HQ Tower Lobby');
+  const [bookOrigin, setBookOrigin] = useState('');
   const [bookDest, setBookDest] = useState('');
   const [bookStart, setBookStart] = useState(defaultStart);
   const [bookEnd, setBookEnd] = useState(defaultEnd);
-  const [bookVehicleId, setBookVehicleId] = useState<number>(1);
-  const [bookDriverId, setBookDriverId] = useState<string>('1');
-  const [bookPax, setBookPax] = useState<number>(2);
+  const [bookVehicleId, setBookVehicleId] = useState<number>(0);
+  const [bookDriverId, setBookDriverId] = useState<string>('');
+  const [bookPax, setBookPax] = useState<number>(1);
   const [bookNotes, setBookNotes] = useState('');
   const [liveAvailability, setLiveAvailability] = useState<{ vehicles: any[]; drivers: any[] } | null>(null);
 
-  // Admin Modals & Editing State (Revision #3 Car Edit & Standby, 360° Vehicle Detail)
+  // Admin Modals & Creation State
   const [editingVehicle, setEditingVehicle] = useState<any | null>(null);
   const [vehicleDetail360, setVehicleDetail360] = useState<any | null>(null);
   const [dispatchModalTrip, setDispatchModalTrip] = useState<any | null>(null);
-  const [dispatchVehicleId, setDispatchVehicleId] = useState<number>(1);
-  const [dispatchDriverId, setDispatchDriverId] = useState<number>(1);
+  const [dispatchVehicleId, setDispatchVehicleId] = useState<number>(0);
+  const [dispatchDriverId, setDispatchDriverId] = useState<string>('');
   const [dispatchDecisionReason, setDispatchDecisionReason] = useState('');
+  const [pendingRoleSelections, setPendingRoleSelections] = useState<Record<number, string>>({});
+
+  // Admin New Vehicle Form
+  const [newVehicleForm, setNewVehicleForm] = useState({
+    registration_plate: '',
+    make: '',
+    model: '',
+    car_type: 'MPV',
+    year: String(new Date().getFullYear()),
+    vin: '',
+    energy_type: 'Gasoline' as 'Gasoline' | 'Electric',
+    seats: '7',
+    current_odometer: '0',
+    battery_percent: '100',
+    last_parking_spot: '',
+  });
+
+  // Admin New Driver Profile Form
+  const [newDriverForm, setNewDriverForm] = useState({
+    user_id: '',
+    full_name: '',
+    licence_number: '',
+    licence_class: 'A',
+    licence_expiry: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+    contact_number: '',
+    availability_status: 'Active',
+  });
+
+  // Admin Direct User Creation Form
+  const [newUserForm, setNewUserForm] = useState({
+    nickname: '',
+    group_username: '',
+    password: '',
+    role: 'EMP',
+    department_id: 1,
+  });
+
+  // Admin New Group Form
+  const [newGroupName, setNewGroupName] = useState('');
 
   // Driver PWA GPS & Trip Action State
   const [gpsNoticeAccepted, setGpsNoticeAccepted] = useState<boolean>(false);
@@ -204,21 +247,21 @@ export function App() {
   const [activeTripParkingInput, setActiveTripParkingInput] = useState<Record<number, string>>({});
 
   // Fleet Ops Sub-forms State
-  const [opsSubTab, setOpsSubTab] = useState<'VEHICLES' | 'DRIVERS' | 'FUEL_EV' | 'MAINTENANCE' | 'EXPENSES' | 'DOCUMENTS'>('VEHICLES');
-  const [fuelForm, setFuelForm] = useState({ vehicle_id: 1, litres: '35', cost: '48.50', odometer_km: '34250', station: 'Shell Kuningan', override_reason: '' });
-  const [evForm, setEvForm] = useState({ vehicle_id: 6, kwh_added: '42', cost: '15.80', battery_start_pct: '25', battery_end_pct: '90', odometer_km: '15660', station: 'SPKLU HQ' });
+  const [opsSubTab, setOpsSubTab] = useState<'VEHICLES' | 'DRIVERS' | 'GROUPS' | 'FUEL_EV' | 'MAINTENANCE' | 'EXPENSES' | 'DOCUMENTS'>('VEHICLES');
+  const [fuelForm, setFuelForm] = useState({ vehicle_id: 0, litres: '', cost: '', odometer_km: '', station: '', override_reason: '' });
+  const [evForm, setEvForm] = useState({ vehicle_id: 0, kwh_added: '', cost: '', battery_start_pct: '20', battery_end_pct: '85', odometer_km: '', station: '' });
   const [maintForm, setMaintForm] = useState({
-    vehicle_id: 1,
-    maintenance_type: 'Periodic 10,000km Service',
+    vehicle_id: 0,
+    maintenance_type: 'Periodic Service',
     applicable_energy_type: 'Both',
     service_date: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 16),
     end_date: new Date(Date.now() + 4 * 86400000).toISOString().slice(0, 16),
-    provider: 'Authorized Service Center',
-    cost: '145.00',
+    provider: '',
+    cost: '',
     blocks_availability: true,
   });
-  const [expForm, setExpForm] = useState({ vehicle_id: 1, category: 'Toll', amount: '12.50', description: 'Inner City Toll Gate' });
-  const [docForm, setDocForm] = useState({ entity_type: 'VEHICLE', entity_id: 1, doc_type: 'Insurance', file_name: 'policy.pdf', expiry_date: '2027-12-31' });
+  const [expForm, setExpForm] = useState({ vehicle_id: 0, category: 'Toll', amount: '', description: '' });
+  const [docForm, setDocForm] = useState({ entity_type: 'VEHICLE', entity_id: 0, doc_type: 'Insurance', file_name: 'policy.pdf', expiry_date: '2027-12-31' });
   const [usagePeriod, setUsagePeriod] = useState<'day' | 'week' | 'month' | 'overall'>('month');
 
   const isPrivileged = user && ['ADM', 'FM', 'HWS'].includes(user.role);
@@ -239,6 +282,16 @@ export function App() {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
 
+    // Load public groups for registration dropdown
+    apiRequest('/api/public/groups')
+      .then((res) => {
+        if (Array.isArray(res.groups) && res.groups.length > 0) {
+          setGroupsList(res.groups);
+          setRegDeptId(res.groups[0].id);
+        }
+      })
+      .catch(() => {});
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
@@ -250,19 +303,35 @@ export function App() {
     setLoadingData(true);
     setDataError(null);
     try {
-      const [vehRes, drvRes, trpRes, bkgRes, ntfRes] = await Promise.all([
+      const [vehRes, drvRes, trpRes, bkgRes, ntfRes, deptRes] = await Promise.all([
         apiRequest('/api/vehicles'),
         apiRequest('/api/drivers'),
         apiRequest('/api/trips'),
         apiRequest('/api/bookings'),
         apiRequest('/api/notifications'),
+        apiRequest('/api/departments'),
       ]);
-      setVehicles(vehRes.vehicles || []);
+      const loadedVehicles = vehRes.vehicles || [];
+      setVehicles(loadedVehicles);
       setDrivers(drvRes.drivers || []);
       setTrips(trpRes.trips || []);
       setBookings(bkgRes.bookings || []);
       setNotifications(ntfRes.notifications || []);
+      if (Array.isArray(deptRes.departments) && deptRes.departments.length > 0) {
+        setGroupsList(deptRes.departments);
+      }
       setIsOffline(false);
+
+      // Default sub-form vehicle IDs when vehicles exist
+      if (loadedVehicles.length > 0) {
+        const firstId = loadedVehicles[0].id;
+        const firstEv = loadedVehicles.find((v: any) => v.energy_type === 'Electric')?.id || firstId;
+        setFuelForm((prev) => ({ ...prev, vehicle_id: prev.vehicle_id || firstId }));
+        setEvForm((prev) => ({ ...prev, vehicle_id: prev.vehicle_id || firstEv }));
+        setMaintForm((prev) => ({ ...prev, vehicle_id: prev.vehicle_id || firstId }));
+        setExpForm((prev) => ({ ...prev, vehicle_id: prev.vehicle_id || firstId }));
+        setDocForm((prev) => ({ ...prev, entity_id: prev.entity_id || firstId }));
+      }
 
       if (['DRV', 'ADM', 'FM'].includes(currentUser.role)) {
         const dspRes = await apiRequest('/api/driver/dispatches');
@@ -331,6 +400,29 @@ export function App() {
       .finally(() => setLoadingAuth(false));
   }, [loadAllData]);
 
+  // Live OpenStreetMap Nominatim address search when typing in RouteFields
+  useEffect(() => {
+    if (bookingStep !== 'ROUTE' || routeTab === 'PIN') return;
+    const queryText = (activeRouteField === 'pickup' ? bookOrigin : bookDest).trim();
+    if (queryText.length < 2) {
+      setGeoResults([]);
+      setGeoLoading(false);
+      return;
+    }
+    setGeoLoading(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(queryText)}`);
+        setGeoResults(res.results || []);
+      } catch {
+        setGeoResults([]);
+      } finally {
+        setGeoLoading(false);
+      }
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [bookingStep, routeTab, activeRouteField, bookOrigin, bookDest]);
+
   // Live availability check when schedule dates change
   useEffect(() => {
     if (!user || !bookStart || !bookEnd) return;
@@ -382,12 +474,9 @@ export function App() {
             const res = await apiRequest('/api/gps/report', {
               method: 'POST',
               body: JSON.stringify({
-                latitude: -6.2249 + (Math.random() - 0.5) * 0.008,
-                longitude: 106.8096 + (Math.random() - 0.5) * 0.008,
-                accuracy_meters: 12.5,
+                permission_state: 'UNAVAILABLE',
                 capture_time: new Date().toISOString(),
-                permission_state: 'GRANTED',
-                phone_state: 'FOREGROUND',
+                phone_state: document.visibilityState === 'visible' ? 'FOREGROUND' : 'BACKGROUND',
               }),
             });
             setLastDriverGpsReport(res.report);
@@ -403,9 +492,12 @@ export function App() {
     if (!gpsReportingActive || !gpsNoticeAccepted) return;
     let wakeLock: any = null;
     if ('wakeLock' in navigator) {
-      (navigator as any).wakeLock.request('screen').then((wl: any) => {
-        wakeLock = wl;
-      }).catch(() => {});
+      (navigator as any).wakeLock
+        .request('screen')
+        .then((wl: any) => {
+          wakeLock = wl;
+        })
+        .catch(() => {});
     }
 
     sendDriverLocationReport('GRANTED');
@@ -421,7 +513,7 @@ export function App() {
     };
   }, [gpsReportingActive, gpsNoticeAccepted, sendDriverLocationReport]);
 
-  // Handlers: Login & Registration
+  // Handlers: Login, Registration & Sign Out
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthMessage(null);
@@ -483,6 +575,7 @@ export function App() {
     }
     setStoredToken(null);
     setUser(null);
+    setStatusBanner(null);
   };
 
   const handleInstallPwa = async () => {
@@ -523,8 +616,8 @@ export function App() {
       await apiRequest('/api/notifications/subscribe', {
         method: 'POST',
         body: JSON.stringify({
-          endpoint: `https://test-push.internal/user-${user.id}`,
-          keys: { p256dh: 'BOr9_test_p256dh_key', auth: 'test_auth_secret' },
+          endpoint: `https://push.galaxyfleet.internal/user-${user.id}`,
+          keys: { p256dh: 'BOr9_push_p256dh_key', auth: 'push_auth_secret' },
         }),
       });
       await apiRequest('/api/notifications/test', {
@@ -552,20 +645,71 @@ export function App() {
     }
   };
 
+  const handleUseCurrentGpsForField = () => {
+    if (!('geolocation' in navigator)) {
+      setStatusBanner({ type: 'warning', text: 'Geolocation is not supported by your browser. Please search or pin on the map.' });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await apiRequest(
+            `/api/geocode/reverse?lat=${encodeURIComponent(pos.coords.latitude)}&lon=${encodeURIComponent(pos.coords.longitude)}`
+          );
+          const place: GeoPlace = res.place || {
+            name: `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`,
+            address: 'Current GPS coordinates',
+            lat: pos.coords.latitude,
+            lon: pos.coords.longitude,
+          };
+          if (activeRouteField === 'pickup') {
+            setBookOrigin(place.name);
+            setOriginCoords({ lat: place.lat, lon: place.lon });
+            setActiveRouteField('destination');
+          } else {
+            setBookDest(place.name);
+            setDestCoords({ lat: place.lat, lon: place.lon });
+          }
+        } catch {
+          const fallback = `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
+          if (activeRouteField === 'pickup') {
+            setBookOrigin(fallback);
+            setOriginCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+          } else {
+            setBookDest(fallback);
+            setDestCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+          }
+        }
+      },
+      () => {
+        setStatusBanner({ type: 'warning', text: 'Unable to read GPS position. Type an address or use Pin on map.' });
+      },
+      { enableHighAccuracy: true, timeout: 6000 }
+    );
+  };
+
   const handleCreateTripBooking = async () => {
     setStatusBanner(null);
+    if (!selectedVehicle) {
+      setStatusBanner({ type: 'danger', text: 'Please select an available vehicle first.' });
+      return;
+    }
+    if (!bookOrigin.trim() || !bookDest.trim()) {
+      setStatusBanner({ type: 'danger', text: 'Please enter both pickup and destination locations.' });
+      return;
+    }
     const startIso = scheduleMode === 'NOW' ? new Date(Date.now() + 5 * 60000).toISOString() : new Date(bookStart).toISOString();
     const endIso = scheduleMode === 'NOW' ? new Date(Date.now() + 125 * 60000).toISOString() : new Date(bookEnd).toISOString();
-    const effectivePurpose = bookPurpose.trim() || 'Business Trip';
+    const effectivePurpose = bookPurpose.trim() || 'Company Business Trip';
 
     try {
       const created = await apiRequest('/api/trips', {
         method: 'POST',
         body: JSON.stringify({
-          vehicle_id: Number(bookVehicleId),
+          vehicle_id: Number(selectedVehicle.id),
           preferred_driver_id: bookDriverId ? Number(bookDriverId) : null,
           purpose: effectivePurpose,
-          origin: bookOrigin.trim() || 'HQ Tower Lobby',
+          origin: bookOrigin.trim(),
           destination: bookDest.trim(),
           start_time: startIso,
           end_time: endIso,
@@ -640,8 +784,8 @@ export function App() {
         body: JSON.stringify({
           decision,
           reason: dispatchDecisionReason || (decision === 'APPROVED' ? 'Approved and dispatched by Admin' : ''),
-          vehicle_id: Number(dispatchVehicleId),
-          driver_profile_id: Number(dispatchDriverId),
+          vehicle_id: Number(dispatchVehicleId || dispatchModalTrip.vehicle_id),
+          driver_profile_id: dispatchDriverId ? Number(dispatchDriverId) : null,
         }),
       });
       setDispatchModalTrip(null);
@@ -653,6 +797,45 @@ export function App() {
             ? `Trip #${dispatchModalTrip.id} approved and dispatched!`
             : `Trip #${dispatchModalTrip.id} rejected and vehicle schedule slot released.`,
       });
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message });
+    }
+  };
+
+  const handleCreateVehicle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await apiRequest('/api/vehicles', {
+        method: 'POST',
+        body: JSON.stringify({
+          registration_plate: newVehicleForm.registration_plate.trim(),
+          make: newVehicleForm.make.trim(),
+          model: newVehicleForm.model.trim(),
+          car_type: newVehicleForm.car_type.trim() || 'MPV',
+          year: Number(newVehicleForm.year) || new Date().getFullYear(),
+          vin: newVehicleForm.vin.trim() || `VIN-${Date.now()}`,
+          energy_type: newVehicleForm.energy_type,
+          seats: Number(newVehicleForm.seats) || 5,
+          current_odometer: Number(newVehicleForm.current_odometer) || 0,
+          battery_percent: newVehicleForm.energy_type === 'Electric' ? Number(newVehicleForm.battery_percent || 100) : null,
+          last_parking_spot: newVehicleForm.last_parking_spot.trim() || 'Main Pool',
+        }),
+      });
+      setNewVehicleForm({
+        registration_plate: '',
+        make: '',
+        model: '',
+        car_type: 'MPV',
+        year: String(new Date().getFullYear()),
+        vin: '',
+        energy_type: 'Gasoline',
+        seats: '7',
+        current_odometer: '0',
+        battery_percent: '100',
+        last_parking_spot: '',
+      });
+      setStatusBanner({ type: 'success', text: 'New vehicle registered in fleet.' });
       await loadAllData(user);
     } catch (err: any) {
       setStatusBanner({ type: 'danger', text: err.message });
@@ -687,6 +870,80 @@ export function App() {
     }
   };
 
+  const handleSaveDriverProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await apiRequest('/api/drivers', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: newDriverForm.user_id ? Number(newDriverForm.user_id) : null,
+          full_name: newDriverForm.full_name.trim(),
+          licence_number: newDriverForm.licence_number.trim(),
+          licence_class: newDriverForm.licence_class.trim() || 'A',
+          licence_expiry: newDriverForm.licence_expiry,
+          contact_number: newDriverForm.contact_number.trim() || '-',
+          availability_status: newDriverForm.availability_status,
+        }),
+      });
+      setNewDriverForm({
+        user_id: '',
+        full_name: '',
+        licence_number: '',
+        licence_class: 'A',
+        licence_expiry: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+        contact_number: '',
+        availability_status: 'Active',
+      });
+      setStatusBanner({ type: 'success', text: 'Driver profile saved.' });
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message });
+    }
+  };
+
+  const handleCreateUserByAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await apiRequest('/api/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          nickname: newUserForm.nickname.trim(),
+          group_username: newUserForm.group_username.trim(),
+          password: newUserForm.password,
+          role: newUserForm.role,
+          department_id: Number(newUserForm.department_id),
+        }),
+      });
+      setNewUserForm({
+        nickname: '',
+        group_username: '',
+        password: '',
+        role: 'EMP',
+        department_id: groupsList[0]?.id || 1,
+      });
+      setStatusBanner({ type: 'success', text: 'Approved user account created.' });
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message });
+    }
+  };
+
+  const handleCreateGroup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newGroupName.trim()) return;
+    try {
+      await apiRequest('/api/departments', {
+        method: 'POST',
+        body: JSON.stringify({ name: newGroupName.trim() }),
+      });
+      setNewGroupName('');
+      setStatusBanner({ type: 'success', text: 'Group added.' });
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message });
+    }
+  };
+
   const openVehicle360 = async (vehicleId: number) => {
     try {
       const detail = await apiRequest(`/api/vehicles/${vehicleId}`);
@@ -697,7 +954,7 @@ export function App() {
   };
 
   // Filtered availability vehicles & derived active trip
-  const rawAvailVehicles = liveAvailability?.vehicles || vehicles;
+  const rawAvailVehicles = liveAvailability?.vehicles?.length ? liveAvailability.vehicles : vehicles;
   const filteredVehicles = useMemo(() => {
     if (vehicleFilter === 'Electric') return rawAvailVehicles.filter((v) => v.energy_type === 'Electric');
     if (vehicleFilter === 'MPV') return rawAvailVehicles.filter((v) => String(v.car_type).toLowerCase().includes('mpv') || v.seats >= 7);
@@ -705,7 +962,7 @@ export function App() {
   }, [rawAvailVehicles, vehicleFilter]);
 
   const selectedVehicle = useMemo(
-    () => rawAvailVehicles.find((v) => v.id === Number(bookVehicleId)) || filteredVehicles[0] || rawAvailVehicles[0],
+    () => rawAvailVehicles.find((v) => v.id === Number(bookVehicleId)) || filteredVehicles[0] || rawAvailVehicles[0] || null,
     [rawAvailVehicles, filteredVehicles, bookVehicleId]
   );
 
@@ -746,11 +1003,51 @@ export function App() {
     [trips, focusedTripId, ongoingTrips]
   );
 
+  // Real user recent destinations from their actual trip history (no dummy places)
   const recentDestinationChips = useMemo(() => {
-    const fromHistory = Array.from(new Set(trips.map((t) => String(t.destination)).filter(Boolean)));
-    const defaults = ['SCBD District 8', 'Soekarno-Hatta Terminal 3', 'Data Center Cibitung', 'BSD Green Office Park', 'Tangerang Logistics Hub'];
-    return Array.from(new Set([...fromHistory, ...defaults])).slice(0, 5);
+    return Array.from(new Set(trips.map((t) => String(t.destination || '').trim()).filter(Boolean))).slice(0, 6);
   }, [trips]);
+
+  const recentPlacesList = useMemo<GeoPlace[]>(() => {
+    const map = new Map<string, GeoPlace>();
+    for (const t of trips) {
+      const dest = String(t.destination || '').trim();
+      if (dest && !map.has(dest)) {
+        map.set(dest, { name: dest, address: `Trip #${t.id} • ${t.purpose || 'Previous ride'}`, lat: -6.2088, lon: 106.8456 });
+      }
+      const orig = String(t.origin || '').trim();
+      if (orig && !map.has(orig)) {
+        map.set(orig, { name: orig, address: `Pickup • Trip #${t.id}`, lat: -6.2088, lon: 106.8456 });
+      }
+    }
+    return Array.from(map.values());
+  }, [trips]);
+
+  // Real live system status cards for Home carousel (zero fake announcements)
+  const liveOverviewCards = useMemo(() => {
+    const availCars = vehicles.filter((v) => v.status === 'Available').length;
+    const evCars = vehicles.filter((v) => v.energy_type === 'Electric' && v.status === 'Available').length;
+    return [
+      {
+        tag: 'Fleet Status',
+        title: vehicles.length > 0 ? `${availCars} of ${vehicles.length} Vehicles Available` : 'Fleet Ready for Registration',
+        body:
+          vehicles.length > 0
+            ? `${evCars} Electric and ${Math.max(0, availCars - evCars)} Gasoline vehicles ready for booking.`
+            : 'Administrators can register company vehicles and drivers in the Admin Console.',
+      },
+      {
+        tag: 'Schedule Protection',
+        title: 'Instant Schedule Lock',
+        body: 'Vehicle and driver time slots lock immediately on submission to prevent double-booking.',
+      },
+      {
+        tag: 'Mobile PWA',
+        title: 'Push Alerts & Reminders',
+        body: 'Enable push notifications to receive instant booking approvals, dispatch updates, and trip reminders.',
+      },
+    ];
+  }, [vehicles]);
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
   const pendingUsers = usersList.filter((u) => u.approval_status === 'PENDING_APPROVAL');
@@ -770,7 +1067,7 @@ export function App() {
   }
 
   // ============================================================================
-  // UNAUTHENTICATED SCREEN: PURE LOGIN & 4-FIELD REGISTRATION (Revision #2)
+  // UNAUTHENTICATED SCREEN: PURE LOGIN & 4-FIELD REGISTRATION (Zero Dummy Data)
   // ============================================================================
   if (!user) {
     return (
@@ -841,7 +1138,7 @@ export function App() {
                   type="text"
                   autoComplete="username"
                   required
-                  placeholder="e.g., admin, drv_budi, emp_alex"
+                  placeholder="Enter your group username"
                   value={loginUsername}
                   onChange={(e) => setLoginUsername(e.target.value)}
                 />
@@ -864,26 +1161,6 @@ export function App() {
               <button id="login-submit-btn" type="submit" className="gf-btn gf-btn-primary gf-btn-full">
                 Sign In to GalaxyFleet
               </button>
-
-              <div
-                style={{
-                  marginTop: '8px',
-                  padding: '12px 14px',
-                  background: 'var(--color-bg-subtle)',
-                  borderRadius: 'var(--radius-control)',
-                }}
-              >
-                <div className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: '6px' }}>
-                  Test Accounts:
-                </div>
-                <div className="mono type-caption" style={{ display: 'grid', gap: '4px' }}>
-                  <div>• Admin: <strong>admin</strong> / <strong>Admin@123</strong></div>
-                  <div>• Fleet Mgr: <strong>fleetmgr</strong> / <strong>Fleet@123</strong></div>
-                  <div>• Approver: <strong>hws_head</strong> / <strong>Hws@123</strong></div>
-                  <div>• Driver: <strong>drv_budi</strong> / <strong>Driver@123</strong></div>
-                  <div>• Employee: <strong>emp_alex</strong> / <strong>Emp@123</strong></div>
-                </div>
-              </div>
             </form>
           ) : (
             <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -896,7 +1173,7 @@ export function App() {
                   color: 'var(--color-text-secondary)',
                 }}
               >
-                <strong>Privacy-First Registration:</strong> Only nickname, department, group username & password needed. Admin approval required before sign-in.
+                <strong>Account Registration:</strong> Enter your nickname, group, group username & password. Administrator approval is required before sign-in.
               </div>
 
               <div>
@@ -908,7 +1185,7 @@ export function App() {
                   className="gf-input"
                   type="text"
                   required
-                  placeholder="e.g., Kevin"
+                  placeholder="Enter your nickname"
                   value={regNickname}
                   onChange={(e) => setRegNickname(e.target.value)}
                 />
@@ -916,12 +1193,12 @@ export function App() {
 
               <div>
                 <label className="type-caption" htmlFor="reg-dept" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Department
+                  Group
                 </label>
                 <select id="reg-dept" className="gf-select" value={regDeptId} onChange={(e) => setRegDeptId(Number(e.target.value))}>
-                  {REGISTRATION_DEPARTMENTS.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
+                  {groupsList.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
                     </option>
                   ))}
                 </select>
@@ -936,7 +1213,7 @@ export function App() {
                   className="gf-input"
                   type="text"
                   required
-                  placeholder="e.g., eng_kevin"
+                  placeholder="Enter your group username"
                   value={regUsername}
                   onChange={(e) => setRegUsername(e.target.value)}
                 />
@@ -1054,7 +1331,7 @@ export function App() {
                 <input
                   type="text"
                   className="gf-input"
-                  placeholder="e.g., Reserved for Board VIP Visit"
+                  placeholder="e.g., Reserved for VIP Visit"
                   value={editingVehicle.standby_reason || ''}
                   onChange={(e) => setEditingVehicle({ ...editingVehicle, standby_reason: e.target.value })}
                 />
@@ -1099,9 +1376,10 @@ export function App() {
               </div>
               <div>
                 <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Assigned Driver</label>
-                <select className="gf-select" value={dispatchDriverId} onChange={(e) => setDispatchDriverId(Number(e.target.value))}>
+                <select className="gf-select" value={dispatchDriverId} onChange={(e) => setDispatchDriverId(e.target.value)}>
+                  <option value="">No driver assigned yet (Vehicle only / Assign later)</option>
                   {drivers.map((d) => (
-                    <option key={d.id} value={d.id}>
+                    <option key={d.id} value={String(d.id)}>
                       {d.full_name} (Class {d.licence_class} • {d.availability_status})
                     </option>
                   ))}
@@ -1188,11 +1466,14 @@ export function App() {
           }}
           onSwitchToDriverDispatch={() => {
             setNavSection('DRIVER');
-            setSheetSnap('half');
+            setSheetSnap('full');
           }}
+          onSignOut={handleLogout}
           pendingCount={pendingTrips.length + pendingUsers.length}
           userNickname={user.nickname}
           userRole={user.role}
+          vehicleCount={vehicles.length}
+          groupCount={groupsList.length}
         >
           {isOffline && <ErrorState message="Connection required (WEB-03). Fleet mutations require active network connectivity." />}
           {statusBanner && (
@@ -1220,7 +1501,7 @@ export function App() {
               <section className="gf-card-flat">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                   <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <UserCheck size={18} /> Account Registrations ({pendingUsers.length})
+                    <UserCheck size={18} /> Pending Account Registrations ({pendingUsers.length})
                   </h2>
                   <button
                     type="button"
@@ -1244,30 +1525,46 @@ export function App() {
                         <tr>
                           <th>Nickname</th>
                           <th>Group Username</th>
-                          <th>Department</th>
-                          <th>Requested Role</th>
+                          <th>Group</th>
+                          <th>Assign Role</th>
                           <th>Action</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {pendingUsers.map((u) => (
-                          <tr key={u.id}>
-                            <td style={{ fontWeight: 700 }}>{u.nickname}</td>
-                            <td className="mono">@{u.group_username}</td>
-                            <td>{u.department_name}</td>
-                            <td><StatusBadge label={u.role} tone="amber" /></td>
-                            <td>
-                              <div style={{ display: 'flex', gap: '8px' }}>
-                                <button type="button" className="gf-btn gf-btn-primary" onClick={() => handleApproveUser(u.id, true, u.role)}>
-                                  Approve
-                                </button>
-                                <button type="button" className="gf-btn gf-btn-outline-danger" onClick={() => handleApproveUser(u.id, false, u.role)}>
-                                  Reject
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
+                        {pendingUsers.map((u) => {
+                          const roleVal = pendingRoleSelections[u.id] || u.role || 'EMP';
+                          return (
+                            <tr key={u.id}>
+                              <td style={{ fontWeight: 700 }}>{u.nickname}</td>
+                              <td className="mono">@{u.group_username}</td>
+                              <td>{u.department_name}</td>
+                              <td>
+                                <select
+                                  className="gf-select"
+                                  style={{ minHeight: '38px', padding: '0 10px' }}
+                                  value={roleVal}
+                                  onChange={(e) => setPendingRoleSelections({ ...pendingRoleSelections, [u.id]: e.target.value })}
+                                >
+                                  <option value="EMP">EMP (Employee)</option>
+                                  <option value="DRV">DRV (Driver)</option>
+                                  <option value="FM">FM (Fleet Manager)</option>
+                                  <option value="HWS">HWS (Approver)</option>
+                                  <option value="ADM">ADM (Admin)</option>
+                                </select>
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  <button type="button" className="gf-btn gf-btn-primary" onClick={() => handleApproveUser(u.id, true, roleVal)}>
+                                    Approve
+                                  </button>
+                                  <button type="button" className="gf-btn gf-btn-outline-danger" onClick={() => handleApproveUser(u.id, false, roleVal)}>
+                                    Reject
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1278,52 +1575,134 @@ export function App() {
                 <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
                   <ShieldCheck size={18} /> Vehicle Bookings & Dispatch Queue ({trips.length})
                 </h2>
+                {trips.length === 0 ? (
+                  <EmptyState message="No vehicle bookings submitted yet." />
+                ) : (
+                  <div className="gf-table-wrap">
+                    <table className="gf-table">
+                      <thead>
+                        <tr>
+                          <th>ID & Purpose</th>
+                          <th>Requester & Group</th>
+                          <th>Window</th>
+                          <th>Vehicle & Driver</th>
+                          <th>Status</th>
+                          <th>Control</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {trips.map((t) => (
+                          <tr key={t.id}>
+                            <td>
+                              <div style={{ fontWeight: 700 }}>#{t.id} — {t.purpose}</div>
+                              <div className="type-caption">{t.origin} → {t.destination} ({t.passenger_count} pax)</div>
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600 }}>{t.requester_name}</div>
+                              <div className="type-caption">{t.department_name}</div>
+                            </td>
+                            <td className="mono type-caption">
+                              <div>{new Date(t.start_time).toLocaleString()}</div>
+                              <div>{new Date(t.end_time).toLocaleTimeString()}</div>
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 700 }}>{t.registration_plate}</div>
+                              <div className="type-caption">Driver: {t.assigned_driver_name || 'Unassigned'}</div>
+                            </td>
+                            <td><StatusBadge label={t.status} tone={toneFromStatus(t.status)} /></td>
+                            <td>
+                              <button
+                                type="button"
+                                className="gf-btn gf-btn-primary"
+                                onClick={() => {
+                                  setDispatchModalTrip(t);
+                                  setDispatchVehicleId(t.vehicle_id);
+                                  const defaultDrv = t.driver_profile_id || t.preferred_driver_id || drivers[0]?.id || '';
+                                  setDispatchDriverId(defaultDrv ? String(defaultDrv) : '');
+                                  setDispatchDecisionReason('');
+                                }}
+                              >
+                                {t.status === 'PENDING_APPROVAL' ? 'Review & Dispatch' : 'Manage'}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+
+              <section className="gf-card-flat">
+                <h2 className="type-section" style={{ marginBottom: '12px' }}>Create Approved User Account</h2>
+                <form onSubmit={handleCreateUserByAdmin} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+                  <input
+                    type="text"
+                    className="gf-input"
+                    required
+                    placeholder="Nickname"
+                    value={newUserForm.nickname}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, nickname: e.target.value })}
+                  />
+                  <input
+                    type="text"
+                    className="gf-input"
+                    required
+                    placeholder="Group Username"
+                    value={newUserForm.group_username}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, group_username: e.target.value })}
+                  />
+                  <input
+                    type="password"
+                    className="gf-input"
+                    required
+                    minLength={6}
+                    placeholder="Password (min 6 chars)"
+                    value={newUserForm.password}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
+                  />
+                  <select
+                    className="gf-select"
+                    value={newUserForm.department_id}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, department_id: Number(e.target.value) })}
+                  >
+                    {groupsList.map((g) => (
+                      <option key={g.id} value={g.id}>{g.name}</option>
+                    ))}
+                  </select>
+                  <select
+                    className="gf-select"
+                    value={newUserForm.role}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
+                  >
+                    <option value="EMP">EMP (Employee)</option>
+                    <option value="DRV">DRV (Driver)</option>
+                    <option value="FM">FM (Fleet Manager)</option>
+                    <option value="HWS">HWS (Approver)</option>
+                    <option value="ADM">ADM (Admin)</option>
+                  </select>
+                  <button type="submit" className="gf-btn gf-btn-primary">Create User</button>
+                </form>
+
                 <div className="gf-table-wrap">
                   <table className="gf-table">
                     <thead>
                       <tr>
-                        <th>ID & Purpose</th>
-                        <th>Requester & Dept</th>
-                        <th>Window</th>
-                        <th>Vehicle & Driver</th>
+                        <th>Nickname</th>
+                        <th>Username</th>
+                        <th>Group</th>
+                        <th>Role</th>
                         <th>Status</th>
-                        <th>Control</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {trips.map((t) => (
-                        <tr key={t.id}>
-                          <td>
-                            <div style={{ fontWeight: 700 }}>#{t.id} — {t.purpose}</div>
-                            <div className="type-caption">{t.origin} → {t.destination} ({t.passenger_count} pax)</div>
-                          </td>
-                          <td>
-                            <div style={{ fontWeight: 600 }}>{t.requester_name}</div>
-                            <div className="type-caption">{t.department_name}</div>
-                          </td>
-                          <td className="mono type-caption">
-                            <div>{new Date(t.start_time).toLocaleString()}</div>
-                            <div>{new Date(t.end_time).toLocaleTimeString()}</div>
-                          </td>
-                          <td>
-                            <div style={{ fontWeight: 700 }}>{t.registration_plate}</div>
-                            <div className="type-caption">Driver: {t.assigned_driver_name || 'Unassigned'}</div>
-                          </td>
-                          <td><StatusBadge label={t.status} tone={toneFromStatus(t.status)} /></td>
-                          <td>
-                            <button
-                              type="button"
-                              className="gf-btn gf-btn-primary"
-                              onClick={() => {
-                                setDispatchModalTrip(t);
-                                setDispatchVehicleId(t.vehicle_id);
-                                setDispatchDriverId(t.driver_profile_id || t.preferred_driver_id || 1);
-                                setDispatchDecisionReason('');
-                              }}
-                            >
-                              {t.status === 'PENDING_APPROVAL' ? 'Review & Dispatch' : 'Manage'}
-                            </button>
-                          </td>
+                      {usersList.map((u) => (
+                        <tr key={u.id}>
+                          <td style={{ fontWeight: 700 }}>{u.nickname}</td>
+                          <td className="mono">@{u.group_username}</td>
+                          <td>{u.department_name}</td>
+                          <td><StatusBadge label={u.role} tone="green" /></td>
+                          <td><StatusBadge label={u.approval_status} tone={toneFromStatus(u.approval_status)} /></td>
                         </tr>
                       ))}
                     </tbody>
@@ -1336,7 +1715,7 @@ export function App() {
           {adminModule === 'FLEET_OPS' && (
             <>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {(['VEHICLES', 'DRIVERS', 'FUEL_EV', 'MAINTENANCE', 'EXPENSES', 'DOCUMENTS'] as const).map((sub) => (
+                {(['VEHICLES', 'DRIVERS', 'GROUPS', 'FUEL_EV', 'MAINTENANCE', 'EXPENSES', 'DOCUMENTS'] as const).map((sub) => (
                   <Chip key={sub} active={opsSubTab === sub} onClick={() => setOpsSubTab(sub)}>
                     {sub.replace('_', ' & ')}
                   </Chip>
@@ -1345,80 +1724,298 @@ export function App() {
 
               {opsSubTab === 'VEHICLES' && (
                 <section className="gf-card-flat">
-                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Fleet Register (8 Cars — Edit Plate, Type & Standby)</h2>
-                  <div className="gf-table-wrap">
-                    <table className="gf-table">
-                      <thead>
-                        <tr>
-                          <th>Plate</th>
-                          <th>Model</th>
-                          <th>Type</th>
-                          <th>Energy</th>
-                          <th>Odometer</th>
-                          <th>Status</th>
-                          <th>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {vehicles.map((v) => (
-                          <tr key={v.id}>
-                            <td className="mono" style={{ fontWeight: 700 }}>{v.registration_plate}</td>
-                            <td>
-                              <div style={{ fontWeight: 700 }}>{v.make} {v.model}</div>
-                              <div className="type-caption">{v.seats} seats • VIN {v.vin}</div>
-                            </td>
-                            <td>{v.car_type}</td>
-                            <td>
-                              <StatusBadge
-                                label={v.energy_type === 'Electric' ? `EV ${v.battery_percent ?? 100}%` : 'Gasoline'}
-                                tone={v.energy_type === 'Electric' ? 'green' : 'neutral'}
-                              />
-                            </td>
-                            <td className="mono">{v.current_odometer.toLocaleString()} km</td>
-                            <td>
-                              <StatusBadge label={v.status} tone={toneFromStatus(v.status)} />
-                              {v.standby_reason && <div className="type-caption">{v.standby_reason}</div>}
-                            </td>
-                            <td>
-                              <div style={{ display: 'flex', gap: '8px' }}>
-                                <button type="button" className="gf-btn gf-btn-secondary" onClick={() => setEditingVehicle({ ...v })}>
-                                  <Edit3 size={15} /> Edit
-                                </button>
-                                <button type="button" className="gf-btn gf-btn-primary" onClick={() => openVehicle360(v.id)}>
-                                  360°
-                                </button>
-                              </div>
-                            </td>
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Register New Vehicle</h2>
+                  <form onSubmit={handleCreateVehicle} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', marginBottom: '20px', paddingBottom: '16px', borderBottom: '1px solid var(--color-divider)' }}>
+                    <input
+                      type="text"
+                      className="gf-input"
+                      required
+                      placeholder="License Plate (e.g. B 1001 GF)"
+                      value={newVehicleForm.registration_plate}
+                      onChange={(e) => setNewVehicleForm({ ...newVehicleForm, registration_plate: e.target.value })}
+                    />
+                    <input
+                      type="text"
+                      className="gf-input"
+                      required
+                      placeholder="Make (e.g. Toyota)"
+                      value={newVehicleForm.make}
+                      onChange={(e) => setNewVehicleForm({ ...newVehicleForm, make: e.target.value })}
+                    />
+                    <input
+                      type="text"
+                      className="gf-input"
+                      required
+                      placeholder="Model (e.g. Innova Zenix)"
+                      value={newVehicleForm.model}
+                      onChange={(e) => setNewVehicleForm({ ...newVehicleForm, model: e.target.value })}
+                    />
+                    <input
+                      type="text"
+                      className="gf-input"
+                      required
+                      placeholder="Car Type (MPV / SUV / Sedan)"
+                      value={newVehicleForm.car_type}
+                      onChange={(e) => setNewVehicleForm({ ...newVehicleForm, car_type: e.target.value })}
+                    />
+                    <select
+                      className="gf-select"
+                      value={newVehicleForm.energy_type}
+                      onChange={(e) => setNewVehicleForm({ ...newVehicleForm, energy_type: e.target.value as 'Gasoline' | 'Electric' })}
+                    >
+                      <option value="Gasoline">Gasoline</option>
+                      <option value="Electric">Electric (EV)</option>
+                    </select>
+                    <input
+                      type="number"
+                      className="gf-input"
+                      min={1}
+                      max={20}
+                      placeholder="Seats"
+                      value={newVehicleForm.seats}
+                      onChange={(e) => setNewVehicleForm({ ...newVehicleForm, seats: e.target.value })}
+                    />
+                    <input
+                      type="number"
+                      className="gf-input"
+                      min={0}
+                      placeholder="Odometer (km)"
+                      value={newVehicleForm.current_odometer}
+                      onChange={(e) => setNewVehicleForm({ ...newVehicleForm, current_odometer: e.target.value })}
+                    />
+                    {newVehicleForm.energy_type === 'Electric' && (
+                      <input
+                        type="number"
+                        className="gf-input"
+                        min={0}
+                        max={100}
+                        placeholder="Battery %"
+                        value={newVehicleForm.battery_percent}
+                        onChange={(e) => setNewVehicleForm({ ...newVehicleForm, battery_percent: e.target.value })}
+                      />
+                    )}
+                    <input
+                      type="text"
+                      className="gf-input"
+                      placeholder="Parking Spot"
+                      value={newVehicleForm.last_parking_spot}
+                      onChange={(e) => setNewVehicleForm({ ...newVehicleForm, last_parking_spot: e.target.value })}
+                    />
+                    <button type="submit" className="gf-btn gf-btn-primary">
+                      <Plus size={16} /> Add Vehicle
+                    </button>
+                  </form>
+
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Fleet Register ({vehicles.length} Cars — Edit Plate, Type & Standby)</h2>
+                  {vehicles.length === 0 ? (
+                    <EmptyState message="No vehicles in the fleet yet. Use the form above to add your first car." />
+                  ) : (
+                    <div className="gf-table-wrap">
+                      <table className="gf-table">
+                        <thead>
+                          <tr>
+                            <th>Plate</th>
+                            <th>Model</th>
+                            <th>Type</th>
+                            <th>Energy</th>
+                            <th>Odometer</th>
+                            <th>Status</th>
+                            <th>Actions</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {vehicles.map((v) => (
+                            <tr key={v.id}>
+                              <td className="mono" style={{ fontWeight: 700 }}>{v.registration_plate}</td>
+                              <td>
+                                <div style={{ fontWeight: 700 }}>{v.make} {v.model}</div>
+                                <div className="type-caption">{v.seats} seats • VIN {v.vin}</div>
+                              </td>
+                              <td>{v.car_type}</td>
+                              <td>
+                                <StatusBadge
+                                  label={v.energy_type === 'Electric' ? `EV ${v.battery_percent ?? 100}%` : 'Gasoline'}
+                                  tone={v.energy_type === 'Electric' ? 'green' : 'neutral'}
+                                />
+                              </td>
+                              <td className="mono">{Number(v.current_odometer || 0).toLocaleString()} km</td>
+                              <td>
+                                <StatusBadge label={v.status} tone={toneFromStatus(v.status)} />
+                                {v.standby_reason && <div className="type-caption">{v.standby_reason}</div>}
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  <button type="button" className="gf-btn gf-btn-secondary" onClick={() => setEditingVehicle({ ...v })}>
+                                    <Edit3 size={15} /> Edit
+                                  </button>
+                                  <button type="button" className="gf-btn gf-btn-primary" onClick={() => openVehicle360(v.id)}>
+                                    360°
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </section>
               )}
 
               {opsSubTab === 'DRIVERS' && (
                 <section className="gf-card-flat">
-                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Driver Profiles</h2>
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Register / Update Driver Profile</h2>
+                  <form onSubmit={handleSaveDriverProfile} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', marginBottom: '20px', paddingBottom: '16px', borderBottom: '1px solid var(--color-divider)' }}>
+                    <select
+                      className="gf-select"
+                      value={newDriverForm.user_id}
+                      onChange={(e) => {
+                        const uid = e.target.value;
+                        const found = usersList.find((u) => String(u.id) === uid);
+                        setNewDriverForm({
+                          ...newDriverForm,
+                          user_id: uid,
+                          full_name: found ? found.nickname : newDriverForm.full_name,
+                        });
+                      }}
+                    >
+                      <option value="">Link User Account (Optional)</option>
+                      {usersList
+                        .filter((u) => u.role === 'DRV' || u.approval_status === 'APPROVED')
+                        .map((u) => (
+                          <option key={u.id} value={String(u.id)}>
+                            {u.nickname} (@{u.group_username} • {u.role})
+                          </option>
+                        ))}
+                    </select>
+                    <input
+                      type="text"
+                      className="gf-input"
+                      required
+                      placeholder="Driver Full Name"
+                      value={newDriverForm.full_name}
+                      onChange={(e) => setNewDriverForm({ ...newDriverForm, full_name: e.target.value })}
+                    />
+                    <input
+                      type="text"
+                      className="gf-input"
+                      required
+                      placeholder="Licence Number"
+                      value={newDriverForm.licence_number}
+                      onChange={(e) => setNewDriverForm({ ...newDriverForm, licence_number: e.target.value })}
+                    />
+                    <select
+                      className="gf-select"
+                      value={newDriverForm.licence_class}
+                      onChange={(e) => setNewDriverForm({ ...newDriverForm, licence_class: e.target.value })}
+                    >
+                      <option value="A">Class A</option>
+                      <option value="B1">Class B1</option>
+                      <option value="B2">Class B2</option>
+                    </select>
+                    <input
+                      type="date"
+                      className="gf-input"
+                      required
+                      value={newDriverForm.licence_expiry}
+                      onChange={(e) => setNewDriverForm({ ...newDriverForm, licence_expiry: e.target.value })}
+                    />
+                    <input
+                      type="text"
+                      className="gf-input"
+                      placeholder="Phone / Contact"
+                      value={newDriverForm.contact_number}
+                      onChange={(e) => setNewDriverForm({ ...newDriverForm, contact_number: e.target.value })}
+                    />
+                    <button type="submit" className="gf-btn gf-btn-primary">
+                      <Plus size={16} /> Save Driver
+                    </button>
+                  </form>
+
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Driver Profiles ({drivers.length})</h2>
+                  {drivers.length === 0 ? (
+                    <EmptyState message="No driver profiles registered yet. Approve a driver user or add a driver above." />
+                  ) : (
+                    <div className="gf-table-wrap">
+                      <table className="gf-table">
+                        <thead>
+                          <tr>
+                            <th>Driver</th>
+                            <th>Username</th>
+                            <th>Licence</th>
+                            <th>Expiry</th>
+                            <th>Status</th>
+                            <th>Toggle Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {drivers.map((d) => (
+                            <tr key={d.id}>
+                              <td style={{ fontWeight: 700 }}>{d.full_name}</td>
+                              <td className="mono">{d.group_username ? `@${d.group_username}` : '—'}</td>
+                              <td className="mono">{d.licence_number} (Class {d.licence_class})</td>
+                              <td className="mono">{d.licence_expiry}</td>
+                              <td><StatusBadge label={d.availability_status} tone={toneFromStatus(d.availability_status)} /></td>
+                              <td>
+                                <select
+                                  className="gf-select"
+                                  style={{ minHeight: '36px', padding: '0 8px' }}
+                                  value={d.availability_status}
+                                  onChange={async (e) => {
+                                    await apiRequest(`/api/drivers/${d.id}`, {
+                                      method: 'PATCH',
+                                      body: JSON.stringify({ availability_status: e.target.value }),
+                                    });
+                                    await loadAllData(user);
+                                  }}
+                                >
+                                  <option value="Active">Active</option>
+                                  <option value="On Leave">On Leave</option>
+                                  <option value="Unavailable">Unavailable</option>
+                                </select>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {opsSubTab === 'GROUPS' && (
+                <section className="gf-card-flat">
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Company Groups ({groupsList.length})</h2>
+                  <form onSubmit={handleCreateGroup} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px' }}>
+                    <input
+                      type="text"
+                      className="gf-input"
+                      style={{ flex: '1 1 240px' }}
+                      placeholder="New Group name"
+                      value={newGroupName}
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                    />
+                    <button type="submit" className="gf-btn gf-btn-primary">
+                      <Plus size={16} /> Add Group
+                    </button>
+                  </form>
                   <div className="gf-table-wrap">
                     <table className="gf-table">
                       <thead>
                         <tr>
-                          <th>Driver</th>
-                          <th>Username</th>
-                          <th>Licence</th>
-                          <th>Expiry</th>
+                          <th>ID</th>
+                          <th>Group Name</th>
+                          <th>Code</th>
                           <th>Status</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {drivers.map((d) => (
-                          <tr key={d.id}>
-                            <td style={{ fontWeight: 700 }}>{d.full_name}</td>
-                            <td className="mono">@{d.group_username}</td>
-                            <td className="mono">{d.licence_number} (Class {d.licence_class})</td>
-                            <td className="mono">{d.licence_expiry}</td>
-                            <td><StatusBadge label={d.availability_status} tone={toneFromStatus(d.availability_status)} /></td>
+                        {groupsList.map((g) => (
+                          <tr key={g.id}>
+                            <td className="mono">#{g.id}</td>
+                            <td style={{ fontWeight: 700 }}>{g.name}</td>
+                            <td className="mono">{g.code || '—'}</td>
+                            <td><StatusBadge label={g.is_active === 0 ? 'Inactive' : 'Active'} tone={g.is_active === 0 ? 'neutral' : 'green'} /></td>
                           </tr>
                         ))}
                       </tbody>
@@ -1454,16 +2051,17 @@ export function App() {
                       style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '12px' }}
                     >
                       <select className="gf-select" value={fuelForm.vehicle_id} onChange={(e) => setFuelForm({ ...fuelForm, vehicle_id: Number(e.target.value) })}>
+                        <option value={0}>Select Vehicle</option>
                         {vehicles.map((v) => (
                           <option key={v.id} value={v.id}>{v.registration_plate} ({v.energy_type})</option>
                         ))}
                       </select>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                        <input type="number" step="0.1" className="gf-input" placeholder="Litres" value={fuelForm.litres} onChange={(e) => setFuelForm({ ...fuelForm, litres: e.target.value })} />
-                        <input type="number" step="0.01" className="gf-input" placeholder="Cost" value={fuelForm.cost} onChange={(e) => setFuelForm({ ...fuelForm, cost: e.target.value })} />
-                        <input type="number" className="gf-input" placeholder="Odo km" value={fuelForm.odometer_km} onChange={(e) => setFuelForm({ ...fuelForm, odometer_km: e.target.value })} />
+                        <input type="number" step="0.1" className="gf-input" required placeholder="Litres" value={fuelForm.litres} onChange={(e) => setFuelForm({ ...fuelForm, litres: e.target.value })} />
+                        <input type="number" step="0.01" className="gf-input" required placeholder="Cost" value={fuelForm.cost} onChange={(e) => setFuelForm({ ...fuelForm, cost: e.target.value })} />
+                        <input type="number" className="gf-input" required placeholder="Odo km" value={fuelForm.odometer_km} onChange={(e) => setFuelForm({ ...fuelForm, odometer_km: e.target.value })} />
                       </div>
-                      <button type="submit" className="gf-btn gf-btn-primary">Record Fuel</button>
+                      <button type="submit" className="gf-btn gf-btn-primary" disabled={vehicles.length === 0}>Record Fuel</button>
                     </form>
                     <div className="gf-table-wrap">
                       <table className="gf-table">
@@ -1488,10 +2086,10 @@ export function App() {
                             body: JSON.stringify({
                               vehicle_id: Number(evForm.vehicle_id),
                               kwh_added: Number(evForm.kwh_added),
-                              cost: Number(evForm.cost),
+                              cost: Number(evForm.cost || 0),
                               battery_start_pct: Number(evForm.battery_start_pct),
                               battery_end_pct: Number(evForm.battery_end_pct),
-                              odometer_km: Number(evForm.odometer_km),
+                              odometer_km: Number(evForm.odometer_km || 0),
                               station: evForm.station,
                             }),
                           });
@@ -1504,16 +2102,17 @@ export function App() {
                       style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '12px' }}
                     >
                       <select className="gf-select" value={evForm.vehicle_id} onChange={(e) => setEvForm({ ...evForm, vehicle_id: Number(e.target.value) })}>
+                        <option value={0}>Select EV</option>
                         {vehicles.map((v) => (
                           <option key={v.id} value={v.id}>{v.registration_plate} ({v.energy_type})</option>
                         ))}
                       </select>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                        <input type="number" step="0.1" className="gf-input" placeholder="kWh" value={evForm.kwh_added} onChange={(e) => setEvForm({ ...evForm, kwh_added: e.target.value })} />
-                        <input type="number" className="gf-input" placeholder="Start %" value={evForm.battery_start_pct} onChange={(e) => setEvForm({ ...evForm, battery_start_pct: e.target.value })} />
-                        <input type="number" className="gf-input" placeholder="End %" value={evForm.battery_end_pct} onChange={(e) => setEvForm({ ...evForm, battery_end_pct: e.target.value })} />
+                        <input type="number" step="0.1" className="gf-input" required placeholder="kWh" value={evForm.kwh_added} onChange={(e) => setEvForm({ ...evForm, kwh_added: e.target.value })} />
+                        <input type="number" className="gf-input" required placeholder="Start %" value={evForm.battery_start_pct} onChange={(e) => setEvForm({ ...evForm, battery_start_pct: e.target.value })} />
+                        <input type="number" className="gf-input" required placeholder="End %" value={evForm.battery_end_pct} onChange={(e) => setEvForm({ ...evForm, battery_end_pct: e.target.value })} />
                       </div>
-                      <button type="submit" className="gf-btn gf-btn-primary">Record EV Session</button>
+                      <button type="submit" className="gf-btn gf-btn-primary" disabled={vehicles.length === 0}>Record EV Session</button>
                     </form>
                     <div className="gf-table-wrap">
                       <table className="gf-table">
@@ -1531,7 +2130,7 @@ export function App() {
 
               {opsSubTab === 'MAINTENANCE' && (
                 <section className="gf-card-flat">
-                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Maintenance Schedule (MNT-01..07)</h2>
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Maintenance Schedule</h2>
                   <form
                     onSubmit={async (e) => {
                       e.preventDefault();
@@ -1541,7 +2140,7 @@ export function App() {
                           body: JSON.stringify({
                             ...maintForm,
                             vehicle_id: Number(maintForm.vehicle_id),
-                            cost: Number(maintForm.cost),
+                            cost: Number(maintForm.cost || 0),
                             service_date: new Date(maintForm.service_date).toISOString(),
                             end_date: new Date(maintForm.end_date).toISOString(),
                           }),
@@ -1555,6 +2154,7 @@ export function App() {
                     style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}
                   >
                     <select className="gf-select" style={{ flex: '1 1 180px' }} value={maintForm.vehicle_id} onChange={(e) => setMaintForm({ ...maintForm, vehicle_id: Number(e.target.value) })}>
+                      <option value={0}>Select Vehicle</option>
                       {vehicles.map((v) => <option key={v.id} value={v.id}>{v.registration_plate} ({v.energy_type})</option>)}
                     </select>
                     <input type="text" className="gf-input" style={{ flex: '1 1 200px' }} value={maintForm.maintenance_type} onChange={(e) => setMaintForm({ ...maintForm, maintenance_type: e.target.value })} />
@@ -1563,7 +2163,7 @@ export function App() {
                       <option value="Gasoline">Gasoline Only</option>
                       <option value="Electric">Electric Only</option>
                     </select>
-                    <button type="submit" className="gf-btn gf-btn-primary">Schedule</button>
+                    <button type="submit" className="gf-btn gf-btn-primary" disabled={vehicles.length === 0}>Schedule</button>
                   </form>
                   <div className="gf-table-wrap">
                     <table className="gf-table">
@@ -1603,6 +2203,7 @@ export function App() {
                     style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}
                   >
                     <select className="gf-select" style={{ flex: '1 1 150px' }} value={expForm.vehicle_id} onChange={(e) => setExpForm({ ...expForm, vehicle_id: Number(e.target.value) })}>
+                      <option value={0}>Select Vehicle</option>
                       {vehicles.map((v) => <option key={v.id} value={v.id}>{v.registration_plate}</option>)}
                     </select>
                     <select className="gf-select" style={{ flex: '1 1 140px' }} value={expForm.category} onChange={(e) => setExpForm({ ...expForm, category: e.target.value })}>
@@ -1612,9 +2213,9 @@ export function App() {
                       <option value="Accessories">Accessories</option>
                       <option value="Other">Other</option>
                     </select>
-                    <input type="number" step="0.01" className="gf-input" style={{ flex: '1 1 120px' }} value={expForm.amount} onChange={(e) => setExpForm({ ...expForm, amount: e.target.value })} />
-                    <input type="text" className="gf-input" style={{ flex: '1 1 200px' }} value={expForm.description} onChange={(e) => setExpForm({ ...expForm, description: e.target.value })} />
-                    <button type="submit" className="gf-btn gf-btn-primary">Submit</button>
+                    <input type="number" step="0.01" className="gf-input" required placeholder="Amount" style={{ flex: '1 1 120px' }} value={expForm.amount} onChange={(e) => setExpForm({ ...expForm, amount: e.target.value })} />
+                    <input type="text" className="gf-input" placeholder="Description" style={{ flex: '1 1 200px' }} value={expForm.description} onChange={(e) => setExpForm({ ...expForm, description: e.target.value })} />
+                    <button type="submit" className="gf-btn gf-btn-primary" disabled={vehicles.length === 0}>Submit</button>
                   </form>
                   <div className="gf-table-wrap">
                     <table className="gf-table">
@@ -1631,7 +2232,7 @@ export function App() {
 
               {opsSubTab === 'DOCUMENTS' && (
                 <section className="gf-card-flat">
-                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Document Vault (DOC-01..08)</h2>
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Document Vault</h2>
                   <form
                     onSubmit={async (e) => {
                       e.preventDefault();
@@ -1658,10 +2259,11 @@ export function App() {
                     style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}
                   >
                     <select className="gf-select" style={{ flex: '1 1 160px' }} value={docForm.entity_id} onChange={(e) => setDocForm({ ...docForm, entity_id: Number(e.target.value) })}>
+                      <option value={0}>Select Vehicle</option>
                       {vehicles.map((v) => <option key={v.id} value={v.id}>{v.registration_plate}</option>)}
                     </select>
                     <input type="text" className="gf-input" style={{ flex: '1 1 180px' }} value={docForm.file_name} onChange={(e) => setDocForm({ ...docForm, file_name: e.target.value })} />
-                    <button type="submit" className="gf-btn gf-btn-primary"><Upload size={15} /> Upload PDF</button>
+                    <button type="submit" className="gf-btn gf-btn-primary" disabled={vehicles.length === 0}><Upload size={15} /> Upload PDF</button>
                   </form>
                   <div className="gf-table-wrap">
                     <table className="gf-table">
@@ -1826,7 +2428,7 @@ export function App() {
   // RIDE-HAILING SHELL (Mobile Map+Sheet, Tablet Rail+Floating Card, Desktop 420px+Map)
   // ============================================================================
   const inActiveBookingFlow = navSection === 'HOME' && bookingStep !== 'HOME';
-  const currentMetrics = estimateRouteMetrics(bookOrigin, bookDest);
+  const currentMetrics = estimateRouteMetrics(bookOrigin, bookDest, originCoords, destCoords);
 
   // Determine Map visual state
   const mapOrigin =
@@ -1840,7 +2442,7 @@ export function App() {
 
   const showRouteOnMap =
     navSection === 'HOME' &&
-    ((bookingStep === 'ROUTE' && Boolean(bookDest.trim()) && routeTab !== 'PIN') ||
+    ((bookingStep === 'ROUTE' && Boolean(bookOrigin.trim()) && Boolean(bookDest.trim()) && routeTab !== 'PIN') ||
       bookingStep === 'VEHICLE' ||
       bookingStep === 'SUMMARY' ||
       bookingStep === 'IN_TRIP');
@@ -1879,8 +2481,11 @@ export function App() {
               type="button"
               className="gf-btn gf-btn-primary gf-btn-full"
               onClick={() => {
-                if (!bookDest.trim()) {
-                  setBookDest('SCBD District 8');
+                if (activeRouteField === 'pickup' && !bookDest.trim()) {
+                  setActiveRouteField('destination');
+                  setRouteTab('RECENT');
+                  setSheetSnap('full');
+                  return;
                 }
                 setRouteTab('RECENT');
                 setBookingStep('VEHICLE');
@@ -1982,7 +2587,6 @@ export function App() {
       return <ErrorState message={dataError} onRetry={() => loadAllData(user)} />;
     }
 
-    // Banner feedback inside sheet
     const feedbackBanner = statusBanner ? (
       <div
         style={{
@@ -2009,7 +2613,7 @@ export function App() {
     ) : null;
 
     // -------------------------------------------------------------------------
-    // DRIVER DISPATCH SHEET (No tables, flat cards/rows, periodic GPS)
+    // DRIVER DISPATCH SHEET (No tables, flat cards/rows, periodic GPS + Sign Out)
     // -------------------------------------------------------------------------
     if (navSection === 'DRIVER') {
       return (
@@ -2020,7 +2624,19 @@ export function App() {
               <h1 className="type-title">Driver Dispatch</h1>
               <p className="type-caption">Assigned orders & periodic location check-ins</p>
             </div>
-            <StatusBadge label={gpsReportingActive ? 'Duty Active' : 'Standby'} tone={gpsReportingActive ? 'green' : 'neutral'} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <StatusBadge label={gpsReportingActive ? 'Duty Active' : 'Standby'} tone={gpsReportingActive ? 'green' : 'neutral'} />
+              <button
+                type="button"
+                className="gf-btn gf-btn-outline-danger"
+                style={{ minHeight: '38px', padding: '0 10px' }}
+                onClick={handleLogout}
+                aria-label="Sign Out"
+                title="Sign Out"
+              >
+                <LogOut size={16} /> Sign Out
+              </button>
+            </div>
           </div>
 
           {/* Periodic GPS Notice & Controls (GPS-03, GPS-15) */}
@@ -2168,7 +2784,7 @@ export function App() {
                               type="text"
                               className="gf-input"
                               placeholder="Return parking spot"
-                              value={activeTripParkingInput[tripId] ?? 'Basement B1'}
+                              value={activeTripParkingInput[tripId] ?? 'Main Pool'}
                               onChange={(e) => setActiveTripParkingInput({ ...activeTripParkingInput, [tripId]: e.target.value })}
                             />
                             <button
@@ -2181,7 +2797,7 @@ export function App() {
                                     body: JSON.stringify({
                                       end_odometer: Number(activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25),
                                       battery_percent: d.energy_type === 'Electric' ? Number(activeTripBatteryInput[tripId] ?? 72) : undefined,
-                                      parking_return_note: activeTripParkingInput[tripId] || 'Basement B1',
+                                      parking_return_note: activeTripParkingInput[tripId] || 'Main Pool',
                                     }),
                                   });
                                   setStatusBanner({ type: 'success', text: 'Trip completed & odometer saved.' });
@@ -2365,10 +2981,10 @@ export function App() {
             </div>
             <div style={{ minWidth: 0 }}>
               <h1 className="type-title">{user.nickname}</h1>
-              <div className="type-caption">@{user.group_username} • {user.department_name || `Dept #${user.department_id}`}</div>
+              <div className="type-caption">@{user.group_username} • {user.department_name || `Group #${user.department_id}`}</div>
               <div style={{ marginTop: '4px', display: 'flex', gap: '6px' }}>
                 <StatusBadge label={`Role: ${user.role}`} tone="green" />
-                {user.is_department_admin === 1 && <StatusBadge label="Dept Admin" tone="blue" />}
+                {user.is_department_admin === 1 && <StatusBadge label="Group Admin" tone="blue" />}
               </div>
             </div>
           </div>
@@ -2520,33 +3136,49 @@ export function App() {
           : []),
       ];
 
+      const activeOverview = liveOverviewCards[carouselIdx % liveOverviewCards.length];
+
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {feedbackBanner}
 
-          {/* Greeting + Dept Chip + Notification Bell */}
+          {/* Greeting + Group Chip + Notification Bell + Prominent Sign Out Button */}
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
             <div style={{ minWidth: 0 }}>
               <h1 className="type-title">
                 {getTimeGreeting()}, {user.nickname}
               </h1>
               <div style={{ marginTop: '6px' }}>
-                <Chip subtle>{user.department_name || 'Company Team'}</Chip>
+                <Chip subtle>{user.department_name || 'Company Group'}</Chip>
               </div>
             </div>
-            <button
-              type="button"
-              className="gf-icon-btn-48 pressable"
-              onClick={() => setNavSection('INBOX')}
-              aria-label={`Notifications (${unreadCount} unread)`}
-            >
-              <Bell size={20} />
-              {unreadCount > 0 && (
-                <span className="gf-nav-badge" style={{ top: '6px', right: '6px' }}>
-                  {unreadCount}
-                </span>
-              )}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+              <button
+                type="button"
+                className="gf-icon-btn-48 pressable"
+                onClick={() => setNavSection('INBOX')}
+                aria-label={`Notifications (${unreadCount} unread)`}
+                title="Notifications"
+              >
+                <Bell size={20} />
+                {unreadCount > 0 && (
+                  <span className="gf-nav-badge" style={{ top: '6px', right: '6px' }}>
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+              <button
+                id="home-signout-btn"
+                type="button"
+                className="gf-icon-btn-48 pressable"
+                onClick={handleLogout}
+                aria-label="Sign Out"
+                title="Sign Out"
+                style={{ color: 'var(--color-status-red-fg)' }}
+              >
+                <LogOut size={19} />
+              </button>
+            </div>
           </div>
 
           {/* Active ongoing trip card if any */}
@@ -2603,44 +3235,46 @@ export function App() {
             ))}
           </div>
 
-          {/* Horizontal Scroll Chips for Recent Destinations */}
-          <div>
-            <div className="type-caption" style={{ fontWeight: 700, marginBottom: '8px' }}>
-              Recent destinations
+          {/* Horizontal Scroll Chips for User's Real Recent Destinations */}
+          {recentDestinationChips.length > 0 && (
+            <div>
+              <div className="type-caption" style={{ fontWeight: 700, marginBottom: '8px' }}>
+                Recent destinations
+              </div>
+              <div className="gf-hscroll">
+                {recentDestinationChips.map((dest) => (
+                  <Chip
+                    key={dest}
+                    icon={<MapPin size={14} style={{ color: 'var(--color-green)' }} />}
+                    onClick={() => {
+                      setBookDest(dest);
+                      setBookingStep('ROUTE');
+                      setSheetSnap('full');
+                    }}
+                  >
+                    {dest}
+                  </Chip>
+                ))}
+              </div>
             </div>
-            <div className="gf-hscroll">
-              {recentDestinationChips.map((dest) => (
-                <Chip
-                  key={dest}
-                  icon={<MapPin size={14} style={{ color: 'var(--color-green)' }} />}
-                  onClick={() => {
-                    setBookDest(dest);
-                    setBookingStep('ROUTE');
-                    setSheetSnap('full');
-                  }}
-                >
-                  {dest}
-                </Chip>
-              ))}
-            </div>
-          </div>
+          )}
 
-          {/* Announcement Carousel (16:9 cards + dot pagination) */}
+          {/* Live System Overview Carousel (16:9 cards + dot pagination) */}
           <div>
             <div className="gf-promo-card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <StatusBadge label={ANNOUNCEMENTS[carouselIdx].tag} tone="green" />
+                <StatusBadge label={activeOverview.tag} tone="green" />
                 <Car size={28} style={{ color: 'var(--color-green)', opacity: 0.7 }} />
               </div>
               <div>
-                <div className="type-section">{ANNOUNCEMENTS[carouselIdx].title}</div>
+                <div className="type-section">{activeOverview.title}</div>
                 <p className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-                  {ANNOUNCEMENTS[carouselIdx].body}
+                  {activeOverview.body}
                 </p>
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '10px' }}>
-              {ANNOUNCEMENTS.map((item, idx) => (
+              {liveOverviewCards.map((item, idx) => (
                 <button
                   key={item.title}
                   type="button"
@@ -2665,34 +3299,46 @@ export function App() {
     }
 
     // -------------------------------------------------------------------------
-    // BOOKING FLOW STEP 1: WHERE TO? (ROUTE)
+    // BOOKING FLOW STEP 1: WHERE TO? (ROUTE — Real OpenStreetMap Search & Pin)
     // -------------------------------------------------------------------------
     if (bookingStep === 'ROUTE') {
-      const baseList = routeTab === 'SAVED' ? SAVED_PLACES : CORPORATE_HUBS;
-      const placeList =
-        activeRouteField === 'destination'
-          ? baseList.filter((p) => p.name.toLowerCase() !== bookOrigin.toLowerCase().trim())
-          : baseList;
-      const filterText = (activeRouteField === 'pickup' ? bookOrigin : bookDest).toLowerCase().trim();
-      const filteredPlaces =
-        filterText && activeRouteField === 'destination'
-          ? placeList.filter((p) => p.name.toLowerCase().includes(filterText) || p.address.toLowerCase().includes(filterText))
-          : placeList;
-      const rowsToRender = filteredPlaces.length > 0 ? filteredPlaces : placeList;
+      const activeText = (activeRouteField === 'pickup' ? bookOrigin : bookDest).trim();
+      const showingLiveSearch = activeText.length >= 2 && geoResults.length > 0;
+      const listToDisplay: GeoPlace[] = showingLiveSearch
+        ? geoResults
+        : routeTab === 'SAVED'
+        ? savedPlaces
+        : recentPlacesList;
 
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
             <h1 className="type-title">Where to?</h1>
+            <button
+              type="button"
+              className="gf-btn gf-btn-ghost"
+              style={{ minHeight: '36px', padding: '0 10px' }}
+              onClick={handleUseCurrentGpsForField}
+            >
+              <Navigation size={14} /> Use GPS
+            </button>
           </div>
 
           <RouteFields
             pickup={bookOrigin}
             destination={bookDest}
-            onPickupChange={setBookOrigin}
-            onDestinationChange={setBookDest}
+            onPickupChange={(val) => {
+              setBookOrigin(val);
+              if (!val.trim()) setOriginCoords(null);
+            }}
+            onDestinationChange={(val) => {
+              setBookDest(val);
+              if (!val.trim()) setDestCoords(null);
+            }}
             activeField={activeRouteField}
             onFocusField={setActiveRouteField}
+            pickupPlaceholder="Search pickup address or pin on map"
+            destinationPlaceholder="Where to? Search any address"
           />
 
           <Segmented
@@ -2715,39 +3361,73 @@ export function App() {
 
           {routeTab === 'PIN' ? (
             <div style={{ padding: '12px 0' }}>
-              <div className="type-body" style={{ fontWeight: 700 }}>Drag map to set location</div>
+              <div className="type-body" style={{ fontWeight: 700 }}>Drag OpenStreetMap to set location</div>
               <p className="type-caption" style={{ marginTop: '4px' }}>
-                Move the map or use arrow keys to place the pin for your {activeRouteField === 'pickup' ? 'pickup point' : 'destination'}.
+                Pan the map or use arrow keys to place the center pin for your {activeRouteField === 'pickup' ? 'pickup point' : 'destination'}.
               </p>
               <div className="type-body" style={{ marginTop: '10px', fontWeight: 600, color: 'var(--color-green-text)' }}>
-                {activeRouteField === 'pickup' ? bookOrigin : bookDest || 'Center pin active'}
+                {(activeRouteField === 'pickup' ? bookOrigin : bookDest) || 'Pan map to resolve street address...'}
               </div>
             </div>
-          ) : loadingData ? (
+          ) : geoLoading ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <Skeleton height={64} />
               <Skeleton height={64} />
               <Skeleton height={64} />
             </div>
+          ) : listToDisplay.length === 0 ? (
+            <EmptyState
+              message={
+                activeText.length >= 2
+                  ? 'No matching OpenStreetMap addresses found. You can still continue with your typed address or switch to Pin on map.'
+                  : routeTab === 'SAVED'
+                  ? 'No saved places yet. Search any address above and tap the bookmark icon to save it.'
+                  : 'Type at least 2 characters above to search live OpenStreetMap addresses, or tap Pin on map.'
+              }
+            />
           ) : (
             <div>
-              {rowsToRender.map((p) => (
-                <ListRow
-                  key={p.name}
-                  tall
-                  icon={routeTab === 'SAVED' ? <Bookmark size={18} /> : <MapPin size={18} />}
-                  title={p.name}
-                  subtitle={p.address}
-                  onClick={() => {
-                    if (activeRouteField === 'pickup') {
-                      setBookOrigin(p.name);
-                      setActiveRouteField('destination');
-                    } else {
-                      setBookDest(p.name);
+              {listToDisplay.map((p, idx) => {
+                const isSaved = savedPlaces.some((sp) => sp.name === p.name && sp.address === p.address);
+                return (
+                  <ListRow
+                    key={`${p.name}-${idx}`}
+                    tall
+                    icon={routeTab === 'SAVED' ? <Bookmark size={18} /> : <MapPin size={18} />}
+                    title={p.name}
+                    subtitle={p.address}
+                    trailing={
+                      <button
+                        type="button"
+                        aria-label={isSaved ? 'Remove from saved places' : 'Save place'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSavePlace(p);
+                        }}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          color: isSaved ? 'var(--color-green)' : 'var(--color-text-muted)',
+                          cursor: 'pointer',
+                          padding: '6px',
+                        }}
+                      >
+                        <Bookmark size={16} />
+                      </button>
                     }
-                  }}
-                />
-              ))}
+                    onClick={() => {
+                      if (activeRouteField === 'pickup') {
+                        setBookOrigin(p.name);
+                        setOriginCoords({ lat: p.lat, lon: p.lon });
+                        setActiveRouteField('destination');
+                      } else {
+                        setBookDest(p.name);
+                        setDestCoords({ lat: p.lat, lon: p.lon });
+                      }
+                    }}
+                  />
+                );
+              })}
             </div>
           )}
         </div>
@@ -2758,7 +3438,7 @@ export function App() {
     // BOOKING FLOW STEP 2: PICK YOUR RIDE (VEHICLE)
     // -------------------------------------------------------------------------
     if (bookingStep === 'VEHICLE') {
-      const activeDrivers = (liveAvailability?.drivers || drivers).filter(
+      const activeDrivers = (liveAvailability?.drivers?.length ? liveAvailability.drivers : drivers).filter(
         (d) => d.isAvailable !== false && d.availability_status === 'Active'
       );
 
@@ -2820,11 +3500,22 @@ export function App() {
               <Skeleton height={84} />
               <Skeleton height={84} />
             </div>
+          ) : filteredVehicles.length === 0 ? (
+            <EmptyState
+              message="No vehicles registered in this category yet."
+              action={
+                isPrivileged ? (
+                  <button type="button" className="gf-btn gf-btn-primary" onClick={() => { setNavSection('ADMIN'); setAdminModule('FLEET_OPS'); setOpsSubTab('VEHICLES'); }}>
+                    Add Vehicle in Admin Console
+                  </button>
+                ) : undefined
+              }
+            />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {filteredVehicles.map((v) => {
                 const isAvail = v.isAvailable !== false && v.status === 'Available';
-                const isSelected = Number(bookVehicleId) === v.id;
+                const isSelected = Number(selectedVehicle?.id) === v.id;
                 const isEv = v.energy_type === 'Electric';
                 const pct = isEv ? Number(v.battery_percent ?? 100) : 85;
                 const availText = isAvail
@@ -2971,7 +3662,7 @@ export function App() {
               id="summary-charge-row"
               icon={<CreditCard size={18} />}
               title="Charge to"
-              subtitle={`${user.department_name || 'Department'} • Driver: ${chosenDriverObj ? chosenDriverObj.full_name : 'Auto-assign'}`}
+              subtitle={`${user.department_name || 'Group'} • Driver: ${chosenDriverObj ? chosenDriverObj.full_name : 'Auto-assign'}`}
               showChevron
               onClick={() => setSummaryPicker('CHARGE')}
             />
@@ -2986,7 +3677,7 @@ export function App() {
                     {summaryPicker === 'PURPOSE' && 'Trip purpose'}
                     {summaryPicker === 'PAX' && 'Number of passengers'}
                     {summaryPicker === 'NOTES' && 'Dispatch notes'}
-                    {summaryPicker === 'CHARGE' && 'Department & driver'}
+                    {summaryPicker === 'CHARGE' && 'Group & driver'}
                   </h3>
                   <button type="button" className="gf-btn gf-btn-primary" style={{ minHeight: '40px' }} onClick={() => setSummaryPicker(null)}>
                     Done
@@ -3048,9 +3739,9 @@ export function App() {
 
                 {summaryPicker === 'CHARGE' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }} className="type-body">
-                    <div><strong>Department:</strong> {user.department_name || `Dept #${user.department_id}`}</div>
+                    <div><strong>Group:</strong> {user.department_name || `Group #${user.department_id}`}</div>
                     <div><strong>Driver:</strong> {chosenDriverObj ? chosenDriverObj.full_name : 'Assigned on approval'}</div>
-                    <p className="type-caption">Requests are routed automatically to Fleet & HWS Admin for approval.</p>
+                    <p className="type-caption">Requests are routed automatically to Fleet Admin for approval.</p>
                   </div>
                 )}
               </div>
@@ -3187,7 +3878,7 @@ export function App() {
               whiteSpace: 'nowrap',
             }}
           >
-            {tripToShow?.registration_plate || 'B 1001 FMS'}
+            {tripToShow?.registration_plate || '—'}
           </div>
         </div>
 
@@ -3247,6 +3938,7 @@ export function App() {
             setSheetSnap('full');
           }
         }}
+        onSignOut={handleLogout}
         hideChromeDuringBooking={inActiveBookingFlow || navSection === 'DRIVER'}
         isDriverOrPrivileged={user.role === 'DRV' || Boolean(isPrivileged)}
         isPrivileged={Boolean(isPrivileged)}
@@ -3257,11 +3949,18 @@ export function App() {
           <MapView
             origin={mapOrigin}
             destination={mapDest}
+            originCoords={originCoords}
+            destCoords={destCoords}
             showRoute={showRouteOnMap}
             pinMode={navSection === 'HOME' && bookingStep === 'ROUTE' && routeTab === 'PIN'}
-            onPinMoveAddress={(addr) => {
-              if (activeRouteField === 'pickup') setBookOrigin(addr);
-              else setBookDest(addr);
+            onPinMoveAddress={(place: GeoPlace) => {
+              if (activeRouteField === 'pickup') {
+                setBookOrigin(place.name);
+                setOriginCoords({ lat: place.lat, lon: place.lon });
+              } else {
+                setBookDest(place.name);
+                setDestCoords({ lat: place.lat, lon: place.lon });
+              }
             }}
             waitingRadar={navSection === 'HOME' && bookingStep === 'WAITING'}
             driverActive={navSection === 'HOME' && bookingStep === 'IN_TRIP'}

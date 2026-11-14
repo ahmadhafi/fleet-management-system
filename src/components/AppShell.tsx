@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Clock, Inbox, User, Navigation, ShieldCheck, Menu } from 'lucide-react';
+import { Home, Clock, Inbox, User, Navigation, ShieldCheck, Menu, LogOut } from 'lucide-react';
 
 export type NavSection = 'HOME' | 'ACTIVITY' | 'INBOX' | 'PROFILE' | 'DRIVER' | 'ADMIN';
 
@@ -13,6 +13,7 @@ interface NavItem {
 interface AppShellProps {
   activeNav: NavSection;
   onSelectNav: (nav: NavSection) => void;
+  onSignOut: () => void;
   hideChromeDuringBooking: boolean;
   isDriverOrPrivileged: boolean;
   isPrivileged: boolean;
@@ -26,6 +27,7 @@ interface AppShellProps {
 export const AppShell: React.FC<AppShellProps> = ({
   activeNav,
   onSelectNav,
+  onSignOut,
   hideChromeDuringBooking,
   isDriverOrPrivileged,
   isPrivileged,
@@ -41,7 +43,6 @@ export const AppShell: React.FC<AppShellProps> = ({
     { id: 'PROFILE', label: 'Profile', icon: <User size={20} /> },
   ];
 
-  // Driver shortcut stays accessible from Left Rail / Profile without cluttering the 4-tab booking bar
   const tabletRailItems: NavItem[] = [
     ...navItems,
     ...(isDriverOrPrivileged ? [{ id: 'DRIVER' as const, label: 'Dispatch', icon: <Navigation size={20} />, badge: pendingDispatchCount }] : []),
@@ -70,6 +71,18 @@ export const AppShell: React.FC<AppShellProps> = ({
               </button>
             );
           })}
+          <div style={{ marginTop: 'auto', width: '100%' }}>
+            <button
+              type="button"
+              className="gf-nav-item pressable"
+              style={{ width: '100%', borderRadius: 'var(--radius-control)', color: 'var(--color-status-red-fg)' }}
+              onClick={onSignOut}
+              aria-label="Sign out"
+            >
+              <LogOut size={20} />
+              <span>Sign Out</span>
+            </button>
+          </div>
         </aside>
 
         {/* Full-bleed Map Canvas */}
@@ -147,7 +160,10 @@ interface AdminShellProps {
   onSelectModule: (m: 'ADMIN_DISPATCH' | 'FLEET_OPS' | 'ANALYTICS_AUDIT') => void;
   onSwitchToRideBooking: () => void;
   onSwitchToDriverDispatch: () => void;
+  onSignOut: () => void;
   pendingCount: number;
+  vehicleCount: number;
+  groupCount: number;
   userNickname: string;
   userRole: string;
   children: React.ReactNode;
@@ -158,7 +174,10 @@ export const AdminShell: React.FC<AdminShellProps> = ({
   onSelectModule,
   onSwitchToRideBooking,
   onSwitchToDriverDispatch,
+  onSignOut,
   pendingCount,
+  vehicleCount,
+  groupCount,
   userNickname,
   userRole,
   children,
@@ -187,7 +206,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
           setMobileMenuOpen(false);
         }}
       >
-        Fleet, Standby & Energy
+        Fleet, Groups & Energy
       </button>
       <button
         type="button"
@@ -225,6 +244,18 @@ export const AdminShell: React.FC<AdminShellProps> = ({
       >
         Driver Dispatch View
       </button>
+
+      <div style={{ borderTop: '1px solid var(--color-divider)', margin: '8px 0' }} />
+
+      <button
+        id="admin-sidebar-signout-btn"
+        type="button"
+        className="gf-btn gf-btn-outline-danger pressable"
+        style={{ justifyContent: 'flex-start' }}
+        onClick={onSignOut}
+      >
+        <LogOut size={16} /> Sign Out
+      </button>
     </div>
   );
 
@@ -255,13 +286,16 @@ export const AdminShell: React.FC<AdminShellProps> = ({
             </button>
             <div>
               <div className="type-section">GalaxyFleet Admin Console</div>
-              <div className="type-caption">8 Vehicles • 9 Departments • Periodic GPS</div>
+              <div className="type-caption">{vehicleCount} Vehicles • {groupCount} Groups • Periodic GPS</div>
             </div>
           </div>
 
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button type="button" className="gf-btn gf-btn-primary" onClick={onSwitchToRideBooking}>
               Open Ride Booking
+            </button>
+            <button id="admin-topbar-signout-btn" type="button" className="gf-btn gf-btn-outline-danger" onClick={onSignOut}>
+              <LogOut size={16} /> Sign Out
             </button>
           </div>
         </header>

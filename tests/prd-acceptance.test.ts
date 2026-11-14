@@ -111,11 +111,13 @@ describe('Internal Company Fleet Management System — Full PRD & Revision Accep
   // ==========================================================================
   // 2. DEPARTMENTS & USERS (TC-ORG-01..03)
   // ==========================================================================
-  it('TC-ORG-01, TC-ORG-02 & TC-ORG-03: maintains 9 departments, deactivates users without deleting history, and refuses deactivated login', async () => {
+  it('TC-ORG-01, TC-ORG-02 & TC-ORG-03: maintains 12 official Groups, deactivates users without deleting history, and refuses deactivated login', async () => {
     const adminToken = await loginAs('admin', 'Admin@123');
     const deptRes = await request(app).get('/api/departments').set('Authorization', `Bearer ${adminToken}`);
     expect(deptRes.status).toBe(200);
-    expect(deptRes.body.departments).toHaveLength(9);
+    expect(deptRes.body.departments).toHaveLength(12);
+    expect(deptRes.body.departments[0].name).toBe('Innovation G');
+    expect(deptRes.body.departments[11].name).toBe('PRODUCTION CONTROL G');
 
     // Deactivate user #9 (emp_alex) who has historical completed trips
     const deactRes = await request(app)
@@ -587,4 +589,106 @@ describe('Internal Company Fleet Management System — Full PRD & Revision Accep
     expect(impDry.body.invalidCount).toBe(1);
     expect(impDry.body.importedCount).toBe(0);
   });
+
+  // ==========================================================================
+  // 10. PRODUCTION BOOTSTRAP (ZERO DUMMY DATA, 12 GROUPS, FULL E2E WORKFLOW)
+  // ==========================================================================
+  it('TC-PROD-01: initializes clean production database with 0 dummy records, 12 official Groups, and 1 initial Admin, and runs full vehicle/registration/booking/cancel/approve workflow', async () => {
+    resetDbForTesting(':memory:', false);
+
+    // Public groups endpoint returns the 12 official Groups
+    const pubGroups = await request(app).get('/api/public/groups');
+    expect(pubGroups.status).toBe(200);
+    expect(pubGroups.body.groups).toHaveLength(12);
+    expect(pubGroups.body.groups.map((g: any) => g.name)).toEqual([
+      'Innovation G',
+      'Management Support G',
+      'Utility & EHS G',
+      'People G',
+      'Main Production G',
+      'SMD Production G',
+      'CS G',
+      'PURCHASING G',
+      'BUSINESS SUPPORT G',
+      'PE G',
+      'ME G',
+      'PRODUCTION CONTROL G',
+    ]);
+
+    // Initial Admin logs in
+    const adminToken = await loginAs('admin', 'Admin@123');
+
+    // Verify 0 dummy vehicles, 0 dummy drivers, 0 dummy trips
+    const initVeh = await request(app).get('/api/vehicles').set('Authorization', `Bearer ${adminToken}`);
+    expect(initVeh.body.vehicles).toHaveLength(0);
+    const initDrv = await request(app).get('/api/drivers').set('Authorization', `Bearer ${adminToken}`);
+    expect(initDrv.body.drivers).toHaveLength(0);
+    const initTrp = await request(app).get('/api/trips').set('Authorization', `Bearer ${adminToken}`);
+    expect(initTrp.body.trips).toHaveLength(0);
+
+    // Admin registers a real vehicle
+    const addVeh = await request(app).post('/api/vehicles').set('Authorization', `Bearer ${adminToken}`).send({
+      registration_plate: 'B 2026 GFX',
+      make: 'Toyota',
+      model: 'Innova Zenix',
+      car_type: 'MPV',
+      year: 2026,
+      vin: 'VIN-PROD-2026-001',
+      energy_type: 'Gasoline',
+      seats: 7,
+      current_odometer: 120,
+      last_parking_spot: 'Lobby A1',
+    });
+    expect(addVeh.status).toBe(201);
+    const vehicleId = addVeh.body.vehicle.id;
+
+    // Employee registers under Group #1 (Innovation G)
+    const regUser = await request(app).post('/api/auth/register').send({
+      nickname: 'Rina',
+      department_id: 1,
+      group_username: 'rina_innov',
+      password: 'Password123',
+      requested_role: 'EMP',
+    });
+    expect(regUser.status).toBe(201);
+
+    // Admin approves Rina
+    const approveUser = await request(app)
+      .patch(`/api/users/${regUser.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ approval_status: 'APPROVED', role: 'EMP' });
+    expect(approveUser.status).toBe(200);
+
+    // Rina logs in and books the vehicle
+    const rinaToken = await loginAs('rina_innov', 'Password123');
+    const trip1 = await request(app).post('/api/trips').set('Authorization', `Bearer ${rinaToken}`).send({
+      vehicle_id: vehicleId,
+      purpose: 'Supplier Audit',
+      origin: 'Innovation Center',
+      destination: 'Cikarang Plant',
+      start_time: '2027-11-10T09:00:00.000Z',
+      end_time: '2027-11-10T12:00:00.000Z',
+      passenger_count: 3,
+    });
+    expect(trip1.status).toBe(201);
+
+    // Admin approves Trip #1 even when no driver profile is selected yet
+    const decRes = await request(app)
+      .post(`/api/trips/${trip1.body.tripId}/decision`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ decision: 'APPROVED', vehicle_id: vehicleId, driver_profile_id: null });
+    expect(decRes.status).toBe(200);
+    expect(decRes.body.trip.status).toBe('APPROVED');
+
+    // Rina cancels the booking and the trip status becomes CANCELLED
+    const cancelRes = await request(app)
+      .patch(`/api/bookings/${trip1.body.bookingId}`)
+      .set('Authorization', `Bearer ${rinaToken}`)
+      .send({ status: 'CANCELLED', cancellation_reason: 'Meeting rescheduled' });
+    expect(cancelRes.status).toBe(200);
+
+    const checkTrips = await request(app).get('/api/trips').set('Authorization', `Bearer ${rinaToken}`);
+    expect(checkTrips.body.trips[0].status).toBe('CANCELLED');
+  });
 });
+
