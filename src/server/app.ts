@@ -1351,6 +1351,7 @@ export function createApp() {
     const resolvedLicence = (req.body?.licence_number || req.body?.license_number || `SIM-${Date.now()}`).trim();
     const resolvedExpiry = (req.body?.licence_expiry || req.body?.license_expiry || '2028-12-31').trim();
     const resolvedContact = (req.body?.contact_number || req.body?.phone_number || req.body?.phone || '+62-812-0000-0000').trim();
+    const resolvedPhoto = req.body?.photo_url || req.body?.photo || null;
     const licenceClass = req.body?.licence_class || 'A';
     const availabilityStatus = req.body?.availability_status || 'Active';
     const departmentId = req.body?.department_id;
@@ -1384,20 +1385,19 @@ export function createApp() {
     if (existingProfile) {
       db.prepare(
         `UPDATE driver_profiles
-         SET full_name = ?, licence_number = ?, licence_class = ?, licence_expiry = ?, contact_number = ?, availability_status = ?, updated_at = datetime('now')
+         SET full_name = ?, licence_number = ?, licence_class = ?, licence_expiry = ?, contact_number = ?, availability_status = ?, photo_url = COALESCE(?, photo_url), updated_at = datetime('now')
          WHERE id = ?`
-      ).run(resolvedName, resolvedLicence, licenceClass, resolvedExpiry, resolvedContact, availabilityStatus, existingProfile.id);
+      ).run(resolvedName, resolvedLicence, licenceClass, resolvedExpiry, resolvedContact, availabilityStatus, resolvedPhoto, existingProfile.id);
       driverProfileId = existingProfile.id;
     } else {
       const result = db
         .prepare(
-          `INSERT INTO driver_profiles (user_id, full_name, licence_number, licence_class, licence_expiry, contact_number, availability_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO driver_profiles (user_id, full_name, licence_number, licence_class, licence_expiry, contact_number, availability_status, photo_url)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(resolvedUserId, resolvedName, resolvedLicence, licenceClass, resolvedExpiry, resolvedContact, availabilityStatus);
+        .run(resolvedUserId, resolvedName, resolvedLicence, licenceClass, resolvedExpiry, resolvedContact, availabilityStatus, resolvedPhoto);
       driverProfileId = Number(result.lastInsertRowid);
     }
-
 
     const created = db
       .prepare(
@@ -1412,7 +1412,6 @@ export function createApp() {
     res.status(201).json({ driver: created });
   });
 
-
   app.patch('/api/drivers/:id', requireAuth, requireRoles(['ADM', 'FM']), (req: Request, res: Response) => {
     const db = getDb();
     const driverId = Number(req.params.id);
@@ -1422,7 +1421,7 @@ export function createApp() {
       return;
     }
 
-    const { full_name, licence_number, licence_class, licence_expiry, contact_number, availability_status, department_id } = req.body ?? {};
+    const { full_name, licence_number, licence_class, licence_expiry, contact_number, availability_status, department_id, photo_url } = req.body ?? {};
     if (licence_expiry !== undefined) {
       const expDate = new Date(licence_expiry);
       if (Number.isNaN(expDate.getTime())) {
@@ -1443,6 +1442,7 @@ export function createApp() {
            licence_expiry = ?,
            contact_number = ?,
            availability_status = ?,
+           photo_url = COALESCE(?, photo_url),
            updated_at = datetime('now')
        WHERE id = ?`
     ).run(
@@ -1452,6 +1452,7 @@ export function createApp() {
       licence_expiry ?? prev.licence_expiry,
       contact_number ?? prev.contact_number,
       availability_status ?? prev.availability_status,
+      photo_url !== undefined ? photo_url : prev.photo_url,
       driverId
     );
 
@@ -1466,6 +1467,42 @@ export function createApp() {
       .get(driverId);
     recordAudit(db, req.user, 'DRIVER_PROFILE_UPDATED', 'DRIVER_PROFILE', driverId, prev, updated);
     res.json({ driver: updated });
+  });
+
+  // Dedicated Driver Profile Photo Upload Endpoint (Accessible by Driver themselves, FM, or ADM)
+  app.post('/api/driver/profile/photo', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const user = req.user!;
+    const { photo_url, driver_id } = req.body ?? {};
+
+    if (!photo_url || typeof photo_url !== 'string') {
+      res.status(400).json({ error: 'Valid photo_url is required' });
+      return;
+    }
+
+    let targetDriverId: number | null = null;
+    if (user.role === 'ADM' || user.role === 'FM') {
+      targetDriverId = driver_id ? Number(driver_id) : user.driver_profile_id;
+    } else if (user.role === 'DRV') {
+      targetDriverId = user.driver_profile_id;
+    }
+
+    if (!targetDriverId) {
+      // Find driver profile by user id
+      const dp = db.prepare('SELECT id FROM driver_profiles WHERE user_id = ?').get(user.id) as { id: number } | undefined;
+      targetDriverId = dp ? dp.id : null;
+    }
+
+    if (!targetDriverId) {
+      res.status(404).json({ error: 'Driver profile not found for this account' });
+      return;
+    }
+
+    db.prepare("UPDATE driver_profiles SET photo_url = ?, updated_at = datetime('now') WHERE id = ?").run(photo_url, targetDriverId);
+
+    const updated = db.prepare('SELECT * FROM driver_profiles WHERE id = ?').get(targetDriverId);
+    recordAudit(db, req.user, 'DRIVER_PHOTO_UPDATED', 'DRIVER_PROFILE', targetDriverId, null, { photo_url });
+    res.json({ success: true, driver: updated });
   });
 
   app.delete('/api/drivers/:id', requireAuth, requireRoles(['ADM']), (req: Request, res: Response) => {

@@ -341,7 +341,6 @@ export function App() {
     default_driver_id: '',
   });
 
-  // Admin New Driver Profile Form (includes Group department_id)
   const [newDriverForm, setNewDriverForm] = useState({
     user_id: '',
     full_name: '',
@@ -351,6 +350,7 @@ export function App() {
     licence_expiry: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
     contact_number: '',
     availability_status: 'Active',
+    photo_url: '',
   });
 
   // Admin Direct User Creation Form
@@ -1277,6 +1277,7 @@ export function App() {
           licence_expiry: newDriverForm.licence_expiry,
           contact_number: newDriverForm.contact_number.trim() || '-',
           availability_status: newDriverForm.availability_status,
+          photo_url: newDriverForm.photo_url || null,
         }),
       });
       setNewDriverForm({
@@ -1288,6 +1289,7 @@ export function App() {
         licence_expiry: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
         contact_number: '',
         availability_status: 'Active',
+        photo_url: '',
       });
       setStatusBanner({ type: 'success', text: 'Driver profile saved with group assignment.' });
       await loadAllData(user);
@@ -2617,11 +2619,23 @@ export function App() {
                       style={{ marginTop: '3px' }}
                     />
                     <div>
-                      <div style={{ fontWeight: 800, fontSize: '14px', color: '#0f172a' }}>
-                        1. Reset Operations & Trips (Keep Registered Vehicles & Drivers)
+                      <div style={{ fontWeight: 800, fontSize: '14px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span>1. Reset Test Operations & Trips</span>
+                        <span style={{ background: '#dcfce7', color: '#166534', fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '9999px' }}>
+                          ✅ Recommended for Real Fleet Launch
+                        </span>
                       </div>
-                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                        Wipes all test trips, bookings, assignments, odometer history, fuel/EV records, expense receipts, notifications, and resets vehicle current odometers to your custom starting values below.
+                      <div style={{ fontSize: '12px', color: '#0f172a', marginTop: '6px', lineHeight: 1.5, background: '#f8fafc', padding: '8px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ color: '#0369a1', fontWeight: 700, marginBottom: '2px' }}>
+                          🛡️ GUARANTEED NOT ERASED:
+                        </div>
+                        <div>• <strong>Vehicle License Plates & Specs:</strong> All plate numbers ({vehicles.map(v => v.registration_plate).slice(0, 5).join(', ')}{vehicles.length > 5 ? '...' : ''}), models, VINs remain fully intact.</div>
+                        <div>• <strong>Driver Names & Phone Numbers:</strong> All driver profiles, contact phones, licenses, and photos remain fully intact.</div>
+                        <div>• <strong>User Accounts & 12 Company Groups:</strong> All logins and department structures remain fully intact.</div>
+                        <div style={{ color: '#b91c1c', fontWeight: 700, marginTop: '4px' }}>
+                          🗑️ ERASED ONLY:
+                        </div>
+                        <div style={{ color: '#475569' }}>Test trip requests, bookings, driver dispatches, odometer logs, test receipts, and GPS breadcrumbs.</div>
                       </div>
                     </div>
                   </label>
@@ -2863,7 +2877,7 @@ export function App() {
                         type="text"
                         className="gf-input"
                         style={{ paddingLeft: '40px', paddingRight: driverSearchQuery ? '36px' : '14px', height: '44px', width: '100%', fontSize: '14px', borderRadius: '10px' }}
-                        placeholder="Search driver position by name (e.g. Budi, Citra, Andi, Deni)..."
+                        placeholder="Search driver position by name (e.g. Budi, Citra) or license plate (e.g. B 1024)..."
                         value={driverSearchQuery}
                         onChange={(e) => setDriverSearchQuery(e.target.value)}
                       />
@@ -2928,146 +2942,167 @@ export function App() {
                   </div>
                 </div>
 
-                {/* Driver Quick Position Cards (When searching or filtered) */}
-                {filteredFleetPositions.length > 0 && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '12px' }}>
-                    {filteredFleetPositions.map((pos) => {
-                      const isEv = pos.energy_type === 'Electric';
-                      const isInTrip = pos.status === 'IN_TRIP';
-                      const driverPhoto = getDriverAvatarDataUri(pos.driver_name || 'Driver', pos.driver_photo_url);
-                      const isFocused = focusedVehicleId === pos.id;
+                {/* Driver Quick Position Cards - Display ONLY when search query is typed */}
+                {q.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="type-caption" style={{ fontWeight: 700, color: 'var(--color-samsung-blue)' }}>
+                        🔍 Driver & Vehicle Search Results for &ldquo;{driverSearchQuery}&rdquo; ({filteredFleetPositions.length} found)
+                      </span>
+                      <button
+                        type="button"
+                        className="gf-btn gf-btn-ghost"
+                        style={{ minHeight: '26px', padding: '0 8px', fontSize: '11.5px' }}
+                        onClick={() => setDriverSearchQuery('')}
+                      >
+                        Clear search
+                      </button>
+                    </div>
+                    {filteredFleetPositions.length === 0 ? (
+                      <div className="gf-card-flat" style={{ padding: '14px', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: '13px' }}>
+                        No driver or vehicle found matching &ldquo;{driverSearchQuery}&rdquo;. Try typing driver name or license plate.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '12px' }}>
+                        {filteredFleetPositions.map((pos) => {
+                          const isEv = pos.energy_type === 'Electric';
+                          const isInTrip = pos.status === 'IN_TRIP';
+                          const driverPhoto = getDriverAvatarDataUri(pos.driver_name || 'Driver', pos.driver_photo_url);
+                          const isFocused = focusedVehicleId === pos.id;
 
-                      return (
-                        <div
-                          key={pos.id}
-                          className="gf-card-flat"
-                          style={{
-                            padding: '12px 14px',
-                            border: isFocused ? '2px solid var(--color-samsung-blue)' : '1px solid var(--color-divider)',
-                            background: isFocused ? '#f0f7ff' : 'var(--color-bg-surface)',
-                            borderRadius: '12px',
-                            boxShadow: isFocused ? '0 4px 14px rgba(0,114,222,0.18)' : 'var(--shadow-card)',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '8px',
-                          }}
-                        >
-                          {/* Driver & Car Header */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <div style={{ position: 'relative', width: '46px', height: '46px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: '2px solid #ffffff', boxShadow: '0 2px 6px rgba(0,0,0,0.14)' }}>
-                              <img src={driverPhoto} alt={pos.driver_name || 'Driver'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              <span
-                                style={{
-                                  position: 'absolute',
-                                  bottom: '1px',
-                                  right: '1px',
-                                  width: '10px',
-                                  height: '10px',
-                                  borderRadius: '50%',
-                                  background: isInTrip ? '#258cfb' : '#10b981',
-                                  border: '2px solid #ffffff',
-                                }}
-                              />
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '6px' }}>
-                                <span style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--color-text-primary)' }}>{pos.driver_name || 'Standby Driver'}</span>
-                                <span
-                                  style={{
-                                    fontSize: '10px',
-                                    fontWeight: 800,
-                                    padding: '2px 6px',
-                                    borderRadius: '9999px',
-                                    background: isInTrip ? '#fef3c7' : '#ecfdf5',
-                                    color: isInTrip ? '#b45309' : '#059669',
-                                  }}
-                                >
-                                  {isInTrip ? '🚗 Driving' : '🅿️ Standby'}
-                                </span>
-                              </div>
-                              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-samsung-blue)' }}>
-                                {pos.registration_plate} • {pos.make} {pos.model}
-                              </div>
-                              <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'flex', gap: '6px' }}>
-                                <span>{isEv ? `⚡ EV ${pos.battery_percent ?? 100}%` : '⛽ Gasoline'}</span>
-                                {pos.driver_licence_number && (
-                                  <span>• SIM {pos.driver_licence_number}</span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Person Using This Car Section */}
-                          {pos.active_trip ? (
-                            <div style={{ background: '#e0edff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '8px 10px', fontSize: '11.5px', color: '#1e293b' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
-                                <span style={{ fontWeight: 800, color: '#005bb5', textTransform: 'uppercase', fontSize: '10px', letterSpacing: '0.04em' }}>
-                                  👤 Person Using This Car
-                                </span>
-                                {pos.active_trip.ride_duration_formatted && (
-                                  <span style={{ fontSize: '10px', fontWeight: 700, background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: '9999px' }}>
-                                    ⏱️ {pos.active_trip.ride_duration_formatted}
-                                  </span>
-                                )}
-                              </div>
-                              <div style={{ fontWeight: 800, color: '#0f172a' }}>
-                                Pax: <span style={{ color: '#005bb5' }}>{pos.active_trip.passenger_nickname || 'Employee'}</span>
-                              </div>
-                              <div style={{ fontSize: '11px', color: '#475569' }}>
-                                Booked By: <b>{pos.active_trip.requester_nickname || 'Requester'}</b>
-                                {pos.active_trip.requester_department && (
-                                  <span className="notranslate" translate="no" style={{ color: '#64748b' }}> • {pos.active_trip.requester_department}</span>
-                                )}
-                              </div>
-                              <div style={{ fontSize: '11px', marginTop: '2px', fontWeight: 600 }}>
-                                📍 {pos.active_trip.origin || 'HQ Pool'} ➔ 🎯 {pos.active_trip.destination}
-                              </div>
-                            </div>
-                          ) : (
-                            <div style={{ background: 'var(--color-bg-subtle)', borderRadius: '8px', padding: '6px 10px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-                              🅿️ Parked at: <b>{pos.location_label || 'Central Fleet Pool'}</b>
-                            </div>
-                          )}
-
-                          {/* Action Buttons: Locate on Map, WhatsApp, Call */}
-                          <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
-                            <button
-                              type="button"
-                              className="gf-btn gf-btn-primary"
-                              style={{ flex: 1, minHeight: '32px', padding: '0 8px', fontSize: '12px', fontWeight: 700 }}
-                              onClick={() => {
-                                setFocusedVehicleId(pos.id);
-                                document.getElementById('admin-fleet-map-canvas')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          return (
+                            <div
+                              key={pos.id}
+                              className="gf-card-flat"
+                              style={{
+                                padding: '12px 14px',
+                                border: isFocused ? '2px solid var(--color-samsung-blue)' : '1px solid var(--color-divider)',
+                                background: isFocused ? '#f0f7ff' : 'var(--color-bg-surface)',
+                                borderRadius: '12px',
+                                boxShadow: isFocused ? '0 4px 14px rgba(0,114,222,0.18)' : 'var(--shadow-card)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '8px',
                               }}
                             >
-                              <Navigation size={13} style={{ marginRight: '4px' }} /> Locate Position
-                            </button>
-                            {pos.driver_phone && (
-                              <>
-                                <a
-                                  href={formatWhatsAppUrl(pos.driver_phone)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="gf-btn gf-btn-secondary"
-                                  style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', background: '#dcfce7', color: '#166534', textDecoration: 'none', display: 'flex', alignItems: 'center' }}
-                                  title="WhatsApp Driver"
+                              {/* Driver & Car Header */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <div style={{ position: 'relative', width: '46px', height: '46px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: '2px solid #ffffff', boxShadow: '0 2px 6px rgba(0,0,0,0.14)' }}>
+                                  <img src={driverPhoto} alt={pos.driver_name || 'Driver'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                  <span
+                                    style={{
+                                      position: 'absolute',
+                                      bottom: '1px',
+                                      right: '1px',
+                                      width: '10px',
+                                      height: '10px',
+                                      borderRadius: '50%',
+                                      background: isInTrip ? '#258cfb' : '#10b981',
+                                      border: '2px solid #ffffff',
+                                    }}
+                                  />
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '6px' }}>
+                                    <span style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--color-text-primary)' }}>{pos.driver_name || 'Standby Driver'}</span>
+                                    <span
+                                      style={{
+                                        fontSize: '10px',
+                                        fontWeight: 800,
+                                        padding: '2px 6px',
+                                        borderRadius: '9999px',
+                                        background: isInTrip ? '#fef3c7' : '#ecfdf5',
+                                        color: isInTrip ? '#b45309' : '#059669',
+                                      }}
+                                    >
+                                      {isInTrip ? '🚗 Driving' : '🅿️ Standby'}
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-samsung-blue)' }}>
+                                    {pos.registration_plate} • {pos.make} {pos.model}
+                                  </div>
+                                  <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'flex', gap: '6px' }}>
+                                    <span>{isEv ? `⚡ EV ${pos.battery_percent ?? 100}%` : '⛽ Gasoline'}</span>
+                                    {pos.driver_licence_number && (
+                                      <span>• SIM {pos.driver_licence_number}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Person Using This Car Section */}
+                              {pos.active_trip ? (
+                                <div style={{ background: '#e0edff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '8px 10px', fontSize: '11.5px', color: '#1e293b' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                                    <span style={{ fontWeight: 800, color: '#005bb5', textTransform: 'uppercase', fontSize: '10px', letterSpacing: '0.04em' }}>
+                                      👤 Person Using This Car
+                                    </span>
+                                    {pos.active_trip.ride_duration_formatted && (
+                                      <span style={{ fontSize: '10px', fontWeight: 700, background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: '9999px' }}>
+                                        ⏱️ {pos.active_trip.ride_duration_formatted}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontWeight: 800, color: '#0f172a' }}>
+                                    Pax: <span style={{ color: '#005bb5' }}>{pos.active_trip.passenger_nickname || 'Employee'}</span>
+                                  </div>
+                                  <div style={{ fontSize: '11px', color: '#475569' }}>
+                                    Booked By: <b>{pos.active_trip.requester_nickname || 'Requester'}</b>
+                                    {pos.active_trip.requester_department && (
+                                      <span className="notranslate" translate="no" style={{ color: '#64748b' }}> • {pos.active_trip.requester_department}</span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontSize: '11px', marginTop: '2px', fontWeight: 600 }}>
+                                    📍 {pos.active_trip.origin || 'HQ Pool'} ➔ 🎯 {pos.active_trip.destination}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div style={{ background: 'var(--color-bg-subtle)', borderRadius: '8px', padding: '6px 10px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                                  🅿️ Parked at: <b>{pos.location_label || 'Central Fleet Pool'}</b>
+                                </div>
+                              )}
+
+                              {/* Action Buttons: Locate on Map, WhatsApp, Call */}
+                              <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
+                                <button
+                                  type="button"
+                                  className="gf-btn gf-btn-primary"
+                                  style={{ flex: 1, minHeight: '32px', padding: '0 8px', fontSize: '12px', fontWeight: 700 }}
+                                  onClick={() => {
+                                    setFocusedVehicleId(pos.id);
+                                    document.getElementById('admin-fleet-map-canvas')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                  }}
                                 >
-                                  <MessageSquare size={13} />
-                                </a>
-                                <a
-                                  href={formatPhoneCallUrl(pos.driver_phone)}
-                                  className="gf-btn gf-btn-secondary"
-                                  style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', textDecoration: 'none', display: 'flex', alignItems: 'center' }}
-                                  title="Call Driver"
-                                >
-                                  <Phone size={13} />
-                                </a>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
+                                  <Navigation size={13} style={{ marginRight: '4px' }} /> Locate Position
+                                </button>
+                                {pos.driver_phone && (
+                                  <>
+                                    <a
+                                      href={formatWhatsAppUrl(pos.driver_phone)}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="gf-btn gf-btn-secondary"
+                                      style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', background: '#dcfce7', color: '#166534', textDecoration: 'none', display: 'flex', alignItems: 'center' }}
+                                      title="WhatsApp Driver"
+                                    >
+                                      <MessageSquare size={13} />
+                                    </a>
+                                    <a
+                                      href={formatPhoneCallUrl(pos.driver_phone)}
+                                      className="gf-btn gf-btn-secondary"
+                                      style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', textDecoration: 'none', display: 'flex', alignItems: 'center' }}
+                                      title="Call Driver"
+                                    >
+                                      <Phone size={13} />
+                                    </a>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -3796,6 +3831,44 @@ export function App() {
                       value={newDriverForm.contact_number}
                       onChange={(e) => setNewDriverForm({ ...newDriverForm, contact_number: e.target.value })}
                     />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', gridColumn: '1 / -1', background: 'var(--color-bg-subtle)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--color-divider)' }}>
+                      <img
+                        src={newDriverForm.photo_url || getDriverAvatarDataUri(newDriverForm.full_name || 'Driver')}
+                        alt="Driver Preview"
+                        style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--color-samsung-blue)' }}
+                      />
+                      <label className="gf-btn gf-btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0, minHeight: '34px', fontSize: '13px' }}>
+                        <Camera size={14} /> {newDriverForm.photo_url ? 'Change Driver Photo' : 'Upload Driver Photo'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = (ev) => {
+                                setNewDriverForm({ ...newDriverForm, photo_url: String(ev.target?.result || '') });
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                        />
+                      </label>
+                      {newDriverForm.photo_url && (
+                        <button
+                          type="button"
+                          className="gf-btn gf-btn-ghost"
+                          style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px', color: 'var(--color-red)' }}
+                          onClick={() => setNewDriverForm({ ...newDriverForm, photo_url: '' })}
+                        >
+                          Remove Photo
+                        </button>
+                      )}
+                      <span className="type-caption" style={{ fontSize: '12px' }}>
+                        {newDriverForm.photo_url ? 'Custom photo attached' : 'Default high-resolution avatar will be generated if no photo uploaded'}
+                      </span>
+                    </div>
                     <button type="submit" className="gf-btn gf-btn-primary">
                       <Plus size={16} /> Save Driver
                     </button>
@@ -3809,6 +3882,7 @@ export function App() {
                       <table className="gf-table">
                         <thead>
                           <tr>
+                            <th>Photo</th>
                             <th>Driver</th>
                             <th>Username</th>
                             <th>Driver Group</th>
@@ -3822,6 +3896,60 @@ export function App() {
                         <tbody>
                           {drivers.map((d) => (
                             <tr key={d.id}>
+                              <td>
+                                <div style={{ position: 'relative', width: '38px', height: '38px', flexShrink: 0 }}>
+                                  <img
+                                    src={getDriverAvatarDataUri(d.full_name, d.photo_url)}
+                                    alt={d.full_name}
+                                    style={{ width: '38px', height: '38px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--color-divider)' }}
+                                  />
+                                  <label
+                                    title="Upload or change driver photo"
+                                    style={{
+                                      position: 'absolute',
+                                      bottom: '-2px',
+                                      right: '-2px',
+                                      width: '18px',
+                                      height: '18px',
+                                      borderRadius: '50%',
+                                      background: 'var(--color-samsung-blue)',
+                                      color: '#fff',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      cursor: 'pointer',
+                                      boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                                    }}
+                                  >
+                                    <Camera size={10} />
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      style={{ display: 'none' }}
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) {
+                                          const reader = new FileReader();
+                                          reader.onload = async (ev) => {
+                                            const base64 = String(ev.target?.result || '');
+                                            try {
+                                              await apiRequest(`/api/drivers/${d.id}`, {
+                                                method: 'PATCH',
+                                                body: JSON.stringify({ photo_url: base64 }),
+                                              });
+                                              setStatusBanner({ type: 'success', text: `Photo updated for driver ${d.full_name}.` });
+                                              await loadAllData(user);
+                                            } catch (err: any) {
+                                              setStatusBanner({ type: 'danger', text: err.message });
+                                            }
+                                          };
+                                          reader.readAsDataURL(file);
+                                        }
+                                      }}
+                                    />
+                                  </label>
+                                </div>
+                              </td>
                               <td style={{ fontWeight: 700 }}>{d.full_name}</td>
                               <td className="mono">{d.group_username ? `@${d.group_username}` : '—'}</td>
                               <td>
@@ -3883,6 +4011,7 @@ export function App() {
                                         licence_expiry: d.licence_expiry || new Date().toISOString().slice(0, 10),
                                         contact_number: d.contact_number || '',
                                         availability_status: d.availability_status || 'Active',
+                                        photo_url: d.photo_url || '',
                                       });
                                       setStatusBanner({ type: 'info', text: `Loaded driver ${d.full_name} into form above for editing.` });
                                     }}
@@ -4854,6 +4983,132 @@ export function App() {
               </button>
             </div>
           </div>
+
+          {/* Driver Profile & Photo Card */}
+          {(() => {
+            const myDriver = drivers.find((d) => d.user_id === user.id || d.full_name.toLowerCase() === (user.nickname || '').toLowerCase());
+            const photoSrc = myDriver?.photo_url || getDriverAvatarDataUri(user.nickname || 'Driver');
+            return (
+              <div
+                style={{
+                  padding: '14px 16px',
+                  borderRadius: 'var(--radius-card)',
+                  background: 'var(--color-bg-surface)',
+                  border: '1.5px solid var(--color-border)',
+                  boxShadow: 'var(--shadow-card)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '14px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div style={{ position: 'relative', width: '56px', height: '56px', flexShrink: 0 }}>
+                    <img
+                      src={photoSrc}
+                      alt={user.nickname}
+                      style={{
+                        width: '56px',
+                        height: '56px',
+                        borderRadius: '50%',
+                        objectFit: 'cover',
+                        border: '2.5px solid var(--color-samsung-blue)',
+                        background: '#f1f5f9',
+                      }}
+                    />
+                    <label
+                      title="Upload new driver photo"
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        right: 0,
+                        width: '22px',
+                        height: '22px',
+                        borderRadius: '50%',
+                        background: 'var(--color-samsung-blue)',
+                        color: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.25)',
+                      }}
+                    >
+                      <Camera size={12} />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = async (ev) => {
+                              const base64 = String(ev.target?.result || '');
+                              try {
+                                await apiRequest('/api/driver/profile/photo', {
+                                  method: 'POST',
+                                  body: JSON.stringify({ photo_url: base64 }),
+                                });
+                                setStatusBanner({ type: 'success', text: 'Driver profile photo updated successfully!' });
+                                await loadAllData(user);
+                              } catch (err: any) {
+                                setStatusBanner({ type: 'danger', text: err.message });
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '15px', color: 'var(--color-fg-primary)' }}>
+                      {user.nickname} <span className="mono" style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>@{user.group_username}</span>
+                    </div>
+                    <div className="type-caption" style={{ fontSize: '12.5px', display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
+                      <span>SIM: <strong>{myDriver?.licence_number || 'Registered'}</strong> (Class {myDriver?.licence_class || 'A'})</span>
+                      {myDriver?.contact_number && <span>• Tel: <strong>{myDriver.contact_number}</strong></span>}
+                      <span>• Group: <strong>{user.department_name || 'Fleet'}</strong></span>
+                    </div>
+                  </div>
+                </div>
+
+                <label
+                  className="gf-btn gf-btn-secondary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0, minHeight: '34px', fontSize: '12.5px' }}
+                >
+                  <Camera size={14} /> Update My Photo
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = async (ev) => {
+                          const base64 = String(ev.target?.result || '');
+                          try {
+                            await apiRequest('/api/driver/profile/photo', {
+                              method: 'POST',
+                              body: JSON.stringify({ photo_url: base64 }),
+                            });
+                            setStatusBanner({ type: 'success', text: 'Driver profile photo updated successfully!' });
+                            await loadAllData(user);
+                          } catch (err: any) {
+                            setStatusBanner({ type: 'danger', text: err.message });
+                          }
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+            );
+          })()}
 
           {/* Subtabs for Driver: Duty & Trips vs Car Schedule */}
           <div className="gf-underline-tabs" role="tablist" aria-label="Driver subtabs">

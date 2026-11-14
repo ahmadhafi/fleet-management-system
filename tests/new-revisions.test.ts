@@ -549,7 +549,133 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
       expect(res4.headers['retry-after']).toBeDefined();
     });
   });
+
+  describe('Driver Photo Management & Operations-Only Data Reset Safeguards', () => {
+    let freshAdminToken: string;
+    let freshDriverToken: string;
+    let freshEmpToken: string;
+
+    beforeAll(async () => {
+      resetDbForTesting(':memory:');
+      const adminRes = await request(app)
+        .post('/api/auth/login')
+        .send({ group_username: 'admin', password: 'Admin@123' });
+      freshAdminToken = adminRes.body.token;
+
+      const drvRes = await request(app)
+        .post('/api/auth/login')
+        .send({ group_username: 'drv_budi', password: 'Driver@123' });
+      freshDriverToken = drvRes.body.token;
+
+      const empRes = await request(app)
+        .post('/api/auth/login')
+        .send({ group_username: 'emp_alex', password: 'Emp@123' });
+      freshEmpToken = empRes.body.token;
+    });
+
+    it('allows driver to update their profile photo via POST /api/driver/profile/photo', async () => {
+      const samplePhotoBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      const res = await request(app)
+        .post('/api/driver/profile/photo')
+        .set('Authorization', `Bearer ${freshDriverToken}`)
+        .send({ photo_url: samplePhotoBase64 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.driver).toBeDefined();
+      expect(res.body.driver.photo_url).toBe(samplePhotoBase64);
+
+      // Verify reflected in /api/drivers list
+      const listRes = await request(app)
+        .get('/api/drivers')
+        .set('Authorization', `Bearer ${freshAdminToken}`);
+      expect(listRes.status).toBe(200);
+      const budi = listRes.body.drivers.find((d: any) => d.id === res.body.driver.id);
+      expect(budi).toBeDefined();
+      expect(budi.photo_url).toBe(samplePhotoBase64);
+    });
+
+    it('allows admin to update driver photo and details via PATCH /api/drivers/:id', async () => {
+      const updatedPhoto = 'data:image/png;base64,UPDATED_ADMIN_AVATAR_SAMPLE';
+      const res = await request(app)
+        .patch('/api/drivers/1')
+        .set('Authorization', `Bearer ${freshAdminToken}`)
+        .send({
+          photo_url: updatedPhoto,
+          contact_number: '+62 811-9988-7766',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.driver.photo_url).toBe(updatedPhoto);
+      expect(res.body.driver.contact_number).toBe('+62 811-9988-7766');
+    });
+
+    it('preserves vehicle plates, driver names, and driver phones when resetting operations data', async () => {
+      const db = getDb();
+
+      // Check state before reset
+      const vehiclesBefore = db.prepare('SELECT registration_plate, make, model FROM vehicles').all() as any[];
+      const driversBefore = db.prepare('SELECT full_name, licence_number, contact_number FROM driver_profiles').all() as any[];
+      expect(vehiclesBefore.length).toBeGreaterThan(0);
+      expect(driversBefore.length).toBeGreaterThan(0);
+
+      // Create a test trip and booking
+      const startTime = new Date(Date.now() + 100000).toISOString();
+      const endTime = new Date(Date.now() + 200000).toISOString();
+      const tripRes = await request(app)
+        .post('/api/trips')
+        .set('Authorization', `Bearer ${freshEmpToken}`)
+        .send({
+          vehicle_id: 1,
+          purpose: 'Pre-Reset Test Trip',
+          origin: 'HQ',
+          destination: 'Airport',
+          start_time: startTime,
+          end_time: endTime,
+        });
+      expect(tripRes.status).toBe(201);
+
+      // Perform Operations-Only Reset
+      const resetRes = await request(app)
+        .post('/api/admin/system/reset-data')
+        .set('Authorization', `Bearer ${freshAdminToken}`)
+        .send({
+          mode: 'OPERATIONS_ONLY',
+          confirmation_code: 'RESET',
+        });
+
+      expect(resetRes.status).toBe(200);
+      expect(resetRes.body.success).toBe(true);
+      expect(resetRes.body.mode).toBe('OPERATIONS_ONLY');
+
+      // 1. Verify all vehicle registration plates and models are INTACT
+      const vehiclesAfter = db.prepare('SELECT registration_plate, make, model FROM vehicles').all() as any[];
+      expect(vehiclesAfter.length).toBe(vehiclesBefore.length);
+      expect(vehiclesAfter.map((v) => v.registration_plate).sort()).toEqual(
+        vehiclesBefore.map((v) => v.registration_plate).sort()
+      );
+
+      // 2. Verify all driver names, licence numbers, and phone numbers are INTACT
+      const driversAfter = db.prepare('SELECT full_name, licence_number, contact_number FROM driver_profiles').all() as any[];
+      expect(driversAfter.length).toBe(driversBefore.length);
+      for (const drv of driversBefore) {
+        const found = driversAfter.find((d) => d.full_name === drv.full_name);
+        expect(found).toBeDefined();
+        expect(found.licence_number).toBe(drv.licence_number);
+        expect(found.contact_number).toBe(drv.contact_number);
+      }
+
+      // 3. Verify test trips, bookings, assignments, and audit trails of trips are PURGED
+      const tripsAfter = db.prepare('SELECT COUNT(*) as c FROM trip_requests').get() as { c: number };
+      const bookingsAfter = db.prepare('SELECT COUNT(*) as c FROM bookings').get() as { c: number };
+      const assignmentsAfter = db.prepare('SELECT COUNT(*) as c FROM assignments').get() as { c: number };
+      expect(tripsAfter.c).toBe(0);
+      expect(bookingsAfter.c).toBe(0);
+      expect(assignmentsAfter.c).toBe(0);
+    });
+  });
 });
+
 
 
 
