@@ -392,6 +392,79 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
       const checkDrv = db.prepare('SELECT * FROM driver_profiles WHERE id = ?').get(drvId);
       expect(checkDrv).toBeUndefined();
     });
+
+    it('generates a comprehensive multi-section executive report with all tables and IDR currency', async () => {
+      const res = await request(app)
+        .get('/api/reports/executive-pdf?format=html')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/html');
+      expect(res.text).toContain('GALAXYFLEET EXECUTIVE MANAGEMENT REPORT');
+      expect(res.text).toContain('Vehicle Odometer & Mileage Audit Table');
+      expect(res.text).toContain('Driver Working Hours & Performance Table');
+      expect(res.text).toContain('Comprehensive Energy & Expense Ledger (IDR)');
+      expect(res.text).toContain('Chronological Trip Manifest Log');
+      expect(res.text).toContain('Indonesian Rupiah (IDR)');
+    });
+
+    it('handles admin system data reset: requires confirmation code and resets operations and odometers', async () => {
+      // 1. Non-admin cannot reset
+      const nonAdminRes = await request(app)
+        .post('/api/admin/system/reset-data')
+        .set('Authorization', `Bearer ${empToken}`)
+        .send({ mode: 'OPERATIONS_ONLY', confirmation_code: 'RESET' });
+      expect(nonAdminRes.status).toBe(403);
+
+      // 2. Reject missing confirmation code
+      const badCodeRes = await request(app)
+        .post('/api/admin/system/reset-data')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ mode: 'OPERATIONS_ONLY', confirmation_code: 'WRONG' });
+      expect(badCodeRes.status).toBe(400);
+
+      // 3. Reset operations only with custom odometer
+      const resetOpsRes = await request(app)
+        .post('/api/admin/system/reset-data')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          mode: 'OPERATIONS_ONLY',
+          confirmation_code: 'RESET',
+          vehicle_odometers: { 1: 500, 2: 1200 },
+        });
+      expect(resetOpsRes.status).toBe(200);
+      expect(resetOpsRes.body.success).toBe(true);
+
+      const db = getDb();
+      // Trips & bookings must be 0
+      const tripCount = db.prepare('SELECT COUNT(*) as c FROM trip_requests').get() as { c: number };
+      expect(tripCount.c).toBe(0);
+      const bkgCount = db.prepare('SELECT COUNT(*) as c FROM bookings').get() as { c: number };
+      expect(bkgCount.c).toBe(0);
+
+      // Vehicles must still exist with updated odometers
+      const v1 = db.prepare('SELECT current_odometer FROM vehicles WHERE id = 1').get() as { current_odometer: number };
+      expect(v1.current_odometer).toBe(500);
+
+      // 4. Factory reset wipes test vehicles and drivers back to clean slate
+      const factoryRes = await request(app)
+        .post('/api/admin/system/reset-data')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          mode: 'FACTORY_RESET',
+          confirmation_code: 'RESET',
+        });
+      expect(factoryRes.status).toBe(200);
+      expect(factoryRes.body.success).toBe(true);
+
+      const finalVehCount = db.prepare('SELECT COUNT(*) as c FROM vehicles').get() as { c: number };
+      expect(finalVehCount.c).toBe(0);
+      const finalDrvCount = db.prepare('SELECT COUNT(*) as c FROM driver_profiles').get() as { c: number };
+      expect(finalDrvCount.c).toBe(0);
+      const finalDeptCount = db.prepare('SELECT COUNT(*) as c FROM departments').get() as { c: number };
+      expect(finalDeptCount.c).toBe(12);
+    });
   });
 });
+
 

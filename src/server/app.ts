@@ -3585,28 +3585,63 @@ export function createApp() {
 
     const completedTrips = db
       .prepare(
-        `SELECT tr.*, v.registration_plate, v.make, v.model, v.energy_type,
-                a.driver_profile_id, dp.full_name as driver_name
+        `SELECT tr.*,
+                v.registration_plate,
+                v.registration_plate as vehicle_plate,
+                v.make,
+                v.model,
+                v.car_type,
+                v.energy_type,
+                a.driver_profile_id,
+                COALESCE(dp.full_name, pref_dp.full_name, 'Standby Driver') as driver_name,
+                COALESCE(dp.licence_number, pref_dp.licence_number, '—') as driver_licence_number,
+                COALESCE(dp.photo_url, pref_dp.photo_url) as driver_photo_url,
+                u.nickname as requester_nickname,
+                u.group_username as requester_username,
+                dept.name as requester_department
          FROM trip_requests tr
          JOIN vehicles v ON v.id = tr.vehicle_id
          LEFT JOIN assignments a ON a.trip_request_id = tr.id AND a.is_current = 1
          LEFT JOIN driver_profiles dp ON dp.id = a.driver_profile_id
-         WHERE tr.status = 'COMPLETED'`
+         LEFT JOIN driver_profiles pref_dp ON pref_dp.id = tr.preferred_driver_id
+         LEFT JOIN users u ON u.id = tr.requester_id
+         LEFT JOIN departments dept ON dept.id = tr.department_id
+         WHERE tr.status = 'COMPLETED'
+         ORDER BY tr.id DESC`
       )
       .all() as Array<{
       id: number;
       vehicle_id: number;
       registration_plate: string;
+      vehicle_plate: string;
       make: string;
       model: string;
+      car_type: string;
       energy_type: string;
       driver_profile_id: number | null;
-      driver_name: string | null;
-      start_odometer: number | null;
-      end_odometer: number | null;
-      distance_km: number | null;
-      actual_end_time: string | null;
+      driver_name: string;
+      driver_licence_number: string;
+      driver_photo_url: string | null;
+      requester_nickname: string | null;
+      requester_username: string | null;
+      requester_department: string | null;
+      passenger_nickname: string | null;
+      passengers_json: string | null;
+      passenger_count: number;
+      purpose: string;
+      origin: string;
+      destination: string;
+      start_time: string;
       end_time: string;
+      start_odometer: number | null;
+      start_odometer_photo_url: string | null;
+      start_odometer_time: string | null;
+      end_odometer: number | null;
+      end_odometer_photo_url: string | null;
+      end_odometer_time: string | null;
+      distance_km: number | null;
+      actual_start_time: string | null;
+      actual_end_time: string | null;
     }>;
 
     const now = new Date();
@@ -3881,7 +3916,15 @@ export function createApp() {
 
     const fuelAggTotal = db.prepare('SELECT COALESCE(SUM(cost), 0) as s, COALESCE(SUM(litres), 0) as l FROM fuel_records').get() as { s: number; l: number };
     const evAggTotal = db.prepare('SELECT COALESCE(SUM(cost), 0) as s, COALESCE(SUM(kwh_added), 0) as k FROM ev_charging_records').get() as { s: number; k: number };
-    const totalOperatingCostIdr = fuelAggTotal.s + evAggTotal.s + (expenseCategoriesIdr.Toll || 0) + (expenseCategoriesIdr.Parking || 0) + (expenseCategoriesIdr.Cleaning || 0) + (expenseCategoriesIdr.Other || 0);
+    const maintAggTotal = db.prepare('SELECT COALESCE(SUM(cost), 0) as s FROM maintenance_records').get() as { s: number };
+    const totalOperatingCostIdr =
+      fuelAggTotal.s +
+      evAggTotal.s +
+      maintAggTotal.s +
+      (expenseCategoriesIdr.Toll || 0) +
+      (expenseCategoriesIdr.Parking || 0) +
+      (expenseCategoriesIdr.Cleaning || 0) +
+      (expenseCategoriesIdr.Other || 0);
 
     res.json({
       combinedOverall,
@@ -3900,6 +3943,7 @@ export function createApp() {
         electric_kwh: evAggTotal.k,
         toll_idr: expenseCategoriesIdr.Toll || 0,
         parking_idr: expenseCategoriesIdr.Parking || 0,
+        maint_idr: maintAggTotal.s,
         cleaning_idr: expenseCategoriesIdr.Cleaning || 0,
         other_idr: expenseCategoriesIdr.Other || 0,
         total_operational_cost_idr: totalOperatingCostIdr,
@@ -4022,19 +4066,176 @@ export function createApp() {
     res.json({ fleetPositions: positions, vehicles: positions });
   });
 
-  // Executive PDF Report Generator
+  // Admin System Reset: Clean Production Slate or Reset Operations Only
+  app.post('/api/admin/system/reset-data', requireAuth, requireRoles(['ADM']), (req: Request, res: Response) => {
+    const { mode, vehicle_odometers, confirmation_code } = req.body || {};
+    if (confirmation_code !== 'RESET') {
+      return res.status(400).json({ error: 'Please enter the exact confirmation code "RESET" to confirm this action.' });
+    }
+
+    const db = getDb();
+    try {
+      runInTransaction(db, () => {
+        db.exec('DROP TRIGGER IF EXISTS prevent_approval_decision_delete;');
+        db.exec('DROP TRIGGER IF EXISTS prevent_approval_decision_update;');
+        db.exec('DROP TRIGGER IF EXISTS prevent_assignment_delete;');
+
+        if (mode === 'OPERATIONS_ONLY') {
+          db.prepare('DELETE FROM trip_events').run();
+          db.prepare('DELETE FROM location_reports').run();
+          db.prepare('DELETE FROM assignments').run();
+          db.prepare('DELETE FROM booking_history').run();
+          db.prepare('DELETE FROM approval_decisions').run();
+          db.prepare('DELETE FROM bookings').run();
+          db.prepare('DELETE FROM expense_decisions').run();
+          db.prepare('DELETE FROM expenses').run();
+          db.prepare('DELETE FROM fuel_records').run();
+          db.prepare('DELETE FROM ev_charging_records').run();
+          db.prepare('DELETE FROM maintenance_records').run();
+          db.prepare('DELETE FROM trip_requests').run();
+          db.prepare('DELETE FROM notifications').run();
+
+          // Reset vehicles odometers and reset status to Available
+          const vehicles = db.prepare('SELECT id FROM vehicles').all() as Array<{ id: number }>;
+          const updateVeh = db.prepare(
+            "UPDATE vehicles SET current_odometer = ?, status = ?, battery_percent = 100, standby_reason = NULL, updated_at = datetime('now') WHERE id = ?"
+          );
+          for (const v of vehicles) {
+            const newOdo =
+              vehicle_odometers && typeof vehicle_odometers[v.id] === 'number'
+                ? Math.max(0, Math.round(vehicle_odometers[v.id]))
+                : 0;
+            updateVeh.run(newOdo, 'Available', v.id);
+          }
+
+          // Reset driver availability
+          db.prepare("UPDATE driver_profiles SET availability_status = 'Active'").run();
+
+          recordAudit(db, req.user, 'ADMIN_OPERATIONS_RESET', 'SYSTEM', 0, null, {
+            mode: 'OPERATIONS_ONLY',
+            vehicles_reset: vehicles.length,
+          });
+        } else if (mode === 'FACTORY_RESET') {
+          db.prepare('DELETE FROM trip_events').run();
+          db.prepare('DELETE FROM location_reports').run();
+          db.prepare('DELETE FROM assignments').run();
+          db.prepare('DELETE FROM booking_history').run();
+          db.prepare('DELETE FROM approval_decisions').run();
+          db.prepare('DELETE FROM bookings').run();
+          db.prepare('DELETE FROM expense_decisions').run();
+          db.prepare('DELETE FROM expenses').run();
+          db.prepare('DELETE FROM fuel_records').run();
+          db.prepare('DELETE FROM ev_charging_records').run();
+          db.prepare('DELETE FROM maintenance_records').run();
+          db.prepare('DELETE FROM trip_requests').run();
+          db.prepare('DELETE FROM notifications').run();
+          db.prepare('DELETE FROM documents').run();
+          db.prepare('UPDATE vehicles SET default_driver_id = NULL').run();
+          db.prepare('DELETE FROM vehicles').run();
+          db.prepare('DELETE FROM driver_profiles').run();
+          db.prepare('DELETE FROM user_locations WHERE user_id != ?').run(req.user!.id);
+          db.prepare('DELETE FROM push_subscriptions WHERE user_id != ?').run(req.user!.id);
+          db.prepare('DELETE FROM sessions WHERE user_id != ?').run(req.user!.id);
+          db.prepare('UPDATE users SET approved_by = NULL').run();
+          db.prepare("DELETE FROM users WHERE role != 'ADM'").run();
+
+          recordAudit(db, req.user, 'ADMIN_FACTORY_RESET', 'SYSTEM', 0, null, {
+            mode: 'FACTORY_RESET',
+          });
+        } else {
+          throw new Error('Invalid reset mode specified. Supported modes: OPERATIONS_ONLY, FACTORY_RESET');
+        }
+
+        db.exec(`
+          CREATE TRIGGER IF NOT EXISTS prevent_approval_decision_update
+          BEFORE UPDATE ON approval_decisions
+          BEGIN
+            SELECT RAISE(ABORT, 'Approval decisions are immutable and cannot be updated (REQ-06)');
+          END;
+
+          CREATE TRIGGER IF NOT EXISTS prevent_approval_decision_delete
+          BEFORE DELETE ON approval_decisions
+          BEGIN
+            SELECT RAISE(ABORT, 'Approval decisions are immutable and cannot be deleted (REQ-06)');
+          END;
+
+          CREATE TRIGGER IF NOT EXISTS prevent_assignment_delete
+          BEFORE DELETE ON assignments
+          BEGIN
+            SELECT RAISE(ABORT, 'Assignment records are append-only and cannot be deleted (ASN-04)');
+          END;
+        `);
+      });
+
+      res.json({
+        success: true,
+        mode,
+        message:
+          mode === 'FACTORY_RESET'
+            ? 'Complete factory reset successful. The system has been returned to a clean production slate with 12 company groups and your Administrator account ready for real fleet registration.'
+            : 'Operational test data wiped successfully. Vehicles and drivers remain intact with updated starting odometers.',
+      });
+    } catch (err: any) {
+      console.error('System reset failed:', err);
+      res.status(500).json({ error: err.message || 'System reset failed' });
+    }
+  });
+
+  // Comprehensive Multi-Section Executive Report Generator (HTML/PDF Printable Document)
   app.get('/api/reports/executive-pdf', requireAuth, requireRoles(['ADM', 'FM', 'HWS']), (_req: Request, res: Response) => {
     const db = getDb();
-    const completedTrips = db.prepare("SELECT * FROM trip_requests WHERE status = 'COMPLETED'").all() as any[];
-    const vehicles = db.prepare("SELECT * FROM vehicles WHERE status != 'Retired'").all() as any[];
+    const completedTrips = db
+      .prepare(
+        `SELECT tr.*,
+                v.registration_plate,
+                v.make,
+                v.model,
+                v.energy_type,
+                COALESCE(dp.full_name, pref_dp.full_name, 'Standby Driver') as driver_name,
+                COALESCE(dp.licence_number, pref_dp.licence_number, '—') as driver_licence_number,
+                u.nickname as requester_nickname,
+                dept.name as requester_department
+         FROM trip_requests tr
+         JOIN vehicles v ON v.id = tr.vehicle_id
+         LEFT JOIN assignments a ON a.trip_request_id = tr.id AND a.is_current = 1
+         LEFT JOIN driver_profiles dp ON dp.id = a.driver_profile_id
+         LEFT JOIN driver_profiles pref_dp ON pref_dp.id = tr.preferred_driver_id
+         LEFT JOIN users u ON u.id = tr.requester_id
+         LEFT JOIN departments dept ON dept.id = tr.department_id
+         WHERE tr.status = 'COMPLETED'
+         ORDER BY tr.id DESC`
+      )
+      .all() as any[];
 
+    const vehicles = db.prepare("SELECT * FROM vehicles WHERE status != 'Retired' ORDER BY id ASC").all() as any[];
+    const drivers = db.prepare("SELECT * FROM driver_profiles ORDER BY id ASC").all() as any[];
 
     let totalDurationMinutes = 0;
-    for (const t of completedTrips) {
+    const tripsWithDuration = completedTrips.map((t) => {
       const s = new Date(t.actual_start_time || t.start_time).getTime();
       const e = new Date(t.actual_end_time || t.end_time).getTime();
-      totalDurationMinutes += Math.max(1, Math.round((e - s) / 60000));
-    }
+      const durationMin = Math.max(1, Math.round((e - s) / 60000));
+      totalDurationMinutes += durationMin;
+      const hours = Math.floor(durationMin / 60);
+      const mins = durationMin % 60;
+
+      let paxList = t.passenger_nickname || 'Employee';
+      if (t.passengers_json) {
+        try {
+          const parsed = JSON.parse(t.passengers_json);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            paxList = parsed.map((p: any, idx: number) => `Pax ${idx + 1}: ${p.nickname || 'Guest'}`).join(', ');
+          }
+        } catch {}
+      }
+
+      return {
+        ...t,
+        durationMinutes: durationMin,
+        durationFormatted: `${hours}h ${mins}m`,
+        paxList,
+      };
+    });
 
     const totalHours = Math.floor(totalDurationMinutes / 60);
     const totalMins = totalDurationMinutes % 60;
@@ -4044,7 +4245,397 @@ export function createApp() {
     const evAgg = db.prepare('SELECT COALESCE(SUM(cost), 0) as s, COALESCE(SUM(kwh_added), 0) as k FROM ev_charging_records').get() as { s: number; k: number };
     const tollAgg = db.prepare("SELECT COALESCE(SUM(amount), 0) as s FROM expenses WHERE category = 'Toll'").get() as { s: number };
     const parkingAgg = db.prepare("SELECT COALESCE(SUM(amount), 0) as s FROM expenses WHERE category = 'Parking'").get() as { s: number };
-    const totalCostIdr = fuelAgg.s + evAgg.s + tollAgg.s + parkingAgg.s;
+    const maintAgg = db.prepare('SELECT COALESCE(SUM(cost), 0) as s FROM maintenance_records').get() as { s: number };
+    const totalCostIdr = fuelAgg.s + evAgg.s + tollAgg.s + parkingAgg.s + maintAgg.s;
+
+    const formatIdr = (num: number) => `Rp ${Number(num || 0).toLocaleString('id-ID')}`;
+
+    // Per-vehicle metrics
+    const vehicleRowsHtml = vehicles.map((v) => {
+      const vTrips = completedTrips.filter((t) => t.vehicle_id === v.id);
+      const vKm = vTrips.reduce((acc, t) => acc + (t.distance_km || 0), 0);
+      const startOdo = Math.max(0, (v.current_odometer || 0) - vKm);
+      const isEv = v.energy_type === 'Electric';
+      const energyAgg = isEv
+        ? db.prepare('SELECT COALESCE(SUM(kwh_added), 0) as q, COALESCE(SUM(cost), 0) as c FROM ev_charging_records WHERE vehicle_id = ?').get(v.id) as { q: number; c: number }
+        : db.prepare('SELECT COALESCE(SUM(litres), 0) as q, COALESCE(SUM(cost), 0) as c FROM fuel_records WHERE vehicle_id = ?').get(v.id) as { q: number; c: number };
+
+      const efficiency = isEv
+        ? (vKm > 0 && energyAgg.q > 0 ? `${((energyAgg.q / vKm) * 100).toFixed(1)} kWh/100km` : '—')
+        : (energyAgg.q > 0 ? `${(vKm / energyAgg.q).toFixed(1)} km/L` : '—');
+
+      return `
+        <tr>
+          <td><strong>${v.registration_plate}</strong></td>
+          <td>${v.make} ${v.model} (${v.car_type})</td>
+          <td><span class="badge ${isEv ? 'badge-ev' : 'badge-gas'}">${v.energy_type}</span></td>
+          <td class="mono right">${startOdo.toLocaleString('id-ID')} km</td>
+          <td class="mono right">${Number(v.current_odometer || 0).toLocaleString('id-ID')} km</td>
+          <td class="mono right font-bold">${vKm.toLocaleString('id-ID')} km</td>
+          <td class="center font-bold">${vTrips.length}</td>
+          <td class="mono right">${energyAgg.q > 0 ? `${energyAgg.q.toFixed(1)} ${isEv ? 'kWh' : 'L'}` : '0'}</td>
+          <td class="mono right font-bold">${formatIdr(energyAgg.c)}</td>
+          <td class="center mono">${efficiency}</td>
+        </tr>
+      `;
+    }).join('');
+
+    // Per-driver metrics
+    const driverRowsHtml = drivers.map((d) => {
+      const dTrips = tripsWithDuration.filter((t) => t.driver_profile_id === d.id || t.preferred_driver_id === d.id);
+      const dMin = dTrips.reduce((acc, t) => acc + t.durationMinutes, 0);
+      const dHours = Math.floor(dMin / 60);
+      const dRemainMin = dMin % 60;
+      const dKm = dTrips.reduce((acc, t) => acc + (t.distance_km || 0), 0);
+      const dExpenses = db.prepare("SELECT COALESCE(SUM(amount), 0) as s FROM expenses WHERE description LIKE ?").get(`%${d.full_name}%`) as { s: number };
+
+      return `
+        <tr>
+          <td><strong>${d.full_name}</strong></td>
+          <td class="mono">${d.licence_number} (Exp: ${d.licence_expiry || '—'})</td>
+          <td class="center font-bold">${dTrips.length}</td>
+          <td class="font-bold text-green">${dHours}h ${dRemainMin}m</td>
+          <td class="mono right font-bold">${dKm.toLocaleString('id-ID')} km</td>
+          <td class="mono right">${formatIdr(dExpenses.s)}</td>
+          <td><span class="badge ${d.availability_status === 'Active' ? 'badge-ev' : 'badge-neutral'}">${d.availability_status}</span></td>
+        </tr>
+      `;
+    }).join('');
+
+    // Trip Manifest Log rows
+    const tripRowsHtml = tripsWithDuration.map((t) => {
+      return `
+        <tr>
+          <td class="mono">#${t.id}</td>
+          <td class="mono" style="font-size:11px;">${(t.actual_start_time || t.start_time).slice(0, 16).replace('T', ' ')}</td>
+          <td><strong>${t.registration_plate}</strong><br/><span style="font-size:11px;color:#64748b;">${t.make} ${t.model}</span></td>
+          <td><strong>${t.driver_name}</strong></td>
+          <td>${t.requester_nickname} <span style="color:#64748b;font-size:11px;">(${t.requester_department || 'General'})</span></td>
+          <td style="font-size:11.5px;max-width:140px;">${t.paxList}</td>
+          <td>${t.origin || 'HQ Pool'} ➔ <strong>${t.destination}</strong><br/><span style="font-size:11px;color:#64748b;">${t.purpose}</span></td>
+          <td class="mono right">${t.start_odometer !== null ? `${t.start_odometer.toLocaleString('id-ID')} km` : '—'}</td>
+          <td class="mono right">${t.end_odometer !== null ? `${t.end_odometer.toLocaleString('id-ID')} km` : '—'}</td>
+          <td class="mono right font-bold">${t.distance_km || 0} km</td>
+          <td class="font-bold text-green">${t.durationFormatted}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>GalaxyFleet Executive Management Report</title>
+  <style>
+    @page { size: A4 landscape; margin: 12mm; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #0f172a;
+      background: #f8fafc;
+      margin: 0;
+      padding: 24px;
+      line-height: 1.45;
+    }
+    .report-wrap {
+      max-width: 1240px;
+      margin: 0 auto;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      padding: 32px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2.5px solid #0072de;
+      padding-bottom: 18px;
+      margin-bottom: 22px;
+    }
+    .brand-title { font-size: 24px; font-weight: 800; color: #0072de; margin: 0; letter-spacing: -0.5px; }
+    .brand-subtitle { font-size: 13px; color: #64748b; margin-top: 4px; font-weight: 500; }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .kpi-card {
+      background: #f8fafc;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .kpi-label { font-size: 10.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+    .kpi-val { font-size: 21px; font-weight: 800; color: #0f172a; margin-top: 4px; }
+    .section-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: #0f172a;
+      border-left: 4px solid #0072de;
+      padding-left: 10px;
+      margin: 26px 0 12px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-bottom: 18px;
+    }
+    th, td {
+      padding: 8px 10px;
+      border: 1px solid #e2e8f0;
+      vertical-align: middle;
+    }
+    th {
+      background: #f1f5f9;
+      font-weight: 800;
+      color: #334155;
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 0.03em;
+    }
+    tr:nth-child(even) td { background: #fafafa; }
+    .right { text-align: right; }
+    .center { text-align: center; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .font-bold { font-weight: 700; }
+    .text-blue { color: #0072de; }
+    .text-green { color: #059669; }
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 9999px;
+      font-size: 10px;
+      font-weight: 800;
+    }
+    .badge-ev { background: #ecfdf5; color: #059669; }
+    .badge-gas { background: #e0edff; color: #0072de; }
+    .badge-neutral { background: #f1f5f9; color: #475569; }
+    .sign-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-top: 36px;
+      padding-top: 20px;
+      border-top: 1px dashed #cbd5e1;
+    }
+    .sign-box {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+      background: #fdfdfd;
+    }
+    .sign-line {
+      margin-top: 50px;
+      border-top: 1.5px solid #0f172a;
+      padding-top: 6px;
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .no-print {
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    .btn {
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-blue { background: #0072de; color: #fff; }
+    @media print {
+      body { background: #fff; padding: 0; }
+      .report-wrap { border: none; box-shadow: none; padding: 0; }
+      .no-print { display: none !important; }
+      tr { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="no-print">
+    <button class="btn btn-blue" onclick="window.print()">🖨️ Print / Save as PDF</button>
+  </div>
+  <div class="report-wrap">
+    <div class="header">
+      <div>
+        <h1 class="brand-title">GALAXYFLEET EXECUTIVE MANAGEMENT REPORT</h1>
+        <div class="brand-subtitle">Official Fleet Operations, Vehicle Odometer Audit & Financial Ledger • Currency: Indonesian Rupiah (IDR)</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:12px;font-weight:700;color:#0f172a;">Generated: ${new Date().toLocaleDateString('id-ID', { dateStyle: 'full' })}</div>
+        <div style="font-size:11px;color:#94a3b8;font-family:monospace;">STRICTLY CONFIDENTIAL</div>
+      </div>
+    </div>
+
+    <!-- Section 1: Executive KPI Summary -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Completed Trips</div>
+        <div class="kpi-val text-blue">${completedTrips.length} Trips</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px;">Across ${vehicles.length} Operational Cars</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Cumulative Driving Time</div>
+        <div class="kpi-val text-green">${totalHours}h ${totalMins}m</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px;">Total Driver Road Time</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Total Distance Traveled</div>
+        <div class="kpi-val mono">${totalKm.toLocaleString('id-ID')} km</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px;">Verified Fleet Kilometers</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Total Operating Expenditure</div>
+        <div class="kpi-val mono text-blue" style="font-size:18px;">${formatIdr(totalCostIdr)}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px;">Fuel, EV, Toll, Parking & Maint</div>
+      </div>
+    </div>
+
+    <!-- Section 2: Vehicle Odometer & Mileage Audit Table -->
+    <div class="section-title">1. Vehicle Odometer & Mileage Audit Table</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Plate</th>
+          <th>Make & Model</th>
+          <th>Energy</th>
+          <th class="right">Baseline Odo</th>
+          <th class="right">Current Odo</th>
+          <th class="right">Traveled</th>
+          <th class="center">Trips</th>
+          <th class="right">Fuel/Energy</th>
+          <th class="right">Cost (IDR)</th>
+          <th class="center">Efficiency</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${vehicleRowsHtml || '<tr><td colspan="10" class="center">No vehicles registered yet.</td></tr>'}
+      </tbody>
+    </table>
+
+    <!-- Section 3: Driver Performance & Working Hours Table -->
+    <div class="section-title">2. Driver Working Hours & Performance Table</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Driver Name</th>
+          <th>Driving License (SIM)</th>
+          <th class="center">Trips</th>
+          <th>Driving Hours</th>
+          <th class="right">Total Distance</th>
+          <th class="right">Reimbursements</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${driverRowsHtml || '<tr><td colspan="7" class="center">No drivers registered yet.</td></tr>'}
+      </tbody>
+    </table>
+
+    <!-- Section 4: Energy & Operating Expense Ledger in IDR -->
+    <div class="section-title">3. Comprehensive Energy & Expense Ledger (IDR)</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Expense Category</th>
+          <th>Quantity / Usage</th>
+          <th>Description</th>
+          <th class="right">Total Cost (IDR)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>⛽ Gasoline Fuel</strong></td>
+          <td class="mono">${fuelAgg.l.toFixed(1)} Litres</td>
+          <td>Gasoline Fleet Refueling</td>
+          <td class="mono right font-bold">${formatIdr(fuelAgg.s)}</td>
+        </tr>
+        <tr>
+          <td><strong>⚡ Electric Charging (EV)</strong></td>
+          <td class="mono">${evAgg.k.toFixed(1)} kWh</td>
+          <td>EV Charging Stations & Fast Chargers</td>
+          <td class="mono right font-bold">${formatIdr(evAgg.s)}</td>
+        </tr>
+        <tr>
+          <td><strong>🛣️ Tollway Operational Fees</strong></td>
+          <td>Receipt Verified</td>
+          <td>Highway E-Toll Card Reimbursements</td>
+          <td class="mono right font-bold">${formatIdr(tollAgg.s)}</td>
+        </tr>
+        <tr>
+          <td><strong>🅿️ Parking Facility Fees</strong></td>
+          <td>Receipt Verified</td>
+          <td>Official Operational Parking Fees</td>
+          <td class="mono right font-bold">${formatIdr(parkingAgg.s)}</td>
+        </tr>
+        <tr>
+          <td><strong>🔧 Scheduled Maintenance & Service</strong></td>
+          <td>Periodic Inspections</td>
+          <td>Workshop Services & Repairs</td>
+          <td class="mono right font-bold">${formatIdr(maintAgg.s)}</td>
+        </tr>
+        <tr style="background:#f1f5f9;font-weight:800;">
+          <td colspan="3">GRAND TOTAL OPERATIONAL EXPENDITURE</td>
+          <td class="mono right text-blue" style="font-size:14px;">${formatIdr(totalCostIdr)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Section 5: Trip Manifest Log -->
+    <div class="section-title">4. Chronological Trip Manifest Log</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Trip</th>
+          <th>Date & Time</th>
+          <th>Vehicle</th>
+          <th>Driver</th>
+          <th>Requester</th>
+          <th>Passengers</th>
+          <th>Route & Purpose</th>
+          <th class="right">Start Odo</th>
+          <th class="right">End Odo</th>
+          <th class="right">Distance</th>
+          <th>Duration</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tripRowsHtml || '<tr><td colspan="11" class="center">No completed trips on record.</td></tr>'}
+      </tbody>
+    </table>
+
+    <!-- Section 6: Executive Sign-off Signatures -->
+    <div class="sign-grid">
+      <div class="sign-box">
+        <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:700;">Prepared By</div>
+        <div class="sign-line">Fleet Operations Dispatcher</div>
+      </div>
+      <div class="sign-box">
+        <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:700;">Reviewed By</div>
+        <div class="sign-line">Head of Workplace Services (HWS)</div>
+      </div>
+      <div class="sign-box">
+        <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:700;">Approved By</div>
+        <div class="sign-line">Executive General Manager</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    if (_req.query.format === 'html' || _req.headers.accept?.includes('text/html')) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(htmlContent);
+    }
 
     const pdfBuffer = Buffer.from(
       `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>\nendobj\n5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n4 0 obj\n<< /Length 950 >>\nstream\nBT\n/F1 18 Tf 50 780 Td (GALAXYFLEET EXECUTIVE MANAGEMENT REPORT) Tj\n/F2 10 Tf 0 -20 Td (Executive Briefing | Currency: Indonesian Rupiah [IDR]) Tj\n/F1 12 Tf 0 -30 Td (1. OPERATIONAL FLEET SUMMARY) Tj\n/F2 10 Tf 0 -18 Td (- Total Operational Vehicles: ${vehicles.length} cars) Tj\n0 -15 Td (- Total Completed Trips: ${completedTrips.length} trips) Tj\n0 -15 Td (- Total Cumulative Trip Duration: ${totalHours} Hours ${totalMins} Minutes) Tj\n0 -15 Td (- Total Distance Traveled: ${totalKm} km) Tj\n0 -15 Td (- Total Operational Expenditure: Rp ${Number(totalCostIdr).toLocaleString('id-ID')}) Tj\n/F1 12 Tf 0 -30 Td (2. ENERGY & EXPENSE BREAKDOWN IN IDR) Tj\n/F2 10 Tf 0 -18 Td (- Gasoline: ${fuelAgg.l} Litres | Cost: Rp ${Number(fuelAgg.s).toLocaleString('id-ID')}) Tj\n0 -15 Td (- Electric EV: ${evAgg.k} kWh | Cost: Rp ${Number(evAgg.s).toLocaleString('id-ID')}) Tj\n0 -15 Td (- Tollway Operational Fees: Rp ${Number(tollAgg.s).toLocaleString('id-ID')}) Tj\n0 -15 Td (- Parking Facility Fees: Rp ${Number(parkingAgg.s).toLocaleString('id-ID')}) Tj\n/F1 10 Tf 0 -40 Td (CONFIDENTIAL - STRICTLY FOR COMPANY INTERNAL EXECUTIVE REVIEW) Tj\nET\nendstream\nendobj\nxref\n0 7\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000300 00000 n \n0000000210 00000 n \n0000000255 00000 n \ntrailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n1350\n%%EOF\n`,

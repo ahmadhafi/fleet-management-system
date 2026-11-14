@@ -199,6 +199,11 @@ export function App() {
   const [focusedVehicleId, setFocusedVehicleId] = useState<number | null>(null);
   const [fleetFilterMode, setFleetFilterMode] = useState<'ALL' | 'DRIVING' | 'GASOLINE' | 'ELECTRIC'>('ALL');
   const [showExecutiveReportModal, setShowExecutiveReportModal] = useState<boolean>(false);
+  const [showResetModal, setShowResetModal] = useState<boolean>(false);
+  const [resetMode, setResetMode] = useState<'OPERATIONS_ONLY' | 'FACTORY_RESET'>('OPERATIONS_ONLY');
+  const [resetConfirmCode, setResetConfirmCode] = useState<string>('');
+  const [resetVehicleOdometers, setResetVehicleOdometers] = useState<Record<number, string>>({});
+  const [resetLoading, setResetLoading] = useState<boolean>(false);
   const [auditSearchQuery, setAuditSearchQuery] = useState<string>('');
   const [startOdoPhoto, setStartOdoPhoto] = useState<Record<number, string>>({});
   const [startOdoTime, setStartOdoTime] = useState<Record<number, string>>({});
@@ -2247,13 +2252,13 @@ export function App() {
       )}
 
       {showExecutiveReportModal && usageAnalytics && (
-        <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label="Executive Briefing Report">
-          <div className="gf-modal-card" style={{ maxWidth: '820px', width: '92vw', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '2px solid #e2e8f0', paddingBottom: '12px' }}>
+        <div className="gf-modal-backdrop gf-print-backdrop" role="dialog" aria-modal="true" aria-label="Executive Briefing Report">
+          <div className="gf-modal-card gf-print-card" style={{ maxWidth: '1040px', width: '95vw', maxHeight: '92vh', overflowY: 'auto' }}>
+            <div className="gf-no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '2px solid #e2e8f0', paddingBottom: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#0072de', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '16px' }}>GF</div>
                 <div>
-                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: '#0f172a' }}>GalaxyFleet Executive Briefing Report</h2>
+                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: '#0f172a' }}>GalaxyFleet Executive Management Report</h2>
                   <div style={{ fontSize: '12px', color: '#64748b' }}>Currency: Indonesian Rupiah (IDR) • Generated {new Date().toLocaleDateString('id-ID', { dateStyle: 'full' })}</div>
                 </div>
               </div>
@@ -2276,104 +2281,489 @@ export function App() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Executive Summary Section */}
-              <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '16px', border: '1px solid #e2e8f0' }}>
-                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '12px' }}>1. Operational Overview</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Header visible on paper printout */}
+              <div className="gf-print-only" style={{ borderBottom: '2.5px solid #0072de', paddingBottom: '12px', marginBottom: '8px' }}>
+                <h1 style={{ fontSize: '22px', fontWeight: 800, margin: 0, color: '#0072de' }}>GALAXYFLEET EXECUTIVE MANAGEMENT REPORT</h1>
+                <div style={{ fontSize: '12px', color: '#475569', marginTop: '2px' }}>
+                  Official Fleet Operations, Odometer Audit & Financial Ledger • Denominated in Indonesian Rupiah (IDR) • Generated {new Date().toLocaleDateString('id-ID', { dateStyle: 'full' })}
+                </div>
+              </div>
+
+              {/* 1. Operational & Financial KPI Overview */}
+              <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '16px', border: '1.5px solid #e2e8f0' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '12px' }}>1. Operational & Financial KPI Overview</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
-                  <div>
-                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Completed Trips</div>
-                    <div style={{ fontSize: '18px', fontWeight: 800, color: '#0072de' }}>{usageAnalytics.tripDurationSummary?.totalCompletedTrips || 0} Trips</div>
+                  <div className="gf-card-flat" style={{ padding: '10px 12px', background: '#ffffff' }}>
+                    <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Completed Trips</div>
+                    <div style={{ fontSize: '19px', fontWeight: 800, color: '#0072de' }}>{usageAnalytics.tripDurationSummary?.totalCompletedTrips || 0} Trips</div>
+                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>Across {vehicles.length} Operational Vehicles</div>
                   </div>
-                  <div>
-                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Cumulative Duration</div>
-                    <div style={{ fontSize: '18px', fontWeight: 800, color: '#059669' }}>{usageAnalytics.tripDurationSummary?.totalDurationFormatted || '0 Hours 0 Minutes'}</div>
+                  <div className="gf-card-flat" style={{ padding: '10px 12px', background: '#ffffff' }}>
+                    <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Cumulative Trip Duration</div>
+                    <div style={{ fontSize: '19px', fontWeight: 800, color: '#059669' }}>{usageAnalytics.tripDurationSummary?.totalDurationFormatted || '0 Hours 0 Minutes'}</div>
+                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>Total Driver Driving Hours Logged</div>
                   </div>
-                  <div>
-                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Distance Traveled</div>
-                    <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>{usageAnalytics.combinedOverall?.allTime?.distanceKm || 0} km</div>
+                  <div className="gf-card-flat" style={{ padding: '10px 12px', background: '#ffffff' }}>
+                    <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Distance Traveled</div>
+                    <div style={{ fontSize: '19px', fontWeight: 800, color: '#0f172a' }}>{Number(usageAnalytics.combinedOverall?.allTime?.distanceKm || 0).toLocaleString('id-ID')} km</div>
+                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>Verified Odometer Mileage</div>
                   </div>
-                  <div>
-                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Operational Expenditure</div>
-                    <div style={{ fontSize: '18px', fontWeight: 800, color: '#b45309' }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.total_operational_cost_idr || 0)}</div>
+                  <div className="gf-card-flat" style={{ padding: '10px 12px', background: '#ffffff' }}>
+                    <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Operational Expenditure</div>
+                    <div style={{ fontSize: '19px', fontWeight: 800, color: '#b45309' }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.total_operational_cost_idr || 0)}</div>
+                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>Fuel, EV, Toll, Parking & Maintenance</div>
                   </div>
                 </div>
               </div>
 
-              {/* Energy & Operating Cost Breakdown */}
+              {/* 2. Vehicle Odometer & Mileage Audit Table */}
               <div>
-                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>2. Energy & Cost Breakdown (IDR)</h3>
-                <table className="gf-table" style={{ width: '100%' }}>
-                  <thead>
-                    <tr>
-                      <th>Expense Category</th>
-                      <th>Quantity / Usage</th>
-                      <th>Total Cost (IDR)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><strong>⛽ Gasoline Fuel</strong></td>
-                      <td className="mono">{usageAnalytics.expensesBreakdownIdr?.gas_litres || 0} Litres</td>
-                      <td className="mono" style={{ fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.gas_idr || 0)}</td>
-                    </tr>
-                    <tr>
-                      <td><strong>⚡ Electric Charging (EV)</strong></td>
-                      <td className="mono">{usageAnalytics.expensesBreakdownIdr?.electric_kwh || 0} kWh</td>
-                      <td className="mono" style={{ fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.electric_idr || 0)}</td>
-                    </tr>
-                    <tr>
-                      <td><strong>🛣️ Tollway Operational Fees</strong></td>
-                      <td>Automated E-Toll</td>
-                      <td className="mono" style={{ fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.toll_idr || 0)}</td>
-                    </tr>
-                    <tr>
-                      <td><strong>🅿️ Facility & Parking Fees</strong></td>
-                      <td>Receipt-verified reimbursements</td>
-                      <td className="mono" style={{ fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.parking_idr || 0)}</td>
-                    </tr>
-                    <tr style={{ background: '#f8fafc', fontWeight: 800 }}>
-                      <td>TOTAL OPERATIONAL EXPENDITURE</td>
-                      <td>All Fleet Operations</td>
-                      <td className="mono" style={{ color: '#0072de', fontSize: '14px' }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.total_operational_cost_idr || 0)}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>2. Vehicle Odometer & Mileage Audit Table</h3>
+                <div className="gf-table-wrap">
+                  <table className="gf-table" style={{ width: '100%', fontSize: '12px' }}>
+                    <thead>
+                      <tr>
+                        <th>Plate Number</th>
+                        <th>Make & Model</th>
+                        <th>Energy Type</th>
+                        <th style={{ textAlign: 'right' }}>Baseline Odo</th>
+                        <th style={{ textAlign: 'right' }}>Current Odo</th>
+                        <th style={{ textAlign: 'right' }}>Distance Traveled</th>
+                        <th style={{ textAlign: 'center' }}>Trips</th>
+                        <th style={{ textAlign: 'right' }}>Fuel / Energy</th>
+                        <th style={{ textAlign: 'right' }}>Cost (IDR)</th>
+                        <th style={{ textAlign: 'center' }}>Efficiency</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {usageAnalytics.perVehicle && usageAnalytics.perVehicle.length > 0 ? (
+                        usageAnalytics.perVehicle.map((v: any) => {
+                          const dist = v.overall?.distanceKm || 0;
+                          const baselineOdo = Math.max(0, (v.current_odometer || 0) - dist);
+                          const isEv = v.energy_type === 'Electric';
+                          const qty = isEv ? `${v.energy?.totalKwh || 0} kWh` : `${v.energy?.totalLitres || 0} L`;
+                          const eff = isEv
+                            ? (v.energy?.efficiencyKwhPer100Km ? `${v.energy.efficiencyKwhPer100Km} kWh/100km` : '—')
+                            : (v.energy?.efficiencyKmPerLitre ? `${v.energy.efficiencyKmPerLitre} km/L` : '—');
+
+                          return (
+                            <tr key={v.vehicle_id}>
+                              <td style={{ fontWeight: 800 }}>{v.registration_plate}</td>
+                              <td>{v.make} {v.model} ({v.car_type})</td>
+                              <td>
+                                <span className={`gf-badge ${isEv ? 'gf-badge-success' : 'gf-badge-info'}`} style={{ padding: '2px 7px', fontSize: '10px' }}>
+                                  {isEv ? '⚡ Electric' : '⛽ Gasoline'}
+                                </span>
+                              </td>
+                              <td className="mono" style={{ textAlign: 'right' }}>{baselineOdo.toLocaleString('id-ID')} km</td>
+                              <td className="mono" style={{ textAlign: 'right' }}>{Number(v.current_odometer || 0).toLocaleString('id-ID')} km</td>
+                              <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: '#0072de' }}>{dist.toLocaleString('id-ID')} km</td>
+                              <td style={{ textAlign: 'center', fontWeight: 700 }}>{v.overall?.trips || 0}</td>
+                              <td className="mono" style={{ textAlign: 'right' }}>{qty}</td>
+                              <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{formatIdr(v.energy?.energyCost || 0)}</td>
+                              <td className="mono" style={{ textAlign: 'center', fontSize: '11px' }}>{eff}</td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan={10} style={{ textAlign: 'center', color: '#94a3b8', padding: '16px' }}>No vehicles registered yet.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
-              {/* Completed Trips Detail */}
-              {usageAnalytics.tripDurationSummary?.trips && usageAnalytics.tripDurationSummary.trips.length > 0 && (
-                <div>
-                  <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>3. Trip Elapsed Time Details</h3>
+              {/* 3. Driver Working Hours & Performance Table */}
+              <div>
+                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>3. Driver Working Hours & Performance Table</h3>
+                <div className="gf-table-wrap">
+                  <table className="gf-table" style={{ width: '100%', fontSize: '12px' }}>
+                    <thead>
+                      <tr>
+                        <th>Driver Full Name</th>
+                        <th style={{ textAlign: 'center' }}>Completed Trips</th>
+                        <th style={{ textAlign: 'right' }}>Total Distance</th>
+                        <th>Availability Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {usageAnalytics.perDriver && usageAnalytics.perDriver.length > 0 ? (
+                        usageAnalytics.perDriver.map((d: any) => (
+                          <tr key={d.driver_profile_id}>
+                            <td style={{ fontWeight: 800 }}>{d.driver_name}</td>
+                            <td style={{ textAlign: 'center', fontWeight: 700 }}>{d.overall?.trips || 0}</td>
+                            <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: '#059669' }}>
+                              {Number(d.overall?.distanceKm || 0).toLocaleString('id-ID')} km
+                            </td>
+                            <td>
+                              <span className={`gf-badge ${d.availability_status === 'Active' ? 'gf-badge-success' : 'gf-badge-neutral'}`} style={{ padding: '2px 7px', fontSize: '10px' }}>
+                                {d.availability_status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={4} style={{ textAlign: 'center', color: '#94a3b8', padding: '16px' }}>No drivers registered yet.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* 4. Energy & Operating Cost Breakdown */}
+              <div>
+                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>4. Energy & Operating Expense Ledger (IDR)</h3>
+                <div className="gf-table-wrap">
+                  <table className="gf-table" style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th>Expense Category</th>
+                        <th>Quantity / Verified Usage</th>
+                        <th>Description</th>
+                        <th style={{ textAlign: 'right' }}>Total Cost (IDR)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td><strong>⛽ Gasoline Fuel</strong></td>
+                        <td className="mono">{Number(usageAnalytics.expensesBreakdownIdr?.gas_litres || 0).toFixed(1)} Litres</td>
+                        <td>Gasoline fleet fuel refuel receipts</td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.gas_idr || 0)}</td>
+                      </tr>
+                      <tr>
+                        <td><strong>⚡ Electric Charging (EV)</strong></td>
+                        <td className="mono">{Number(usageAnalytics.expensesBreakdownIdr?.electric_kwh || 0).toFixed(1)} kWh</td>
+                        <td>EV charging station kilowatt hours</td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.electric_idr || 0)}</td>
+                      </tr>
+                      <tr>
+                        <td><strong>🛣️ Tollway Operational Fees</strong></td>
+                        <td>Receipt Verified</td>
+                        <td>Electronic highway toll card reimbursements</td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.toll_idr || 0)}</td>
+                      </tr>
+                      <tr>
+                        <td><strong>🅿️ Facility & Parking Fees</strong></td>
+                        <td>Receipt Verified</td>
+                        <td>Official operational parking receipts</td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.parking_idr || 0)}</td>
+                      </tr>
+                      <tr>
+                        <td><strong>🔧 Maintenance & Service</strong></td>
+                        <td>Periodic Maintenance</td>
+                        <td>Vehicle scheduled servicing, parts and repairs</td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.maint_idr || 0)}</td>
+                      </tr>
+                      <tr style={{ background: '#f8fafc', fontWeight: 800 }}>
+                        <td colSpan={3}>GRAND TOTAL OPERATIONAL EXPENDITURE</td>
+                        <td className="mono" style={{ textAlign: 'right', color: '#0072de', fontSize: '15px' }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.total_operational_cost_idr || 0)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* 5. Chronological Trip Manifest Log */}
+              <div>
+                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>5. Chronological Trip Manifest Log</h3>
+                <div className="gf-table-wrap">
                   <table className="gf-table" style={{ width: '100%', fontSize: '12px' }}>
                     <thead>
                       <tr>
                         <th>Trip</th>
-                        <th>Driver</th>
+                        <th>Date & Time</th>
                         <th>Vehicle</th>
-                        <th>Purpose & Destination</th>
-                        <th>Distance</th>
-                        <th>Time Elapsed</th>
+                        <th>Driver</th>
+                        <th>Requester</th>
+                        <th>Route & Purpose</th>
+                        <th style={{ textAlign: 'right' }}>Start Odo</th>
+                        <th style={{ textAlign: 'right' }}>End Odo</th>
+                        <th style={{ textAlign: 'right' }}>Distance</th>
+                        <th>Duration</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {usageAnalytics.tripDurationSummary.trips.map((t: any) => (
-                        <tr key={t.id}>
-                          <td className="mono">#{t.id}</td>
-                          <td><strong>{t.driver_name}</strong></td>
-                          <td className="mono">{t.vehicle_plate}</td>
-                          <td>{t.purpose} (📍 {t.destination})</td>
-                          <td className="mono">{t.distance_km || 0} km</td>
-                          <td style={{ fontWeight: 700, color: '#059669' }}>{t.durationFormatted}</td>
+                      {usageAnalytics.tripDurationSummary?.trips && usageAnalytics.tripDurationSummary.trips.length > 0 ? (
+                        usageAnalytics.tripDurationSummary.trips.map((t: any) => {
+                          const vPlate = t.vehicle_plate || t.registration_plate || '—';
+                          const vName = t.make && t.model ? `${t.make} ${t.model}` : '';
+
+                          return (
+                            <tr key={t.id}>
+                              <td className="mono">#{t.id}</td>
+                              <td className="mono" style={{ fontSize: '11px' }}>
+                                {(t.actual_start_time || t.start_time || '').slice(0, 16).replace('T', ' ')}
+                              </td>
+                              <td>
+                                <strong>{vPlate}</strong>
+                                {vName && <div style={{ fontSize: '11px', color: '#64748b' }}>{vName}</div>}
+                              </td>
+                              <td><strong>{t.driver_name || 'Standby Driver'}</strong></td>
+                              <td>
+                                <div>{t.requester_nickname || 'Requester'}</div>
+                                {t.requester_department && (
+                                  <div className="type-caption notranslate" translate="no" style={{ color: '#64748b' }}>{t.requester_department}</div>
+                                )}
+                              </td>
+                              <td>
+                                <div>{t.origin || 'HQ Pool'} ➔ <strong>{t.destination}</strong></div>
+                                <div style={{ fontSize: '11px', color: '#64748b' }}>{t.purpose}</div>
+                              </td>
+                              <td className="mono" style={{ textAlign: 'right' }}>
+                                {t.start_odometer !== null && t.start_odometer !== undefined ? `${Number(t.start_odometer).toLocaleString('id-ID')} km` : '—'}
+                              </td>
+                              <td className="mono" style={{ textAlign: 'right' }}>
+                                {t.end_odometer !== null && t.end_odometer !== undefined ? `${Number(t.end_odometer).toLocaleString('id-ID')} km` : '—'}
+                              </td>
+                              <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: '#0072de' }}>
+                                {Number(t.distance_km || 0).toLocaleString('id-ID')} km
+                              </td>
+                              <td style={{ fontWeight: 700, color: '#059669' }}>{t.durationFormatted}</td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan={10} style={{ textAlign: 'center', color: '#94a3b8', padding: '16px' }}>
+                            No completed trips recorded yet.
+                          </td>
                         </tr>
-                      ))}
+                      )}
                     </tbody>
                   </table>
                 </div>
-              )}
+              </div>
+
+              {/* 6. Executive Signatures block */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginTop: '16px', paddingTop: '16px', borderTop: '1px dashed #cbd5e1' }}>
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', textAlign: 'center', background: '#f8fafc' }}>
+                  <div style={{ fontSize: '10.5px', color: '#64748b', textTransform: 'uppercase', fontWeight: 800 }}>Prepared By</div>
+                  <div style={{ marginTop: '40px', borderTop: '1.5px solid #0f172a', paddingTop: '4px', fontWeight: 800, fontSize: '12px' }}>Fleet Dispatcher</div>
+                </div>
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', textAlign: 'center', background: '#f8fafc' }}>
+                  <div style={{ fontSize: '10.5px', color: '#64748b', textTransform: 'uppercase', fontWeight: 800 }}>Reviewed By</div>
+                  <div style={{ marginTop: '40px', borderTop: '1.5px solid #0f172a', paddingTop: '4px', fontWeight: 800, fontSize: '12px' }}>Head of Workplace Services</div>
+                </div>
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', textAlign: 'center', background: '#f8fafc' }}>
+                  <div style={{ fontSize: '10.5px', color: '#64748b', textTransform: 'uppercase', fontWeight: 800 }}>Approved By</div>
+                  <div style={{ marginTop: '40px', borderTop: '1.5px solid #0f172a', paddingTop: '4px', fontWeight: 800, fontSize: '12px' }}>Executive General Manager</div>
+                </div>
+              </div>
 
               <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '10px', fontSize: '11px', color: '#94a3b8', textAlign: 'center' }}>
-                CONFIDENTIAL — FOR INTERNAL CORPORATE EXECUTIVE MANAGEMENT REVIEW ONLY
+                CONFIDENTIAL — STRICTLY FOR INTERNAL CORPORATE EXECUTIVE MANAGEMENT REVIEW ONLY
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Database & Operations Reset Modal */}
+      {showResetModal && (
+        <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label="Database & Operations Reset">
+          <div className="gf-modal-card" style={{ maxWidth: '640px', width: '92vw', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '2px solid #e2e8f0', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#dc2626', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '18px' }}>
+                  ⚠️
+                </div>
+                <div>
+                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: '#0f172a' }}>Database & Operations Reset</h2>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>Wipe test operational data to insert real production fleet data</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="gf-btn gf-btn-secondary"
+                onClick={() => {
+                  setShowResetModal(false);
+                  setResetConfirmCode('');
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Reset Mode Choice */}
+              <div>
+                <label className="type-caption" style={{ fontWeight: 800, textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>
+                  Select Reset Mode:
+                </label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                      padding: '12px 14px',
+                      borderRadius: '10px',
+                      border: resetMode === 'OPERATIONS_ONLY' ? '2px solid #0072de' : '1px solid #cbd5e1',
+                      background: resetMode === 'OPERATIONS_ONLY' ? '#f0f7ff' : '#ffffff',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="resetMode"
+                      value="OPERATIONS_ONLY"
+                      checked={resetMode === 'OPERATIONS_ONLY'}
+                      onChange={() => setResetMode('OPERATIONS_ONLY')}
+                      style={{ marginTop: '3px' }}
+                    />
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: '14px', color: '#0f172a' }}>
+                        1. Reset Operations & Trips (Keep Registered Vehicles & Drivers)
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                        Wipes all test trips, bookings, assignments, odometer history, fuel/EV records, expense receipts, notifications, and resets vehicle current odometers to your custom starting values below.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                      padding: '12px 14px',
+                      borderRadius: '10px',
+                      border: resetMode === 'FACTORY_RESET' ? '2px solid #dc2626' : '1px solid #cbd5e1',
+                      background: resetMode === 'FACTORY_RESET' ? '#fef2f2' : '#ffffff',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="resetMode"
+                      value="FACTORY_RESET"
+                      checked={resetMode === 'FACTORY_RESET'}
+                      onChange={() => setResetMode('FACTORY_RESET')}
+                      style={{ marginTop: '3px' }}
+                    />
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: '14px', color: '#dc2626' }}>
+                        2. Complete Clean Factory Reset (Clean Production Slate)
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                        Wipes all test vehicles, test drivers, test trips, bookings, expenses, and non-admin users. Returns system to clean production slate (12 official Groups and Admin account) so you can register real cars and drivers from scratch.
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Vehicle Starting Odometers (Only in OPERATIONS_ONLY mode) */}
+              {resetMode === 'OPERATIONS_ONLY' && vehicles.length > 0 && (
+                <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontWeight: 800, fontSize: '13px', color: '#0f172a', marginBottom: '8px' }}>
+                    Set Real Initial Odometers for Registered Vehicles (km):
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '8px' }}>
+                    {vehicles.map((v) => (
+                      <div key={v.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', background: '#ffffff', padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
+                        <div style={{ fontSize: '12px' }}>
+                          <strong>{v.registration_plate}</strong>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>{v.make} {v.model}</div>
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          className="gf-input mono"
+                          style={{ width: '90px', padding: '4px 8px', fontSize: '12px', textAlign: 'right' }}
+                          placeholder="0"
+                          value={resetVehicleOdometers[v.id] ?? String(v.current_odometer || 0)}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setResetVehicleOdometers((prev) => ({ ...prev, [v.id]: val }));
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Safeguard: Confirmation Keyword */}
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '12px 14px' }}>
+                <div style={{ fontWeight: 800, fontSize: '13px', color: '#92400e', marginBottom: '4px' }}>
+                  🔒 Safety Confirmation
+                </div>
+                <div style={{ fontSize: '12px', color: '#78350f', marginBottom: '8px' }}>
+                  This action permanently modifies the database. Type <strong style={{ color: '#dc2626' }}>RESET</strong> in the box below to unlock execution:
+                </div>
+                <input
+                  type="text"
+                  className="gf-input mono"
+                  style={{ width: '100%', fontSize: '14px', fontWeight: 800, letterSpacing: '0.1em' }}
+                  placeholder='Type "RESET" here'
+                  value={resetConfirmCode}
+                  onChange={(e) => setResetConfirmCode(e.target.value)}
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-secondary"
+                  onClick={() => {
+                    setShowResetModal(false);
+                    setResetConfirmCode('');
+                  }}
+                  disabled={resetLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="gf-btn"
+                  style={{
+                    background: resetConfirmCode.trim() === 'RESET' ? '#dc2626' : '#94a3b8',
+                    color: '#ffffff',
+                    fontWeight: 800,
+                    cursor: resetConfirmCode.trim() === 'RESET' ? 'pointer' : 'not-allowed',
+                  }}
+                  disabled={resetConfirmCode.trim() !== 'RESET' || resetLoading}
+                  onClick={async () => {
+                    if (resetConfirmCode.trim() !== 'RESET') return;
+                    setResetLoading(true);
+                    try {
+                      const payloadOdometers: Record<number, number> = {};
+                      if (resetMode === 'OPERATIONS_ONLY') {
+                        for (const v of vehicles) {
+                          const valStr = resetVehicleOdometers[v.id] ?? String(v.current_odometer || 0);
+                          const num = parseInt(valStr, 10);
+                          payloadOdometers[v.id] = Number.isFinite(num) && num >= 0 ? num : 0;
+                        }
+                      }
+                      const res = await apiRequest('/api/admin/system/reset-data', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                          mode: resetMode,
+                          vehicle_odometers: payloadOdometers,
+                          confirmation_code: 'RESET',
+                        }),
+                      });
+                      setStatusBanner({ type: 'success', text: res.message || 'System data reset executed successfully.' });
+                      setShowResetModal(false);
+                      setResetConfirmCode('');
+                      await loadAllData(user);
+                    } catch (err: any) {
+                      setStatusBanner({ type: 'danger', text: err.message || 'Failed to execute reset.' });
+                    } finally {
+                      setResetLoading(false);
+                    }
+                  }}
+                >
+                  {resetLoading ? 'Executing Reset...' : 'Execute Data Reset'}
+                </button>
               </div>
             </div>
           </div>
@@ -3147,12 +3537,25 @@ export function App() {
 
           {adminModule === 'FLEET_OPS' && (
             <>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {(['VEHICLES', 'DRIVERS', 'GROUPS', 'FUEL_EV', 'MAINTENANCE', 'EXPENSES', 'DOCUMENTS'] as const).map((sub) => (
-                  <Chip key={sub} active={opsSubTab === sub} onClick={() => setOpsSubTab(sub)}>
-                    {sub.replace('_', ' & ')}
-                  </Chip>
-                ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {(['VEHICLES', 'DRIVERS', 'GROUPS', 'FUEL_EV', 'MAINTENANCE', 'EXPENSES', 'DOCUMENTS'] as const).map((sub) => (
+                    <Chip key={sub} active={opsSubTab === sub} onClick={() => setOpsSubTab(sub)}>
+                      {sub.replace('_', ' & ')}
+                    </Chip>
+                  ))}
+                </div>
+                {user?.role === 'ADM' && (
+                  <button
+                    type="button"
+                    className="gf-btn pressable"
+                    onClick={() => setShowResetModal(true)}
+                    style={{ background: '#fef2f2', color: '#dc2626', border: '1.5px solid #fecaca', fontWeight: 800, fontSize: '12px', minHeight: '34px', padding: '0 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    title="Reset test operational data to insert real data"
+                  >
+                    <Trash2 size={14} /> Reset Data / Production Setup
+                  </button>
+                )}
               </div>
 
               {opsSubTab === 'VEHICLES' && (
@@ -3934,10 +4337,9 @@ export function App() {
                     target="_blank"
                     rel="noreferrer"
                     className="gf-btn gf-btn-primary pressable"
-                    download="GalaxyFleet_Executive_Report.pdf"
                     style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}
                   >
-                    <FileDown size={16} /> Download Executive PDF Report
+                    <FileDown size={16} /> Open Executive Report (PDF/Print)
                   </a>
                   <button
                     type="button"
@@ -3947,6 +4349,17 @@ export function App() {
                   >
                     <Printer size={16} /> Print Executive Briefing
                   </button>
+                  {user?.role === 'ADM' && (
+                    <button
+                      type="button"
+                      className="gf-btn pressable"
+                      onClick={() => setShowResetModal(true)}
+                      style={{ background: '#fef2f2', color: '#dc2626', border: '1.5px solid #fecaca', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px' }}
+                      title="Reset test operational data to insert real data"
+                    >
+                      <Trash2 size={16} /> Reset Test Data & Setup Real Fleet
+                    </button>
+                  )}
                 </div>
               </div>
 

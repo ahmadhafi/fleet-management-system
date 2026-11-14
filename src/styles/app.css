@@ -1657,4 +1657,57 @@ textarea {
   z-index: 9999 !important;
 }
 
+/* Executive Report Printable Styles */
+.gf-print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    padding: 0 !important;
+  }
+
+  .gf-no-print {
+    display: none !important;
+  }
+
+  .gf-print-only {
+    display: block !important;
+  }
+
+  .gf-modal-backdrop.gf-print-backdrop {
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    z-index: 1 !important;
+  }
+
+  .gf-modal-card.gf-print-card {
+    max-width: 100% !important;
+    width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .gf-table-wrap {
+    box-shadow: none !important;
+    border: 1px solid #cbd5e1 !important;
+  }
+
+  tr {
+    page-break-inside: avoid;
+  }
+}
+
+
 
