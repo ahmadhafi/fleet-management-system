@@ -1634,3 +1634,27 @@ textarea {
   border: 1.5px solid var(--color-divider);
 }
 
+/* Fleet Marker Driving Animation */
+@keyframes gfDrivingPulse {
+  0% {
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    transform: translateY(-2px) scale(1.02);
+  }
+  100% {
+    transform: translateY(0px) scale(1);
+  }
+}
+
+.gf-fleet-marker-wrap.is-driving {
+  animation: gfDrivingPulse 2s ease-in-out infinite;
+}
+
+.gf-fleet-marker-wrap:hover {
+  transform: translate(-50%, -50%) scale(1.08) !important;
+  transition: transform 0.15s ease-out;
+  z-index: 9999 !important;
+}
+
+

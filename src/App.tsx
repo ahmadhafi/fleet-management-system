@@ -56,6 +56,7 @@ import { LanguageSwitcher } from './components/LanguageSwitcher';
 import { SamsungBusLogo } from './components/SamsungBusLogo';
 import { RouteFields } from './components/RouteFields';
 import { VehicleArt } from './components/VehicleArt';
+import { getDriverAvatarDataUri } from './components/CarAvatarArt';
 import {
   Chip,
   StatusBadge,
@@ -194,6 +195,9 @@ export function App() {
   const [sheetSnap, setSheetSnap] = useState<SnapPoint>('half');
   const [adminModule, setAdminModule] = useState<AdminModule>('FLEET_MAP');
   const [fleetPositions, setFleetPositions] = useState<FleetVehiclePosition[]>([]);
+  const [driverSearchQuery, setDriverSearchQuery] = useState<string>('');
+  const [focusedVehicleId, setFocusedVehicleId] = useState<number | null>(null);
+  const [fleetFilterMode, setFleetFilterMode] = useState<'ALL' | 'DRIVING' | 'GASOLINE' | 'ELECTRIC'>('ALL');
   const [showExecutiveReportModal, setShowExecutiveReportModal] = useState<boolean>(false);
   const [auditSearchQuery, setAuditSearchQuery] = useState<string>('');
   const [startOdoPhoto, setStartOdoPhoto] = useState<Record<number, string>>({});
@@ -2415,119 +2419,391 @@ export function App() {
             </div>
           )}
 
-          {adminModule === 'FLEET_MAP' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                <div>
-                  <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <MapPin size={20} style={{ color: 'var(--color-samsung-blue)' }} /> Overall Fleet Live Map
-                  </h2>
-                  <p className="type-caption">Live GPS positions and pool parking status for all {fleetPositions.length} operational company vehicles.</p>
-                </div>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span className="gf-badge" style={{ background: '#e0edff', color: '#005bb5', fontWeight: 700, padding: '4px 10px' }}>
-                    ⛽ Gasoline: {fleetPositions.filter((p) => p.energy_type === 'Gasoline').length} Cars
-                  </span>
-                  <span className="gf-badge" style={{ background: '#ecfdf5', color: '#059669', fontWeight: 700, padding: '4px 10px' }}>
-                    ⚡ EV: {fleetPositions.filter((p) => p.energy_type === 'Electric').length} Cars
-                  </span>
-                  <span className="gf-badge" style={{ background: '#fef3c7', color: '#b45309', fontWeight: 700, padding: '4px 10px' }}>
-                    🚗 In Trip: {fleetPositions.filter((p) => p.status === 'IN_TRIP').length} Active
-                  </span>
-                </div>
-              </div>
+          {adminModule === 'FLEET_MAP' && (() => {
+            const q = driverSearchQuery.trim().toLowerCase();
+            const filteredFleetPositions = fleetPositions.filter((pos) => {
+              const matchesFilter =
+                fleetFilterMode === 'ALL'
+                  ? true
+                  : fleetFilterMode === 'DRIVING'
+                  ? pos.status === 'IN_TRIP'
+                  : fleetFilterMode === 'GASOLINE'
+                  ? pos.energy_type === 'Gasoline'
+                  : fleetFilterMode === 'ELECTRIC'
+                  ? pos.energy_type === 'Electric'
+                  : true;
+              if (!matchesFilter) return false;
+              if (!q) return true;
+              const dName = (pos.driver_name || '').toLowerCase();
+              const plate = (pos.registration_plate || '').toLowerCase();
+              const model = `${pos.make} ${pos.model}`.toLowerCase();
+              const pax = (pos.active_trip?.passenger_nickname || '').toLowerCase();
+              const req = (pos.active_trip?.requester_nickname || '').toLowerCase();
+              return dName.includes(q) || plate.includes(q) || model.includes(q) || pax.includes(q) || req.includes(q);
+            });
 
-              <div style={{ height: '560px', width: '100%', borderRadius: '16px', overflow: 'hidden', position: 'relative', border: '1px solid var(--color-border)', boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
-                <MapView
-                  origin=""
-                  destination=""
-                  showRoute={false}
-                  pinMode={false}
-                  fleetPositions={fleetPositions}
-                  userPins={userPins}
-                  currentUserId={user.id}
-                  onLocateMe={() => detectAndReportUserLocation(false)}
-                />
-              </div>
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                  <div>
+                    <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <MapPin size={20} style={{ color: 'var(--color-samsung-blue)' }} /> Overall Fleet Live Map
+                    </h2>
+                    <p className="type-caption">Live GPS positions, model-specific vehicle avatars, and driver profiles for all {fleetPositions.length} operational company vehicles.</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span className="gf-badge" style={{ background: '#e0edff', color: '#005bb5', fontWeight: 700, padding: '4px 10px' }}>
+                      ⛽ Gasoline: {fleetPositions.filter((p) => p.energy_type === 'Gasoline').length} Cars
+                    </span>
+                    <span className="gf-badge" style={{ background: '#ecfdf5', color: '#059669', fontWeight: 700, padding: '4px 10px' }}>
+                      ⚡ EV: {fleetPositions.filter((p) => p.energy_type === 'Electric').length} Cars
+                    </span>
+                    <span className="gf-badge" style={{ background: '#fef3c7', color: '#b45309', fontWeight: 700, padding: '4px 10px' }}>
+                      🚗 In Trip: {fleetPositions.filter((p) => p.status === 'IN_TRIP').length} Active
+                    </span>
+                  </div>
+                </div>
 
-              {/* Quick Fleet Position Directory Table */}
-              <div className="gf-card-flat">
-                <h3 className="type-title" style={{ fontSize: '15px', marginBottom: '10px' }}>Live Vehicle Status Directory</h3>
-                <div className="gf-table-wrap">
-                  <table className="gf-table">
-                    <thead>
-                      <tr>
-                        <th>Plate & Model</th>
-                        <th>Energy / Battery</th>
-                        <th>Assigned Driver</th>
-                        <th>Status</th>
-                        <th>Current Location / Pool</th>
-                        <th>Contact Driver</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {fleetPositions.map((pos) => (
-                        <tr key={pos.id}>
-                          <td>
-                            <div style={{ fontWeight: 800 }}>{pos.registration_plate}</div>
-                            <div className="type-caption">{pos.make} {pos.model} ({pos.car_type})</div>
-                          </td>
-                          <td>
-                            <StatusBadge
-                              label={pos.energy_type === 'Electric' ? `EV ${pos.battery_percent ?? 100}%` : 'Gasoline'}
-                              tone={pos.energy_type === 'Electric' ? 'green' : 'neutral'}
-                            />
-                          </td>
-                          <td>
-                            <div style={{ fontWeight: 600 }}>{pos.driver_name}</div>
-                            {pos.driver_phone && <div className="type-caption mono">{pos.driver_phone}</div>}
-                          </td>
-                          <td>
-                            <StatusBadge
-                              label={pos.status}
-                              tone={pos.status === 'IN_TRIP' ? 'blue' : pos.status === 'Active' ? 'green' : 'amber'}
-                            />
-                            {pos.active_trip && (
-                              <div className="type-caption" style={{ color: '#005bb5', marginTop: '2px' }}>
-                                To: {pos.active_trip.destination} (Pax: {pos.active_trip.passenger_nickname || 'Employee'})
+                {/* Driver Name Search Bar & Quick Category Filters */}
+                <div style={{ background: 'var(--color-bg-surface)', padding: '14px 16px', borderRadius: '14px', border: '1.5px solid var(--color-divider)', boxShadow: 'var(--shadow-card)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                      <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-secondary)', pointerEvents: 'none' }} />
+                      <input
+                        type="text"
+                        className="gf-input"
+                        style={{ paddingLeft: '40px', paddingRight: driverSearchQuery ? '36px' : '14px', height: '44px', width: '100%', fontSize: '14px', borderRadius: '10px' }}
+                        placeholder="Search driver position by name (e.g. Budi, Citra, Andi, Deni)..."
+                        value={driverSearchQuery}
+                        onChange={(e) => setDriverSearchQuery(e.target.value)}
+                      />
+                      {driverSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setDriverSearchQuery('')}
+                          style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)', fontSize: '16px', padding: '4px' }}
+                          title="Clear search"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="gf-btn gf-btn-secondary"
+                      style={{ height: '44px', padding: '0 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      onClick={async () => {
+                        try {
+                          const res = await apiRequest('/api/admin/fleet-map-positions');
+                          setFleetPositions(res.fleetPositions || []);
+                          setStatusBanner({ type: 'success', text: `Refreshed ${res.fleetPositions?.length || 0} vehicle GPS positions.` });
+                        } catch (err: any) {
+                          setStatusBanner({ type: 'danger', text: err.message || 'Failed to refresh GPS positions' });
+                        }
+                      }}
+                      title="Refresh GPS positions"
+                    >
+                      <Clock size={16} /> Refresh
+                    </button>
+                  </div>
+
+                  {/* Filter Chips */}
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-text-secondary)', marginRight: '4px' }}>Filter:</span>
+                    {[
+                      { id: 'ALL', label: `All Vehicles (${fleetPositions.length})` },
+                      { id: 'DRIVING', label: `🚗 Driving / In Trip (${fleetPositions.filter((p) => p.status === 'IN_TRIP').length})` },
+                      { id: 'GASOLINE', label: `⛽ Gasoline (${fleetPositions.filter((p) => p.energy_type === 'Gasoline').length})` },
+                      { id: 'ELECTRIC', label: `⚡ Electric EV (${fleetPositions.filter((p) => p.energy_type === 'Electric').length})` },
+                    ].map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setFleetFilterMode(f.id as any)}
+                        className="gf-btn"
+                        style={{
+                          minHeight: '32px',
+                          padding: '0 12px',
+                          fontSize: '12px',
+                          borderRadius: '9999px',
+                          fontWeight: 700,
+                          background: fleetFilterMode === f.id ? 'var(--color-samsung-blue)' : 'var(--color-bg-subtle)',
+                          color: fleetFilterMode === f.id ? '#ffffff' : 'var(--color-text-primary)',
+                          border: fleetFilterMode === f.id ? 'none' : '1px solid var(--color-divider)',
+                        }}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Driver Quick Position Cards (When searching or filtered) */}
+                {filteredFleetPositions.length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '12px' }}>
+                    {filteredFleetPositions.map((pos) => {
+                      const isEv = pos.energy_type === 'Electric';
+                      const isInTrip = pos.status === 'IN_TRIP';
+                      const driverPhoto = getDriverAvatarDataUri(pos.driver_name || 'Driver', pos.driver_photo_url);
+                      const isFocused = focusedVehicleId === pos.id;
+
+                      return (
+                        <div
+                          key={pos.id}
+                          className="gf-card-flat"
+                          style={{
+                            padding: '12px 14px',
+                            border: isFocused ? '2px solid var(--color-samsung-blue)' : '1px solid var(--color-divider)',
+                            background: isFocused ? '#f0f7ff' : 'var(--color-bg-surface)',
+                            borderRadius: '12px',
+                            boxShadow: isFocused ? '0 4px 14px rgba(0,114,222,0.18)' : 'var(--shadow-card)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px',
+                          }}
+                        >
+                          {/* Driver & Car Header */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ position: 'relative', width: '46px', height: '46px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: '2px solid #ffffff', boxShadow: '0 2px 6px rgba(0,0,0,0.14)' }}>
+                              <img src={driverPhoto} alt={pos.driver_name || 'Driver'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              <span
+                                style={{
+                                  position: 'absolute',
+                                  bottom: '1px',
+                                  right: '1px',
+                                  width: '10px',
+                                  height: '10px',
+                                  borderRadius: '50%',
+                                  background: isInTrip ? '#258cfb' : '#10b981',
+                                  border: '2px solid #ffffff',
+                                }}
+                              />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '6px' }}>
+                                <span style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--color-text-primary)' }}>{pos.driver_name || 'Standby Driver'}</span>
+                                <span
+                                  style={{
+                                    fontSize: '10px',
+                                    fontWeight: 800,
+                                    padding: '2px 6px',
+                                    borderRadius: '9999px',
+                                    background: isInTrip ? '#fef3c7' : '#ecfdf5',
+                                    color: isInTrip ? '#b45309' : '#059669',
+                                  }}
+                                >
+                                  {isInTrip ? '🚗 Driving' : '🅿️ Standby'}
+                                </span>
                               </div>
-                            )}
-                          </td>
-                          <td style={{ fontSize: '13px' }}>{pos.location_label}</td>
-                          <td>
-                            {pos.driver_phone ? (
-                              <div style={{ display: 'flex', gap: '6px' }}>
+                              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-samsung-blue)' }}>
+                                {pos.registration_plate} • {pos.make} {pos.model}
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'flex', gap: '6px' }}>
+                                <span>{isEv ? `⚡ EV ${pos.battery_percent ?? 100}%` : '⛽ Gasoline'}</span>
+                                {pos.driver_licence_number && (
+                                  <span>• SIM {pos.driver_licence_number}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Person Using This Car Section */}
+                          {pos.active_trip ? (
+                            <div style={{ background: '#e0edff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '8px 10px', fontSize: '11.5px', color: '#1e293b' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                                <span style={{ fontWeight: 800, color: '#005bb5', textTransform: 'uppercase', fontSize: '10px', letterSpacing: '0.04em' }}>
+                                  👤 Person Using This Car
+                                </span>
+                                {pos.active_trip.ride_duration_formatted && (
+                                  <span style={{ fontSize: '10px', fontWeight: 700, background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: '9999px' }}>
+                                    ⏱️ {pos.active_trip.ride_duration_formatted}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontWeight: 800, color: '#0f172a' }}>
+                                Pax: <span style={{ color: '#005bb5' }}>{pos.active_trip.passenger_nickname || 'Employee'}</span>
+                              </div>
+                              <div style={{ fontSize: '11px', color: '#475569' }}>
+                                Booked By: <b>{pos.active_trip.requester_nickname || 'Requester'}</b>
+                                {pos.active_trip.requester_department && (
+                                  <span className="notranslate" translate="no" style={{ color: '#64748b' }}> • {pos.active_trip.requester_department}</span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: '11px', marginTop: '2px', fontWeight: 600 }}>
+                                📍 {pos.active_trip.origin || 'HQ Pool'} ➔ 🎯 {pos.active_trip.destination}
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ background: 'var(--color-bg-subtle)', borderRadius: '8px', padding: '6px 10px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                              🅿️ Parked at: <b>{pos.location_label || 'Central Fleet Pool'}</b>
+                            </div>
+                          )}
+
+                          {/* Action Buttons: Locate on Map, WhatsApp, Call */}
+                          <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
+                            <button
+                              type="button"
+                              className="gf-btn gf-btn-primary"
+                              style={{ flex: 1, minHeight: '32px', padding: '0 8px', fontSize: '12px', fontWeight: 700 }}
+                              onClick={() => {
+                                setFocusedVehicleId(pos.id);
+                                document.getElementById('admin-fleet-map-canvas')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              }}
+                            >
+                              <Navigation size={13} style={{ marginRight: '4px' }} /> Locate Position
+                            </button>
+                            {pos.driver_phone && (
+                              <>
                                 <a
                                   href={formatWhatsAppUrl(pos.driver_phone)}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="gf-btn gf-btn-secondary"
-                                  style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px', background: '#dcfce7', color: '#166534', textDecoration: 'none' }}
-                                  title="WhatsApp Chat"
+                                  style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', background: '#dcfce7', color: '#166534', textDecoration: 'none', display: 'flex', alignItems: 'center' }}
+                                  title="WhatsApp Driver"
                                 >
-                                  WhatsApp
+                                  <MessageSquare size={13} />
                                 </a>
                                 <a
                                   href={formatPhoneCallUrl(pos.driver_phone)}
                                   className="gf-btn gf-btn-secondary"
-                                  style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px', textDecoration: 'none' }}
-                                  title="Phone Call"
+                                  style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', textDecoration: 'none', display: 'flex', alignItems: 'center' }}
+                                  title="Call Driver"
                                 >
-                                  Call
+                                  <Phone size={13} />
                                 </a>
-                              </div>
-                            ) : (
-                              <span className="type-caption">—</span>
+                              </>
                             )}
-                          </td>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Live Fleet Map Canvas */}
+                <div id="admin-fleet-map-canvas" style={{ height: '560px', width: '100%', borderRadius: '16px', overflow: 'hidden', position: 'relative', border: '1px solid var(--color-border)', boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
+                  <MapView
+                    origin=""
+                    destination=""
+                    showRoute={false}
+                    pinMode={false}
+                    fleetPositions={fleetPositions}
+                    userPins={userPins}
+                    currentUserId={user.id}
+                    focusedVehicleId={focusedVehicleId}
+                    onSelectVehicle={(veh) => setFocusedVehicleId(veh.id)}
+                    onLocateMe={() => detectAndReportUserLocation(false)}
+                  />
+                </div>
+
+                {/* Quick Fleet Position Directory Table */}
+                <div className="gf-card-flat">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <h3 className="type-title" style={{ fontSize: '15px' }}>Live Vehicle Status Directory</h3>
+                    <span className="type-caption">Showing {filteredFleetPositions.length} of {fleetPositions.length} vehicles</span>
+                  </div>
+                  <div className="gf-table-wrap">
+                    <table className="gf-table">
+                      <thead>
+                        <tr>
+                          <th>Plate & Model</th>
+                          <th>Energy / Battery</th>
+                          <th>Assigned Driver</th>
+                          <th>Status / Pax</th>
+                          <th>Current Location / Pool</th>
+                          <th>Locate & Contact</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {filteredFleetPositions.map((pos) => {
+                          const driverPhoto = getDriverAvatarDataUri(pos.driver_name || 'Driver', pos.driver_photo_url);
+
+                          return (
+                            <tr key={pos.id} style={{ background: focusedVehicleId === pos.id ? '#f0f7ff' : undefined }}>
+                              <td>
+                                <div style={{ fontWeight: 800 }}>{pos.registration_plate}</div>
+                                <div className="type-caption">{pos.make} {pos.model} ({pos.car_type})</div>
+                              </td>
+                              <td>
+                                <StatusBadge
+                                  label={pos.energy_type === 'Electric' ? `EV ${pos.battery_percent ?? 100}%` : 'Gasoline'}
+                                  tone={pos.energy_type === 'Electric' ? 'green' : 'neutral'}
+                                />
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <div style={{ width: '32px', height: '32px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: '1px solid #cbd5e1' }}>
+                                    <img src={driverPhoto} alt={pos.driver_name || 'Driver'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                  </div>
+                                  <div>
+                                    <div style={{ fontWeight: 700 }}>{pos.driver_name}</div>
+                                    {pos.driver_licence_number && <div className="type-caption mono">SIM: {pos.driver_licence_number}</div>}
+                                  </div>
+                                </div>
+                              </td>
+                              <td>
+                                <StatusBadge
+                                  label={pos.status}
+                                  tone={pos.status === 'IN_TRIP' ? 'blue' : pos.status === 'Active' ? 'green' : 'amber'}
+                                />
+                                {pos.active_trip && (
+                                  <div className="type-caption" style={{ color: '#005bb5', marginTop: '2px' }}>
+                                    Pax: <b>{pos.active_trip.passenger_nickname || 'Employee'}</b>
+                                    <br />
+                                    To: {pos.active_trip.destination}
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ fontSize: '13px' }}>{pos.location_label}</td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                  <button
+                                    type="button"
+                                    className="gf-btn gf-btn-primary"
+                                    style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px' }}
+                                    onClick={() => {
+                                      setFocusedVehicleId(pos.id);
+                                      document.getElementById('admin-fleet-map-canvas')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    }}
+                                    title="Locate Position on Map"
+                                  >
+                                    <Navigation size={12} style={{ marginRight: '4px' }} /> Locate
+                                  </button>
+                                  {pos.driver_phone && (
+                                    <>
+                                      <a
+                                        href={formatWhatsAppUrl(pos.driver_phone)}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="gf-btn gf-btn-secondary"
+                                        style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px', background: '#dcfce7', color: '#166534', textDecoration: 'none' }}
+                                        title="WhatsApp Chat"
+                                      >
+                                        WhatsApp
+                                      </a>
+                                      <a
+                                        href={formatPhoneCallUrl(pos.driver_phone)}
+                                        className="gf-btn gf-btn-secondary"
+                                        style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px', textDecoration: 'none' }}
+                                        title="Phone Call"
+                                      >
+                                        Call
+                                      </a>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {adminModule === 'ADMIN_DISPATCH' && (
             <>

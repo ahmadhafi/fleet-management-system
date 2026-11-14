@@ -3,6 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { ArrowLeft, Crosshair, LocateFixed, Navigation2, Users, WifiOff, Layers, Map as MapIcon, Mountain } from 'lucide-react';
 import { apiRequest } from '../api';
+import { resolveCarAvatarKey, getCarFrontAvatarSvg, getDriverAvatarDataUri } from './CarAvatarArt';
 
 export interface GeoPlace {
   name: string;
@@ -27,8 +28,10 @@ export interface UserLocationPin {
 export interface FleetVehiclePosition {
   id: number;
   registration_plate: string;
+  plate_number?: string;
   make: string;
   model: string;
+  model_name?: string;
   car_type: string;
   energy_type: string;
   status: string;
@@ -36,15 +39,31 @@ export interface FleetVehiclePosition {
   current_odometer?: number;
   latitude: number;
   longitude: number;
+  lat?: number;
+  lng?: number;
   location_label?: string;
   driver_name?: string;
   driver_phone?: string;
+  driver_photo_url?: string | null;
+  driver_licence_number?: string;
+  driver_licence_expiry?: string;
   active_trip?: {
     id: number;
     purpose: string;
+    origin?: string;
     destination: string;
     start_time: string;
+    actual_start_time?: string;
+    start_odometer?: number;
+    start_odometer_photo_url?: string;
+    start_odometer_time?: string;
     passenger_nickname?: string;
+    passengers_json?: string;
+    passenger_count?: number;
+    requester_nickname?: string;
+    requester_username?: string;
+    requester_department?: string;
+    ride_duration_formatted?: string;
   } | null;
 }
 
@@ -179,6 +198,8 @@ interface MapViewProps {
   showBackButton?: boolean;
   onBack?: () => void;
   isOffline?: boolean;
+  focusedVehicleId?: number | null;
+  onSelectVehicle?: (vehicle: FleetVehiclePosition) => void;
 }
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -203,6 +224,8 @@ export const MapView: React.FC<MapViewProps> = ({
   showBackButton = false,
   onBack,
   isOffline = false,
+  focusedVehicleId,
+  onSelectVehicle,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -210,6 +233,7 @@ export const MapView: React.FC<MapViewProps> = ({
   const routeLayerRef = useRef<L.LayerGroup | null>(null);
   const pinsLayerRef = useRef<L.LayerGroup | null>(null);
   const fleetLayerRef = useRef<L.LayerGroup | null>(null);
+  const markerMapRef = useRef<Map<number, L.Marker>>(new Map());
   const hasCenteredOnMyCoordsRef = useRef<boolean>(false);
   const onPinMoveRef = useRef(onPinMoveAddress);
   onPinMoveRef.current = onPinMoveAddress;
@@ -500,6 +524,7 @@ export const MapView: React.FC<MapViewProps> = ({
     if (!fleetLayer) return;
 
     fleetLayer.clearLayers();
+    markerMapRef.current.clear();
 
     if (!fleetPositions || fleetPositions.length === 0) return;
 
@@ -512,19 +537,30 @@ export const MapView: React.FC<MapViewProps> = ({
       const isEv = v.energy_type === 'Electric';
       const isInTrip = v.status === 'IN_TRIP';
       const mainColor = isEv ? '#059669' : '#0072de';
-      const pulseStyle = isInTrip ? 'box-shadow:0 0 0 6px rgba(37,140,251,0.35);' : '';
+
+      const avatarKey = resolveCarAvatarKey(v.model, v.make, v.energy_type);
+      const carFrontSvg = getCarFrontAvatarSvg(avatarKey, isInTrip);
+      const driverPhoto = getDriverAvatarDataUri(v.driver_name || 'Driver', v.driver_photo_url);
 
       const carIcon = L.divIcon({
         className: 'gf-leaflet-marker',
         html: `
-          <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
-            <div style="background:#ffffff;color:#0f172a;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:800;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.22);margin-bottom:4px;border:1.5px solid ${mainColor};display:flex;align-items:center;gap:4px;">
+          <div class="gf-fleet-marker-wrap ${isInTrip ? 'is-driving' : ''}" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
+            <div style="background:#ffffff;color:#0f172a;padding:2px 8px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.24);margin-bottom:2px;border:1.5px solid ${mainColor};display:flex;align-items:center;gap:4px;">
               <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${isInTrip ? '#258cfb' : '#10b981'};"></span>
               <span>${escapeHtml(v.registration_plate)}</span>
+              <span style="color:#64748b;font-weight:600;font-size:10px;">• ${escapeHtml(v.driver_name?.split(' ')[0] || 'Driver')}</span>
               <span style="font-size:10px;">${isEv ? '⚡' : '⛽'}</span>
             </div>
-            <div style="width:26px;height:26px;border-radius:50%;background:${mainColor};color:#ffffff;display:flex;align-items:center;justify-content:center;outline:2.5px solid #ffffff;box-shadow:0 3px 10px rgba(0,0,0,0.28);${pulseStyle}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
+
+            <!-- Model-Specific Car Front Avatar -->
+            <div style="position:relative;width:58px;height:42px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 4px 10px rgba(0,0,0,0.32));">
+              ${carFrontSvg}
+              ${isInTrip ? `
+                <div style="position:absolute;top:-4px;right:-4px;background:#258cfb;color:#ffffff;border-radius:9999px;padding:1px 5px;font-size:8px;font-weight:900;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(37,140,251,0.5);border:1px solid #ffffff;">
+                  DRIVING
+                </div>
+              ` : ''}
             </div>
           </div>
         `,
@@ -533,50 +569,131 @@ export const MapView: React.FC<MapViewProps> = ({
       });
 
       const marker = L.marker([v.latitude, v.longitude], { icon: carIcon }).addTo(fleetLayer);
+      markerMapRef.current.set(v.id, marker);
+
+      if (onSelectVehicle) {
+        marker.on('click', () => {
+          onSelectVehicle(v);
+        });
+      }
 
       const contactButtons = v.driver_phone ? `
         <div style="display:flex;gap:8px;margin-top:8px;">
-          <a href="${formatWhatsAppUrl(v.driver_phone)}" target="_blank" rel="noreferrer" style="flex:1;background:#25d366;color:#ffffff;text-decoration:none;padding:6px 10px;border-radius:8px;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 2px 5px rgba(37,211,102,0.3);">
+          <a href="${formatWhatsAppUrl(v.driver_phone)}" target="_blank" rel="noreferrer" style="flex:1;background:#25d366;color:#ffffff;text-decoration:none;padding:6px 10px;border-radius:8px;font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 2px 5px rgba(37,211,102,0.3);">
             <span>WhatsApp</span>
           </a>
-          <a href="${formatPhoneCallUrl(v.driver_phone)}" style="flex:1;background:#0072de;color:#ffffff;text-decoration:none;padding:6px 10px;border-radius:8px;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 2px 5px rgba(0,114,222,0.3);">
+          <a href="${formatPhoneCallUrl(v.driver_phone)}" style="flex:1;background:#0072de;color:#ffffff;text-decoration:none;padding:6px 10px;border-radius:8px;font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 2px 5px rgba(0,114,222,0.3);">
             <span>Call Driver</span>
           </a>
         </div>
       ` : '';
 
+      let paxHtml = `<span style="color:#005bb5;">${escapeHtml(v.active_trip?.passenger_nickname || 'Employee')}</span>`;
+      if (v.active_trip?.passengers_json) {
+        try {
+          const parsed = JSON.parse(v.active_trip.passengers_json);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            paxHtml = `<div style="display:flex;flex-direction:column;gap:1px;margin-top:2px;">${parsed
+              .map((p: any, idx: number) => `<span style="color:#005bb5;font-weight:700;font-size:11.5px;">• Pax ${idx + 1}: ${escapeHtml(p.nickname || 'Guest')}</span>`)
+              .join('')}</div>`;
+          }
+        } catch {}
+      }
+
       const tripInfo = v.active_trip ? `
-        <div style="background:#e0edff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 10px;margin-top:8px;">
-          <div style="font-size:10.5px;font-weight:800;color:#005bb5;text-transform:uppercase;letter-spacing:0.04em;">Active Trip In Progress</div>
-          <div style="font-weight:700;font-size:12.5px;color:#0f172a;margin-top:2px;">📍 ${escapeHtml(v.active_trip.destination)}</div>
-          <div style="font-size:11.5px;color:#334155;margin-top:2px;">Passenger: <b>${escapeHtml(v.active_trip.passenger_nickname || 'Employee')}</b></div>
-          <div style="font-size:11px;color:#64748b;margin-top:1px;">Purpose: ${escapeHtml(v.active_trip.purpose)}</div>
+        <div style="background:#e0edff;border:1px solid #bfdbfe;border-radius:10px;padding:9px 11px;margin-top:8px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+            <span style="font-size:10.5px;font-weight:800;color:#005bb5;text-transform:uppercase;letter-spacing:0.04em;">
+              👤 Person Using This Car
+            </span>
+            ${v.active_trip.ride_duration_formatted ? `
+              <span style="font-size:10px;font-weight:700;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:9999px;">
+                ⏱️ ${escapeHtml(v.active_trip.ride_duration_formatted)}
+              </span>
+            ` : ''}
+          </div>
+          
+          <div style="font-size:12px;font-weight:800;color:#0f172a;">
+            Passengers: ${paxHtml}
+          </div>
+
+          <div style="font-size:11.5px;color:#334155;margin-top:2px;">
+            Booked By: <b>${escapeHtml(v.active_trip.requester_nickname || 'Lead Requester')}</b>
+            ${v.active_trip.requester_department ? `<span class="notranslate" translate="no" style="color:#64748b;"> • ${escapeHtml(v.active_trip.requester_department)}</span>` : ''}
+          </div>
+
+          <div style="font-size:11.5px;color:#1e293b;margin-top:4px;font-weight:600;">
+            📍 ${escapeHtml(v.active_trip.origin || 'HQ Tower')} ➔ 🎯 ${escapeHtml(v.active_trip.destination)}
+          </div>
+
+          <div style="font-size:11px;color:#64748b;margin-top:2px;">
+            Purpose: ${escapeHtml(v.active_trip.purpose)}
+          </div>
+
+          ${v.active_trip.start_odometer_photo_url ? `
+            <div style="margin-top:6px;padding:4px 6px;background:#ffffff;border-radius:6px;border:1px solid #bfdbfe;display:flex;align-items:center;gap:6px;">
+              <img src="${v.active_trip.start_odometer_photo_url}" alt="Start Odometer" style="width:26px;height:26px;border-radius:4px;object-fit:cover;border:1px solid #cbd5e1;flex-shrink:0;" />
+              <div style="font-size:10.5px;color:#1e293b;">
+                Verified Start Odometer: <b>${v.active_trip.start_odometer ?? '—'} km</b>
+              </div>
+            </div>
+          ` : ''}
         </div>
       ` : `
-        <div style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;margin-top:8px;font-size:12px;color:#475569;">
-          🅿️ Parking / Pool: <b>${escapeHtml(v.location_label || 'Central Fleet Pool')}</b>
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;margin-top:8px;font-size:11.5px;color:#475569;">
+          <div>🅿️ Current Pool: <b>${escapeHtml(v.location_label || 'Central Fleet Pool')}</b></div>
+          <div style="font-size:10.5px;color:#94a3b8;margin-top:2px;">Ready for immediate reservation or scheduled dispatch.</div>
         </div>
       `;
 
       marker.bindPopup(`
-        <div style="font-family:inherit;font-size:12.5px;line-height:1.45;min-width:240px;padding:3px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;">
+        <div style="font-family:inherit;font-size:12.5px;line-height:1.45;min-width:270px;max-width:310px;padding:4px;">
+          <!-- Vehicle Header -->
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid #e2e8f0;">
             <div>
-              <div style="font-weight:800;font-size:14.5px;color:#0f172a;">${escapeHtml(v.registration_plate)}</div>
-              <div style="font-size:12px;color:#64748b;">${escapeHtml(v.make)} ${escapeHtml(v.model)} (${escapeHtml(v.car_type)})</div>
+              <div style="font-weight:800;font-size:15px;color:#0f172a;letter-spacing:-0.2px;">${escapeHtml(v.registration_plate)}</div>
+              <div style="font-size:12px;color:#64748b;font-weight:600;">${escapeHtml(v.make)} ${escapeHtml(v.model)}</div>
+              <div style="font-size:11px;color:#94a3b8;">${escapeHtml(v.car_type)}</div>
             </div>
-            <span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:9999px;background:${isEv ? '#ecfdf5' : '#e0edff'};color:${isEv ? '#059669' : '#005bb5'};">
-              ${isEv ? `EV ${v.battery_percent ?? 100}%` : 'Gasoline'}
-            </span>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+              <span style="font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:9999px;background:${isEv ? '#ecfdf5' : '#e0edff'};color:${isEv ? '#059669' : '#005bb5'};">
+                ${isEv ? `⚡ EV ${v.battery_percent ?? 100}%` : '⛽ Gasoline'}
+              </span>
+              <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:9999px;background:${isInTrip ? '#fef3c7' : '#f1f5f9'};color:${isInTrip ? '#b45309' : '#475569'};">
+                ${isInTrip ? '🚗 In Trip' : '🅿️ Standby'}
+              </span>
+            </div>
           </div>
-          <div style="font-size:12px;color:#334155;margin-top:4px;">
-            Assigned Driver: <b>${escapeHtml(v.driver_name || 'Standby Driver')}</b>
-            ${v.driver_phone ? `<span style="color:#64748b;"> (${escapeHtml(v.driver_phone)})</span>` : ''}
+
+          <!-- Driver Profile Card (With Driver Photo) -->
+          <div style="display:flex;align-items:center;gap:10px;background:#f8fafc;padding:8px 10px;border-radius:10px;border:1px solid #e2e8f0;margin-bottom:8px;">
+            <div style="position:relative;width:44px;height:44px;border-radius:50%;overflow:hidden;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,0.15);border:2px solid #ffffff;">
+              <img src="${driverPhoto}" alt="${escapeHtml(v.driver_name || 'Driver')}" style="width:100%;height:100%;object-fit:cover;display:block;" />
+              <span style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:${isInTrip ? '#258cfb' : '#10b981'};border-radius:50%;border:2px solid #ffffff;"></span>
+            </div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:10px;text-transform:uppercase;font-weight:800;color:#64748b;letter-spacing:0.04em;">Assigned Driver</div>
+              <div style="font-weight:800;font-size:13px;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                ${escapeHtml(v.driver_name || 'Standby Driver')}
+              </div>
+              ${v.driver_licence_number ? `
+                <div style="font-size:11px;color:#475569;font-family:monospace;">
+                  ${escapeHtml(v.driver_licence_number)} ${v.driver_licence_expiry ? `<span style="color:#94a3b8;">(Exp ${escapeHtml(v.driver_licence_expiry)})</span>` : ''}
+                </div>
+              ` : ''}
+            </div>
           </div>
-          ${tripInfo}
+
+          <!-- Contact Driver Buttons -->
           ${contactButtons}
-          <div style="margin-top:6px;font-size:11px;color:#94a3b8;font-family:monospace;">
-            GPS: ${Number(v.latitude).toFixed(5)}, ${Number(v.longitude).toFixed(5)} • Odo: ${Number(v.current_odometer || 0).toLocaleString()} km
+
+          <!-- Person Using This Car / Active Passenger Detail -->
+          ${tripInfo}
+
+          <!-- Footer Stats -->
+          <div style="margin-top:8px;padding-top:6px;border-top:1px solid #e2e8f0;font-size:11px;color:#64748b;display:flex;justify-content:space-between;align-items:center;">
+            <span>Odo: <b>${Number(v.current_odometer || 0).toLocaleString()} km</b></span>
+            <span style="font-family:monospace;color:#94a3b8;">${Number(v.latitude).toFixed(4)}, ${Number(v.longitude).toFixed(4)}</span>
           </div>
         </div>
       `);
@@ -585,7 +702,23 @@ export const MapView: React.FC<MapViewProps> = ({
     if (map && bounds.isValid() && (!routeGeometry || routeGeometry.length === 0)) {
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
     }
-  }, [fleetPositions, routeGeometry]);
+  }, [fleetPositions, routeGeometry, onSelectVehicle]);
+
+  // Fly to focused vehicle when focusedVehicleId changes
+  useEffect(() => {
+    if (!focusedVehicleId) return;
+    const map = mapInstanceRef.current;
+    const target = fleetPositions?.find((p) => p.id === focusedVehicleId);
+    const marker = markerMapRef.current.get(focusedVehicleId);
+    if (map && target) {
+      map.flyTo([target.latitude, target.longitude], 16, { animate: true, duration: 1.2 });
+      if (marker) {
+        window.setTimeout(() => {
+          marker.openPopup();
+        }, 400);
+      }
+    }
+  }, [focusedVehicleId, fleetPositions]);
 
   // Render Route Pickup, Destination & Polyline whenever route coordinates or mode change
   useEffect(() => {

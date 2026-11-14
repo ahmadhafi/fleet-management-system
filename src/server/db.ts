@@ -169,6 +169,7 @@ function initializeSchema(db: AppDatabase) {
       licence_expiry TEXT NOT NULL,
       contact_number TEXT NOT NULL,
       availability_status TEXT NOT NULL DEFAULT 'Active' CHECK (availability_status IN ('Active', 'On Leave', 'Inactive')),
+      photo_url TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -505,6 +506,9 @@ function initializeSchema(db: AppDatabase) {
   try {
     db.exec('ALTER TABLE trip_requests ADD COLUMN end_odometer_time TEXT;');
   } catch {}
+  try {
+    db.exec('ALTER TABLE driver_profiles ADD COLUMN photo_url TEXT;');
+  } catch {}
 }
 
 export const COMPANY_GROUPS: ReadonlyArray<readonly [string, string]> = [
@@ -571,14 +575,20 @@ function seedTestFixturesForVitest(db: AppDatabase) {
   insertUser.run('Alex (Engineering)', 'emp_alex', hashPassword('Emp@123'), 'EMP', 0, 3);
   insertUser.run('Sara (Sales)', 'emp_sara', hashPassword('Emp@123'), 'EMP', 0, 6);
 
+  const makeDriverSvg = (initial: string, bg: string, cap: string, skin: string) =>
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="${bg}"/><path d="M20 94 C20 74 34 68 50 68 C66 68 80 74 80 94 Z" fill="#0f172a"/><polygon points="50,68 44,78 50,88 56,78" fill="#ffffff"/><polygon points="50,78 47,94 53,94" fill="#0072de"/><rect x="44" y="54" width="12" height="16" rx="4" fill="${skin}"/><ellipse cx="50" cy="46" rx="16" ry="18" fill="${skin}"/><circle cx="44" cy="46" r="2" fill="#0f172a"/><circle cx="56" cy="46" r="2" fill="#0f172a"/><path d="M46 54 Q50 58 54 54" stroke="#0f172a" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M30 36 C30 24 70 24 70 36 Z" fill="${cap}"/><rect x="28" y="34" width="44" height="4" rx="2" fill="#facc15"/><path d="M26 38 C32 40 68 40 74 38 Z" fill="#0f172a"/><circle cx="50" cy="30" r="5" fill="#facc15"/><text x="50" y="33" font-size="6" font-family="sans-serif" font-weight="bold" fill="#0f172a" text-anchor="middle">${initial}</text></svg>`
+    );
+
   const insertDriver = db.prepare(`
-    INSERT INTO driver_profiles (user_id, full_name, licence_number, licence_class, licence_expiry, contact_number, availability_status)
-    VALUES (?, ?, ?, ?, ?, ?, 'Active')
+    INSERT INTO driver_profiles (user_id, full_name, licence_number, licence_class, licence_expiry, contact_number, availability_status, photo_url)
+    VALUES (?, ?, ?, ?, ?, ?, 'Active', ?)
   `);
-  insertDriver.run(4, 'Budi Santoso', 'SIM-A-90811234', 'A', '2028-06-30', '+62-811-2233-4401');
-  insertDriver.run(5, 'Andi Wijaya', 'SIM-A-90815678', 'A', '2027-11-15', '+62-811-2233-4402');
-  insertDriver.run(6, 'Citra Lestari', 'SIM-A-90819012', 'A', '2028-03-20', '+62-811-2233-4403');
-  insertDriver.run(7, 'Deni Pratama', 'SIM-B1-90813456', 'B1', '2027-09-10', '+62-811-2233-4404');
+  insertDriver.run(4, 'Budi Santoso', 'SIM-A-90811234', 'A', '2028-06-30', '+62-811-2233-4401', makeDriverSvg('B', '#0072de', '#005bb5', '#f6d1b1'));
+  insertDriver.run(5, 'Andi Wijaya', 'SIM-A-90815678', 'A', '2027-11-15', '+62-811-2233-4402', makeDriverSvg('A', '#059669', '#047857', '#e5b894'));
+  insertDriver.run(6, 'Citra Lestari', 'SIM-A-90819012', 'A', '2028-03-20', '+62-811-2233-4403', makeDriverSvg('C', '#4f46e5', '#3730a3', '#fcd34d'));
+  insertDriver.run(7, 'Deni Pratama', 'SIM-B1-90813456', 'B1', '2027-09-10', '+62-811-2233-4404', makeDriverSvg('D', '#d97706', '#b45309', '#f6c39a'));
 
   const insertVehicle = db.prepare(`
     INSERT INTO vehicles (registration_plate, make, model, car_type, year, vin, energy_type, seats, current_odometer, battery_percent, status, last_parking_spot)
@@ -588,10 +598,20 @@ function seedTestFixturesForVitest(db: AppDatabase) {
   insertVehicle.run('B 1002 FMS', 'Toyota', 'Kijang Innova Zenix', 'MPV 7-Seater', 2025, 'MHF11ZENIX0001002', 'Gasoline', 7, 28510, null, 'Basement B1 - Slot A02');
   insertVehicle.run('B 1003 FMS', 'Honda', 'CR-V 1.5 Turbo', 'SUV', 2024, 'MHR11CRV000001003', 'Gasoline', 5, 41890, null, 'Basement B1 - Slot A03');
   insertVehicle.run('B 1004 FMS', 'Mitsubishi', 'Xpander Ultimate', 'MPV 7-Seater', 2025, 'MMB11XPAND0001004', 'Gasoline', 7, 19340, null, 'Basement B1 - Slot A04');
-  insertVehicle.run('B 1005 FMS', 'Nissan', 'Serena Highway Star', 'Passenger Van', 2024, 'MNT11SEREN0001005', 'Gasoline', 7, 52100, null, 'Basement B1 - Slot A05');
+  insertVehicle.run('B 1005 FMS', 'Hyundai', 'Stargazer Prime', 'MPV 7-Seater', 2025, 'KMH11STARG0001005', 'Gasoline', 7, 24100, null, 'Basement B1 - Slot A05');
   insertVehicle.run('B 2001 EV', 'Hyundai', 'Ioniq 5 Signature', 'Electric SUV', 2025, 'KMH11IONIQ0002001', 'Electric', 5, 15620, 88, 'Basement B1 - EV Charger 01');
   insertVehicle.run('B 2002 EV', 'BYD', 'Atto 3 Extended', 'Electric SUV', 2025, 'LC011ATTO30002002', 'Electric', 5, 11400, 92, 'Basement B1 - EV Charger 02');
   insertVehicle.run('B 2003 EV', 'Tesla', 'Model Y Long Range', 'Electric Crossover', 2025, '5YJ11MODLY0002003', 'Electric', 5, 22780, 79, 'Basement B1 - EV Charger 03');
+
+  // Assign fixed default drivers across vehicles
+  db.prepare('UPDATE vehicles SET default_driver_id = 1 WHERE id = 1').run();
+  db.prepare('UPDATE vehicles SET default_driver_id = 2 WHERE id = 2').run();
+  db.prepare('UPDATE vehicles SET default_driver_id = 3 WHERE id = 3').run();
+  db.prepare('UPDATE vehicles SET default_driver_id = 4 WHERE id = 4').run();
+  db.prepare('UPDATE vehicles SET default_driver_id = 1 WHERE id = 5').run();
+  db.prepare('UPDATE vehicles SET default_driver_id = 2 WHERE id = 6').run();
+  db.prepare('UPDATE vehicles SET default_driver_id = 3 WHERE id = 7').run();
+  db.prepare('UPDATE vehicles SET default_driver_id = 4 WHERE id = 8').run();
 
   const now = new Date();
   const fmt = (d: Date) => d.toISOString();

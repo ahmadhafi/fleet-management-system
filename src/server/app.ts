@@ -3911,7 +3911,13 @@ export function createApp() {
   app.get('/api/admin/fleet-map-positions', requireAuth, requireRoles(['ADM', 'FM', 'HWS']), (_req: Request, res: Response) => {
     const db = getDb();
     const vehicles = db.prepare(`
-      SELECT v.*, dp.id as default_driver_profile_id, dp.full_name as default_driver_name, dp.contact_number as default_driver_phone
+      SELECT v.*,
+             dp.id as default_driver_profile_id,
+             dp.full_name as default_driver_name,
+             dp.contact_number as default_driver_phone,
+             dp.photo_url as default_driver_photo,
+             dp.licence_number as default_driver_licence,
+             dp.licence_expiry as default_driver_licence_expiry
       FROM vehicles v
       LEFT JOIN driver_profiles dp ON dp.id = v.default_driver_id
       WHERE v.status != 'Retired'
@@ -3923,10 +3929,21 @@ export function createApp() {
 
     const positions = vehicles.map((v, index) => {
       const activeTrip = db.prepare(`
-        SELECT tr.*, dp.full_name as assigned_driver_name, dp.contact_number as assigned_driver_phone
+        SELECT tr.*,
+               dp.id as assigned_driver_id,
+               dp.full_name as assigned_driver_name,
+               dp.contact_number as assigned_driver_phone,
+               dp.photo_url as assigned_driver_photo,
+               dp.licence_number as assigned_driver_licence,
+               dp.licence_expiry as assigned_driver_licence_expiry,
+               u_req.nickname as requester_nickname,
+               u_req.group_username as requester_username,
+               d_req.name as requester_department
         FROM trip_requests tr
         LEFT JOIN assignments a ON a.trip_request_id = tr.id AND a.is_current = 1
         LEFT JOIN driver_profiles dp ON dp.id = a.driver_profile_id
+        LEFT JOIN users u_req ON u_req.id = tr.requester_id
+        LEFT JOIN departments d_req ON d_req.id = tr.department_id
         WHERE tr.vehicle_id = ? AND tr.status = 'IN_PROGRESS'
         ORDER BY tr.id DESC LIMIT 1
       `).get(v.id) as any;
@@ -3950,6 +3967,15 @@ export function createApp() {
         lon = Number((base.lon + offsetLon).toFixed(6));
       }
 
+      let rideDuration = '';
+      if (activeTrip) {
+        const startMs = new Date(activeTrip.actual_start_time || activeTrip.start_time).getTime();
+        const diffMins = Math.max(1, Math.round((Date.now() - startMs) / 60000));
+        const hrs = Math.floor(diffMins / 60);
+        const mins = diffMins % 60;
+        rideDuration = hrs > 0 ? `${hrs}h ${mins}m` : `${mins} mins`;
+      }
+
       return {
         id: v.id,
         registration_plate: v.registration_plate,
@@ -3969,12 +3995,26 @@ export function createApp() {
         location_label: locationName,
         driver_name: activeTrip?.assigned_driver_name || v.default_driver_name || 'Standby Driver',
         driver_phone: activeTrip?.assigned_driver_phone || v.default_driver_phone || '',
+        driver_photo_url: activeTrip?.assigned_driver_photo || v.default_driver_photo || null,
+        driver_licence_number: activeTrip?.assigned_driver_licence || v.default_driver_licence || '',
+        driver_licence_expiry: activeTrip?.assigned_driver_licence_expiry || v.default_driver_licence_expiry || '',
         active_trip: activeTrip ? {
           id: activeTrip.id,
           purpose: activeTrip.purpose,
+          origin: activeTrip.origin,
           destination: activeTrip.destination,
           start_time: activeTrip.start_time,
+          actual_start_time: activeTrip.actual_start_time,
+          start_odometer: activeTrip.start_odometer,
+          start_odometer_photo_url: activeTrip.start_odometer_photo_url,
+          start_odometer_time: activeTrip.start_odometer_time,
           passenger_nickname: activeTrip.passenger_nickname,
+          passengers_json: activeTrip.passengers_json,
+          passenger_count: activeTrip.passenger_count,
+          requester_nickname: activeTrip.requester_nickname || 'Lead Passenger',
+          requester_username: activeTrip.requester_username || '',
+          requester_department: activeTrip.requester_department || 'General Fleet',
+          ride_duration_formatted: rideDuration,
         } : null,
       };
     });
