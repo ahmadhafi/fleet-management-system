@@ -240,7 +240,9 @@ export function createApp() {
     res.json({ groups });
   });
 
-  // OpenStreetMap Nominatim Geocoding & Reverse Geocoding Proxy (with custom User-Agent)
+  const MAPTILER_API_KEY = process.env.MAPTILER_API_KEY || process.env.VITE_MAPTILER_API_KEY || 'KHmsrWcJhgdZjirijNbw';
+
+  // MapTiler Geocoding & Reverse Geocoding Proxy (with OpenStreetMap Nominatim fallback)
   app.get('/api/geocode/search', requireAuth, async (req: Request, res: Response) => {
     const q = String(req.query.q || '').trim();
     if (!q || q.length < 2) {
@@ -248,6 +250,29 @@ export function createApp() {
       return;
     }
     try {
+      const maptilerUrl = `https://api.maptiler.com/geocoding/${encodeURIComponent(q)}.json?key=${encodeURIComponent(MAPTILER_API_KEY)}&proximity=106.88873,-6.19834&limit=6&language=id,en`;
+      const mtResp = await fetch(maptilerUrl);
+      if (mtResp.ok) {
+        const mtData = (await mtResp.json()) as { features?: Array<any> };
+        if (Array.isArray(mtData.features) && mtData.features.length > 0) {
+          const results = mtData.features.map((feat, idx) => {
+            const center = Array.isArray(feat.center) ? feat.center : feat.geometry?.coordinates || [106.88873, -6.19834];
+            const placeName = String(feat.place_name || feat.text || q);
+            const primary = String(feat.text || placeName.split(',')[0] || q).trim();
+            return {
+              place_id: feat.id || idx + 1,
+              name: primary,
+              address: placeName,
+              lat: Number(center[1]),
+              lon: Number(center[0]),
+            };
+          });
+          res.json({ results });
+          return;
+        }
+      }
+
+      // Fallback to OpenStreetMap Nominatim
       const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&q=${encodeURIComponent(q)}`;
       const resp = await fetch(url, {
         headers: {
@@ -285,6 +310,25 @@ export function createApp() {
       return;
     }
     try {
+      const maptilerUrl = `https://api.maptiler.com/geocoding/${encodeURIComponent(String(lon))},${encodeURIComponent(String(lat))}.json?key=${encodeURIComponent(MAPTILER_API_KEY)}&limit=1&language=id,en`;
+      const mtResp = await fetch(maptilerUrl);
+      if (mtResp.ok) {
+        const mtData = (await mtResp.json()) as { features?: Array<any> };
+        const feat = mtData.features?.[0];
+        if (feat) {
+          const placeName = String(feat.place_name || feat.text || `${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+          const primary = String(feat.text || placeName.split(',')[0] || `${lat.toFixed(5)}, ${lon.toFixed(5)}`).trim();
+          res.json({
+            name: primary,
+            address: placeName,
+            lat,
+            lon,
+            place: { name: primary, address: placeName, lat, lon },
+          });
+          return;
+        }
+      }
+
       const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lon))}`;
       const resp = await fetch(url, {
         headers: {
@@ -309,6 +353,7 @@ export function createApp() {
         address: display,
         lat,
         lon,
+        place: { name: String(primary).trim(), address: display, lat, lon },
       });
     } catch {
       res.json({

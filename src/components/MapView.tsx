@@ -11,7 +11,9 @@ export interface GeoPlace {
   lon: number;
 }
 
-const DEFAULT_CENTER: [number, number] = [-6.2088, 106.8456];
+const DEFAULT_CENTER: [number, number] = [-6.19834, 106.88873];
+const MAPTILER_API_KEY = (import.meta as any).env?.VITE_MAPTILER_API_KEY || 'KHmsrWcJhgdZjirijNbw';
+const MAPTILER_OUTDOOR_V4_TILE_URL = `https://api.maptiler.com/maps/outdoor-v4/256/{z}/{x}/{y}.png?key=${MAPTILER_API_KEY}`;
 
 function toRadians(deg: number): number {
   return (deg * Math.PI) / 180;
@@ -123,22 +125,23 @@ export const MapView: React.FC<MapViewProps> = ({
     [origin, destination, effOrigin, effDest]
   );
 
-  // Initialize Leaflet Map with real OpenStreetMap tiles
+  // Initialize Leaflet Map with MapTiler outdoor-v4 tiles
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
     const map = L.map(mapContainerRef.current, {
       center: effOrigin,
-      zoom: 14,
+      zoom: 12,
       zoomControl: false,
       attributionControl: true,
     });
 
-    // OpenStreetMap Voyager raster tiles (reliable CDN, crisp street & building labels)
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19,
-      subdomains: 'abcd',
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    // MapTiler outdoor-v4 tiles with provided API key
+    L.tileLayer(MAPTILER_OUTDOOR_V4_TILE_URL, {
+      maxZoom: 20,
+      tileSize: 256,
+      attribution:
+        '&copy; <a href="https://www.maptiler.com/copyright/" target="_blank" rel="noreferrer">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
     }).addTo(map);
 
     const group = L.layerGroup().addTo(map);
