@@ -58,6 +58,7 @@ export function getDb(customPath?: string): AppDatabase {
       db.exec('PRAGMA synchronous = FULL;');
     } else {
       db.exec('PRAGMA journal_mode = WAL;');
+      db.exec('PRAGMA synchronous = NORMAL;');
     }
   }
   db.exec('PRAGMA foreign_keys = ON;');

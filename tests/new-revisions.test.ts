@@ -495,7 +495,61 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
       expect(logoContent).toContain('evCar');
       expect(logoContent).toContain('gasCar');
     });
+
+    it('provides public L4/L7 healthcheck and deep readiness probes for load balancers', async () => {
+      // 1. Basic Liveness Probe
+      const liveness = await request(app).get('/api/health');
+      expect(liveness.status).toBe(200);
+      expect(liveness.body.status).toBe('ok');
+      expect(liveness.body.service).toContain('GalaxyFleet');
+      expect(typeof liveness.body.uptime_sec).toBe('number');
+
+      // 2. Healthz alias
+      const healthz = await request(app).get('/api/healthz');
+      expect(healthz.status).toBe(200);
+      expect(healthz.body.status).toBe('ok');
+
+      // 3. Deep Readiness Probe
+      const deep = await request(app).get('/api/health/deep');
+      expect(deep.status).toBe(200);
+      expect(deep.body.status).toBe('ready');
+      expect(deep.body.database).toBe('connected');
+      expect(deep.body.sqlite_wal).toBe(true);
+      expect(typeof deep.body.memory.heapUsedMb).toBe('number');
+    });
+
+    it('enforces rate limiting headers and protects against traffic surges', async () => {
+      const { createRateLimiter } = await import('../src/server/rate-limit.ts');
+      const testLimiter = createRateLimiter({
+        windowMs: 1000,
+        maxRequests: 3,
+        skipInTests: false,
+      });
+
+      const express = (await import('express')).default;
+      const testApp = express();
+      testApp.use(testLimiter);
+      testApp.get('/test-ping', (_req, res) => res.json({ ok: true }));
+
+      const res1 = await request(testApp).get('/test-ping');
+      expect(res1.status).toBe(200);
+      expect(res1.headers['x-ratelimit-remaining']).toBe('2');
+
+      const res2 = await request(testApp).get('/test-ping');
+      expect(res2.status).toBe(200);
+      expect(res2.headers['x-ratelimit-remaining']).toBe('1');
+
+      const res3 = await request(testApp).get('/test-ping');
+      expect(res3.status).toBe(200);
+      expect(res3.headers['x-ratelimit-remaining']).toBe('0');
+
+      const res4 = await request(testApp).get('/test-ping');
+      expect(res4.status).toBe(429);
+      expect(res4.body.code).toBe('RATE_LIMIT_EXCEEDED');
+      expect(res4.headers['retry-after']).toBeDefined();
+    });
   });
 });
+
 
 

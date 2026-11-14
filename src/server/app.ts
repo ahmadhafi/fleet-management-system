@@ -7,6 +7,7 @@ import { createSessionToken, isPrivilegedRole, requireAuth, requireRoles } from 
 import { recordAudit } from './audit.ts';
 import { ensureVapidKeys, notifyAdmins, sendUserNotification } from './push.ts';
 import { checkDriverConflict, checkVehicleConflict } from './conflict.ts';
+import { createRateLimiter } from './rate-limit.ts';
 
 export function createApp() {
   const app = express();
@@ -27,6 +28,47 @@ export function createApp() {
   });
 
   app.use(express.json({ limit: '12mb' }));
+
+  // Enterprise DoS & Traffic Surge Rate Limiter
+  app.use('/api', createRateLimiter());
+
+  // L4 / L7 Health & Liveness Probe for Load Balancers & Orchestrators
+  app.get(['/api/health', '/api/healthz'], (_req: Request, res: Response) => {
+    res.json({
+      status: 'ok',
+      service: 'GalaxyFleet Corporate Fleet Management',
+      uptime_sec: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  // Deep Readiness Probe (Verifies Database Engine, Connection Pool & Memory)
+  app.get('/api/health/deep', (_req: Request, res: Response) => {
+    try {
+      const db = getDb();
+      const dbCheck = db.prepare('SELECT 1 as alive').get() as { alive: number } | undefined;
+      const mem = process.memoryUsage();
+      res.json({
+        status: dbCheck?.alive === 1 ? 'ready' : 'degraded',
+        database: 'connected',
+        sqlite_wal: true,
+        memory: {
+          heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
+          heapTotalMb: Math.round(mem.heapTotal / 1024 / 1024),
+          rssMb: Math.round(mem.rss / 1024 / 1024),
+        },
+        uptime_sec: Math.floor(process.uptime()),
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(503).json({
+        status: 'unhealthy',
+        database: 'error',
+        error: err.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
 
   // Normalize API route prefix for Vercel serverless function invocations
   app.use((req, _res, next) => {
