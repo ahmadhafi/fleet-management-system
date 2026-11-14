@@ -11,13 +11,18 @@ import { checkDriverConflict, checkVehicleConflict } from './conflict.ts';
 export function createApp() {
   const app = express();
 
-  // Security headers (NFR-02, NFR-04, TC-SEC-01)
+  // Security headers (NFR-02, NFR-04, TC-SEC-01) - Comprehensive Cyber Defense
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self' 'unsafe-inline' https://translate.google.com https://translate-pa.googleapis.com; style-src 'self' 'unsafe-inline' https://translate.google.com; img-src 'self' data: blob: https://*.maptiler.com https://api.maptiler.com https://*.openstreetmap.org https://www.google.com https://*.google.com https://translate.google.com; connect-src 'self' https://api.maptiler.com https://nominatim.openstreetmap.org https://router.project-osrm.org https://translate.googleapis.com; frame-ancestors 'none'; form-action 'self'; base-uri 'self';"
+    );
+    res.setHeader('Permissions-Policy', 'camera=(self), geolocation=(self), microphone=()');
     next();
   });
 
@@ -30,6 +35,25 @@ export function createApp() {
     }
     next();
   });
+
+  // Anti-Brute Force and Credential Stuffing Defense
+  interface AuthAttempt {
+    count: number;
+    firstAttemptAt: number;
+    lockedUntil: number;
+  }
+  const failedLoginAttempts = new Map<string, AuthAttempt>();
+
+  // Cleanup expired lockout entries periodically
+  const cleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [key, val] of failedLoginAttempts.entries()) {
+      if (val.lockedUntil < now && now - val.firstAttemptAt > 600_000) {
+        failedLoginAttempts.delete(key);
+      }
+    }
+  }, 300_000);
+  cleanupTimer.unref();
 
   // ============================================================================
   // 1. AUTHENTICATION & ACCOUNT REGISTRATION (AUTH-01 to AUTH-08, Revision #2)
@@ -121,6 +145,18 @@ export function createApp() {
       return;
     }
 
+    const clientIp = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1').split(',')[0].trim();
+    const lockoutKey = `${clientIp}::${loginName.toLowerCase()}`;
+    const now = Date.now();
+    const existingLock = failedLoginAttempts.get(lockoutKey);
+    if (existingLock && existingLock.lockedUntil > now) {
+      const remainingSec = Math.ceil((existingLock.lockedUntil - now) / 1000);
+      res.status(429).json({
+        error: `Too many failed login attempts. Temporarily locked for security protection. Please wait ${remainingSec} seconds.`,
+      });
+      return;
+    }
+
     const user = db
       .prepare(
         `SELECT u.*, d.name as department_name, dp.id as driver_profile_id
@@ -146,10 +182,27 @@ export function createApp() {
       | undefined;
 
     if (!user || !verifyPassword(password, user.password_hash)) {
-      recordAudit(db, { group_username: loginName }, 'SIGN_IN_FAILED', 'AUTH', loginName, null, { reason: 'Invalid credentials' });
+      const prevAttempt = failedLoginAttempts.get(lockoutKey);
+      const newCount = (prevAttempt ? prevAttempt.count : 0) + 1;
+      const isLocked = newCount >= 8;
+      failedLoginAttempts.set(lockoutKey, {
+        count: newCount,
+        firstAttemptAt: prevAttempt ? prevAttempt.firstAttemptAt : now,
+        lockedUntil: isLocked ? now + 5 * 60_000 : 0,
+      });
+
+      if (isLocked) {
+        recordAudit(db, { group_username: loginName }, 'BRUTE_FORCE_LOCKOUT', 'AUTH', loginName, null, { ip: clientIp, attempts: newCount });
+      } else {
+        recordAudit(db, { group_username: loginName }, 'SIGN_IN_FAILED', 'AUTH', loginName, null, { reason: 'Invalid credentials', ip: clientIp });
+      }
+
       res.status(401).json({ error: 'Invalid group username or password' });
       return;
     }
+
+    // Success -> clear failed login attempts for this user/ip
+    failedLoginAttempts.delete(lockoutKey);
 
     if (user.is_active === 0) {
       recordAudit(db, user, 'SIGN_IN_REFUSED_DEACTIVATED', 'USER', user.id);
@@ -170,7 +223,6 @@ export function createApp() {
     }
 
     const sessionId = crypto.randomBytes(24).toString('hex');
-    const now = Date.now();
     const expiresAt = now + 24 * 3600 * 1000;
     db.prepare('INSERT INTO sessions (token, user_id, created_at, last_active_at, expires_at, revoked) VALUES (?, ?, ?, ?, ?, 0)').run(
       sessionId,
@@ -1457,7 +1509,7 @@ export function createApp() {
   app.post('/api/trips', requireAuth, requireRoles(['EMP', 'ADM', 'FM', 'HWS'], true), (req: Request, res: Response) => {
     const db = getDb();
     const user = req.user!;
-    const { vehicle_id, preferred_driver_id, purpose, origin, destination, start_time, end_time, passenger_count, passenger_nickname, notes, self_drive } =
+    const { vehicle_id, preferred_driver_id, purpose, origin, destination, start_time, end_time, passenger_count, passenger_nickname, passengers, notes, self_drive } =
       req.body ?? {};
 
     // Revision #1: Self-drive is strictly prohibited
@@ -1478,7 +1530,25 @@ export function createApp() {
       return;
     }
 
-    const pax = Number(passenger_count ?? 1);
+    let pax = Number(passenger_count ?? 1);
+    let finalPaxNickname = passenger_nickname ? String(passenger_nickname).trim() : null;
+    let passengersJson: string | null = null;
+
+    if (Array.isArray(passengers) && passengers.length > 0) {
+      const cleanList = passengers
+        .map((p: any, idx: number) => ({
+          id: idx + 1,
+          nickname: String(p?.nickname || p?.name || p || '').trim(),
+        }))
+        .filter((p: { nickname: string }) => Boolean(p.nickname));
+
+      if (cleanList.length > 0) {
+        pax = cleanList.length;
+        passengersJson = JSON.stringify(cleanList);
+        finalPaxNickname = cleanList.map((p, idx) => `${idx + 1}. ${p.nickname}`).join(', ');
+      }
+    }
+
     if (!Number.isInteger(pax) || pax <= 0) {
       res.status(400).json({ error: 'passenger_count must be a positive integer (REQ-02)' });
       return;
@@ -1515,16 +1585,17 @@ export function createApp() {
         const tripRes = db
           .prepare(
             `INSERT INTO trip_requests (
-              requester_id, department_id, vehicle_id, preferred_driver_id, passenger_nickname,
+              requester_id, department_id, vehicle_id, preferred_driver_id, passenger_nickname, passengers_json,
               purpose, origin, destination, start_time, end_time, passenger_count, notes, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')`
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')`
           )
           .run(
             user.id,
             user.department_id,
             Number(vehicle_id),
             chosenDriverId,
-            passenger_nickname ? String(passenger_nickname).trim() : null,
+            finalPaxNickname,
+            passengersJson,
             String(purpose).trim(),
             String(origin).trim(),
             String(destination).trim(),
@@ -2724,7 +2795,19 @@ export function createApp() {
 
   app.post('/api/expenses', requireAuth, requireRoles(['ADM', 'FM', 'DRV', 'EMP'], true), (req: Request, res: Response) => {
     const db = getDb();
-    const { vehicle_id, trip_request_id, date_time, category, amount, description, receipt_document_id } = req.body ?? {};
+    const {
+      vehicle_id,
+      trip_request_id,
+      date_time,
+      category,
+      amount,
+      description,
+      receipt_document_id,
+      receipt_base64,
+      receipt_data_url,
+      receipt_mime_type,
+      receipt_filename,
+    } = req.body ?? {};
 
     if (!vehicle_id || !category || amount === undefined || !description) {
       res.status(400).json({ error: 'vehicle_id, category, amount, and description are mandatory (EXP-02)' });
@@ -2743,10 +2826,96 @@ export function createApp() {
       return;
     }
 
+    let finalDocId: number | null = receipt_document_id ? Number(receipt_document_id) : null;
+    let finalDataUrl: string | null = null;
+    let finalFilename: string | null = receipt_filename ? String(receipt_filename).trim() : null;
+
+    const rawDataUrlOrBase64 = receipt_base64 || receipt_data_url;
+    if (rawDataUrlOrBase64 && typeof rawDataUrlOrBase64 === 'string') {
+      let inferredMime = receipt_mime_type || 'image/jpeg';
+      let rawBase64 = rawDataUrlOrBase64;
+      const dataUriMatch = rawDataUrlOrBase64.match(/^data:([^;]+);base64,(.+)$/);
+      if (dataUriMatch) {
+        inferredMime = dataUriMatch[1];
+        rawBase64 = dataUriMatch[2];
+      }
+
+      const allowedMimes = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
+      if (!allowedMimes.includes(inferredMime)) {
+        res.status(400).json({ error: `Disallowed receipt file type: ${inferredMime}. Allowed: PDF, PNG, JPEG, WEBP` });
+        return;
+      }
+
+      const buffer = Buffer.from(rawBase64, 'base64');
+      const MAX_RECEIPT_BYTES = 8 * 1024 * 1024;
+      if (buffer.length === 0 || buffer.length > MAX_RECEIPT_BYTES) {
+        res.status(400).json({ error: `Receipt file size (${buffer.length} bytes) exceeds 8 MB limit or is empty` });
+        return;
+      }
+
+      // Anti-Malware / Cyber Defense: scan for EICAR standard antivirus test signature
+      const asciiPreview = buffer.subarray(0, 512).toString('utf8');
+      if (asciiPreview.includes('EICAR-STANDARD-ANTIVIRUS-TEST-FILE')) {
+        recordAudit(db, req.user, 'MALWARE_RECEIPT_BLOCKED', 'DOCUMENT', finalFilename || 'receipt');
+        res.status(422).json({ error: 'Malicious file content detected (EICAR signature quarantined)' });
+        return;
+      }
+
+      // Cyber Defense: Validate magic bytes to refuse disguised PE/ELF/Script executables
+      if (
+        (buffer[0] === 0x4d && buffer[1] === 0x5a) || // Windows PE / EXE 'MZ'
+        (buffer[0] === 0x7f && buffer[1] === 0x45 && buffer[2] === 0x4c && buffer[3] === 0x46) || // Linux ELF
+        (buffer[0] === 0x23 && buffer[1] === 0x21) // Shebang script '#!'
+      ) {
+        recordAudit(db, req.user, 'EXECUTABLE_RECEIPT_BLOCKED', 'DOCUMENT', finalFilename || 'receipt');
+        res.status(400).json({ error: 'Executable file disguised as receipt refused' });
+        return;
+      }
+
+      const isPdfMagic = buffer.subarray(0, 4).toString('ascii') === '%PDF';
+      const isPngMagic = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+      const isJpegMagic = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+      const isWebpMagic = buffer.subarray(0, 4).toString('ascii') === 'RIFF';
+
+      if (
+        (inferredMime === 'application/pdf' && !isPdfMagic) ||
+        (inferredMime === 'image/png' && !isPngMagic) ||
+        (inferredMime === 'image/jpeg' && !isJpegMagic) ||
+        (inferredMime === 'image/webp' && !isWebpMagic)
+      ) {
+        res.status(400).json({ error: 'File content signature does not match declared MIME type' });
+        return;
+      }
+
+      finalFilename = finalFilename || `receipt_${Date.now()}.${inferredMime === 'application/pdf' ? 'pdf' : inferredMime.split('/')[1] || 'jpg'}`;
+      finalDataUrl = `data:${inferredMime};base64,${rawBase64}`;
+
+      const docRes = db
+        .prepare(
+          `INSERT INTO documents (
+            entity_type, entity_id, doc_type, file_name, mime_type, size_bytes, content_base64,
+            is_personal_restricted, version_number, uploaded_by
+          ) VALUES ('EXPENSE', 0, 'Receipt', ?, ?, ?, ?, 0, 1, ?)`
+        )
+        .run(finalFilename, inferredMime, buffer.length, rawBase64, req.user!.id);
+
+      finalDocId = Number(docRes.lastInsertRowid);
+    } else if (finalDocId) {
+      const existingDoc = db.prepare('SELECT file_name, mime_type, content_base64 FROM documents WHERE id = ?').get(finalDocId) as
+        | { file_name: string; mime_type: string; content_base64: string }
+        | undefined;
+      if (existingDoc) {
+        finalFilename = existingDoc.file_name;
+        finalDataUrl = `data:${existingDoc.mime_type};base64,${existingDoc.content_base64}`;
+      }
+    }
+
     const result = db
       .prepare(
-        `INSERT INTO expenses (vehicle_id, trip_request_id, submitted_by, date_time, category, amount, description, receipt_document_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO expenses (
+          vehicle_id, trip_request_id, submitted_by, date_time, category, amount, description,
+          receipt_document_id, receipt_data_url, receipt_filename
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         Number(vehicle_id),
@@ -2756,11 +2925,18 @@ export function createApp() {
         category,
         numAmount,
         String(description).trim(),
-        receipt_document_id ? Number(receipt_document_id) : null
+        finalDocId,
+        finalDataUrl,
+        finalFilename
       );
 
-    const created = db.prepare('SELECT * FROM expenses WHERE id = ?').get(Number(result.lastInsertRowid));
-    recordAudit(db, req.user, 'EXPENSE_CREATED', 'EXPENSE', Number(result.lastInsertRowid), null, created);
+    const expenseId = Number(result.lastInsertRowid);
+    if (finalDocId) {
+      db.prepare('UPDATE documents SET entity_id = ? WHERE id = ?').run(expenseId, finalDocId);
+    }
+
+    const created = db.prepare('SELECT * FROM expenses WHERE id = ?').get(expenseId);
+    recordAudit(db, req.user, 'EXPENSE_CREATED', 'EXPENSE', expenseId, null, created);
     res.status(201).json({ expense: created });
   });
 

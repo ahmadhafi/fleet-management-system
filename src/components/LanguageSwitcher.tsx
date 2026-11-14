@@ -52,7 +52,10 @@ function triggerGoogleTranslateCombo(lang: SupportedLang): boolean {
   return true;
 }
 
-export const LanguageSwitcher: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+export const LanguageSwitcher: React.FC<{ compact?: boolean; darkGlass?: boolean }> = ({
+  compact = false,
+  darkGlass = false,
+}) => {
   const [lang, setLang] = useState<SupportedLang>(() => getInitialLanguage());
 
   useEffect(() => {
@@ -110,19 +113,23 @@ export const LanguageSwitcher: React.FC<{ compact?: boolean }> = ({ compact = fa
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: '2px',
-        padding: '3px',
+        gap: '3px',
+        padding: compact ? '3px 4px' : '4px 6px',
         borderRadius: 'var(--radius-pill)',
-        background: 'var(--color-bg-subtle)',
-        border: '1px solid var(--color-border-divider)',
+        background: darkGlass ? 'rgba(255, 255, 255, 0.10)' : 'var(--color-bg-subtle)',
+        border: darkGlass ? '1px solid rgba(255, 255, 255, 0.18)' : '1px solid var(--color-border)',
+        backdropFilter: darkGlass ? 'blur(20px)' : undefined,
+        WebkitBackdropFilter: darkGlass ? 'blur(20px)' : undefined,
+        height: compact ? '40px' : '44px',
+        flexShrink: 0,
       }}
     >
       <Globe
         size={15}
         style={{
-          marginLeft: '8px',
-          marginRight: '4px',
-          color: 'var(--color-text-secondary)',
+          marginLeft: compact ? '6px' : '8px',
+          marginRight: '3px',
+          color: darkGlass ? 'rgba(255, 255, 255, 0.85)' : 'var(--color-text-secondary)',
           flexShrink: 0,
         }}
       />
@@ -134,16 +141,28 @@ export const LanguageSwitcher: React.FC<{ compact?: boolean }> = ({ compact = fa
             type="button"
             onClick={() => handleSelectLanguage(item.code)}
             title={`Translate app to ${item.label} (Google Translate)`}
+            className="pressable"
             style={{
               border: 'none',
               cursor: 'pointer',
-              padding: compact ? '4px 8px' : '6px 12px',
+              padding: compact ? '4px 9px' : '6px 12px',
               borderRadius: 'var(--radius-pill)',
               fontSize: compact ? '12px' : '13px',
               fontWeight: 800,
               lineHeight: 1.2,
-              background: active ? 'var(--color-green)' : 'transparent',
-              color: active ? '#ffffff' : 'var(--color-text-secondary)',
+              minWidth: compact ? '32px' : '40px',
+              textAlign: 'center',
+              background: active
+                ? 'var(--color-samsung-blue, #0072de)'
+                : 'transparent',
+              color: active
+                ? '#ffffff'
+                : darkGlass
+                ? 'rgba(255, 255, 255, 0.85)'
+                : 'var(--color-text-secondary)',
+              boxShadow: active
+                ? '0 2px 8px rgba(0, 114, 222, 0.45)'
+                : 'none',
               transition: 'all 140ms ease',
             }}
           >

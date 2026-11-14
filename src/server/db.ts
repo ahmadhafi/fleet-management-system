@@ -180,6 +180,7 @@ function initializeSchema(db: AppDatabase) {
       vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
       preferred_driver_id INTEGER REFERENCES driver_profiles(id),
       passenger_nickname TEXT,
+      passengers_json TEXT,
       purpose TEXT NOT NULL,
       origin TEXT NOT NULL,
       destination TEXT NOT NULL,
@@ -350,6 +351,8 @@ function initializeSchema(db: AppDatabase) {
       amount REAL NOT NULL CHECK (amount > 0),
       description TEXT NOT NULL,
       receipt_document_id INTEGER,
+      receipt_data_url TEXT,
+      receipt_filename TEXT,
       approval_status TEXT NOT NULL DEFAULT 'PENDING' CHECK (approval_status IN ('PENDING', 'APPROVED', 'REJECTED')),
       reimbursement_status TEXT NOT NULL DEFAULT 'PENDING' CHECK (reimbursement_status IN ('NOT_APPLICABLE', 'PENDING', 'REIMBURSED')),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -476,6 +479,15 @@ function initializeSchema(db: AppDatabase) {
   } catch {}
   try {
     db.exec('ALTER TABLE trip_requests ADD COLUMN passenger_nickname TEXT;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN passengers_json TEXT;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE expenses ADD COLUMN receipt_data_url TEXT;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE expenses ADD COLUMN receipt_filename TEXT;');
   } catch {}
 }
 

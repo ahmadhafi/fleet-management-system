@@ -132,26 +132,31 @@ export const DynamicIslandNav: React.FC<DynamicIslandNavProps> = ({
       aria-label="Dynamic Island Navigation"
     >
       {!isExpanded ? (
-        /* Collapsed Resting Pill (Centered, compact, unobtrusive) */
-        <button
-          type="button"
-          id="gf-island-collapsed-pill"
-          className="gf-island-collapsed-pill pressable"
-          onClick={() => setIsExpanded(true)}
-          aria-expanded={false}
-          aria-label={`Open GalaxyFleet navigation (Currently on ${getActiveLabel()})`}
-          title="Click to expand navigation menu"
-        >
-          <div className="gf-island-mini-badge">GF</div>
-          <div className="gf-island-collapsed-label">
-            <span>{getActiveLabel()}</span>
-            {unreadInboxCount > 0 && activeNav !== 'INBOX' && (
-              <span className="gf-nav-badge" style={{ marginLeft: 6 }}>{unreadInboxCount}</span>
-            )}
+        /* Collapsed Resting Pill (Centered with dedicated companion language switcher) */
+        <div className="gf-island-collapsed-wrapper">
+          <button
+            type="button"
+            id="gf-island-collapsed-pill"
+            className="gf-island-collapsed-pill pressable"
+            onClick={() => setIsExpanded(true)}
+            aria-expanded={false}
+            aria-label={`Open GalaxyFleet navigation (Currently on ${getActiveLabel()})`}
+            title="Click to expand navigation menu"
+          >
+            <div className="gf-island-mini-badge">GF</div>
+            <div className="gf-island-collapsed-label">
+              <span>{getActiveLabel()}</span>
+              {unreadInboxCount > 0 && activeNav !== 'INBOX' && (
+                <span className="gf-nav-badge" style={{ marginLeft: 6 }}>{unreadInboxCount}</span>
+              )}
+            </div>
+            <div className="gf-island-pulse-dot" title="Live status active" />
+            <ChevronDown size={14} className="gf-island-chevron" />
+          </button>
+          <div className="gf-island-lang-pill">
+            <LanguageSwitcher compact darkGlass />
           </div>
-          <div className="gf-island-pulse-dot" title="Live status active" />
-          <ChevronDown size={14} className="gf-island-chevron" />
-        </button>
+        </div>
       ) : (
         /* Expanded Dynamic Island (Inside-out morphing) */
         <div className="gf-island-expanded-content" role="dialog" aria-modal="false" aria-label="Expanded navigation">
@@ -191,9 +196,11 @@ export const DynamicIslandNav: React.FC<DynamicIslandNavProps> = ({
             })}
           </nav>
 
-          {/* Actions: Language, SignOut, Collapse Button */}
+          {/* Actions: Dedicated Language, SignOut, Collapse Button */}
           <div className="gf-island-actions">
-            <LanguageSwitcher compact />
+            <div className="gf-island-lang-wrap">
+              <LanguageSwitcher compact darkGlass />
+            </div>
             <button
               type="button"
               id="island-signout-btn"

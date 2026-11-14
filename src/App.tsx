@@ -29,7 +29,7 @@ import {
   Smartphone,
   ChevronRight,
   Lock,
-  Minus,
+  FileText,
   Plus,
   Trash2,
   Power,
@@ -98,6 +98,30 @@ function getTimeGreeting(): string {
   if (hr < 12) return 'Good morning';
   if (hr < 17) return 'Good afternoon';
   return 'Good evening';
+}
+
+function formatPassengersDisplay(passengersJson?: string | null, passengerNickname?: string | null): string {
+  if (passengersJson) {
+    try {
+      const parsed = JSON.parse(passengersJson);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((p: any, idx: number) => `${idx + 1}. ${p.nickname || p.name || p}`).join(', ');
+      }
+    } catch {}
+  }
+  return passengerNickname || 'Team';
+}
+
+function formatPassengersMultiLine(passengersJson?: string | null, passengerNickname?: string | null): string {
+  if (passengersJson) {
+    try {
+      const parsed = JSON.parse(passengersJson);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((p: any, idx: number) => `${idx + 1}. ${p.nickname || p.name || p}`).join('\n');
+      }
+    } catch {}
+  }
+  return passengerNickname || 'Team';
 }
 
 export function App() {
@@ -220,6 +244,9 @@ export function App() {
   const defaultEnd = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 16);
   const [bookPurpose, setBookPurpose] = useState('');
   const [bookPassengerNickname, setBookPassengerNickname] = useState('');
+  const [bookPassengers, setBookPassengers] = useState<Array<{ id: number; nickname: string }>>([
+    { id: 1, nickname: '' },
+  ]);
   const [bookOrigin, setBookOrigin] = useState('');
   const [bookDest, setBookDest] = useState('');
   const [bookStart, setBookStart] = useState(defaultStart);
@@ -239,7 +266,17 @@ export function App() {
     amount: '',
     description: '',
     receipt_name: '',
+    receipt_base64: '',
+    receipt_data_url: '',
+    receipt_mime_type: '',
+    receipt_size_bytes: 0,
   });
+  const [viewingReceiptModal, setViewingReceiptModal] = useState<{
+    url: string;
+    title: string;
+    filename?: string;
+    mimeType?: string;
+  } | null>(null);
 
   // Admin Modals & Creation State
   const [editingVehicle, setEditingVehicle] = useState<any | null>(null);
@@ -927,6 +964,14 @@ export function App() {
     const endIso = scheduleMode === 'NOW' ? new Date(Date.now() + 125 * 60000).toISOString() : new Date(bookEnd).toISOString();
     const effectivePurpose = bookPurpose.trim() || 'Company Business Trip';
 
+    const cleanPassengers = bookPassengers
+      .map((p, idx) => ({ id: idx + 1, nickname: p.nickname.trim() }))
+      .filter((p) => Boolean(p.nickname));
+    const formattedPaxNickname =
+      cleanPassengers.length > 0
+        ? cleanPassengers.map((p) => `${p.id}. ${p.nickname}`).join(', ')
+        : bookPassengerNickname.trim();
+
     try {
       const created = await apiRequest('/api/trips', {
         method: 'POST',
@@ -938,13 +983,16 @@ export function App() {
           destination: bookDest.trim(),
           start_time: startIso,
           end_time: endIso,
-          passenger_count: Number(bookPax),
-          passenger_nickname: bookPassengerNickname.trim(),
+          passenger_count: Math.max(1, cleanPassengers.length || Number(bookPax)),
+          passenger_nickname: formattedPaxNickname,
+          passengers: cleanPassengers,
           notes: bookNotes,
         }),
       });
       setBookPurpose('');
       setBookPassengerNickname('');
+      setBookPassengers([{ id: 1, nickname: '' }]);
+      setBookPax(1);
       setBookNotes('');
       setFocusedTripId(created.tripId);
       setBookingStep('WAITING');
@@ -1850,12 +1898,26 @@ export function App() {
                       vehicle_id: Number(driverExpenseForm.vehicle_id),
                       category: driverExpenseForm.category,
                       amount: Number(driverExpenseForm.amount),
-                      description: `${driverExpenseForm.description}${driverExpenseForm.receipt_name ? ` [Receipt: ${driverExpenseForm.receipt_name}]` : ''}`.trim(),
+                      description: (driverExpenseForm.description.trim() || `${driverExpenseForm.category} Receipt Claim`),
+                      receipt_base64: driverExpenseForm.receipt_base64 || undefined,
+                      receipt_data_url: driverExpenseForm.receipt_data_url || undefined,
+                      receipt_filename: driverExpenseForm.receipt_name || undefined,
+                      receipt_mime_type: driverExpenseForm.receipt_mime_type || undefined,
                     }),
                   });
                   setShowDriverExpenseModal(false);
-                  setDriverExpenseForm({ vehicle_id: 0, category: 'Toll', amount: '', description: '', receipt_name: '' });
-                  setStatusBanner({ type: 'success', text: 'Expense receipt submitted for reimbursement approval!' });
+                  setDriverExpenseForm({
+                    vehicle_id: 0,
+                    category: 'Toll',
+                    amount: '',
+                    description: '',
+                    receipt_name: '',
+                    receipt_base64: '',
+                    receipt_data_url: '',
+                    receipt_mime_type: '',
+                    receipt_size_bytes: 0,
+                  });
+                  setStatusBanner({ type: 'success', text: 'Expense receipt successfully saved in database for reimbursement approval!' });
                   await loadAllData(user);
                 } catch (err: any) {
                   setStatusBanner({ type: 'danger', text: err.message });
@@ -1933,17 +1995,87 @@ export function App() {
                 </label>
                 <input
                   type="file"
-                  accept="image/*,.pdf"
+                  accept="image/png,image/jpeg,image/webp,application/pdf"
                   className="gf-input"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      setDriverExpenseForm({ ...driverExpenseForm, receipt_name: file.name });
+                      if (file.size > 8 * 1024 * 1024) {
+                        setStatusBanner({ type: 'danger', text: 'Receipt file exceeds 8 MB size limit.' });
+                        return;
+                      }
+                      const reader = new FileReader();
+                      reader.onload = (loadEvt) => {
+                        const dataUrl = loadEvt.target?.result as string;
+                        setDriverExpenseForm((prev) => ({
+                          ...prev,
+                          receipt_name: file.name,
+                          receipt_data_url: dataUrl,
+                          receipt_base64: dataUrl,
+                          receipt_mime_type: file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+                          receipt_size_bytes: file.size,
+                        }));
+                      };
+                      reader.readAsDataURL(file);
                     }
                   }}
                 />
-                <p className="type-caption" style={{ marginTop: '2px', color: 'var(--color-text-secondary)' }}>
-                  Take a photo of the receipt or attach PDF slip for admin verification.
+
+                {driverExpenseForm.receipt_data_url && (
+                  <div
+                    style={{
+                      marginTop: '8px',
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-control)',
+                      background: 'rgba(0, 114, 222, 0.08)',
+                      border: '1px solid rgba(0, 114, 222, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                      {driverExpenseForm.receipt_mime_type?.startsWith('image') ? (
+                        <img
+                          src={driverExpenseForm.receipt_data_url}
+                          alt="Receipt Preview"
+                          style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px' }}
+                        />
+                      ) : (
+                        <FileText size={24} style={{ color: 'var(--color-primary)' }} />
+                      )}
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <div className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                          {driverExpenseForm.receipt_name}
+                        </div>
+                        <div className="type-caption" style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                          {(driverExpenseForm.receipt_size_bytes / 1024).toFixed(1)} KB • Verified & Ready
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="gf-btn gf-btn-outline-danger"
+                      style={{ minHeight: '28px', padding: '0 8px', fontSize: '11px' }}
+                      onClick={() =>
+                        setDriverExpenseForm((prev) => ({
+                          ...prev,
+                          receipt_name: '',
+                          receipt_data_url: '',
+                          receipt_base64: '',
+                          receipt_mime_type: '',
+                          receipt_size_bytes: 0,
+                        }))
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+
+                <p className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
+                  Take a photo of the receipt or attach PDF slip. Stored securely in database.
                 </p>
               </div>
 
@@ -1961,6 +2093,104 @@ export function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {viewingReceiptModal && (
+        <div
+          className="gf-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Receipt Preview"
+          style={{
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            background: 'rgba(0, 0, 0, 0.75)',
+          }}
+          onClick={() => setViewingReceiptModal(null)}
+        >
+          <div
+            className="gf-modal-card"
+            style={{
+              maxWidth: '560px',
+              width: '100%',
+              maxHeight: '90vh',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 className="type-title" style={{ fontSize: '17px' }}>{viewingReceiptModal.title}</h3>
+                {viewingReceiptModal.filename && (
+                  <p className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    {viewingReceiptModal.filename}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                className="gf-btn gf-btn-ghost"
+                style={{ minHeight: '36px', padding: '0 10px' }}
+                onClick={() => setViewingReceiptModal(null)}
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <div
+              style={{
+                flex: 1,
+                overflow: 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'rgba(0,0,0,0.04)',
+                borderRadius: 'var(--radius-card)',
+                padding: '12px',
+                minHeight: '260px',
+              }}
+            >
+              {viewingReceiptModal.url.startsWith('data:application/pdf') ? (
+                <iframe
+                  src={viewingReceiptModal.url}
+                  title="Receipt PDF"
+                  style={{ width: '100%', height: '420px', border: 'none', borderRadius: '8px' }}
+                />
+              ) : (
+                <img
+                  src={viewingReceiptModal.url}
+                  alt="Receipt Preview"
+                  style={{ maxWidth: '100%', maxHeight: '420px', objectFit: 'contain', borderRadius: '8px' }}
+                />
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', paddingTop: '4px' }}>
+              <a
+                href={viewingReceiptModal.url}
+                download={viewingReceiptModal.filename || 'receipt.jpg'}
+                className="gf-btn gf-btn-secondary"
+                style={{ minHeight: '36px', padding: '0 14px', fontSize: '13px', textDecoration: 'none' }}
+              >
+                Download Receipt
+              </a>
+              <button
+                type="button"
+                className="gf-btn gf-btn-primary"
+                style={{ minHeight: '36px', padding: '0 16px', fontSize: '13px' }}
+                onClick={() => setViewingReceiptModal(null)}
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2922,13 +3152,14 @@ export function App() {
                           <th>Category</th>
                           <th>Submitted By</th>
                           <th>Amount</th>
+                          <th>Receipt</th>
                           <th>Status</th>
                           <th>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {expenses.length === 0 ? (
-                          <tr><td colSpan={7} style={{ textAlign: 'center', padding: '16px' }} className="type-caption">No expense records or reimbursement claims.</td></tr>
+                          <tr><td colSpan={8} style={{ textAlign: 'center', padding: '16px' }} className="type-caption">No expense records or reimbursement claims.</td></tr>
                         ) : (
                           expenses.map((ex) => (
                             <tr key={ex.id}>
@@ -2940,6 +3171,48 @@ export function App() {
                               </td>
                               <td>{ex.submitted_by_name || 'Driver / User'}</td>
                               <td className="mono">Rp {Number(ex.amount).toLocaleString()}</td>
+                              <td>
+                                {ex.receipt_data_url ? (
+                                  <button
+                                    type="button"
+                                    className="gf-btn gf-btn-secondary"
+                                    style={{ minHeight: '28px', padding: '0 8px', fontSize: '11px', gap: '4px' }}
+                                    onClick={() =>
+                                      setViewingReceiptModal({
+                                        url: ex.receipt_data_url,
+                                        title: `${ex.category} Receipt (${ex.registration_plate || 'Operational Vehicle'})`,
+                                        filename: ex.receipt_filename || 'receipt.jpg',
+                                      })
+                                    }
+                                  >
+                                    <FileText size={12} /> View Receipt
+                                  </button>
+                                ) : ex.receipt_document_id ? (
+                                  <button
+                                    type="button"
+                                    className="gf-btn gf-btn-secondary"
+                                    style={{ minHeight: '28px', padding: '0 8px', fontSize: '11px', gap: '4px' }}
+                                    onClick={async () => {
+                                      try {
+                                        const doc = await apiRequest(`/api/documents/${ex.receipt_document_id}`);
+                                        if (doc?.document?.content_base64) {
+                                          setViewingReceiptModal({
+                                            url: `data:${doc.document.mime_type};base64,${doc.document.content_base64}`,
+                                            title: `${ex.category} Receipt (${ex.registration_plate || 'Operational Vehicle'})`,
+                                            filename: doc.document.file_name,
+                                          });
+                                        }
+                                      } catch (err: any) {
+                                        setStatusBanner({ type: 'danger', text: err.message });
+                                      }
+                                    }}
+                                  >
+                                    <FileText size={12} /> View Receipt
+                                  </button>
+                                ) : (
+                                  <span className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>None</span>
+                                )}
+                              </td>
                               <td><StatusBadge label={ex.approval_status} tone={ex.approval_status === 'Approved' ? 'green' : ex.approval_status === 'Rejected' ? 'red' : 'blue'} /></td>
                               <td>
                                 {ex.approval_status === 'Submitted' ? (
@@ -3979,10 +4252,43 @@ export function App() {
                         {ex.registration_plate || 'Operational Car'} • {ex.description || 'Receipt claim'} • {new Date(ex.date_time).toLocaleDateString()}
                       </div>
                     </div>
-                    <StatusBadge
-                      label={ex.approval_status}
-                      tone={ex.approval_status === 'Approved' ? 'green' : ex.approval_status === 'Rejected' ? 'red' : 'blue'}
-                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {(ex.receipt_data_url || ex.receipt_document_id) && (
+                        <button
+                          type="button"
+                          className="gf-btn gf-btn-secondary"
+                          style={{ minHeight: '30px', padding: '0 8px', fontSize: '12px', gap: '4px' }}
+                          onClick={async () => {
+                            if (ex.receipt_data_url) {
+                              setViewingReceiptModal({
+                                url: ex.receipt_data_url,
+                                title: `${ex.category} Receipt (#${ex.id})`,
+                                filename: ex.receipt_filename || 'receipt.jpg',
+                              });
+                            } else if (ex.receipt_document_id) {
+                              try {
+                                const doc = await apiRequest(`/api/documents/${ex.receipt_document_id}`);
+                                if (doc?.document?.content_base64) {
+                                  setViewingReceiptModal({
+                                    url: `data:${doc.document.mime_type};base64,${doc.document.content_base64}`,
+                                    title: `${ex.category} Receipt (#${ex.id})`,
+                                    filename: doc.document.file_name,
+                                  });
+                                }
+                              } catch (err: any) {
+                                setStatusBanner({ type: 'danger', text: err.message });
+                              }
+                            }
+                          }}
+                        >
+                          <FileText size={13} /> View Receipt
+                        </button>
+                      )}
+                      <StatusBadge
+                        label={ex.approval_status}
+                        tone={ex.approval_status === 'Approved' ? 'green' : ex.approval_status === 'Rejected' ? 'red' : 'blue'}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -4079,7 +4385,7 @@ export function App() {
                     tall
                     icon={<Car size={20} />}
                     title={`${t.origin} → ${t.destination}`}
-                    subtitle={`${t.passenger_nickname ? `Pax: ${t.passenger_nickname} • ` : ''}${new Date(t.start_time).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} • ${t.make} ${t.model} (${t.registration_plate})`}
+                    subtitle={`${formatPassengersDisplay(t.passengers_json, t.passenger_nickname) !== 'Team' ? `Pax: ${formatPassengersDisplay(t.passengers_json, t.passenger_nickname)} • ` : ''}${new Date(t.start_time).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} • ${t.make} ${t.model} (${t.registration_plate})`}
                     trailing={<StatusBadge label={t.booking_status === 'CANCELLED' ? 'CANCELLED' : t.status} tone={toneFromStatus(t.booking_status === 'CANCELLED' ? 'CANCELLED' : t.status)} />}
                     showChevron={activityTab === 'ONGOING'}
                     onClick={
@@ -4106,7 +4412,8 @@ export function App() {
                         style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
                         onClick={(e) => {
                           e.stopPropagation();
-                          const shareMsg = `*GalaxyFleet Booking Details*\nVehicle: ${t.make} ${t.model} (${t.registration_plate || '—'})\nPassenger: ${t.passenger_nickname || 'Team'}\nDriver: ${t.assigned_driver_name || 'Assigned Driver'}${t.assigned_driver_phone ? ` (${t.assigned_driver_phone})` : ''}\nPickup: ${t.origin}\nDestination: ${t.destination}\nSchedule: ${new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\nStatus: ${t.status}`;
+                          const paxFormatted = formatPassengersMultiLine(t.passengers_json, t.passenger_nickname);
+                          const shareMsg = `*GalaxyFleet Booking Details*\n🚗 *Vehicle*: ${t.make} ${t.model} (${t.registration_plate || '—'})\n👥 *Passenger(s) [Nickname only]*:\n${paxFormatted}\n👤 *Driver*: ${t.assigned_driver_name || 'Assigned Driver'}${t.assigned_driver_phone ? ` (${t.assigned_driver_phone})` : ''}\n📍 *Pickup*: ${t.origin}\n🎯 *Destination*: ${t.destination}\n🕒 *Schedule*: ${new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\n📌 *Status*: ${t.status}\n\n_Reminder: For privacy protection, only nicknames are used._`;
                           if (navigator.clipboard) {
                             navigator.clipboard.writeText(shareMsg).catch(() => {});
                           }
@@ -5277,7 +5584,14 @@ export function App() {
               id="summary-pax-row"
               icon={<Users size={18} />}
               title="Passengers"
-              subtitle={bookPassengerNickname ? `${bookPassengerNickname} (${bookPax} passenger${bookPax > 1 ? 's' : ''})` : `${bookPax} passenger${bookPax > 1 ? 's' : ''}`}
+              subtitle={
+                bookPassengers.some((p) => p.nickname.trim())
+                  ? bookPassengers
+                      .filter((p) => p.nickname.trim())
+                      .map((p) => `${p.id}. ${p.nickname.trim()}`)
+                      .join(', ')
+                  : `${bookPax} passenger${bookPax > 1 ? 's' : ''}`
+              }
               showChevron
               onClick={() => setSummaryPicker('PAX')}
             />
@@ -5347,44 +5661,79 @@ export function App() {
                         lineHeight: 1.4,
                       }}
                     >
-                      ⚠️ <strong>Privacy Notice:</strong> Enter passenger <strong>nickname only</strong> (e.g. Budi, Sarah, Alex). Do NOT enter full names.
+                      ⚠️ <strong>Privacy Notice:</strong> Group Admin must fill passenger names who will ride the operational car. Enter <strong>nickname only</strong> (e.g. Budi, Sarah). Do NOT enter full names.
                     </div>
-                    <div>
-                      <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                        Passenger Nickname (Who will ride the car)
-                      </label>
-                      <input
-                        type="text"
-                        className="gf-input"
-                        placeholder="e.g. Budi, Sarah, Alex"
-                        value={bookPassengerNickname}
-                        onChange={(e) => setBookPassengerNickname(e.target.value)}
-                        autoFocus
-                      />
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {bookPassengers.map((passenger, index) => (
+                        <div
+                          key={passenger.id}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: 'var(--radius-control)',
+                            border: '1px solid var(--color-border)',
+                            background: 'var(--color-surface)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <label className="type-caption" style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
+                              {index === 0 ? '1. Passenger 1 (Lead Passenger)' : `${index + 1}. Passenger ${index + 1}`}
+                            </label>
+                            {bookPassengers.length > 1 && (
+                              <button
+                                type="button"
+                                className="gf-btn gf-btn-outline-danger"
+                                style={{ minHeight: '26px', padding: '0 8px', fontSize: '11px' }}
+                                onClick={() => {
+                                  const filtered = bookPassengers.filter((p) => p.id !== passenger.id);
+                                  const renumbered = filtered.map((p, idx) => ({ ...p, id: idx + 1 }));
+                                  setBookPassengers(renumbered);
+                                  setBookPax(renumbered.length);
+                                  if (renumbered[0]) setBookPassengerNickname(renumbered[0].nickname);
+                                }}
+                              >
+                                ✕ Remove
+                              </button>
+                            )}
+                          </div>
+                          <input
+                            type="text"
+                            className="gf-input"
+                            placeholder={index === 0 ? 'e.g. Budi (Nickname)' : `e.g. Sarah (Nickname)`}
+                            value={passenger.nickname}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setBookPassengers((prev) =>
+                                prev.map((p) => (p.id === passenger.id ? { ...p, nickname: val } : p))
+                              );
+                              if (index === 0) setBookPassengerNickname(val);
+                            }}
+                          />
+                        </div>
+                      ))}
                     </div>
-                    <div>
-                      <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '6px' }}>
-                        Total Passenger Count
-                      </label>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px', padding: '6px 0' }}>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '4px' }}>
+                      <span className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+                        Capacity: {bookPassengers.length} of {selectedVehicle?.seats || 7} passengers
+                      </span>
+                      {bookPassengers.length < (selectedVehicle?.seats || 7) && (
                         <button
                           type="button"
-                          className="gf-icon-btn-48"
-                          aria-label="Decrease passengers"
-                          onClick={() => setBookPax((p) => Math.max(1, p - 1))}
+                          className="gf-btn gf-btn-secondary"
+                          style={{ minHeight: '34px', padding: '0 12px', fontSize: '12.5px', gap: '6px' }}
+                          onClick={() => {
+                            const nextList = [...bookPassengers, { id: bookPassengers.length + 1, nickname: '' }];
+                            setBookPassengers(nextList);
+                            setBookPax(nextList.length);
+                          }}
                         >
-                          <Minus size={18} />
+                          <Plus size={15} /> Add Passenger {bookPassengers.length + 1}
                         </button>
-                        <span className="type-title" style={{ minWidth: '48px', textAlign: 'center' }}>{bookPax}</span>
-                        <button
-                          type="button"
-                          className="gf-icon-btn-48"
-                          aria-label="Increase passengers"
-                          onClick={() => setBookPax((p) => Math.min(selectedVehicle?.seats || 7, p + 1))}
-                        >
-                          <Plus size={18} />
-                        </button>
-                      </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -5592,7 +5941,8 @@ export function App() {
             type="button"
             onClick={() => {
               const driverPhone = tripToShow?.assigned_driver_phone || tripToShow?.default_driver_phone || '';
-              const shareMsg = `*GalaxyFleet Booking Details*\nVehicle: ${tripToShow?.make} ${tripToShow?.model} (${tripToShow?.registration_plate || '—'})\nPassenger Nickname: ${tripToShow?.passenger_nickname || 'Team'}\nDriver: ${tripToShow?.assigned_driver_name || 'Assigned Driver'}${driverPhone ? ` (${driverPhone})` : ''}\nPickup: ${tripToShow?.origin}\nDestination: ${tripToShow?.destination}\nSchedule: ${new Date(tripToShow?.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(tripToShow?.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\nStatus: ${tripToShow?.status || 'APPROVED'}`;
+              const paxFormatted = formatPassengersMultiLine(tripToShow?.passengers_json, tripToShow?.passenger_nickname);
+              const shareMsg = `*GalaxyFleet Booking Details*\n🚗 *Vehicle*: ${tripToShow?.make} ${tripToShow?.model} (${tripToShow?.registration_plate || '—'})\n👥 *Passenger(s) [Nickname only]*:\n${paxFormatted}\n👤 *Driver*: ${tripToShow?.assigned_driver_name || 'Assigned Driver'}${driverPhone ? ` (${driverPhone})` : ''}\n📍 *Pickup*: ${tripToShow?.origin}\n🎯 *Destination*: ${tripToShow?.destination}\n🕒 *Schedule*: ${new Date(tripToShow?.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(tripToShow?.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\n📌 *Status*: ${tripToShow?.status || 'APPROVED'}\n\n_Reminder: For privacy protection, only nicknames are used._`;
               if (navigator.clipboard) {
                 navigator.clipboard.writeText(shareMsg).catch(() => {});
               }

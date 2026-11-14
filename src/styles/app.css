@@ -411,6 +411,23 @@ textarea {
   opacity: 1;
 }
 
+/* Collapsed Island Wrapper with Dedicated Language Switcher */
+.gf-island-collapsed-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.gf-island-lang-pill {
+  display: flex;
+  align-items: center;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.38), 0 3px 10px rgba(0, 0, 0, 0.22);
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
 /* Collapsed Resting Pill (Enlarged 52px for easy touch & high visibility) */
 .gf-island-collapsed-pill {
   appearance: none;
@@ -420,8 +437,8 @@ textarea {
   -webkit-backdrop-filter: blur(24px);
   color: #ffffff;
   height: 52px;
-  min-width: 240px;
-  padding: 0 22px 0 14px;
+  min-width: 220px;
+  padding: 0 20px 0 14px;
   border-radius: 9999px;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.38), 0 3px 10px rgba(0, 0, 0, 0.22);
   display: flex;
@@ -609,7 +626,13 @@ textarea {
 .gf-island-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.gf-island-lang-wrap {
+  display: flex;
+  align-items: center;
   flex-shrink: 0;
 }
 
@@ -649,12 +672,25 @@ textarea {
 }
 
 @media (max-width: 639px) {
+  .gf-island-collapsed-wrapper {
+    flex-direction: row;
+    gap: 8px;
+    max-width: 95vw;
+  }
+  .gf-island-collapsed-pill {
+    min-width: 170px;
+    padding: 0 14px 0 10px;
+    gap: 8px;
+  }
+  .gf-island-collapsed-label {
+    font-size: 13.5px;
+  }
   .gf-island-expanded-content {
     flex-direction: column;
     align-items: stretch;
     border-radius: 20px;
     padding: 12px;
-    gap: 10px;
+    gap: 12px;
   }
   .gf-island-brand-area {
     padding-left: 0;
@@ -668,7 +704,14 @@ textarea {
     display: none;
   }
   .gf-island-actions {
+    flex-wrap: wrap;
     justify-content: space-between;
+    gap: 8px;
+  }
+  .gf-island-lang-wrap {
+    width: 100%;
+    justify-content: center;
+    margin-bottom: 4px;
   }
 }
 
