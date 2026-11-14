@@ -1,5 +1,6 @@
 import React from 'react';
 import { Home, Clock, Inbox, User, Navigation, ShieldCheck, Menu, LogOut } from 'lucide-react';
+import { LanguageSwitcher } from './LanguageSwitcher';
 
 export type NavSection = 'HOME' | 'ACTIVITY' | 'INBOX' | 'PROFILE' | 'DRIVER' | 'ADMIN';
 
@@ -290,7 +291,8 @@ export const AdminShell: React.FC<AdminShellProps> = ({
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <LanguageSwitcher compact />
             <button type="button" className="gf-btn gf-btn-primary" onClick={onSwitchToRideBooking}>
               Open Ride Booking
             </button>

@@ -76,11 +76,21 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
+export interface RouteCalculationResult {
+  distanceKm: number;
+  durationMin: number;
+  etaIso?: string;
+  etaText?: string;
+  geometry?: Array<[number, number]>;
+}
+
 interface MapViewProps {
   origin: string;
   destination: string;
   originCoords?: { lat: number; lon: number } | null;
   destCoords?: { lat: number; lon: number } | null;
+  routeGeometry?: Array<[number, number]> | null;
+  routeMetrics?: RouteCalculationResult | null;
   myCoords?: { lat: number; lon: number; accuracy?: number } | null;
   userPins?: UserLocationPin[];
   currentUserId?: number;
@@ -102,6 +112,8 @@ export const MapView: React.FC<MapViewProps> = ({
   destination,
   originCoords,
   destCoords,
+  routeGeometry,
+  routeMetrics,
   myCoords,
   userPins = [],
   currentUserId,
@@ -149,16 +161,30 @@ export const MapView: React.FC<MapViewProps> = ({
     return null;
   }, [destCoords, destination, effOrigin]);
 
-  const metrics = useMemo(
-    () =>
-      estimateRouteMetrics(
-        origin,
-        destination,
-        { lat: effOrigin[0], lon: effOrigin[1] },
-        effDest ? { lat: effDest[0], lon: effDest[1] } : null
-      ),
-    [origin, destination, effOrigin, effDest]
-  );
+  const metrics = useMemo(() => {
+    if (routeMetrics && routeMetrics.distanceKm > 0 && routeMetrics.durationMin > 0) {
+      const etaDate = routeMetrics.etaIso ? new Date(routeMetrics.etaIso) : new Date(Date.now() + routeMetrics.durationMin * 60_000);
+      const etaText =
+        routeMetrics.etaText ||
+        etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return {
+        distanceKm: routeMetrics.distanceKm,
+        durationMin: routeMetrics.durationMin,
+        etaText,
+      };
+    }
+    const est = estimateRouteMetrics(
+      origin,
+      destination,
+      { lat: effOrigin[0], lon: effOrigin[1] },
+      effDest ? { lat: effDest[0], lon: effDest[1] } : null
+    );
+    const etaDate = new Date(Date.now() + est.durationMin * 60_000);
+    return {
+      ...est,
+      etaText: est.durationMin > 0 ? etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+    };
+  }, [routeMetrics, origin, destination, effOrigin, effDest]);
 
   // Initialize Leaflet Map with MapTiler outdoor-v4 tiles
   useEffect(() => {
@@ -345,9 +371,16 @@ export const MapView: React.FC<MapViewProps> = ({
     if (showRoute || Boolean(origin && origin.trim())) {
       const pickupIcon = L.divIcon({
         className: 'gf-leaflet-marker',
-        html: `<div style="width:18px;height:18px;border-radius:9999px;background:#00AA13;outline:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.25);"></div>`,
-        iconSize: [18, 18],
-        iconAnchor: [9, 9],
+        html: `
+          <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);">
+            <div style="background:#00AA13;color:#ffffff;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.25);margin-bottom:3px;">
+              Pickup
+            </div>
+            <div style="width:18px;height:18px;border-radius:9999px;background:#00AA13;outline:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.25);"></div>
+          </div>
+        `,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
       });
       L.marker(effOrigin, { icon: pickupIcon }).addTo(group);
     }
@@ -355,46 +388,59 @@ export const MapView: React.FC<MapViewProps> = ({
     if (showRoute && effDest && !pinMode) {
       const destIcon = L.divIcon({
         className: 'gf-leaflet-marker',
-        html: `<div style="width:18px;height:18px;border-radius:4px;background:#DC2626;outline:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.25);"></div>`,
-        iconSize: [18, 18],
-        iconAnchor: [9, 9],
+        html: `
+          <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);">
+            <div style="background:#111827;color:#ffffff;padding:3px 9px;border-radius:9999px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.28);margin-bottom:3px;border:1.5px solid #DC2626;">
+              ${metrics.etaText ? `ETA ${escapeHtml(metrics.etaText)} • ${metrics.durationMin} min` : 'Destination'}
+            </div>
+            <div style="width:18px;height:18px;border-radius:4px;background:#DC2626;outline:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.25);"></div>
+          </div>
+        `,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
       });
       L.marker(effDest, { icon: destIcon }).addTo(group);
 
+      const hasFullGeometry = Array.isArray(routeGeometry) && routeGeometry.length >= 2;
       const midLat = (effOrigin[0] + effDest[0]) / 2 + (effDest[1] - effOrigin[1]) * 0.12;
       const midLon = (effOrigin[1] + effDest[1]) / 2 - (effDest[0] - effOrigin[0]) * 0.12;
-      const latlngs: L.LatLngExpression[] = [effOrigin, [midLat, midLon], effDest];
+      const latlngs: L.LatLngExpression[] = hasFullGeometry
+        ? (routeGeometry as L.LatLngExpression[])
+        : [effOrigin, [midLat, midLon], effDest];
 
       L.polyline(latlngs, {
         color: '#ffffff',
-        weight: 8,
-        opacity: 0.95,
+        weight: 9,
+        opacity: 0.96,
         lineCap: 'round',
         lineJoin: 'round',
       }).addTo(group);
 
       L.polyline(latlngs, {
         color: '#111827',
-        weight: 4,
+        weight: 4.5,
         opacity: 1,
         lineCap: 'round',
         lineJoin: 'round',
       }).addTo(group);
 
       if (driverActive) {
+        const midPoint = hasFullGeometry
+          ? routeGeometry![Math.floor(routeGeometry!.length / 2)]
+          : ([midLat, midLon] as [number, number]);
         const drvIcon = L.divIcon({
           className: 'gf-leaflet-marker',
           html: `<div style="width:26px;height:26px;border-radius:9999px;background:#111827;color:#ffffff;outline:3px solid #00AA13;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;">GF</div>`,
           iconSize: [26, 26],
           iconAnchor: [13, 13],
         });
-        L.marker([midLat, midLon], { icon: drvIcon }).addTo(group);
+        L.marker(midPoint, { icon: drvIcon }).addTo(group);
       }
 
-      const bounds = L.latLngBounds([effOrigin, effDest]);
+      const bounds = L.latLngBounds(latlngs);
       map.fitBounds(bounds, { padding: [70, 70], maxZoom: 16 });
     }
-  }, [effOrigin, effDest, showRoute, pinMode, driverActive, origin]);
+  }, [effOrigin, effDest, routeGeometry, metrics.etaText, metrics.durationMin, showRoute, pinMode, driverActive, origin]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!pinMode || !mapInstanceRef.current) return;
@@ -454,7 +500,7 @@ export const MapView: React.FC<MapViewProps> = ({
           >
             <Navigation2 size={14} style={{ color: 'var(--color-green)' }} />
             <span>
-              {metrics.distanceKm} km • ~{metrics.durationMin} min
+              {metrics.distanceKm} km • ~{metrics.durationMin} min ride{metrics.etaText ? ` • ETA ${metrics.etaText}` : ''}
             </span>
           </div>
         )}

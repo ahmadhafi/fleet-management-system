@@ -32,11 +32,14 @@ import {
   Lock,
   Minus,
   Plus,
+  Trash2,
+  Power,
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
 import { AppShell, DesktopPanelNav, AdminShell, type NavSection } from './components/AppShell';
 import { BottomSheet, type SnapPoint } from './components/BottomSheet';
-import { MapView, estimateRouteMetrics, type GeoPlace, type UserLocationPin } from './components/MapView';
+import { MapView, estimateRouteMetrics, type GeoPlace, type UserLocationPin, type RouteCalculationResult } from './components/MapView';
+import { LanguageSwitcher } from './components/LanguageSwitcher';
 import { RouteFields } from './components/RouteFields';
 import { VehicleArt } from './components/VehicleArt';
 import {
@@ -137,12 +140,23 @@ export function App() {
   const [summaryPicker, setSummaryPicker] = useState<'PURPOSE' | 'PAX' | 'NOTES' | 'CHARGE' | null>(null);
   const [focusedTripId, setFocusedTripId] = useState<number | null>(null);
 
-  // Live MapTiler Geocoding, User Location Detection & All-User Pinpoint Dots
+  // Live MapTiler Geocoding, User Location Detection, Route Calculation & All-User Pinpoint Dots
   const [originCoords, setOriginCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [destCoords, setDestCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [calculatedRoute, setCalculatedRoute] = useState<RouteCalculationResult | null>(null);
+  const [calculatingRoute, setCalculatingRoute] = useState<boolean>(false);
   const [myCoords, setMyCoords] = useState<{ lat: number; lon: number; accuracy?: number } | null>(null);
   const [userPins, setUserPins] = useState<UserLocationPin[]>([]);
   const [locatingUser, setLocatingUser] = useState<boolean>(false);
+  const [locationPermissionVerified, setLocationPermissionVerified] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('gf_loc_verified') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [showLocationPermissionModal, setShowLocationPermissionModal] = useState<boolean>(false);
+  const [pendingBookingAction, setPendingBookingAction] = useState<(() => void) | null>(null);
   const [geoResults, setGeoResults] = useState<GeoPlace[]>([]);
   const [geoLoading, setGeoLoading] = useState<boolean>(false);
   const [savedPlaces, setSavedPlaces] = useState<GeoPlace[]>(() => {
@@ -201,6 +215,8 @@ export function App() {
   const [dispatchDriverId, setDispatchDriverId] = useState<string>('');
   const [dispatchDecisionReason, setDispatchDecisionReason] = useState('');
   const [pendingRoleSelections, setPendingRoleSelections] = useState<Record<number, string>>({});
+  const [userFilterTab, setUserFilterTab] = useState<'ALL' | 'PENDING' | 'DRIVERS' | 'INACTIVE'>('ALL');
+  const [userSearchQuery, setUserSearchQuery] = useState<string>('');
 
   // Admin New Vehicle Form
   const [newVehicleForm, setNewVehicleForm] = useState({
@@ -217,10 +233,11 @@ export function App() {
     last_parking_spot: '',
   });
 
-  // Admin New Driver Profile Form
+  // Admin New Driver Profile Form (includes Group department_id)
   const [newDriverForm, setNewDriverForm] = useState({
     user_id: '',
     full_name: '',
+    department_id: 1,
     licence_number: '',
     licence_class: 'A',
     licence_expiry: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
@@ -405,7 +422,7 @@ export function App() {
       .finally(() => setLoadingAuth(false));
   }, [loadAllData]);
 
-  // Live OpenStreetMap Nominatim address search when typing in RouteFields
+  // Live MapTiler / Nominatim address search when typing in RouteFields
   useEffect(() => {
     if (bookingStep !== 'ROUTE' || routeTab === 'PIN') return;
     const queryText = (activeRouteField === 'pickup' ? bookOrigin : bookDest).trim();
@@ -418,7 +435,16 @@ export function App() {
     const timer = window.setTimeout(async () => {
       try {
         const res = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(queryText)}`);
-        setGeoResults(res.results || []);
+        const items: GeoPlace[] = res.results || [];
+        setGeoResults(items);
+        // Automatically resolve coordinates for manually typed addresses so route path & ETA calculate immediately
+        if (items.length > 0 && Number.isFinite(items[0].lat) && Number.isFinite(items[0].lon)) {
+          if (activeRouteField === 'pickup' && !originCoords) {
+            setOriginCoords({ lat: items[0].lat, lon: items[0].lon });
+          } else if (activeRouteField === 'destination' && !destCoords) {
+            setDestCoords({ lat: items[0].lat, lon: items[0].lon });
+          }
+        }
       } catch {
         setGeoResults([]);
       } finally {
@@ -426,7 +452,69 @@ export function App() {
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [bookingStep, routeTab, activeRouteField, bookOrigin, bookDest]);
+  }, [bookingStep, routeTab, activeRouteField, bookOrigin, bookDest, originCoords, destCoords]);
+
+  // Calculate real road route path, distance (km), ride time (min), and arrival ETA whenever pickup & destination are set
+  useEffect(() => {
+    if (!user || !bookOrigin.trim() || !bookDest.trim()) {
+      setCalculatedRoute(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setCalculatingRoute(true);
+      try {
+        let resolvedOrig = originCoords || (myCoords ? { lat: myCoords.lat, lon: myCoords.lon } : null);
+        let resolvedDest = destCoords;
+
+        if (!resolvedOrig && bookOrigin.trim().length >= 2) {
+          const g1 = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(bookOrigin.trim())}`).catch(() => null);
+          if (g1?.results?.[0]) {
+            resolvedOrig = { lat: Number(g1.results[0].lat), lon: Number(g1.results[0].lon) };
+            if (!cancelled) setOriginCoords(resolvedOrig);
+          }
+        }
+        if (!resolvedDest && bookDest.trim().length >= 2) {
+          const g2 = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(bookDest.trim())}`).catch(() => null);
+          if (g2?.results?.[0]) {
+            resolvedDest = { lat: Number(g2.results[0].lat), lon: Number(g2.results[0].lon) };
+            if (!cancelled) setDestCoords(resolvedDest);
+          }
+        }
+
+        const origLat = resolvedOrig?.lat ?? -6.19834;
+        const origLon = resolvedOrig?.lon ?? 106.88873;
+        const dstLat = resolvedDest?.lat ?? origLat - 0.018;
+        const dstLon = resolvedDest?.lon ?? origLon + 0.022;
+        const depTime = scheduleMode === 'SCHEDULE' && bookStart ? new Date(bookStart).toISOString() : new Date().toISOString();
+
+        const routeRes = await apiRequest(
+          `/api/route?originLat=${encodeURIComponent(origLat)}&originLon=${encodeURIComponent(origLon)}&destLat=${encodeURIComponent(dstLat)}&destLon=${encodeURIComponent(dstLon)}&departureTime=${encodeURIComponent(depTime)}`
+        );
+
+        if (!cancelled && routeRes) {
+          const etaDate = routeRes.etaIso ? new Date(routeRes.etaIso) : new Date(Date.now() + Number(routeRes.durationMin || 10) * 60_000);
+          setCalculatedRoute({
+            distanceKm: Number(routeRes.distanceKm || 0),
+            durationMin: Number(routeRes.durationMin || 0),
+            etaIso: routeRes.etaIso,
+            etaText: etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            geometry: Array.isArray(routeRes.geometry) ? routeRes.geometry : undefined,
+          });
+        }
+      } catch {
+        // Fallback handled by estimateRouteMetrics
+      } finally {
+        if (!cancelled) setCalculatingRoute(false);
+      }
+    }, 280);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [user, bookOrigin, bookDest, originCoords, destCoords, myCoords, scheduleMode, bookStart]);
 
   // Live availability check when schedule dates change
   useEffect(() => {
@@ -650,11 +738,24 @@ export function App() {
     }
   };
 
+  const markLocationVerified = useCallback(() => {
+    setLocationPermissionVerified(true);
+    try {
+      sessionStorage.setItem('gf_loc_verified', '1');
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
   const detectAndReportUserLocation = useCallback(
-    (fillActiveField: boolean = false) => {
+    (fillActiveField: boolean = false, onSuccessCallback?: () => void) => {
       if (!user || !('geolocation' in navigator)) {
         if (fillActiveField) {
           setStatusBanner({ type: 'warning', text: 'Geolocation is not supported by your browser. Please search or pin on the map.' });
+        }
+        if (onSuccessCallback) {
+          markLocationVerified();
+          onSuccessCallback();
         }
         return;
       }
@@ -665,6 +766,7 @@ export function App() {
           const lon = pos.coords.longitude;
           const accuracy = Math.round(pos.coords.accuracy || 25);
           setMyCoords({ lat, lon, accuracy });
+          markLocationVerified();
 
           let resolvedLabel = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
           try {
@@ -713,6 +815,7 @@ export function App() {
             // ignore transient network error
           } finally {
             setLocatingUser(false);
+            if (onSuccessCallback) onSuccessCallback();
           }
         },
         () => {
@@ -720,24 +823,55 @@ export function App() {
           if (fillActiveField) {
             setStatusBanner({ type: 'warning', text: 'Unable to read GPS position. Type an address or use Pin on map.' });
           }
+          if (onSuccessCallback) {
+            markLocationVerified();
+            onSuccessCallback();
+          }
         },
         { enableHighAccuracy: true, timeout: 7000, maximumAge: 15000 }
       );
     },
-    [user, activeRouteField]
+    [user, activeRouteField, markLocationVerified]
   );
+
+  // Prompt user for Location Permission before using an operational car if not yet granted
+  const requireLocationBeforeCarUse = useCallback(
+    (nextAction: () => void) => {
+      if (locationPermissionVerified || myCoords) {
+        nextAction();
+        return;
+      }
+      setPendingBookingAction(() => nextAction);
+      setShowLocationPermissionModal(true);
+    },
+    [locationPermissionVerified, myCoords]
+  );
+
+  const handleGrantLocationFromModal = () => {
+    const actionToRun = pendingBookingAction;
+    setShowLocationPermissionModal(false);
+    setPendingBookingAction(null);
+    detectAndReportUserLocation(false, () => {
+      if (actionToRun) actionToRun();
+    });
+  };
 
   // Automatically detect & share user location when logged in, and refresh all users' pins periodically
   useEffect(() => {
     if (!user) return;
     detectAndReportUserLocation(false);
 
+    // If user is on Employee Home or Driver Dispatch and hasn't verified location permission yet, show the location permission popup
+    if (!locationPermissionVerified && !myCoords && (user.role === 'EMP' || user.role === 'DRV')) {
+      setShowLocationPermissionModal(true);
+    }
+
     const intervalId = window.setInterval(() => {
       detectAndReportUserLocation(false);
     }, 45 * 1000);
 
     return () => window.clearInterval(intervalId);
-  }, [user, detectAndReportUserLocation]);
+  }, [user]);
 
   const handleUseCurrentGpsForField = () => {
     detectAndReportUserLocation(true);
@@ -825,6 +959,57 @@ export function App() {
         type: 'success',
         text: approve ? `User account #${targetUserId} approved as ${selectedRole}.` : `User account #${targetUserId} rejected.`,
       });
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message });
+    }
+  };
+
+  const handleToggleUserActive = async (targetUser: any) => {
+    const nextActive = targetUser.is_active === 1 ? false : true;
+    try {
+      await apiRequest(`/api/users/${targetUser.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_active: nextActive }),
+      });
+      setStatusBanner({
+        type: 'success',
+        text: nextActive
+          ? `User @${targetUser.group_username} reactivated.`
+          : `User @${targetUser.group_username} deactivated and active sessions revoked.`,
+      });
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message });
+    }
+  };
+
+  const handleDeleteUser = async (targetUser: any) => {
+    if (targetUser.id === user.id) {
+      setStatusBanner({ type: 'danger', text: 'Cannot delete your own active administrator account.' });
+      return;
+    }
+    try {
+      await apiRequest(`/api/users/${targetUser.id}`, {
+        method: 'DELETE',
+      });
+      setStatusBanner({
+        type: 'success',
+        text: `User account ${targetUser.nickname} (@${targetUser.group_username}) deleted.`,
+      });
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message });
+    }
+  };
+
+  const handleUpdateUserRoleOrGroup = async (targetUserId: number, updates: { role?: string; department_id?: number }) => {
+    try {
+      await apiRequest(`/api/users/${targetUserId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+      });
+      setStatusBanner({ type: 'success', text: `User #${targetUserId} updated.` });
       await loadAllData(user);
     } catch (err: any) {
       setStatusBanner({ type: 'danger', text: err.message });
@@ -933,6 +1118,7 @@ export function App() {
         body: JSON.stringify({
           user_id: newDriverForm.user_id ? Number(newDriverForm.user_id) : null,
           full_name: newDriverForm.full_name.trim(),
+          department_id: Number(newDriverForm.department_id) || 1,
           licence_number: newDriverForm.licence_number.trim(),
           licence_class: newDriverForm.licence_class.trim() || 'A',
           licence_expiry: newDriverForm.licence_expiry,
@@ -943,13 +1129,14 @@ export function App() {
       setNewDriverForm({
         user_id: '',
         full_name: '',
+        department_id: groupsList[0]?.id || 1,
         licence_number: '',
         licence_class: 'A',
         licence_expiry: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
         contact_number: '',
         availability_status: 'Active',
       });
-      setStatusBanner({ type: 'success', text: 'Driver profile saved.' });
+      setStatusBanner({ type: 'success', text: 'Driver profile saved with group assignment.' });
       await loadAllData(user);
     } catch (err: any) {
       setStatusBanner({ type: 'danger', text: err.message });
@@ -1128,6 +1315,9 @@ export function App() {
     return (
       <div className="gf-auth-screen">
         <div className="gf-auth-card">
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+            <LanguageSwitcher />
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
             <div
               style={{
@@ -1502,6 +1692,70 @@ export function App() {
           </div>
         </div>
       )}
+
+      {showLocationPermissionModal && (
+        <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label="Location access required">
+          <div className="gf-modal-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div
+                style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '9999px',
+                  background: 'var(--color-green-tint)',
+                  color: 'var(--color-green)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <MapPin size={24} />
+              </div>
+              <div>
+                <h3 className="type-title">Location Access Required</h3>
+                <p className="type-caption">Required before using or dispatching a company operational car</p>
+              </div>
+            </div>
+
+            <div
+              className="type-body"
+              style={{
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-control)',
+                background: 'var(--color-bg-subtle)',
+                color: 'var(--color-text-secondary)',
+              }}
+            >
+              Please allow GalaxyFleet to access your device GPS location. This sets your accurate pickup point, calculates route ETA, and pins your live location dot on the map.
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button
+                id="allow-location-modal-btn"
+                type="button"
+                className="gf-btn gf-btn-primary gf-btn-full"
+                onClick={handleGrantLocationFromModal}
+              >
+                <Navigation size={16} /> Allow Location Access & Continue
+              </button>
+              <button
+                type="button"
+                className="gf-btn gf-btn-ghost gf-btn-full"
+                onClick={() => {
+                  const actionToRun = pendingBookingAction;
+                  markLocationVerified();
+                  setShowLocationPermissionModal(false);
+                  setPendingBookingAction(null);
+                  if (actionToRun) actionToRun();
+                }}
+              >
+                Continue & Pin Location Manually on Map
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -1689,13 +1943,19 @@ export function App() {
               </section>
 
               <section className="gf-card-flat">
-                <h2 className="type-section" style={{ marginBottom: '12px' }}>Create Approved User Account</h2>
-                <form onSubmit={handleCreateUserByAdmin} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                  <div>
+                    <h2 className="type-section">User Registry & Account Management ({usersList.length})</h2>
+                    <p className="type-caption">Create approved accounts, assign groups (including Driver groups), deactivate/activate, or delete users</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleCreateUserByAdmin} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(165px, 1fr))', gap: '10px', marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid var(--color-divider)' }}>
                   <input
                     type="text"
                     className="gf-input"
                     required
-                    placeholder="Nickname"
+                    placeholder="Nickname / Full Name"
                     value={newUserForm.nickname}
                     onChange={(e) => setNewUserForm({ ...newUserForm, nickname: e.target.value })}
                   />
@@ -1718,6 +1978,7 @@ export function App() {
                   />
                   <select
                     className="gf-select"
+                    aria-label="User group"
                     value={newUserForm.department_id}
                     onChange={(e) => setNewUserForm({ ...newUserForm, department_id: Number(e.target.value) })}
                   >
@@ -1727,39 +1988,156 @@ export function App() {
                   </select>
                   <select
                     className="gf-select"
+                    aria-label="User role"
                     value={newUserForm.role}
                     onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
                   >
                     <option value="EMP">EMP (Employee)</option>
-                    <option value="DRV">DRV (Driver)</option>
+                    <option value="DRV">DRV (Driver Account)</option>
                     <option value="FM">FM (Fleet Manager)</option>
                     <option value="HWS">HWS (Approver)</option>
                     <option value="ADM">ADM (Admin)</option>
                   </select>
-                  <button type="submit" className="gf-btn gf-btn-primary">Create User</button>
+                  <button type="submit" className="gf-btn gf-btn-primary">
+                    <Plus size={16} /> Create User
+                  </button>
                 </form>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <Chip active={userFilterTab === 'ALL'} onClick={() => setUserFilterTab('ALL')}>
+                      All ({usersList.length})
+                    </Chip>
+                    <Chip active={userFilterTab === 'PENDING'} onClick={() => setUserFilterTab('PENDING')}>
+                      Pending ({pendingUsers.length})
+                    </Chip>
+                    <Chip active={userFilterTab === 'DRIVERS'} onClick={() => setUserFilterTab('DRIVERS')}>
+                      Drivers ({usersList.filter((u) => u.role === 'DRV').length})
+                    </Chip>
+                    <Chip active={userFilterTab === 'INACTIVE'} onClick={() => setUserFilterTab('INACTIVE')}>
+                      Deactivated ({usersList.filter((u) => u.is_active === 0).length})
+                    </Chip>
+                  </div>
+                  <input
+                    type="search"
+                    className="gf-input"
+                    style={{ maxWidth: '260px', minHeight: '38px' }}
+                    placeholder="Search nickname or @username..."
+                    value={userSearchQuery}
+                    onChange={(e) => setUserSearchQuery(e.target.value)}
+                  />
+                </div>
 
                 <div className="gf-table-wrap">
                   <table className="gf-table">
                     <thead>
                       <tr>
-                        <th>Nickname</th>
-                        <th>Username</th>
-                        <th>Group</th>
+                        <th>Nickname & Username</th>
+                        <th>Group (Department)</th>
                         <th>Role</th>
                         <th>Status</th>
+                        <th>Actions (Approve / Deactivate / Delete)</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {usersList.map((u) => (
-                        <tr key={u.id}>
-                          <td style={{ fontWeight: 700 }}>{u.nickname}</td>
-                          <td className="mono">@{u.group_username}</td>
-                          <td>{u.department_name}</td>
-                          <td><StatusBadge label={u.role} tone="green" /></td>
-                          <td><StatusBadge label={u.approval_status} tone={toneFromStatus(u.approval_status)} /></td>
-                        </tr>
-                      ))}
+                      {usersList
+                        .filter((u) => {
+                          if (userFilterTab === 'PENDING' && u.approval_status !== 'PENDING_APPROVAL') return false;
+                          if (userFilterTab === 'DRIVERS' && u.role !== 'DRV') return false;
+                          if (userFilterTab === 'INACTIVE' && u.is_active !== 0) return false;
+                          if (userSearchQuery.trim()) {
+                            const q = userSearchQuery.trim().toLowerCase();
+                            return (
+                              String(u.nickname || '').toLowerCase().includes(q) ||
+                              String(u.group_username || '').toLowerCase().includes(q) ||
+                              String(u.department_name || '').toLowerCase().includes(q)
+                            );
+                          }
+                          return true;
+                        })
+                        .map((u) => {
+                          const isSelf = u.id === user.id;
+                          return (
+                            <tr key={u.id} style={{ opacity: u.is_active === 0 ? 0.65 : 1 }}>
+                              <td>
+                                <div style={{ fontWeight: 700 }}>{u.nickname}</div>
+                                <div className="mono type-caption">@{u.group_username}</div>
+                              </td>
+                              <td>
+                                <select
+                                  className="gf-select"
+                                  style={{ minHeight: '36px', padding: '0 8px' }}
+                                  aria-label={`Group for ${u.nickname}`}
+                                  value={u.department_id}
+                                  onChange={(e) => handleUpdateUserRoleOrGroup(u.id, { department_id: Number(e.target.value) })}
+                                >
+                                  {groupsList.map((g) => (
+                                    <option key={g.id} value={g.id}>
+                                      {g.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td>
+                                <select
+                                  className="gf-select"
+                                  style={{ minHeight: '36px', padding: '0 8px' }}
+                                  aria-label={`Role for ${u.nickname}`}
+                                  value={u.role}
+                                  onChange={(e) => handleUpdateUserRoleOrGroup(u.id, { role: e.target.value })}
+                                >
+                                  <option value="EMP">EMP (Employee)</option>
+                                  <option value="DRV">DRV (Driver)</option>
+                                  <option value="FM">FM (Fleet Manager)</option>
+                                  <option value="HWS">HWS (Approver)</option>
+                                  <option value="ADM">ADM (Admin)</option>
+                                </select>
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                                  <StatusBadge label={u.approval_status} tone={toneFromStatus(u.approval_status)} />
+                                  <StatusBadge label={u.is_active === 1 ? 'Active' : 'Deactivated'} tone={u.is_active === 1 ? 'green' : 'red'} />
+                                </div>
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                  {u.approval_status !== 'APPROVED' && (
+                                    <button
+                                      type="button"
+                                      className="gf-btn gf-btn-primary"
+                                      style={{ minHeight: '34px', padding: '0 10px' }}
+                                      onClick={() => handleApproveUser(u.id, true, u.role)}
+                                    >
+                                      Approve
+                                    </button>
+                                  )}
+                                  <button
+                                    id={`toggle-user-active-${u.id}`}
+                                    type="button"
+                                    className="gf-btn gf-btn-secondary"
+                                    style={{ minHeight: '34px', padding: '0 10px' }}
+                                    disabled={isSelf}
+                                    onClick={() => handleToggleUserActive(u)}
+                                    title={u.is_active === 1 ? 'Deactivate user account' : 'Reactivate user account'}
+                                  >
+                                    <Power size={14} /> {u.is_active === 1 ? 'Deactivate' : 'Activate'}
+                                  </button>
+                                  <button
+                                    id={`delete-user-${u.id}`}
+                                    type="button"
+                                    className="gf-btn gf-btn-outline-danger"
+                                    style={{ minHeight: '34px', padding: '0 10px' }}
+                                    disabled={isSelf}
+                                    onClick={() => handleDeleteUser(u)}
+                                    title="Permanently delete user account"
+                                  >
+                                    <Trash2 size={14} /> Delete
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                     </tbody>
                   </table>
                 </div>
@@ -1919,7 +2297,7 @@ export function App() {
 
               {opsSubTab === 'DRIVERS' && (
                 <section className="gf-card-flat">
-                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Register / Update Driver Profile</h2>
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Register / Update Driver Profile & Group</h2>
                   <form onSubmit={handleSaveDriverProfile} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', marginBottom: '20px', paddingBottom: '16px', borderBottom: '1px solid var(--color-divider)' }}>
                     <select
                       className="gf-select"
@@ -1931,17 +2309,30 @@ export function App() {
                           ...newDriverForm,
                           user_id: uid,
                           full_name: found ? found.nickname : newDriverForm.full_name,
+                          department_id: found?.department_id || newDriverForm.department_id,
                         });
                       }}
                     >
-                      <option value="">Link User Account (Optional)</option>
+                      <option value="">Link User Account</option>
                       {usersList
                         .filter((u) => u.role === 'DRV' || u.approval_status === 'APPROVED')
                         .map((u) => (
                           <option key={u.id} value={String(u.id)}>
-                            {u.nickname} (@{u.group_username} • {u.role})
+                            {u.nickname} (@{u.group_username} • {u.department_name || u.role})
                           </option>
                         ))}
+                    </select>
+                    <select
+                      className="gf-select"
+                      aria-label="Driver Group"
+                      value={newDriverForm.department_id}
+                      onChange={(e) => setNewDriverForm({ ...newDriverForm, department_id: Number(e.target.value) })}
+                    >
+                      {groupsList.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          Group: {g.name}
+                        </option>
+                      ))}
                     </select>
                     <input
                       type="text"
@@ -1987,7 +2378,7 @@ export function App() {
                     </button>
                   </form>
 
-                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Driver Profiles ({drivers.length})</h2>
+                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Driver Profiles & Groups ({drivers.length})</h2>
                   {drivers.length === 0 ? (
                     <EmptyState message="No driver profiles registered yet. Approve a driver user or add a driver above." />
                   ) : (
@@ -1997,6 +2388,7 @@ export function App() {
                           <tr>
                             <th>Driver</th>
                             <th>Username</th>
+                            <th>Driver Group</th>
                             <th>Licence</th>
                             <th>Expiry</th>
                             <th>Status</th>
@@ -2008,6 +2400,28 @@ export function App() {
                             <tr key={d.id}>
                               <td style={{ fontWeight: 700 }}>{d.full_name}</td>
                               <td className="mono">{d.group_username ? `@${d.group_username}` : '—'}</td>
+                              <td>
+                                <select
+                                  className="gf-select"
+                                  style={{ minHeight: '36px', padding: '0 8px' }}
+                                  aria-label={`Driver group for ${d.full_name}`}
+                                  value={d.department_id || groupsList[0]?.id || 1}
+                                  onChange={async (e) => {
+                                    await apiRequest(`/api/drivers/${d.id}`, {
+                                      method: 'PATCH',
+                                      body: JSON.stringify({ department_id: Number(e.target.value) }),
+                                    });
+                                    setStatusBanner({ type: 'success', text: `Updated group for driver ${d.full_name}.` });
+                                    await loadAllData(user);
+                                  }}
+                                >
+                                  {groupsList.map((g) => (
+                                    <option key={g.id} value={g.id}>
+                                      {g.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
                               <td className="mono">{d.licence_number} (Class {d.licence_class})</td>
                               <td className="mono">{d.licence_expiry}</td>
                               <td><StatusBadge label={d.availability_status} tone={toneFromStatus(d.availability_status)} /></td>
@@ -2523,7 +2937,17 @@ export function App() {
   // RIDE-HAILING SHELL (Mobile Map+Sheet, Tablet Rail+Floating Card, Desktop 420px+Map)
   // ============================================================================
   const inActiveBookingFlow = navSection === 'HOME' && bookingStep !== 'HOME';
-  const currentMetrics = estimateRouteMetrics(bookOrigin, bookDest, originCoords, destCoords);
+  const fallbackMetrics = estimateRouteMetrics(bookOrigin, bookDest, originCoords, destCoords);
+  const currentMetrics = {
+    distanceKm: calculatedRoute?.distanceKm ?? fallbackMetrics.distanceKm,
+    durationMin: calculatedRoute?.durationMin ?? fallbackMetrics.durationMin,
+    etaText:
+      calculatedRoute?.etaText ??
+      new Date(
+        (scheduleMode === 'SCHEDULE' && bookStart ? new Date(bookStart).getTime() : Date.now()) +
+          fallbackMetrics.durationMin * 60000
+      ).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  };
 
   // Determine Map visual state
   const mapOrigin =
@@ -2596,9 +3020,11 @@ export function App() {
           <StickyActionBar>
             <div className="gf-sticky-row">
               <div>
-                <div className="type-caption">Estimated route</div>
+                <div className="type-caption">
+                  {calculatingRoute ? 'Calculating street route...' : `Arrival ETA ${currentMetrics.etaText}`}
+                </div>
                 <div className="type-body" style={{ fontWeight: 700 }}>
-                  {currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min
+                  {currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min ride
                 </div>
               </div>
               <button
@@ -2626,7 +3052,7 @@ export function App() {
                 {selectedVehicle.make} {selectedVehicle.model}
               </div>
               <div className="type-caption">
-                {scheduleMode === 'NOW' ? 'Departing now' : new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                {scheduleMode === 'NOW' ? `Now • ETA ${currentMetrics.etaText}` : new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
               </div>
             </div>
             <button
@@ -2649,7 +3075,7 @@ export function App() {
         <StickyActionBar>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div className="type-caption" style={{ textAlign: 'center' }}>
-              {selectedVehicle.make} {selectedVehicle.model} • {selectedVehicle.registration_plate}
+              {selectedVehicle.make} {selectedVehicle.model} • {selectedVehicle.registration_plate} • ETA {currentMetrics.etaText}
             </div>
             <button
               id="submit-booking-btn"
@@ -2708,19 +3134,24 @@ export function App() {
     ) : null;
 
     // -------------------------------------------------------------------------
-    // DRIVER DISPATCH SHEET (No tables, flat cards/rows, periodic GPS + Sign Out)
+    // DRIVER DISPATCH SHEET (Gojek-style Driver Check-In + Duty Confirmation)
     // -------------------------------------------------------------------------
     if (navSection === 'DRIVER') {
+      const driverCheckedInReady = gpsNoticeAccepted && gpsReportingActive;
+
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {feedbackBanner}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <div>
               <h1 className="type-title">Driver Dispatch</h1>
-              <p className="type-caption">Assigned orders & periodic location check-ins</p>
+              <p className="type-caption">
+                {user.department_name || 'Company Driver'} • Confirm duty & check-in before running trips
+              </p>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <StatusBadge label={gpsReportingActive ? 'Duty Active' : 'Standby'} tone={gpsReportingActive ? 'green' : 'neutral'} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <LanguageSwitcher compact />
+              <StatusBadge label={driverCheckedInReady ? 'Online & Checked In' : 'Offline / Standby'} tone={driverCheckedInReady ? 'green' : 'amber'} />
               <button
                 type="button"
                 className="gf-btn gf-btn-outline-danger"
@@ -2734,37 +3165,65 @@ export function App() {
             </div>
           </div>
 
-          {/* Periodic GPS Notice & Controls (GPS-03, GPS-15) */}
-          <div style={{ padding: '14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-              <strong>Periodic Location Notice:</strong> Sends a report every 20 minutes while the app stays open during active duty (not continuous live tracking).
+          {/* Gojek-Style Driver Duty Confirmation & Location Check-In Card */}
+          <div
+            style={{
+              padding: '16px',
+              borderRadius: 'var(--radius-card)',
+              background: driverCheckedInReady ? 'var(--color-green-tint)' : 'var(--color-bg-subtle)',
+              border: `1.5px solid ${driverCheckedInReady ? 'var(--color-green)' : 'var(--color-border)'}`,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+              <div className="type-body" style={{ fontWeight: 700 }}>
+                {driverCheckedInReady ? 'Ready to Drive — Duty Active' : 'Step 1: Confirm Ready to Drive & Work'}
+              </div>
+              <StatusBadge label={driverCheckedInReady ? 'Verified' : 'Required'} tone={driverCheckedInReady ? 'green' : 'amber'} />
             </div>
-            {!gpsNoticeAccepted ? (
+            <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+              Before starting any assigned operational trip, please confirm you are on duty and send your current check-in location to dispatch.
+            </div>
+            {!driverCheckedInReady ? (
               <button
                 id="driver-accept-gps-notice-btn"
                 type="button"
                 className="gf-btn gf-btn-primary gf-btn-full"
-                onClick={() => {
+                onClick={async () => {
                   setGpsNoticeAccepted(true);
                   setGpsReportingActive(true);
+                  detectAndReportUserLocation(true);
+                  await sendDriverLocationReport('GRANTED');
+                  setStatusBanner({ type: 'success', text: 'Duty confirmed & check-in location sent! You can now start assigned trips.' });
                 }}
               >
-                <Navigation size={16} /> Start Duty & Location Check-In
+                <Navigation size={16} /> Confirm Ready to Drive & Send Check-In Location
               </button>
             ) : (
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button type="button" className="gf-btn gf-btn-primary" style={{ flex: 1 }} onClick={() => sendDriverLocationReport('GRANTED')}>
-                  <MapPin size={16} /> Send Check-In
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-primary"
+                  style={{ flex: 1 }}
+                  onClick={async () => {
+                    detectAndReportUserLocation(false);
+                    await sendDriverLocationReport('GRANTED');
+                  }}
+                >
+                  <MapPin size={16} /> Update Check-In Location
                 </button>
                 <button
                   type="button"
                   className="gf-btn gf-btn-secondary"
                   onClick={() => {
-                    setGpsPermissionState('DENIED');
-                    sendDriverLocationReport('DENIED');
+                    setGpsReportingActive(false);
+                    setGpsNoticeAccepted(false);
+                    setStatusBanner({ type: 'info', text: 'Switched to Standby / Off-Duty.' });
                   }}
                 >
-                  Permission Denied
+                  Go Offline
                 </button>
               </div>
             )}
@@ -2816,95 +3275,121 @@ export function App() {
 
                     {!isCompleted && tripId && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--color-divider)' }}>
-                        {!d.acknowledged_at && (
-                          <button
-                            type="button"
-                            className="gf-btn gf-btn-primary gf-btn-full"
-                            onClick={async () => {
-                              await apiRequest(`/api/driver/trips/${tripId}/acknowledge`, { method: 'POST' });
-                              setStatusBanner({ type: 'success', text: 'Dispatch order acknowledged.' });
-                              await loadAllData(user);
-                            }}
-                          >
-                            Acknowledge Order
-                          </button>
-                        )}
-                        {!isInProgress ? (
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <input
-                              type="number"
-                              className="gf-input"
-                              aria-label="Start odometer"
-                              value={activeTripOdoInput[tripId] ?? d.current_odometer}
-                              onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
-                            />
-                            <button
-                              type="button"
-                              className="gf-btn gf-btn-primary"
-                              onClick={async () => {
-                                try {
-                                  await apiRequest(`/api/driver/trips/${tripId}/start`, {
-                                    method: 'POST',
-                                    body: JSON.stringify({ start_odometer: Number(activeTripOdoInput[tripId] ?? d.current_odometer) }),
-                                  });
-                                  setStatusBanner({ type: 'success', text: 'Trip started!' });
-                                  await loadAllData(user);
-                                } catch (err: any) {
-                                  setStatusBanner({ type: 'danger', text: err.message });
-                                }
-                              }}
-                            >
-                              <Play size={16} /> Start Trip
-                            </button>
-                          </div>
-                        ) : (
+                        {!driverCheckedInReady ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <input
-                              type="number"
-                              className="gf-input"
-                              placeholder={`End Odometer (> ${d.start_odometer || d.current_odometer})`}
-                              value={activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25}
-                              onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
-                            />
-                            {d.energy_type === 'Electric' && (
-                              <input
-                                type="number"
-                                className="gf-input"
-                                placeholder="End Battery %"
-                                value={activeTripBatteryInput[tripId] ?? '72'}
-                                onChange={(e) => setActiveTripBatteryInput({ ...activeTripBatteryInput, [tripId]: e.target.value })}
-                              />
-                            )}
-                            <input
-                              type="text"
-                              className="gf-input"
-                              placeholder="Return parking spot"
-                              value={activeTripParkingInput[tripId] ?? 'Main Pool'}
-                              onChange={(e) => setActiveTripParkingInput({ ...activeTripParkingInput, [tripId]: e.target.value })}
-                            />
+                            <div className="type-caption" style={{ color: 'var(--color-status-amber-fg)', fontWeight: 700 }}>
+                              Action required: Confirm duty & send check-in location before running this trip.
+                            </div>
                             <button
                               type="button"
                               className="gf-btn gf-btn-primary gf-btn-full"
                               onClick={async () => {
-                                try {
-                                  await apiRequest(`/api/driver/trips/${tripId}/complete`, {
-                                    method: 'POST',
-                                    body: JSON.stringify({
-                                      end_odometer: Number(activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25),
-                                      battery_percent: d.energy_type === 'Electric' ? Number(activeTripBatteryInput[tripId] ?? 72) : undefined,
-                                      parking_return_note: activeTripParkingInput[tripId] || 'Main Pool',
-                                    }),
-                                  });
-                                  setStatusBanner({ type: 'success', text: 'Trip completed & odometer saved.' });
-                                  await loadAllData(user);
-                                } catch (err: any) {
-                                  setStatusBanner({ type: 'danger', text: err.message });
-                                }
+                                setGpsNoticeAccepted(true);
+                                setGpsReportingActive(true);
+                                detectAndReportUserLocation(true);
+                                await sendDriverLocationReport('GRANTED');
+                                setStatusBanner({ type: 'success', text: 'Duty confirmed & check-in location sent!' });
                               }}
                             >
-                              Complete Trip
+                              <Navigation size={16} /> Confirm to Drive & Send Check-In First
                             </button>
                           </div>
+                        ) : (
+                          <>
+                            {!d.acknowledged_at && (
+                              <button
+                                type="button"
+                                className="gf-btn gf-btn-primary gf-btn-full"
+                                onClick={async () => {
+                                  await sendDriverLocationReport('GRANTED');
+                                  await apiRequest(`/api/driver/trips/${tripId}/acknowledge`, { method: 'POST' });
+                                  setStatusBanner({ type: 'success', text: 'Dispatch order acknowledged & check-in recorded.' });
+                                  await loadAllData(user);
+                                }}
+                              >
+                                Acknowledge Order & Confirm Ready
+                              </button>
+                            )}
+                            {!isInProgress ? (
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <input
+                                  type="number"
+                                  className="gf-input"
+                                  aria-label="Start odometer"
+                                  value={activeTripOdoInput[tripId] ?? d.current_odometer}
+                                  onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
+                                />
+                                <button
+                                  type="button"
+                                  className="gf-btn gf-btn-primary"
+                                  onClick={async () => {
+                                    try {
+                                      await sendDriverLocationReport('GRANTED');
+                                      await apiRequest(`/api/driver/trips/${tripId}/start`, {
+                                        method: 'POST',
+                                        body: JSON.stringify({ start_odometer: Number(activeTripOdoInput[tripId] ?? d.current_odometer) }),
+                                      });
+                                      setStatusBanner({ type: 'success', text: 'Check-in verified & trip started!' });
+                                      await loadAllData(user);
+                                    } catch (err: any) {
+                                      setStatusBanner({ type: 'danger', text: err.message });
+                                    }
+                                  }}
+                                >
+                                  <Play size={16} /> Start Trip
+                                </button>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                <input
+                                  type="number"
+                                  className="gf-input"
+                                  placeholder={`End Odometer (> ${d.start_odometer || d.current_odometer})`}
+                                  value={activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25}
+                                  onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
+                                />
+                                {d.energy_type === 'Electric' && (
+                                  <input
+                                    type="number"
+                                    className="gf-input"
+                                    placeholder="End Battery %"
+                                    value={activeTripBatteryInput[tripId] ?? '72'}
+                                    onChange={(e) => setActiveTripBatteryInput({ ...activeTripBatteryInput, [tripId]: e.target.value })}
+                                  />
+                                )}
+                                <input
+                                  type="text"
+                                  className="gf-input"
+                                  placeholder="Return parking spot"
+                                  value={activeTripParkingInput[tripId] ?? 'Main Pool'}
+                                  onChange={(e) => setActiveTripParkingInput({ ...activeTripParkingInput, [tripId]: e.target.value })}
+                                />
+                                <button
+                                  type="button"
+                                  className="gf-btn gf-btn-primary gf-btn-full"
+                                  onClick={async () => {
+                                    try {
+                                      await sendDriverLocationReport('GRANTED');
+                                      await apiRequest(`/api/driver/trips/${tripId}/complete`, {
+                                        method: 'POST',
+                                        body: JSON.stringify({
+                                          end_odometer: Number(activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25),
+                                          battery_percent: d.energy_type === 'Electric' ? Number(activeTripBatteryInput[tripId] ?? 72) : undefined,
+                                          parking_return_note: activeTripParkingInput[tripId] || 'Main Pool',
+                                        }),
+                                      });
+                                      setStatusBanner({ type: 'success', text: 'Trip completed & odometer saved.' });
+                                      await loadAllData(user);
+                                    } catch (err: any) {
+                                      setStatusBanner({ type: 'danger', text: err.message });
+                                    }
+                                  }}
+                                >
+                                  Complete Trip
+                                </button>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     )}
@@ -2961,11 +3446,13 @@ export function App() {
                 <button
                   type="button"
                   className="gf-btn gf-btn-primary"
-                  onClick={() => {
-                    setNavSection('HOME');
-                    setBookingStep('ROUTE');
-                    setSheetSnap('full');
-                  }}
+                  onClick={() =>
+                    requireLocationBeforeCarUse(() => {
+                      setNavSection('HOME');
+                      setBookingStep('ROUTE');
+                      setSheetSnap('full');
+                    })
+                  }
                 >
                   Book a ride
                 </button>
@@ -3085,6 +3572,11 @@ export function App() {
           </div>
 
           <div style={{ padding: '12px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
+            <div className="type-caption" style={{ fontWeight: 700, marginBottom: '8px' }}>Language (Google Translate)</div>
+            <LanguageSwitcher />
+          </div>
+
+          <div style={{ padding: '12px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
             <div className="type-caption" style={{ fontWeight: 700, marginBottom: '8px' }}>Appearance</div>
             <Segmented
               ariaLabel="Theme preference"
@@ -3156,46 +3648,50 @@ export function App() {
           label: 'Book Ride',
           green: true,
           icon: <Car size={24} />,
-          action: () => {
-            setVehicleFilter('ALL');
-            setScheduleMode('NOW');
-            setBookingStep('ROUTE');
-            setSheetSnap('full');
-          },
+          action: () =>
+            requireLocationBeforeCarUse(() => {
+              setVehicleFilter('ALL');
+              setScheduleMode('NOW');
+              setBookingStep('ROUTE');
+              setSheetSnap('full');
+            }),
         },
         {
           id: 'sc-schedule',
           label: 'Schedule',
           green: false,
           icon: <Calendar size={22} />,
-          action: () => {
-            setVehicleFilter('ALL');
-            setScheduleMode('SCHEDULE');
-            setBookingStep('ROUTE');
-            setSheetSnap('full');
-          },
+          action: () =>
+            requireLocationBeforeCarUse(() => {
+              setVehicleFilter('ALL');
+              setScheduleMode('SCHEDULE');
+              setBookingStep('ROUTE');
+              setSheetSnap('full');
+            }),
         },
         {
           id: 'sc-ev',
           label: 'EV Pool',
           green: true,
           icon: <Zap size={22} />,
-          action: () => {
-            setVehicleFilter('Electric');
-            setBookingStep('ROUTE');
-            setSheetSnap('full');
-          },
+          action: () =>
+            requireLocationBeforeCarUse(() => {
+              setVehicleFilter('Electric');
+              setBookingStep('ROUTE');
+              setSheetSnap('full');
+            }),
         },
         {
           id: 'sc-mpv',
           label: '7-Seater',
           green: false,
           icon: <Users size={22} />,
-          action: () => {
-            setVehicleFilter('MPV');
-            setBookingStep('ROUTE');
-            setSheetSnap('full');
-          },
+          action: () =>
+            requireLocationBeforeCarUse(() => {
+              setVehicleFilter('MPV');
+              setBookingStep('ROUTE');
+              setSheetSnap('full');
+            }),
         },
         {
           id: 'sc-trips',
@@ -3237,14 +3733,15 @@ export function App() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {feedbackBanner}
 
-          {/* Greeting + Group Chip + Notification Bell + Prominent Sign Out Button */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+          {/* Greeting + Group Chip + Language Switcher + Notification Bell + Sign Out Button */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
             <div style={{ minWidth: 0 }}>
               <h1 className="type-title">
                 {getTimeGreeting()}, {user.nickname}
               </h1>
-              <div style={{ marginTop: '6px' }}>
+              <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                 <Chip subtle>{user.department_name || 'Company Group'}</Chip>
+                <LanguageSwitcher compact />
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
@@ -3308,10 +3805,12 @@ export function App() {
             id="home-where-to-btn"
             type="button"
             className="gf-search-pill pressable"
-            onClick={() => {
-              setBookingStep('ROUTE');
-              setSheetSnap('full');
-            }}
+            onClick={() =>
+              requireLocationBeforeCarUse(() => {
+                setBookingStep('ROUTE');
+                setSheetSnap('full');
+              })
+            }
           >
             <Search size={20} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
             <span className="type-section" style={{ flex: 1, color: 'var(--color-text-secondary)', fontWeight: 600 }}>
@@ -3341,11 +3840,13 @@ export function App() {
                   <Chip
                     key={dest}
                     icon={<MapPin size={14} style={{ color: 'var(--color-green)' }} />}
-                    onClick={() => {
-                      setBookDest(dest);
-                      setBookingStep('ROUTE');
-                      setSheetSnap('full');
-                    }}
+                    onClick={() =>
+                      requireLocationBeforeCarUse(() => {
+                        setBookDest(dest);
+                        setBookingStep('ROUTE');
+                        setSheetSnap('full');
+                      })
+                    }
                   >
                     {dest}
                   </Chip>
@@ -3435,6 +3936,33 @@ export function App() {
             pickupPlaceholder="Search pickup address or pin on map"
             destinationPlaceholder="Where to? Search any address"
           />
+
+          {/* Live Calculated Route ETA, Ride Time & Distance Banner */}
+          {bookOrigin.trim() && bookDest.trim() && (
+            <div
+              style={{
+                padding: '10px 14px',
+                borderRadius: 'var(--radius-control)',
+                background: 'var(--color-green-tint)',
+                border: '1px solid var(--color-green)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Navigation size={16} style={{ color: 'var(--color-green-text)' }} />
+                <span className="type-body" style={{ fontWeight: 700, color: 'var(--color-green-text)' }}>
+                  {calculatingRoute
+                    ? 'Calculating route path & ETA...'
+                    : `${currentMetrics.distanceKm} km • ~${currentMetrics.durationMin} min ride`}
+                </span>
+              </div>
+              <StatusBadge label={`ETA ${currentMetrics.etaText}`} tone="green" />
+            </div>
+          )}
 
           <Segmented
             ariaLabel="Destination source"
@@ -3677,7 +4205,7 @@ export function App() {
                 <option value="">Auto-assign on Admin approval</option>
                 {activeDrivers.map((d) => (
                   <option key={d.id} value={d.id}>
-                    {d.full_name} (Class {d.licence_class})
+                    {d.full_name} (Class {d.licence_class}{d.department_name ? ` • ${d.department_name}` : ''})
                   </option>
                 ))}
               </select>
@@ -3718,7 +4246,7 @@ export function App() {
                 <div className="type-body" style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bookOrigin}</div>
                 <div className="type-body" style={{ fontWeight: 700, marginTop: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bookDest}</div>
                 <div className="type-caption" style={{ marginTop: '4px' }}>
-                  {currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min
+                  {currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min ride • ETA {currentMetrics.etaText}
                 </div>
               </div>
             </div>
@@ -3925,7 +4453,7 @@ export function App() {
         <div>
           <StatusBadge label={isStarted ? 'In Trip' : 'Driver Assigned'} tone={isStarted ? 'blue' : 'green'} />
           <h1 className="type-title" style={{ marginTop: '6px' }}>
-            {isStarted ? `Arriving in ~${Math.max(8, currentMetrics.durationMin || 18)} min` : 'Driver arriving in ~10 min'}
+            {isStarted ? `Arriving in ~${Math.max(8, currentMetrics.durationMin || 18)} min (ETA ${currentMetrics.etaText})` : 'Driver arriving in ~10 min'}
           </h1>
           {tripToShow && (
             <div className="type-caption">{tripToShow.origin} → {tripToShow.destination}</div>
@@ -4052,6 +4580,8 @@ export function App() {
             onLocateMe={() => detectAndReportUserLocation(false)}
             locatingUser={locatingUser}
             showRoute={showRouteOnMap}
+            routeGeometry={calculatedRoute?.geometry || null}
+            routeMetrics={calculatedRoute}
             pinMode={navSection === 'HOME' && bookingStep === 'ROUTE' && routeTab === 'PIN'}
             onPinMoveAddress={(place: GeoPlace) => {
               if (activeRouteField === 'pickup') {

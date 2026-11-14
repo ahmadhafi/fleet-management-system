@@ -55,6 +55,7 @@ export function getDb(customPath?: string): AppDatabase {
   if (resolvedPath !== ':memory:') {
     if (isVercel) {
       db.exec('PRAGMA journal_mode = DELETE;');
+      db.exec('PRAGMA synchronous = FULL;');
     } else {
       db.exec('PRAGMA journal_mode = WAL;');
     }
@@ -71,15 +72,32 @@ export function getDb(customPath?: string): AppDatabase {
   return db;
 }
 
-export function resetDbForTesting(customPath = ':memory:', includeTestFixtures = true): AppDatabase {
-  if (dbInstance) {
-    try {
-      dbInstance.close();
-    } catch {
-      // ignore close errors
-    }
-    dbInstance = null;
+export function checkpointDb(): void {
+  if (!dbInstance) return;
+  try {
+    dbInstance.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+  } catch {
+    // ignore if journal_mode is DELETE
   }
+}
+
+export function flushAndCloseDb(): void {
+  if (!dbInstance) return;
+  try {
+    dbInstance.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+  } catch {
+    // ignore if not in WAL mode
+  }
+  try {
+    dbInstance.close();
+  } catch {
+    // ignore close errors
+  }
+  dbInstance = null;
+}
+
+export function resetDbForTesting(customPath = ':memory:', includeTestFixtures = true): AppDatabase {
+  flushAndCloseDb();
   dbInstance = getDb(customPath);
   if (includeTestFixtures) {
     seedTestFixturesForVitest(dbInstance);

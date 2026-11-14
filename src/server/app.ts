@@ -365,6 +365,117 @@ export function createApp() {
     }
   });
 
+  // Real road route calculation (Path geometry, Distance km, Ride time min, Arrival ETA)
+  app.get('/api/route', requireAuth, async (req: Request, res: Response) => {
+    const originLat = Number(req.query.originLat);
+    const originLon = Number(req.query.originLon);
+    const destLat = Number(req.query.destLat);
+    const destLon = Number(req.query.destLon);
+    const departureTimeRaw = req.query.departureTime ? String(req.query.departureTime) : '';
+
+    if (
+      !Number.isFinite(originLat) ||
+      !Number.isFinite(originLon) ||
+      !Number.isFinite(destLat) ||
+      !Number.isFinite(destLon)
+    ) {
+      res.status(400).json({ error: 'Valid originLat, originLon, destLat, and destLon are required' });
+      return;
+    }
+
+    const baseDepartureMs =
+      departureTimeRaw && !Number.isNaN(new Date(departureTimeRaw).getTime())
+        ? new Date(departureTimeRaw).getTime()
+        : Date.now();
+
+    try {
+      const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${encodeURIComponent(String(originLon))},${encodeURIComponent(String(originLat))};${encodeURIComponent(String(destLon))},${encodeURIComponent(String(destLat))}?overview=full&geometries=geojson`;
+      const resp = await fetch(osrmUrl, {
+        headers: {
+          'User-Agent': 'GalaxyFleetManagement/1.0',
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(2000),
+      });
+
+      if (resp.ok) {
+        const data = (await resp.json()) as {
+          code?: string;
+          routes?: Array<{
+            distance?: number;
+            duration?: number;
+            geometry?: { coordinates?: Array<[number, number]> };
+          }>;
+        };
+        const route = data.routes?.[0];
+        if (route && typeof route.distance === 'number' && typeof route.duration === 'number') {
+          const distanceKm = Math.max(0.2, Number((route.distance / 1000).toFixed(1)));
+          // Apply realistic urban traffic factor (1.25x on raw free-flow OSRM duration)
+          const durationMin = Math.max(2, Math.round((route.duration * 1.25) / 60));
+          const etaDate = new Date(baseDepartureMs + durationMin * 60_000);
+          const etaText = etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const coords = Array.isArray(route.geometry?.coordinates)
+            ? route.geometry!.coordinates
+              .filter((pt) => Array.isArray(pt) && pt.length >= 2)
+              .map((pt) => [Number(pt[1]), Number(pt[0])] as [number, number])
+            : ([
+                [originLat, originLon],
+                [destLat, destLon],
+              ] as Array<[number, number]>);
+
+          res.json({
+            distanceKm,
+            durationMin,
+            etaIso: etaDate.toISOString(),
+            etaText,
+            geometry: coords.length >= 2 ? coords : [[originLat, originLon], [destLat, destLon]],
+            source: 'osrm',
+          });
+          return;
+        }
+      }
+    } catch {
+      // Fallback to Haversine + simulated street path below
+    }
+
+    // Fallback calculation if routing server is unreachable
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const dLat = toRad(destLat - originLat);
+    const dLon = toRad(destLon - originLon);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(originLat)) * Math.cos(toRad(destLat)) * Math.sin(dLon / 2) ** 2;
+    const straightKm = 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distanceKm = Math.max(0.5, Number((straightKm * 1.32).toFixed(1)));
+    const durationMin = Math.max(3, Math.round((distanceKm / 28) * 60));
+    const etaDate = new Date(baseDepartureMs + durationMin * 60_000);
+    const etaText = etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    // Build a smooth multi-segment road-like curve between origin and destination
+    const steps = 12;
+    const geometry: Array<[number, number]> = [];
+    const perpLat = -(destLon - originLon) * 0.08;
+    const perpLon = (destLat - originLat) * 0.08;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const offset = Math.sin(t * Math.PI) * 0.5;
+      geometry.push([
+        Number((originLat + (destLat - originLat) * t + perpLat * offset).toFixed(6)),
+        Number((originLon + (destLon - originLon) * t + perpLon * offset).toFixed(6)),
+      ]);
+    }
+
+    res.json({
+      distanceKm,
+      durationMin,
+      etaIso: etaDate.toISOString(),
+      etaText,
+      geometry,
+      source: 'fallback',
+    });
+
+  });
+
   app.get('/api/departments', requireAuth, (_req: Request, res: Response) => {
     const db = getDb();
     const departments = db.prepare('SELECT * FROM departments ORDER BY id ASC').all();
@@ -573,6 +684,48 @@ export function createApp() {
 
     res.json({ user: updated });
   });
+
+  app.delete('/api/users/:id', requireAuth, requireRoles(['ADM']), (req: Request, res: Response) => {
+    const db = getDb();
+    const targetId = Number(req.params.id);
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      res.status(400).json({ error: 'Invalid user ID' });
+      return;
+    }
+    if (targetId === req.user!.id) {
+      res.status(400).json({ error: 'Cannot delete your own active administrator account' });
+      return;
+    }
+
+    const prev = db
+      .prepare('SELECT id, nickname, group_username, role, is_department_admin, department_id, approval_status, is_active FROM users WHERE id = ?')
+      .get(targetId) as Record<string, unknown> | undefined;
+
+    if (!prev) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    db.exec('PRAGMA foreign_keys = OFF;');
+    try {
+      runInTransaction(db, () => {
+        db.prepare('DELETE FROM sessions WHERE user_id = ?').run(targetId);
+        db.prepare('DELETE FROM user_locations WHERE user_id = ?').run(targetId);
+        db.prepare('DELETE FROM notifications WHERE user_id = ?').run(targetId);
+        db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(targetId);
+        db.prepare('DELETE FROM location_reports WHERE driver_user_id = ?').run(targetId);
+        db.prepare('DELETE FROM driver_profiles WHERE user_id = ?').run(targetId);
+        db.prepare('UPDATE users SET approved_by = NULL WHERE approved_by = ?').run(targetId);
+        db.prepare('DELETE FROM users WHERE id = ?').run(targetId);
+        recordAudit(db, req.user, 'USER_DELETED', 'USER', targetId, prev, null);
+      });
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON;');
+    }
+
+    res.json({ ok: true, deletedId: targetId, deletedUserId: targetId });
+  });
+
 
   // ============================================================================
   // 3. VEHICLE MANAGEMENT (VEH-01 to VEH-07, Revision #3 Edit & Standby)
@@ -793,9 +946,10 @@ export function createApp() {
     const db = getDb();
     const drivers = db
       .prepare(
-        `SELECT dp.*, u.nickname, u.group_username, u.is_active
+        `SELECT dp.*, u.nickname, u.group_username, u.is_active, u.department_id, d.name as department_name
          FROM driver_profiles dp
          JOIN users u ON u.id = dp.user_id
+         LEFT JOIN departments d ON d.id = u.department_id
          ORDER BY dp.id ASC`
       )
       .all() as Array<Record<string, unknown>>;
@@ -812,6 +966,8 @@ export function createApp() {
         licence_class: d.licence_class,
         availability_status: d.availability_status,
         is_active: d.is_active,
+        department_id: d.department_id,
+        department_name: d.department_name,
         licence_number: null,
         contact_number: null,
         licence_expiry: null,
@@ -823,8 +979,9 @@ export function createApp() {
 
   app.post('/api/drivers', requireAuth, requireRoles(['ADM', 'FM']), (req: Request, res: Response) => {
     const db = getDb();
-    const { user_id, full_name, licence_number, licence_class, licence_expiry, contact_number, availability_status } = req.body ?? {};
-    if (!user_id || !full_name || !licence_number || !licence_expiry || !contact_number) {
+    const { user_id, full_name, licence_number, licence_class, licence_expiry, contact_number, phone, availability_status, department_id } = req.body ?? {};
+    const resolvedContact = (contact_number || phone || '').trim();
+    if (!user_id || !full_name || !licence_number || !licence_expiry || !resolvedContact) {
       res.status(400).json({ error: 'user_id, full_name, licence_number, licence_expiry, and contact_number are required (DRV-03)' });
       return;
     }
@@ -835,17 +992,42 @@ export function createApp() {
       return;
     }
 
-    const result = db
-      .prepare(
-        `INSERT INTO driver_profiles (user_id, full_name, licence_number, licence_class, licence_expiry, contact_number, availability_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(Number(user_id), full_name.trim(), licence_number.trim(), licence_class || 'A', licence_expiry, contact_number.trim(), availability_status || 'Active');
+    if (department_id !== undefined && Number(department_id) > 0) {
+      db.prepare('UPDATE users SET department_id = ? WHERE id = ?').run(Number(department_id), Number(user_id));
+    }
 
-    const created = db.prepare('SELECT * FROM driver_profiles WHERE id = ?').get(Number(result.lastInsertRowid));
-    recordAudit(db, req.user, 'DRIVER_PROFILE_CREATED', 'DRIVER_PROFILE', Number(result.lastInsertRowid), null, created);
+    const existingProfile = db.prepare('SELECT id FROM driver_profiles WHERE user_id = ?').get(Number(user_id)) as { id: number } | undefined;
+    let driverProfileId: number;
+    if (existingProfile) {
+      db.prepare(
+        `UPDATE driver_profiles
+         SET full_name = ?, licence_number = ?, licence_class = ?, licence_expiry = ?, contact_number = ?, availability_status = ?, updated_at = datetime('now')
+         WHERE id = ?`
+      ).run(full_name.trim(), licence_number.trim(), licence_class || 'A', licence_expiry, resolvedContact, availability_status || 'Active', existingProfile.id);
+      driverProfileId = existingProfile.id;
+    } else {
+      const result = db
+        .prepare(
+          `INSERT INTO driver_profiles (user_id, full_name, licence_number, licence_class, licence_expiry, contact_number, availability_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(Number(user_id), full_name.trim(), licence_number.trim(), licence_class || 'A', licence_expiry, resolvedContact, availability_status || 'Active');
+      driverProfileId = Number(result.lastInsertRowid);
+    }
+
+    const created = db
+      .prepare(
+        `SELECT dp.*, u.nickname, u.group_username, u.is_active, u.department_id, d.name as department_name
+         FROM driver_profiles dp
+         JOIN users u ON u.id = dp.user_id
+         LEFT JOIN departments d ON d.id = u.department_id
+         WHERE dp.id = ?`
+      )
+      .get(driverProfileId);
+    recordAudit(db, req.user, 'DRIVER_PROFILE_CREATED', 'DRIVER_PROFILE', driverProfileId, null, created);
     res.status(201).json({ driver: created });
   });
+
 
   app.patch('/api/drivers/:id', requireAuth, requireRoles(['ADM', 'FM']), (req: Request, res: Response) => {
     const db = getDb();
@@ -856,13 +1038,17 @@ export function createApp() {
       return;
     }
 
-    const { full_name, licence_number, licence_class, licence_expiry, contact_number, availability_status } = req.body ?? {};
+    const { full_name, licence_number, licence_class, licence_expiry, contact_number, availability_status, department_id } = req.body ?? {};
     if (licence_expiry !== undefined) {
       const expDate = new Date(licence_expiry);
       if (Number.isNaN(expDate.getTime())) {
         res.status(400).json({ error: 'Invalid licence_expiry date (DRV-03)' });
         return;
       }
+    }
+
+    if (department_id !== undefined && Number(department_id) > 0 && prev.user_id) {
+      db.prepare('UPDATE users SET department_id = ? WHERE id = ?').run(Number(department_id), Number(prev.user_id));
     }
 
     db.prepare(
@@ -885,7 +1071,15 @@ export function createApp() {
       driverId
     );
 
-    const updated = db.prepare('SELECT * FROM driver_profiles WHERE id = ?').get(driverId);
+    const updated = db
+      .prepare(
+        `SELECT dp.*, u.nickname, u.group_username, u.is_active, u.department_id, d.name as department_name
+         FROM driver_profiles dp
+         JOIN users u ON u.id = dp.user_id
+         LEFT JOIN departments d ON d.id = u.department_id
+         WHERE dp.id = ?`
+      )
+      .get(driverId);
     recordAudit(db, req.user, 'DRIVER_PROFILE_UPDATED', 'DRIVER_PROFILE', driverId, prev, updated);
     res.json({ driver: updated });
   });

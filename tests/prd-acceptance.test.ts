@@ -711,6 +711,80 @@ describe('Internal Company Fleet Management System — Full PRD & Revision Accep
     expect(pinsRes.status).toBe(200);
     expect(pinsRes.body.pins).toHaveLength(2);
     expect(pinsRes.body.pins.map((p: any) => p.group_username).sort()).toEqual(['admin', 'rina_innov']);
+
+    // Admin creates a Driver account assigned to Group #5 (Main Production G)
+    const createDrvUser = await request(app).post('/api/users').set('Authorization', `Bearer ${adminToken}`).send({
+      nickname: 'Hendra Driver',
+      department_id: 5,
+      group_username: 'drv_hendra',
+      password: 'Driver@123',
+      role: 'DRV',
+    });
+    expect(createDrvUser.status).toBe(201);
+    expect(createDrvUser.body.user.department_id).toBe(5);
+    expect(createDrvUser.body.user.role).toBe('DRV');
+
+    // Admin creates Driver Profile with Group #5 and then updates Driver Group to #6 (SMD Production G)
+    const createDrvProfile = await request(app).post('/api/drivers').set('Authorization', `Bearer ${adminToken}`).send({
+      user_id: createDrvUser.body.user.id,
+      department_id: 5,
+      full_name: 'Hendra Wijaya',
+      phone: '+62811999888',
+      licence_number: 'SIM-A-2026-999',
+      licence_class: 'A',
+      licence_expiry: '2029-12-31',
+    });
+    expect(createDrvProfile.status).toBe(201);
+    expect(createDrvProfile.body.driver.department_id).toBe(5);
+    expect(createDrvProfile.body.driver.department_name).toBe('Main Production G');
+
+    const updateDrvGroup = await request(app)
+      .patch(`/api/drivers/${createDrvProfile.body.driver.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ department_id: 6 });
+    expect(updateDrvGroup.status).toBe(200);
+    expect(updateDrvGroup.body.driver.department_id).toBe(6);
+    expect(updateDrvGroup.body.driver.department_name).toBe('SMD Production G');
+
+    // Route calculation endpoint calculates distance, ride time, ETA, and route path geometry
+    const routeRes = await request(app)
+      .get('/api/route?originLat=-6.19834&originLon=106.88873&destLat=-6.22501&destLon=106.80968')
+      .set('Authorization', `Bearer ${rinaToken}`);
+    expect(routeRes.status).toBe(200);
+    expect(routeRes.body.distanceKm).toBeGreaterThan(5);
+    expect(routeRes.body.durationMin).toBeGreaterThan(5);
+    expect(typeof routeRes.body.etaText).toBe('string');
+    expect(Array.isArray(routeRes.body.geometry)).toBe(true);
+    expect(routeRes.body.geometry.length).toBeGreaterThanOrEqual(2);
+
+    // Admin deactivates Rina, verifies login blocked, reactivates Rina, then deletes a temporary user
+    const deactRes = await request(app)
+      .patch(`/api/users/${regUser.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ is_active: 0 });
+    expect(deactRes.status).toBe(200);
+    expect(deactRes.body.user.is_active).toBe(0);
+
+    const blockedLogin = await request(app).post('/api/auth/login').send({
+      group_username: 'rina_innov',
+      password: 'Password123',
+    });
+    expect(blockedLogin.status).toBe(403);
+
+    const reactRes = await request(app)
+      .patch(`/api/users/${regUser.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ is_active: 1 });
+    expect(reactRes.status).toBe(200);
+    expect(reactRes.body.user.is_active).toBe(1);
+
+    // Admin deletes Rina user account permanently
+    const delRes = await request(app)
+      .delete(`/api/users/${regUser.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(delRes.status).toBe(200);
+    expect(delRes.body.deletedUserId).toBe(regUser.body.id);
   });
 });
+
 
