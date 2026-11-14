@@ -193,26 +193,102 @@ textarea {
 
 .gf-sheet-handle-area {
   width: 100%;
-  padding: 12px 0 8px;
+  padding: 8px 16px 6px;
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
   align-items: center;
-  cursor: grab;
   touch-action: none;
   background: transparent;
   border: none;
   flex-shrink: 0;
 }
 
-.gf-sheet-handle-area:active {
+.gf-sheet-handle-pressable {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 6px 12px;
+  cursor: grab;
+  background: transparent;
+  border: none;
+}
+
+.gf-sheet-handle-pressable:active {
   cursor: grabbing;
 }
 
 .gf-sheet-handle {
-  width: 40px;
+  width: 44px;
   height: 5px;
   border-radius: var(--radius-pill);
   background: var(--color-border);
+}
+
+.gf-sheet-quick-collapse-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-divider);
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--dur-fast) ease;
+  flex-shrink: 0;
+}
+
+.gf-sheet-quick-collapse-btn:hover {
+  background: var(--color-green-tint);
+  color: var(--color-green);
+  border-color: var(--color-green);
+}
+
+/* Flexible Collapsible Container Controls (Desktop & Tablet) */
+.gf-sheet-top-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--color-bg-subtle);
+  border-bottom: 1px solid var(--color-divider);
+  flex-shrink: 0;
+}
+
+/* Floating Expand Card when Container is Collapsed to reveal Map */
+.gf-floating-expand-card {
+  position: fixed;
+  z-index: 1050;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-surface);
+  border: 1.5px solid var(--color-border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-spring);
+  animation: gf-pop-in 0.25s var(--ease-spring);
+}
+
+.gf-floating-expand-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-green);
+  box-shadow: 0 14px 34px rgba(0, 170, 19, 0.25);
+}
+
+@keyframes gf-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .gf-sheet-body {
@@ -384,6 +460,21 @@ textarea {
     border-radius: var(--radius-sheet);
     box-shadow: var(--shadow-floating);
     border: 1px solid var(--color-divider);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .gf-sheet.is-collapsed {
+    max-height: 0 !important;
+    min-height: 0 !important;
+    height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    overflow: hidden !important;
+    border: none !important;
+    box-shadow: none !important;
+    transform: translateY(24px) scale(0.96);
   }
 
   .gf-sheet-handle-area {
@@ -392,6 +483,11 @@ textarea {
 
   .gf-sheet-body.has-bottom-nav {
     padding-bottom: var(--space-5);
+  }
+
+  .gf-floating-expand-card {
+    left: var(--space-4);
+    bottom: var(--space-4);
   }
 }
 
@@ -430,6 +526,21 @@ textarea {
     order: 1;
     display: flex;
     flex-direction: column;
+    transition: width 0.32s cubic-bezier(0.16, 1, 0.3, 1), min-width 0.32s cubic-bezier(0.16, 1, 0.3, 1), transform 0.32s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+  }
+
+  .gf-sheet.is-collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-right: none !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
   }
 
   .gf-map-stage {
@@ -441,6 +552,11 @@ textarea {
 
   .gf-sheet-handle-area {
     display: none;
+  }
+
+  .gf-floating-expand-card {
+    left: 24px;
+    top: 24px;
   }
 
   /* Desktop Left Panel Pinned Header Navigation */

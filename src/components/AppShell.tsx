@@ -12,8 +12,6 @@ import {
   FileCheck,
   BarChart3,
   Calendar,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 import { LanguageSwitcher } from './LanguageSwitcher';
 
@@ -59,8 +57,6 @@ export const AppShell: React.FC<AppShellProps> = ({
     { id: 'PROFILE', label: 'Profile', icon: <User size={22} /> },
   ];
 
-  const [tabletNavCollapsed, setTabletNavCollapsed] = React.useState(false);
-
   const tabletItems: NavItem[] = [
     ...navItems,
     ...(isDriverOrPrivileged ? [{ id: 'DRIVER' as const, label: 'Dispatch', icon: <Navigation size={20} />, badge: pendingDispatchCount }] : []),
@@ -70,7 +66,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   return (
     <div className="gf-shell">
       <div className="gf-ride-layout">
-        {/* Tablet Floating Capsule Navigation (640-1023px) - Collapsible to maximize map view */}
+        {/* Tablet Floating Capsule Navigation (640-1023px) */}
         <nav
           className={`gf-tablet-nav ${hideChromeDuringBooking ? 'is-hidden' : ''}`}
           aria-label="Tablet navigation"
@@ -93,61 +89,35 @@ export const AppShell: React.FC<AppShellProps> = ({
             >
               GF
             </div>
-            {tabletNavCollapsed && (
-              <button
-                type="button"
-                className="gf-tablet-nav-item pressable"
-                style={{ padding: '6px 10px', fontSize: '12.5px', gap: '4px' }}
-                onClick={() => setTabletNavCollapsed(false)}
-                title="Expand navigation menu"
-              >
-                <span>Menu</span>
-                <ChevronDown size={16} />
-              </button>
-            )}
           </div>
-          {!tabletNavCollapsed && (
-            <>
-              {tabletItems.map((item) => {
-                const active = activeNav === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`gf-tablet-nav-item pressable ${active ? 'active' : ''}`}
-                    onClick={() => onSelectNav(item.id)}
-                    aria-current={active ? 'page' : undefined}
-                  >
-                    {item.icon}
-                    <span>{item.label}</span>
-                    {item.badge !== undefined && item.badge > 0 && <span className="gf-nav-badge">{item.badge}</span>}
-                  </button>
-                );
-              })}
-              <div style={{ width: '1px', height: '22px', background: 'var(--color-divider)', margin: '0 4px' }} />
-              <LanguageSwitcher compact />
+          {tabletItems.map((item) => {
+            const active = activeNav === item.id;
+            return (
               <button
+                key={item.id}
                 type="button"
-                className="gf-tablet-nav-item pressable"
-                style={{ color: 'var(--color-status-red-fg)', padding: '8px 12px' }}
-                onClick={onSignOut}
-                aria-label="Sign out"
-                title="Sign out"
+                className={`gf-tablet-nav-item pressable ${active ? 'active' : ''}`}
+                onClick={() => onSelectNav(item.id)}
+                aria-current={active ? 'page' : undefined}
               >
-                <LogOut size={18} />
+                {item.icon}
+                <span>{item.label}</span>
+                {item.badge !== undefined && item.badge > 0 && <span className="gf-nav-badge">{item.badge}</span>}
               </button>
-              <button
-                type="button"
-                className="gf-tablet-nav-item pressable"
-                style={{ padding: '6px 8px', color: 'var(--color-text-muted)' }}
-                onClick={() => setTabletNavCollapsed(true)}
-                title="Collapse navbar to see full map"
-                aria-label="Collapse navbar"
-              >
-                <ChevronUp size={16} />
-              </button>
-            </>
-          )}
+            );
+          })}
+          <div style={{ width: '1px', height: '22px', background: 'var(--color-divider)', margin: '0 4px' }} />
+          <LanguageSwitcher compact />
+          <button
+            type="button"
+            className="gf-tablet-nav-item pressable"
+            style={{ color: 'var(--color-status-red-fg)', padding: '8px 12px' }}
+            onClick={onSignOut}
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <LogOut size={18} />
+          </button>
         </nav>
 
         {/* Full-bleed Map Canvas */}
@@ -208,7 +178,6 @@ export const DesktopHeaderNav: React.FC<DesktopHeaderNavProps> = ({
   onSwitchToDriverDispatch,
   onSwitchToAdmin,
 }) => {
-  const [navPillsCollapsed, setNavPillsCollapsed] = React.useState(false);
   const items: NavItem[] = [
     { id: 'HOME', label: 'Home', icon: <Home size={18} /> },
     { id: 'ACTIVITY', label: 'Activity', icon: <Clock size={18} /> },
@@ -256,7 +225,7 @@ export const DesktopHeaderNav: React.FC<DesktopHeaderNavProps> = ({
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <LanguageSwitcher compact />
           {onSignOut && (
             <button
@@ -272,21 +241,10 @@ export const DesktopHeaderNav: React.FC<DesktopHeaderNavProps> = ({
               <span>Sign Out</span>
             </button>
           )}
-          <button
-            type="button"
-            className="gf-btn gf-btn-secondary pressable"
-            style={{ minHeight: '34px', padding: '0 8px', borderRadius: 'var(--radius-control)' }}
-            onClick={() => setNavPillsCollapsed((c) => !c)}
-            title={navPillsCollapsed ? 'Expand navigation tabs' : 'Collapse navigation tabs to see more map'}
-            aria-label="Toggle navigation tabs visibility"
-          >
-            {navPillsCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-          </button>
         </div>
       </div>
 
-      {!navPillsCollapsed && (
-        <nav className="gf-desktop-nav-segmented" aria-label="Desktop panel tabs">
+      <nav className="gf-desktop-nav-segmented" aria-label="Desktop panel tabs">
         {items.map((item) => {
           const active = activeNav === item.id;
           return (
@@ -312,7 +270,6 @@ export const DesktopHeaderNav: React.FC<DesktopHeaderNavProps> = ({
           );
         })}
       </nav>
-      )}
     </div>
   );
 };

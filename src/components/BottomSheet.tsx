@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Car, Minimize2 } from 'lucide-react';
 
 export type SnapPoint = 'peek' | 'half' | 'full';
 
 const SNAP_PERCENT: Record<SnapPoint, number> = {
-  peek: 28,
+  peek: 20,
   half: 60,
   full: 92,
 };
@@ -33,8 +34,8 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   desktopNav,
   ariaLabel = 'Booking sheet',
 }) => {
-
   const [dragHeightPx, setDragHeightPx] = useState<number | null>(null);
+  const [isManualCollapsed, setIsManualCollapsed] = useState(false);
   const startYRef = useRef<number>(0);
   const startHeightRef = useRef<number>(0);
   const lastYRef = useRef<number>(0);
@@ -42,6 +43,18 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   const velocityRef = useRef<number>(0);
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
+
+  const isCollapsed = isManualCollapsed || snap === 'peek';
+
+  const handleExpand = () => {
+    setIsManualCollapsed(false);
+    onSnapChange('half');
+  };
+
+  const handleCollapse = () => {
+    setIsManualCollapsed(true);
+    onSnapChange('peek');
+  };
 
   // Move keyboard focus cleanly into sheet body when step changes
   useEffect(() => {
@@ -63,20 +76,20 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
     return () => mq.removeEventListener('change', handleOrientation);
   }, [snap, onSnapChange]);
 
-  // Global Esc shortcut
+  // Global Esc shortcut collapses the container to view full map
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (onEscape) {
           onEscape();
-        } else if (snap !== 'peek') {
-          onSnapChange('peek');
+        } else if (!isCollapsed) {
+          handleCollapse();
         }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onEscape, snap, onSnapChange]);
+  }, [onEscape, isCollapsed, onSnapChange]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (window.innerWidth >= 640) return;
@@ -101,7 +114,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
     lastTimeRef.current = now;
 
     const delta = startYRef.current - e.clientY;
-    const next = Math.max(vh * 0.22, Math.min(vh * 0.94, startHeightRef.current + delta));
+    const next = Math.max(vh * 0.14, Math.min(vh * 0.94, startHeightRef.current + delta));
     setDragHeightPx(next);
   };
 
@@ -114,11 +127,17 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
 
     // Flick detection
     if (v > 0.45) {
+      setIsManualCollapsed(false);
       onSnapChange(snap === 'peek' ? 'half' : 'full');
       return;
     }
     if (v < -0.45) {
-      onSnapChange(snap === 'full' ? 'half' : 'peek');
+      if (snap === 'half') {
+        setIsManualCollapsed(true);
+        onSnapChange('peek');
+      } else {
+        onSnapChange('half');
+      }
       return;
     }
 
@@ -137,51 +156,138 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
         best = p.key;
       }
     }
+    if (best === 'peek') {
+      setIsManualCollapsed(true);
+    } else {
+      setIsManualCollapsed(false);
+    }
     onSnapChange(best);
   };
 
   const handleHandleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      onSnapChange(snap === 'peek' ? 'half' : 'full');
+      handleExpand();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      onSnapChange(snap === 'full' ? 'half' : 'peek');
+      handleCollapse();
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      onSnapChange(snap === 'peek' ? 'half' : snap === 'half' ? 'full' : 'peek');
+      if (isCollapsed) handleExpand();
+      else handleCollapse();
     }
   };
 
   const computedHeight = dragHeightPx !== null ? `${Math.round(dragHeightPx)}px` : `${SNAP_PERCENT[snap]}dvh`;
 
   return (
-    <section
-      ref={sheetRef}
-      role="region"
-      aria-label={ariaLabel}
-      className={`gf-sheet ${dragHeightPx !== null ? 'is-dragging' : ''}`}
-      style={{ height: computedHeight }}
-    >
-      <button
-        type="button"
-        className="gf-sheet-handle-area"
-        aria-label={`Adjust sheet height (current: ${snap}). Press Up or Down arrow, or drag.`}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-        onKeyDown={handleHandleKeyDown}
+    <>
+      {/* Floating Expand Pill / Button when container is collapsed to maximize map */}
+      {isCollapsed && (
+        <button
+          type="button"
+          id="gf-floating-expand-btn"
+          className="gf-floating-expand-card pressable"
+          onClick={handleExpand}
+          title="Expand booking and operational container"
+          aria-label="Expand booking and operational container"
+        >
+          <div className="gf-circle-icon is-green" style={{ width: '36px', height: '36px' }}>
+            <Car size={20} />
+          </div>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontWeight: 800, fontSize: '13.5px', lineHeight: 1.2 }}>Open Fleet & Booking</div>
+            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>Click to view forms & schedule</div>
+          </div>
+          <ChevronRight size={18} style={{ color: 'var(--color-green)' }} />
+        </button>
+      )}
+
+      <section
+        ref={sheetRef}
+        role="region"
+        aria-label={ariaLabel}
+        className={`gf-sheet ${isCollapsed ? 'is-collapsed' : ''} ${dragHeightPx !== null ? 'is-dragging' : ''}`}
+        style={{ height: computedHeight }}
       >
-        <span className="gf-sheet-handle" />
-      </button>
+        {/* Top Controls Header on Desktop & Tablet: flexible collapse button */}
+        <div className="gf-sheet-top-controls">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-green)' }} />
+            <span className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-secondary)' }}>
+              Operations & Booking
+            </span>
+          </div>
+          <button
+            type="button"
+            id="gf-container-collapse-btn"
+            className="gf-btn gf-btn-secondary gf-btn-sm pressable"
+            onClick={handleCollapse}
+            title="Collapse container to view full map"
+            aria-label="Collapse container to view full map"
+            style={{ minHeight: '30px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
+          >
+            <Minimize2 size={13} />
+            <span>Collapse to Map</span>
+            <ChevronLeft size={14} />
+          </button>
+        </div>
 
-      {topNav}
+        {/* Mobile Handle Area with Quick Collapse Button */}
+        <div className="gf-sheet-handle-area">
+          <button
+            type="button"
+            className="gf-sheet-handle-pressable"
+            aria-label={`Adjust sheet height (current: ${snap}). Press Up or Down arrow, or drag.`}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onKeyDown={handleHandleKeyDown}
+            onClick={() => {
+              if (snap === 'peek') handleExpand();
+            }}
+          >
+            <span className="gf-sheet-handle" />
+          </button>
+          {snap !== 'peek' ? (
+            <button
+              type="button"
+              className="gf-sheet-quick-collapse-btn pressable"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCollapse();
+              }}
+              title="Collapse sheet to see full map"
+              aria-label="Collapse sheet to see full map"
+            >
+              <ChevronDown size={18} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="gf-sheet-quick-collapse-btn pressable"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleExpand();
+              }}
+              title="Expand sheet"
+              aria-label="Expand sheet"
+            >
+              <ChevronUp size={18} />
+            </button>
+          )}
+        </div>
 
-      <div ref={bodyRef} tabIndex={-1} className={`gf-sheet-body ${hasBottomNav && !footer ? 'has-bottom-nav' : ''}`}>{children}</div>
+        {topNav}
 
-      {footer && <div style={{ flexShrink: 0 }}>{footer}</div>}
-      {desktopNav}
-    </section>
+        <div ref={bodyRef} tabIndex={-1} className={`gf-sheet-body ${hasBottomNav && !footer ? 'has-bottom-nav' : ''}`}>
+          {children}
+        </div>
+
+        {footer && <div style={{ flexShrink: 0 }}>{footer}</div>}
+        {desktopNav}
+      </section>
+    </>
   );
 };
