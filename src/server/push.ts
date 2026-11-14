@@ -132,3 +132,24 @@ export function notifyAdmins(
     });
   }
 }
+
+export function notifyRole(
+  db: AppDatabase,
+  role: string,
+  params: {
+    triggerType: string;
+    title: string;
+    body: string;
+    relatedEntityType?: string;
+    relatedEntityId?: number;
+  }
+): void {
+  const users = db.prepare("SELECT id FROM users WHERE role = ? AND is_active = 1 AND approval_status = 'APPROVED'").all(role) as Array<{ id: number }>;
+  for (const u of users) {
+    sendUserNotification(db, {
+      userId: u.id,
+      ...params,
+    });
+  }
+}
+

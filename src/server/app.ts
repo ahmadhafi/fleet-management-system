@@ -5,7 +5,7 @@ import express, { type Request, type Response } from 'express';
 import { getDb, hashPassword, verifyPassword, runInTransaction } from './db.ts';
 import { createSessionToken, isPrivilegedRole, requireAuth, requireRoles } from './auth.ts';
 import { recordAudit } from './audit.ts';
-import { ensureVapidKeys, notifyAdmins, sendUserNotification } from './push.ts';
+import { ensureVapidKeys, notifyAdmins, notifyRole, sendUserNotification } from './push.ts';
 import { checkDriverConflict, checkVehicleConflict } from './conflict.ts';
 import { createRateLimiter } from './rate-limit.ts';
 
@@ -1630,6 +1630,9 @@ export function createApp() {
       rows = db.prepare(`${baseSelect} WHERE tr.requester_id = ? ORDER BY tr.id DESC`).all(user.id) as Array<Record<string, unknown>>;
     }
 
+    const hwsCountRow = db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'HWS' AND is_active = 1 AND approval_status = 'APPROVED'").get() as { c: number };
+    const hasHwsAccount = (hwsCountRow?.c ?? 0) > 0;
+
     const enriched = rows.map((r) => {
       const decisions = db
         .prepare(
@@ -1639,9 +1642,20 @@ export function createApp() {
            WHERE ad.trip_request_id = ?
            ORDER BY ad.id ASC`
         )
-        .all(Number(r.id));
+        .all(Number(r.id)) as any[];
       const events = db.prepare('SELECT * FROM trip_events WHERE trip_request_id = ? ORDER BY id ASC').all(Number(r.id));
-      return { ...r, decisions, events };
+      const picApproved = decisions.some((d: any) => d.decider_role === 'FM' && d.decision === 'APPROVED');
+      const hwsApproved = decisions.some((d: any) => d.decider_role === 'HWS' && d.decision === 'APPROVED');
+      const admDelegated = decisions.some((d: any) => d.decider_role === 'ADM' && d.decision === 'APPROVED');
+      return {
+        ...r,
+        decisions,
+        events,
+        requires_dual_approval: hasHwsAccount,
+        pic_approved: picApproved,
+        hws_approved: hwsApproved,
+        adm_delegated: admDelegated,
+      };
     });
 
     res.json({ trips: enriched });
@@ -1837,7 +1851,7 @@ export function createApp() {
     }
   });
 
-  // Approve or Reject Trip Request (REQ-04, REQ-05, REQ-06, REQ-10 + One-Click Dispatch)
+  // Approve or Reject Trip Request (Dual-Approval Workflow: FM + HWS or Admin Delegation)
   app.post('/api/trips/:id/decision', requireAuth, requireRoles(['ADM', 'FM', 'HWS']), (req: Request, res: Response) => {
     const db = getDb();
     const user = req.user!;
@@ -1881,19 +1895,25 @@ export function createApp() {
       return;
     }
 
+    // Dual-Approval Check: Check if an active Head Of WS Part (HWS) account exists in the company
+    const hwsCountRow = db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'HWS' AND is_active = 1 AND approval_status = 'APPROVED'").get() as { c: number };
+    const hasHwsAccount = (hwsCountRow?.c ?? 0) > 0;
+
+    const priorApprovals = db
+      .prepare("SELECT * FROM approval_decisions WHERE trip_request_id = ? AND decision = 'APPROVED'")
+      .all(tripId) as Array<{ id: number; decider_id: number; decider_role: string }>;
+
+    const picApprovedPrior = priorApprovals.some((a) => a.decider_role === 'FM');
+    const hwsApprovedPrior = priorApprovals.some((a) => a.decider_role === 'HWS');
+
     try {
       const outcome = runInTransaction(db, () => {
-        // Append-only Approval Decision record (REQ-06)
-        const decRes = db
-          .prepare(
-            `INSERT INTO approval_decisions (trip_request_id, decider_id, decider_role, decision, reason)
-             VALUES (?, ?, ?, ?, ?)`
-          )
-          .run(tripId, user.id, user.role, decision, reason ? String(reason).trim() : 'Approved');
-
-        const decisionId = Number(decRes.lastInsertRowid);
-
         if (decision === 'REJECTED') {
+          db.prepare(
+            `INSERT INTO approval_decisions (trip_request_id, decider_id, decider_role, decision, reason)
+             VALUES (?, ?, ?, 'REJECTED', ?)`
+          ).run(tripId, user.id, user.role, reason ? String(reason).trim() : 'Rejected');
+
           db.prepare("UPDATE trip_requests SET status = 'REJECTED', updated_at = datetime('now') WHERE id = ?").run(tripId);
           db.prepare("UPDATE bookings SET status = 'CANCELLED', cancellation_reason = ?, updated_at = datetime('now') WHERE trip_request_id = ?").run(
             `Rejected: ${reason}`,
@@ -1902,10 +1922,73 @@ export function createApp() {
           db.prepare('UPDATE assignments SET is_current = 0 WHERE trip_request_id = ?').run(tripId);
 
           recordAudit(db, user, 'TRIP_REQUEST_REJECTED', 'TRIP_REQUEST', tripId, { status: trip.status }, { status: 'REJECTED', reason });
-          return { decisionId, status: 'REJECTED', assignedDriverUserId: null as number | null };
+          return { status: 'REJECTED', isFinal: true, assignedDriverUserId: null as number | null };
         }
 
-        // APPROVED path
+        // APPROVED path: Determine if this is partial approval or final dispatch
+        if (hasHwsAccount) {
+          if (user.role === 'FM') {
+            if (picApprovedPrior) {
+              const err = new Error('Fleet Operation PIC has already approved this request. Awaiting Head Of WS Part authorization.');
+              (err as Error & { status?: number }).status = 400;
+              throw err;
+            }
+            if (!hwsApprovedPrior) {
+              // Stage 1: Approved by Fleet Operation PIC, awaiting Head Of WS Part
+              const decRes = db
+                .prepare(
+                  `INSERT INTO approval_decisions (trip_request_id, decider_id, decider_role, decision, reason)
+                   VALUES (?, ?, 'FM', 'APPROVED', ?)`
+                )
+                .run(tripId, user.id, reason ? String(reason).trim() : 'Approved by Fleet Operation PIC');
+
+              if (vehicle_id || driver_profile_id) {
+                db.prepare(
+                  `UPDATE trip_requests
+                   SET vehicle_id = COALESCE(?, vehicle_id),
+                       preferred_driver_id = COALESCE(?, preferred_driver_id),
+                       updated_at = datetime('now')
+                   WHERE id = ?`
+                ).run(vehicle_id ? Number(vehicle_id) : null, driver_profile_id ? Number(driver_profile_id) : null, tripId);
+              }
+
+              recordAudit(db, user, 'TRIP_STAGE_APPROVED', 'TRIP_REQUEST', tripId, { status: trip.status }, { stage: 'AWAITING_HWS' });
+              return { status: 'PENDING_APPROVAL', isFinal: false, stage: 'AWAITING_HWS', decisionId: Number(decRes.lastInsertRowid) };
+            }
+          } else if (user.role === 'HWS') {
+            if (hwsApprovedPrior) {
+              const err = new Error('Head Of WS Part has already approved this request. Awaiting Fleet Operation PIC dispatch.');
+              (err as Error & { status?: number }).status = 400;
+              throw err;
+            }
+            if (!picApprovedPrior) {
+              // Stage 1: Approved by Head Of WS Part, awaiting Fleet Operation PIC
+              const decRes = db
+                .prepare(
+                  `INSERT INTO approval_decisions (trip_request_id, decider_id, decider_role, decision, reason)
+                   VALUES (?, ?, 'HWS', 'APPROVED', ?)`
+                )
+                .run(tripId, user.id, reason ? String(reason).trim() : 'Approved by Head Of WS Part');
+
+              recordAudit(db, user, 'TRIP_STAGE_APPROVED', 'TRIP_REQUEST', tripId, { status: trip.status }, { stage: 'AWAITING_FM' });
+              return { status: 'PENDING_APPROVAL', isFinal: false, stage: 'AWAITING_FM', decisionId: Number(decRes.lastInsertRowid) };
+            }
+          }
+        }
+
+        // Final Approval reached (both approved, or Admin delegation, or no HWS account exists)
+        const isDelegated = user.role === 'ADM' && hasHwsAccount && (!picApprovedPrior || !hwsApprovedPrior);
+        const finalReason = isDelegated
+          ? `${reason ? String(reason).trim() + ' ' : ''}[Approved & Delegated by Admin]`
+          : reason ? String(reason).trim() : 'Approved and dispatched';
+
+        const decRes = db
+          .prepare(
+            `INSERT INTO approval_decisions (trip_request_id, decider_id, decider_role, decision, reason)
+             VALUES (?, ?, ?, 'APPROVED', ?)`
+          )
+          .run(tripId, user.id, user.role, finalReason);
+
         const targetVehicleId = vehicle_id ? Number(vehicle_id) : trip.vehicle_id;
         const vConflict = checkVehicleConflict(db, targetVehicleId, trip.start_time, trip.end_time, undefined, tripId);
         if (vConflict.hasConflict) {
@@ -1961,7 +2044,7 @@ export function createApp() {
             targetVehicleId,
             targetDriverProfileId,
             user.id,
-            reason ? String(reason).trim() : 'Approved and dispatched',
+            finalReason,
             trip.start_time,
             trip.end_time
           );
@@ -1974,30 +2057,89 @@ export function createApp() {
           status: 'APPROVED',
           vehicle_id: targetVehicleId,
           driver_profile_id: targetDriverProfileId,
+          is_delegated: isDelegated,
         });
 
-        return { decisionId, status: 'APPROVED', assignedDriverUserId };
+        return { status: 'APPROVED', isFinal: true, assignedDriverUserId, decisionId: Number(decRes.lastInsertRowid), isDelegated };
       });
 
-      // Send Push + In-App Notifications (Revision #5)
-      sendUserNotification(db, {
-        userId: trip.requester_id,
-        triggerType: `TRIP_${outcome.status}`,
-        title: outcome.status === 'APPROVED' ? 'Booking Approved & Dispatched' : 'Booking Request Rejected',
-        body:
-          outcome.status === 'APPROVED'
-            ? `Your booking "${trip.purpose}" (${trip.origin} -> ${trip.destination}) has been approved.`
-            : `Your booking "${trip.purpose}" was rejected. Reason: ${reason}`,
-        relatedEntityType: 'TRIP_REQUEST',
-        relatedEntityId: tripId,
-      });
-
-      if (outcome.assignedDriverUserId) {
+      // Notification Dispatch (Stage-aware and role-aware)
+      if (outcome.status === 'REJECTED') {
         sendUserNotification(db, {
-          userId: outcome.assignedDriverUserId,
-          triggerType: 'DISPATCH_ORDER_ASSIGNED',
-          title: 'New Dispatch Order Assigned',
-          body: `Dispatch order for "${trip.purpose}" (${trip.origin} -> ${trip.destination}) starting at ${trip.start_time}. Please acknowledge in the Driver PWA.`,
+          userId: trip.requester_id,
+          triggerType: 'TRIP_REJECTED',
+          title: 'Booking Request Rejected',
+          body: `Your booking "${trip.purpose}" was rejected. Reason: ${reason}`,
+          relatedEntityType: 'TRIP_REQUEST',
+          relatedEntityId: tripId,
+        });
+        notifyAdmins(db, {
+          triggerType: 'TRIP_REJECTED',
+          title: 'Trip Request Rejected',
+          body: `${user.nickname} (${user.role}) rejected Trip #${tripId}. Reason: ${reason}`,
+          relatedEntityType: 'TRIP_REQUEST',
+          relatedEntityId: tripId,
+        });
+      } else if (!outcome.isFinal && outcome.stage === 'AWAITING_HWS') {
+        // Fleet Operation PIC approved; alert Head Of WS Part
+        notifyRole(db, 'HWS', {
+          triggerType: 'TRIP_NEEDS_HWS_APPROVAL',
+          title: 'Action Required: Head Of WS Part Approval',
+          body: `Fleet Operation PIC approved Trip #${tripId} ("${trip.purpose}"). Your Head Of WS Part authorization is required.`,
+          relatedEntityType: 'TRIP_REQUEST',
+          relatedEntityId: tripId,
+        });
+        sendUserNotification(db, {
+          userId: trip.requester_id,
+          triggerType: 'TRIP_STAGE_APPROVED',
+          title: 'Booking Approved by Fleet Operation PIC',
+          body: `Your booking "${trip.purpose}" was approved by Fleet Operation PIC, awaiting Head Of WS Part review.`,
+          relatedEntityType: 'TRIP_REQUEST',
+          relatedEntityId: tripId,
+        });
+      } else if (!outcome.isFinal && outcome.stage === 'AWAITING_FM') {
+        // Head Of WS Part approved; alert Fleet Operation PIC
+        notifyRole(db, 'FM', {
+          triggerType: 'TRIP_NEEDS_PIC_APPROVAL',
+          title: 'Action Required: Fleet Operation PIC Dispatch',
+          body: `Head Of WS Part approved Trip #${tripId} ("${trip.purpose}"). Please confirm vehicle and driver dispatch.`,
+          relatedEntityType: 'TRIP_REQUEST',
+          relatedEntityId: tripId,
+        });
+        sendUserNotification(db, {
+          userId: trip.requester_id,
+          triggerType: 'TRIP_STAGE_APPROVED',
+          title: 'Booking Approved by Head Of WS Part',
+          body: `Your booking "${trip.purpose}" was approved by Head Of WS Part, awaiting Fleet Operation PIC dispatch.`,
+          relatedEntityType: 'TRIP_REQUEST',
+          relatedEntityId: tripId,
+        });
+      } else if (outcome.status === 'APPROVED') {
+        // Final Approval & Dispatch
+        sendUserNotification(db, {
+          userId: trip.requester_id,
+          triggerType: 'TRIP_APPROVED',
+          title: 'Booking Approved & Dispatched',
+          body: `Your booking "${trip.purpose}" (${trip.origin} -> ${trip.destination}) has been approved and dispatched.`,
+          relatedEntityType: 'TRIP_REQUEST',
+          relatedEntityId: tripId,
+        });
+
+        if (outcome.assignedDriverUserId) {
+          sendUserNotification(db, {
+            userId: outcome.assignedDriverUserId,
+            triggerType: 'DISPATCH_ORDER_ASSIGNED',
+            title: 'New Dispatch Order Assigned',
+            body: `Dispatch order for "${trip.purpose}" (${trip.origin} -> ${trip.destination}) starting at ${trip.start_time}. Please acknowledge in the Driver PWA.`,
+            relatedEntityType: 'TRIP_REQUEST',
+            relatedEntityId: tripId,
+          });
+        }
+
+        notifyAdmins(db, {
+          triggerType: 'TRIP_APPROVED_AND_DISPATCHED',
+          title: 'Trip Request Dispatched',
+          body: `Trip #${tripId} ("${trip.purpose}") is fully approved and dispatched.`,
           relatedEntityType: 'TRIP_REQUEST',
           relatedEntityId: tripId,
         });
@@ -2005,7 +2147,14 @@ export function createApp() {
 
       const decisions = db.prepare('SELECT * FROM approval_decisions WHERE trip_request_id = ? ORDER BY id ASC').all(tripId);
       const updatedTrip = db.prepare('SELECT * FROM trip_requests WHERE id = ?').get(tripId);
-      res.json({ trip: updatedTrip, decisions });
+      res.json({
+        trip: updatedTrip,
+        decisions,
+        status: outcome.status,
+        stage: (outcome as any).stage,
+        isFinal: outcome.isFinal,
+        isDelegated: Boolean((outcome as any).isDelegated),
+      });
     } catch (err) {
       const status = (err as Error & { status?: number }).status || 400;
       res.status(status).json({ error: (err as Error).message });
@@ -2442,7 +2591,7 @@ export function createApp() {
     }
 
     const vehicle = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(trip.vehicle_id) as
-      | { id: number; current_odometer: number; energy_type: string }
+      | { id: number; current_odometer: number; energy_type: string; registration_plate: string }
       | undefined;
     if (!vehicle) {
       res.status(404).json({ error: 'Vehicle not found' });
@@ -2510,6 +2659,14 @@ export function createApp() {
       triggerType: 'TRIP_STARTED',
       title: 'Your Trip Has Started',
       body: `Driver has started trip "${trip.purpose}" (Start Odometer: ${odo} km).`,
+      relatedEntityType: 'TRIP_REQUEST',
+      relatedEntityId: tripId,
+    });
+
+    notifyAdmins(db, {
+      triggerType: 'TRIP_STARTED',
+      title: 'Fleet Vehicle En Route',
+      body: `Trip #${tripId} ("${trip.purpose}") has departed with vehicle ${vehicle.registration_plate} (Start Odometer: ${odo} km).`,
       relatedEntityType: 'TRIP_REQUEST',
       relatedEntityId: tripId,
     });
@@ -2627,6 +2784,14 @@ export function createApp() {
       triggerType: 'TRIP_COMPLETED',
       title: 'Trip Completed',
       body: `Trip "${trip.purpose}" is complete. Distance traveled: ${distanceKm} km.`,
+      relatedEntityType: 'TRIP_REQUEST',
+      relatedEntityId: tripId,
+    });
+
+    notifyAdmins(db, {
+      triggerType: 'TRIP_COMPLETED',
+      title: 'Trip Completed & Returned',
+      body: `Trip #${tripId} ("${trip.purpose}") has completed (${distanceKm} km). Returned to ${parking_return_note || 'HQ Pool'}.`,
       relatedEntityType: 'TRIP_REQUEST',
       relatedEntityId: tripId,
     });
@@ -4260,7 +4425,7 @@ export function createApp() {
     }
   });
 
-  // Comprehensive Multi-Section Executive Report Generator (HTML/PDF Printable Document)
+  // Comprehensive 1-Page Executive Report Generator (Concise Summary, IDR Ledger, Digital Signatures)
   app.get('/api/reports/executive-pdf', requireAuth, requireRoles(['ADM', 'FM', 'HWS']), (_req: Request, res: Response) => {
     const db = getDb();
     const completedTrips = db
@@ -4287,33 +4452,13 @@ export function createApp() {
       .all() as any[];
 
     const vehicles = db.prepare("SELECT * FROM vehicles WHERE status != 'Retired' ORDER BY id ASC").all() as any[];
-    const drivers = db.prepare("SELECT * FROM driver_profiles ORDER BY id ASC").all() as any[];
 
     let totalDurationMinutes = 0;
-    const tripsWithDuration = completedTrips.map((t) => {
+    completedTrips.forEach((t) => {
       const s = new Date(t.actual_start_time || t.start_time).getTime();
       const e = new Date(t.actual_end_time || t.end_time).getTime();
       const durationMin = Math.max(1, Math.round((e - s) / 60000));
       totalDurationMinutes += durationMin;
-      const hours = Math.floor(durationMin / 60);
-      const mins = durationMin % 60;
-
-      let paxList = t.passenger_nickname || 'Employee';
-      if (t.passengers_json) {
-        try {
-          const parsed = JSON.parse(t.passengers_json);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            paxList = parsed.map((p: any, idx: number) => `Pax ${idx + 1}: ${p.nickname || 'Guest'}`).join(', ');
-          }
-        } catch {}
-      }
-
-      return {
-        ...t,
-        durationMinutes: durationMin,
-        durationFormatted: `${hours}h ${mins}m`,
-        paxList,
-      };
     });
 
     const totalHours = Math.floor(totalDurationMinutes / 60);
@@ -4328,8 +4473,10 @@ export function createApp() {
     const totalCostIdr = fuelAgg.s + evAgg.s + tollAgg.s + parkingAgg.s + maintAgg.s;
 
     const formatIdr = (num: number) => `Rp ${Number(num || 0).toLocaleString('id-ID')}`;
+    const generatedDateStr = new Date().toLocaleDateString('id-ID', { dateStyle: 'full' });
+    const auditTimestamp = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 
-    // Per-vehicle metrics
+    // Per-vehicle compact summary
     const vehicleRowsHtml = vehicles.map((v) => {
       const vTrips = completedTrips.filter((t) => t.vehicle_id === v.id);
       const vKm = vTrips.reduce((acc, t) => acc + (t.distance_km || 0), 0);
@@ -4339,63 +4486,17 @@ export function createApp() {
         ? db.prepare('SELECT COALESCE(SUM(kwh_added), 0) as q, COALESCE(SUM(cost), 0) as c FROM ev_charging_records WHERE vehicle_id = ?').get(v.id) as { q: number; c: number }
         : db.prepare('SELECT COALESCE(SUM(litres), 0) as q, COALESCE(SUM(cost), 0) as c FROM fuel_records WHERE vehicle_id = ?').get(v.id) as { q: number; c: number };
 
-      const efficiency = isEv
-        ? (vKm > 0 && energyAgg.q > 0 ? `${((energyAgg.q / vKm) * 100).toFixed(1)} kWh/100km` : '—')
-        : (energyAgg.q > 0 ? `${(vKm / energyAgg.q).toFixed(1)} km/L` : '—');
-
       return `
         <tr>
           <td><strong>${v.registration_plate}</strong></td>
-          <td>${v.make} ${v.model} (${v.car_type})</td>
+          <td>${v.make} ${v.model}</td>
           <td><span class="badge ${isEv ? 'badge-ev' : 'badge-gas'}">${v.energy_type}</span></td>
           <td class="mono right">${startOdo.toLocaleString('id-ID')} km</td>
           <td class="mono right">${Number(v.current_odometer || 0).toLocaleString('id-ID')} km</td>
-          <td class="mono right font-bold">${vKm.toLocaleString('id-ID')} km</td>
+          <td class="mono right font-bold text-blue">${vKm.toLocaleString('id-ID')} km</td>
           <td class="center font-bold">${vTrips.length}</td>
           <td class="mono right">${energyAgg.q > 0 ? `${energyAgg.q.toFixed(1)} ${isEv ? 'kWh' : 'L'}` : '0'}</td>
           <td class="mono right font-bold">${formatIdr(energyAgg.c)}</td>
-          <td class="center mono">${efficiency}</td>
-        </tr>
-      `;
-    }).join('');
-
-    // Per-driver metrics
-    const driverRowsHtml = drivers.map((d) => {
-      const dTrips = tripsWithDuration.filter((t) => t.driver_profile_id === d.id || t.preferred_driver_id === d.id);
-      const dMin = dTrips.reduce((acc, t) => acc + t.durationMinutes, 0);
-      const dHours = Math.floor(dMin / 60);
-      const dRemainMin = dMin % 60;
-      const dKm = dTrips.reduce((acc, t) => acc + (t.distance_km || 0), 0);
-      const dExpenses = db.prepare("SELECT COALESCE(SUM(amount), 0) as s FROM expenses WHERE description LIKE ?").get(`%${d.full_name}%`) as { s: number };
-
-      return `
-        <tr>
-          <td><strong>${d.full_name}</strong></td>
-          <td class="mono">${d.licence_number} (Exp: ${d.licence_expiry || '—'})</td>
-          <td class="center font-bold">${dTrips.length}</td>
-          <td class="font-bold text-green">${dHours}h ${dRemainMin}m</td>
-          <td class="mono right font-bold">${dKm.toLocaleString('id-ID')} km</td>
-          <td class="mono right">${formatIdr(dExpenses.s)}</td>
-          <td><span class="badge ${d.availability_status === 'Active' ? 'badge-ev' : 'badge-neutral'}">${d.availability_status}</span></td>
-        </tr>
-      `;
-    }).join('');
-
-    // Trip Manifest Log rows
-    const tripRowsHtml = tripsWithDuration.map((t) => {
-      return `
-        <tr>
-          <td class="mono">#${t.id}</td>
-          <td class="mono" style="font-size:11px;">${(t.actual_start_time || t.start_time).slice(0, 16).replace('T', ' ')}</td>
-          <td><strong>${t.registration_plate}</strong><br/><span style="font-size:11px;color:#64748b;">${t.make} ${t.model}</span></td>
-          <td><strong>${t.driver_name}</strong></td>
-          <td>${t.requester_nickname} <span style="color:#64748b;font-size:11px;">(${t.requester_department || 'General'})</span></td>
-          <td style="font-size:11.5px;max-width:140px;">${t.paxList}</td>
-          <td>${t.origin || 'HQ Pool'} ➔ <strong>${t.destination}</strong><br/><span style="font-size:11px;color:#64748b;">${t.purpose}</span></td>
-          <td class="mono right">${t.start_odometer !== null ? `${t.start_odometer.toLocaleString('id-ID')} km` : '—'}</td>
-          <td class="mono right">${t.end_odometer !== null ? `${t.end_odometer.toLocaleString('id-ID')} km` : '—'}</td>
-          <td class="mono right font-bold">${t.distance_km || 0} km</td>
-          <td class="font-bold text-green">${t.durationFormatted}</td>
         </tr>
       `;
     }).join('');
@@ -4407,64 +4508,69 @@ export function createApp() {
   <meta charset="UTF-8">
   <title>GalaxyFleet Executive Management Report</title>
   <style>
-    @page { size: A4 landscape; margin: 12mm; }
+    @page { size: A4 portrait; margin: 8mm 10mm; }
+    * { box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       color: #0f172a;
       background: #f8fafc;
       margin: 0;
-      padding: 24px;
-      line-height: 1.45;
+      padding: 12px;
+      font-size: 11px;
+      line-height: 1.35;
     }
     .report-wrap {
-      max-width: 1240px;
+      max-width: 820px;
       margin: 0 auto;
       background: #ffffff;
       border: 1px solid #cbd5e1;
-      border-radius: 12px;
-      padding: 32px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+      border-radius: 8px;
+      padding: 18px 22px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+      page-break-inside: avoid;
     }
     .header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 2.5px solid #0072de;
-      padding-bottom: 18px;
-      margin-bottom: 22px;
+      border-bottom: 2px solid #0072de;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
     }
-    .brand-title { font-size: 24px; font-weight: 800; color: #0072de; margin: 0; letter-spacing: -0.5px; }
-    .brand-subtitle { font-size: 13px; color: #64748b; margin-top: 4px; font-weight: 500; }
+    .brand-title { font-size: 19px; font-weight: 800; color: #0072de; margin: 0; letter-spacing: -0.3px; }
+    .brand-subtitle { font-size: 11px; color: #64748b; margin-top: 2px; font-weight: 500; }
     .kpi-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 14px;
-      margin-bottom: 24px;
+      gap: 10px;
+      margin-bottom: 14px;
     }
     .kpi-card {
       background: #f8fafc;
       border: 1.5px solid #e2e8f0;
-      border-radius: 10px;
-      padding: 14px 16px;
+      border-radius: 8px;
+      padding: 8px 10px;
     }
-    .kpi-label { font-size: 10.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
-    .kpi-val { font-size: 21px; font-weight: 800; color: #0f172a; margin-top: 4px; }
+    .kpi-label { font-size: 9.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+    .kpi-val { font-size: 17px; font-weight: 800; color: #0f172a; margin-top: 2px; }
     .section-title {
-      font-size: 16px;
+      font-size: 12px;
       font-weight: 800;
       color: #0f172a;
-      border-left: 4px solid #0072de;
-      padding-left: 10px;
-      margin: 26px 0 12px 0;
+      border-left: 3.5px solid #0072de;
+      padding-left: 8px;
+      margin: 12px 0 6px 0;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 12px;
-      margin-bottom: 18px;
+      font-size: 10.5px;
+      margin-bottom: 10px;
     }
     th, td {
-      padding: 8px 10px;
+      padding: 4px 6px;
       border: 1px solid #e2e8f0;
       vertical-align: middle;
     }
@@ -4473,8 +4579,8 @@ export function createApp() {
       font-weight: 800;
       color: #334155;
       text-transform: uppercase;
-      font-size: 10px;
-      letter-spacing: 0.03em;
+      font-size: 9.5px;
+      letter-spacing: 0.02em;
     }
     tr:nth-child(even) td { background: #fafafa; }
     .right { text-align: right; }
@@ -4485,46 +4591,63 @@ export function createApp() {
     .text-green { color: #059669; }
     .badge {
       display: inline-block;
-      padding: 2px 7px;
+      padding: 1px 6px;
       border-radius: 9999px;
-      font-size: 10px;
+      font-size: 9.5px;
       font-weight: 800;
     }
     .badge-ev { background: #ecfdf5; color: #059669; }
     .badge-gas { background: #e0edff; color: #0072de; }
-    .badge-neutral { background: #f1f5f9; color: #475569; }
     .sign-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 20px;
-      margin-top: 36px;
-      padding-top: 20px;
+      gap: 10px;
+      margin-top: 12px;
+      padding-top: 10px;
       border-top: 1px dashed #cbd5e1;
     }
     .sign-box {
-      border: 1px solid #e2e8f0;
+      border: 1.5px solid #dbeafe;
       border-radius: 8px;
-      padding: 16px;
+      padding: 10px;
       text-align: center;
-      background: #fdfdfd;
+      background: #f8fafc;
     }
-    .sign-line {
-      margin-top: 50px;
-      border-top: 1.5px solid #0f172a;
-      padding-top: 6px;
-      font-weight: 700;
-      font-size: 12px;
+    .sign-role {
+      font-size: 11.5px;
+      font-weight: 800;
+      color: #0f172a;
+      margin-top: 2px;
+    }
+    .sign-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #ecfdf5;
+      border: 1.5px solid #10b981;
+      color: #065f46;
+      font-weight: 800;
+      font-size: 10.5px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      margin: 8px 0 4px 0;
+      letter-spacing: 0.04em;
+    }
+    .sign-meta {
+      font-size: 9px;
+      color: #64748b;
+      font-family: ui-monospace, SFMono-Regular, monospace;
     }
     .no-print {
-      margin-bottom: 16px;
+      margin-bottom: 12px;
       display: flex;
       justify-content: flex-end;
-      gap: 10px;
+      gap: 8px;
     }
     .btn {
-      padding: 10px 18px;
-      border-radius: 8px;
-      font-size: 13px;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 12px;
       font-weight: 700;
       cursor: pointer;
       border: none;
@@ -4540,46 +4663,46 @@ export function createApp() {
 </head>
 <body>
   <div class="no-print">
-    <button class="btn btn-blue" onclick="window.print()">🖨️ Print / Save as PDF</button>
+    <button class="btn btn-blue" onclick="window.print()">🖨️ Print / Save as 1-Page PDF</button>
   </div>
   <div class="report-wrap">
     <div class="header">
       <div>
         <h1 class="brand-title">GALAXYFLEET EXECUTIVE MANAGEMENT REPORT</h1>
-        <div class="brand-subtitle">Official Fleet Operations, Vehicle Odometer Audit & Financial Ledger • Currency: Indonesian Rupiah (IDR)</div>
+        <div class="brand-subtitle">Official Fleet Operations & Financial Summary • Currency: Indonesian Rupiah (IDR)</div>
       </div>
       <div style="text-align:right;">
-        <div style="font-size:12px;font-weight:700;color:#0f172a;">Generated: ${new Date().toLocaleDateString('id-ID', { dateStyle: 'full' })}</div>
-        <div style="font-size:11px;color:#94a3b8;font-family:monospace;">STRICTLY CONFIDENTIAL</div>
+        <div style="font-size:11px;font-weight:700;color:#0f172a;">Generated: ${generatedDateStr}</div>
+        <div style="font-size:9.5px;color:#0072de;font-weight:800;letter-spacing:0.04em;">DIGITALLY CERTIFIED • STRICTLY CONFIDENTIAL</div>
       </div>
     </div>
 
-    <!-- Section 1: Executive KPI Summary -->
+    <!-- 1. Executive KPI Summary -->
     <div class="kpi-grid">
       <div class="kpi-card">
         <div class="kpi-label">Completed Trips</div>
         <div class="kpi-val text-blue">${completedTrips.length} Trips</div>
-        <div style="font-size:11px;color:#64748b;margin-top:2px;">Across ${vehicles.length} Operational Cars</div>
+        <div style="font-size:9.5px;color:#64748b;margin-top:2px;">Across ${vehicles.length} Operational Vehicles</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Cumulative Driving Time</div>
         <div class="kpi-val text-green">${totalHours}h ${totalMins}m</div>
-        <div style="font-size:11px;color:#64748b;margin-top:2px;">Total Driver Road Time</div>
+        <div style="font-size:9.5px;color:#64748b;margin-top:2px;">Total Driver Road Time</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Total Distance Traveled</div>
         <div class="kpi-val mono">${totalKm.toLocaleString('id-ID')} km</div>
-        <div style="font-size:11px;color:#64748b;margin-top:2px;">Verified Fleet Kilometers</div>
+        <div style="font-size:9.5px;color:#64748b;margin-top:2px;">Verified Fleet Kilometers</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Total Operating Expenditure</div>
-        <div class="kpi-val mono text-blue" style="font-size:18px;">${formatIdr(totalCostIdr)}</div>
-        <div style="font-size:11px;color:#64748b;margin-top:2px;">Fuel, EV, Toll, Parking & Maint</div>
+        <div class="kpi-label">Total Operational Expenditure</div>
+        <div class="kpi-val mono text-blue" style="font-size:15px;">${formatIdr(totalCostIdr)}</div>
+        <div style="font-size:9.5px;color:#64748b;margin-top:2px;">Fuel, EV, Toll, Parking & Maint</div>
       </div>
     </div>
 
-    <!-- Section 2: Vehicle Odometer & Mileage Audit Table -->
-    <div class="section-title">1. Vehicle Odometer & Mileage Audit Table</div>
+    <!-- 2. Vehicle Fleet & Energy Audit Summary -->
+    <div class="section-title">1. Vehicle Fleet & Energy Audit Summary</div>
     <table>
       <thead>
         <tr>
@@ -4590,37 +4713,17 @@ export function createApp() {
           <th class="right">Current Odo</th>
           <th class="right">Traveled</th>
           <th class="center">Trips</th>
-          <th class="right">Fuel/Energy</th>
+          <th class="right">Fuel / Energy</th>
           <th class="right">Cost (IDR)</th>
-          <th class="center">Efficiency</th>
         </tr>
       </thead>
       <tbody>
-        ${vehicleRowsHtml || '<tr><td colspan="10" class="center">No vehicles registered yet.</td></tr>'}
+        ${vehicleRowsHtml || '<tr><td colspan="9" class="center">No vehicles registered yet.</td></tr>'}
       </tbody>
     </table>
 
-    <!-- Section 3: Driver Performance & Working Hours Table -->
-    <div class="section-title">2. Driver Working Hours & Performance Table</div>
-    <table>
-      <thead>
-        <tr>
-          <th>Driver Name</th>
-          <th>Driving License (SIM)</th>
-          <th class="center">Trips</th>
-          <th>Driving Hours</th>
-          <th class="right">Total Distance</th>
-          <th class="right">Reimbursements</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${driverRowsHtml || '<tr><td colspan="7" class="center">No drivers registered yet.</td></tr>'}
-      </tbody>
-    </table>
-
-    <!-- Section 4: Energy & Operating Expense Ledger in IDR -->
-    <div class="section-title">3. Comprehensive Energy & Expense Ledger (IDR)</div>
+    <!-- 3. Comprehensive Energy & Operating Expense Ledger in IDR -->
+    <div class="section-title">2. Comprehensive Energy & Expense Ledger (IDR)</div>
     <table>
       <thead>
         <tr>
@@ -4663,47 +4766,30 @@ export function createApp() {
         </tr>
         <tr style="background:#f1f5f9;font-weight:800;">
           <td colspan="3">GRAND TOTAL OPERATIONAL EXPENDITURE</td>
-          <td class="mono right text-blue" style="font-size:14px;">${formatIdr(totalCostIdr)}</td>
+          <td class="mono right text-blue" style="font-size:12.5px;">${formatIdr(totalCostIdr)}</td>
         </tr>
       </tbody>
     </table>
 
-    <!-- Section 5: Trip Manifest Log -->
-    <div class="section-title">4. Chronological Trip Manifest Log</div>
-    <table>
-      <thead>
-        <tr>
-          <th>Trip</th>
-          <th>Date & Time</th>
-          <th>Vehicle</th>
-          <th>Driver</th>
-          <th>Requester</th>
-          <th>Passengers</th>
-          <th>Route & Purpose</th>
-          <th class="right">Start Odo</th>
-          <th class="right">End Odo</th>
-          <th class="right">Distance</th>
-          <th>Duration</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${tripRowsHtml || '<tr><td colspan="11" class="center">No completed trips on record.</td></tr>'}
-      </tbody>
-    </table>
-
-    <!-- Section 6: Executive Sign-off Signatures -->
+    <!-- 4. Digital Sign-off Certification (APPROVED BY SYSTEM) -->
     <div class="sign-grid">
       <div class="sign-box">
-        <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:700;">Prepared By</div>
-        <div class="sign-line">Fleet Operations Dispatcher</div>
+        <div style="font-size:9.5px;color:#64748b;text-transform:uppercase;font-weight:800;">Prepared & Dispatched By</div>
+        <div class="sign-role">Fleet Operation PIC</div>
+        <div class="sign-badge">✓ APPROVED BY SYSTEM</div>
+        <div class="sign-meta">Digital Audit: SYS-PIC-CERTIFIED<br/>Timestamp: ${auditTimestamp}</div>
       </div>
       <div class="sign-box">
-        <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:700;">Reviewed By</div>
-        <div class="sign-line">Head of Workplace Services (HWS)</div>
+        <div style="font-size:9.5px;color:#64748b;text-transform:uppercase;font-weight:800;">Reviewed & Authorized By</div>
+        <div class="sign-role">Head Of WS Part</div>
+        <div class="sign-badge">✓ APPROVED BY SYSTEM</div>
+        <div class="sign-meta">Digital Audit: SYS-HWS-CERTIFIED<br/>Timestamp: ${auditTimestamp}</div>
       </div>
       <div class="sign-box">
-        <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:700;">Approved By</div>
-        <div class="sign-line">Executive General Manager</div>
+        <div style="font-size:9.5px;color:#64748b;text-transform:uppercase;font-weight:800;">Final Executive Sign-Off</div>
+        <div class="sign-role">Executive General Manager</div>
+        <div class="sign-badge">✓ APPROVED BY SYSTEM</div>
+        <div class="sign-meta">Digital Audit: SYS-EGM-CERTIFIED<br/>Timestamp: ${auditTimestamp}</div>
       </div>
     </div>
   </div>
@@ -4717,7 +4803,7 @@ export function createApp() {
     }
 
     const pdfBuffer = Buffer.from(
-      `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>\nendobj\n5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n4 0 obj\n<< /Length 950 >>\nstream\nBT\n/F1 18 Tf 50 780 Td (GALAXYFLEET EXECUTIVE MANAGEMENT REPORT) Tj\n/F2 10 Tf 0 -20 Td (Executive Briefing | Currency: Indonesian Rupiah [IDR]) Tj\n/F1 12 Tf 0 -30 Td (1. OPERATIONAL FLEET SUMMARY) Tj\n/F2 10 Tf 0 -18 Td (- Total Operational Vehicles: ${vehicles.length} cars) Tj\n0 -15 Td (- Total Completed Trips: ${completedTrips.length} trips) Tj\n0 -15 Td (- Total Cumulative Trip Duration: ${totalHours} Hours ${totalMins} Minutes) Tj\n0 -15 Td (- Total Distance Traveled: ${totalKm} km) Tj\n0 -15 Td (- Total Operational Expenditure: Rp ${Number(totalCostIdr).toLocaleString('id-ID')}) Tj\n/F1 12 Tf 0 -30 Td (2. ENERGY & EXPENSE BREAKDOWN IN IDR) Tj\n/F2 10 Tf 0 -18 Td (- Gasoline: ${fuelAgg.l} Litres | Cost: Rp ${Number(fuelAgg.s).toLocaleString('id-ID')}) Tj\n0 -15 Td (- Electric EV: ${evAgg.k} kWh | Cost: Rp ${Number(evAgg.s).toLocaleString('id-ID')}) Tj\n0 -15 Td (- Tollway Operational Fees: Rp ${Number(tollAgg.s).toLocaleString('id-ID')}) Tj\n0 -15 Td (- Parking Facility Fees: Rp ${Number(parkingAgg.s).toLocaleString('id-ID')}) Tj\n/F1 10 Tf 0 -40 Td (CONFIDENTIAL - STRICTLY FOR COMPANY INTERNAL EXECUTIVE REVIEW) Tj\nET\nendstream\nendobj\nxref\n0 7\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000300 00000 n \n0000000210 00000 n \n0000000255 00000 n \ntrailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n1350\n%%EOF\n`,
+      `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>\nendobj\n5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n4 0 obj\n<< /Length 1100 >>\nstream\nBT\n/F1 16 Tf 50 790 Td (GALAXYFLEET EXECUTIVE MANAGEMENT REPORT) Tj\n/F2 9.5 Tf 0 -18 Td (Executive Briefing - One-Page Certified Audit | Currency: Indonesian Rupiah [IDR]) Tj\n/F1 11 Tf 0 -26 Td (1. OPERATIONAL & FINANCIAL KPI OVERVIEW) Tj\n/F2 9.5 Tf 0 -16 Td (- Total Operational Vehicles: ${vehicles.length} cars | Completed Trips: ${completedTrips.length} trips) Tj\n0 -14 Td (- Total Cumulative Trip Duration: ${totalHours} Hours ${totalMins} Minutes) Tj\n0 -14 Td (- Total Distance Traveled: ${totalKm} km) Tj\n0 -14 Td (- Total Operational Expenditure: Rp ${Number(totalCostIdr).toLocaleString('id-ID')}) Tj\n/F1 11 Tf 0 -26 Td (2. ENERGY & EXPENSE BREAKDOWN IN IDR) Tj\n/F2 9.5 Tf 0 -16 Td (- Gasoline Fuel: ${fuelAgg.l.toFixed(1)} Litres | Cost: Rp ${Number(fuelAgg.s).toLocaleString('id-ID')}) Tj\n0 -14 Td (- Electric EV: ${evAgg.k.toFixed(1)} kWh | Cost: Rp ${Number(evAgg.s).toLocaleString('id-ID')}) Tj\n0 -14 Td (- Highway Tollway Operational Fees: Rp ${Number(tollAgg.s).toLocaleString('id-ID')}) Tj\n0 -14 Td (- Parking Facility Fees: Rp ${Number(parkingAgg.s).toLocaleString('id-ID')}) Tj\n/F1 11 Tf 0 -26 Td (3. DIGITAL SYSTEM AUDIT APPROVALS - NO MANUAL SIGNING) Tj\n/F2 9.5 Tf 0 -16 Td (- Fleet Operation PIC: [APPROVED BY SYSTEM - Digitally Certified]) Tj\n0 -14 Td (- Head Of WS Part: [APPROVED BY SYSTEM - Digitally Certified]) Tj\n0 -14 Td (- Executive General Manager: [APPROVED BY SYSTEM - Digitally Certified]) Tj\n/F1 9 Tf 0 -35 Td (STRICTLY CONFIDENTIAL - AUTHORIZED EXECUTIVE ACCESS ONLY) Tj\nET\nendstream\nendobj\nxref\n0 7\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000300 00000 n \n0000000210 00000 n \n0000000255 00000 n \ntrailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n1420\n%%EOF\n`,
       'utf8'
     );
 

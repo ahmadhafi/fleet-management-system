@@ -393,7 +393,7 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
       expect(checkDrv).toBeUndefined();
     });
 
-    it('generates a comprehensive multi-section executive report with all tables and IDR currency', async () => {
+    it('generates a concise 1-page executive report with summary tables, IDR currency, and digital APPROVED BY SYSTEM seals', async () => {
       const res = await request(app)
         .get('/api/reports/executive-pdf?format=html')
         .set('Authorization', `Bearer ${adminToken}`);
@@ -401,11 +401,16 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
       expect(res.status).toBe(200);
       expect(res.headers['content-type']).toContain('text/html');
       expect(res.text).toContain('GALAXYFLEET EXECUTIVE MANAGEMENT REPORT');
-      expect(res.text).toContain('Vehicle Odometer & Mileage Audit Table');
-      expect(res.text).toContain('Driver Working Hours & Performance Table');
+      expect(res.text).toContain('Vehicle Fleet & Energy Audit Summary');
       expect(res.text).toContain('Comprehensive Energy & Expense Ledger (IDR)');
-      expect(res.text).toContain('Chronological Trip Manifest Log');
       expect(res.text).toContain('Indonesian Rupiah (IDR)');
+      expect(res.text).toContain('Head Of WS Part');
+      expect(res.text).toContain('Fleet Operation PIC');
+      expect(res.text).toContain('Executive General Manager');
+      expect(res.text).toContain('APPROVED BY SYSTEM');
+      expect(res.text).not.toContain('Workplace Service');
+      expect(res.text).not.toContain('Fleet Operation Dispatcher');
+      expect(res.text).not.toContain('Fleet Operations Dispatcher');
     });
 
     it('handles admin system data reset: requires confirmation code and resets operations and odometers', async () => {
@@ -671,6 +676,171 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
       expect(tripsAfter.c).toBe(0);
       expect(bookingsAfter.c).toBe(0);
       expect(assignmentsAfter.c).toBe(0);
+    });
+  });
+
+  describe('Dual-Approval Workflow (Fleet Operation PIC & Head Of WS Part with Admin Delegation)', () => {
+    let picToken: string;
+    let hwsToken: string;
+    let currentAdminToken: string;
+    let currentEmpToken: string;
+
+    beforeAll(async () => {
+      // Login as Admin
+      const adminRes = await request(app)
+        .post('/api/auth/login')
+        .send({ group_username: 'admin', password: 'Admin@123' });
+      expect(adminRes.status).toBe(200);
+      currentAdminToken = adminRes.body.token;
+
+      // Login as Employee
+      const empRes = await request(app)
+        .post('/api/auth/login')
+        .send({ group_username: 'emp_alex', password: 'Emp@123' });
+      expect(empRes.status).toBe(200);
+      currentEmpToken = empRes.body.token;
+
+      // Login as Fleet Operation PIC (FM)
+      const picRes = await request(app)
+        .post('/api/auth/login')
+        .send({ group_username: 'fleetmgr', password: 'Fleet@123' });
+      expect(picRes.status).toBe(200);
+      picToken = picRes.body.token;
+
+      // Login as Head Of WS Part (HWS)
+      const hwsRes = await request(app)
+        .post('/api/auth/login')
+        .send({ group_username: 'hws_head', password: 'Hws@123' });
+      expect(hwsRes.status).toBe(200);
+      hwsToken = hwsRes.body.token;
+    });
+
+    it('requires both PIC and HWS approval when HWS account exists, or can be delegated by Admin', async () => {
+      // 1. Employee submits a trip request
+      const start = new Date(Date.now() + 3600000).toISOString();
+      const end = new Date(Date.now() + 7200000).toISOString();
+      const createRes = await request(app)
+        .post('/api/trips')
+        .set('Authorization', `Bearer ${currentEmpToken}`)
+        .send({
+          vehicle_id: 1,
+          purpose: 'Official Site Inspection Trip',
+          origin: 'HQ Building A',
+          destination: 'Plant Site B',
+          start_time: start,
+          end_time: end,
+        });
+      expect(createRes.status).toBe(201);
+      const tripId = createRes.body.tripId;
+
+      // Verify trip list exposes dual approval metadata
+      const listRes = await request(app)
+        .get('/api/trips')
+        .set('Authorization', `Bearer ${picToken}`);
+      expect(listRes.status).toBe(200);
+      const tripRecord = listRes.body.trips.find((t: any) => t.id === tripId);
+      expect(tripRecord).toBeDefined();
+      expect(tripRecord.requires_dual_approval).toBe(true);
+      expect(tripRecord.pic_approved).toBe(false);
+      expect(tripRecord.hws_approved).toBe(false);
+
+      // 2. Stage 1: Fleet Operation PIC approves
+      const picDecisionRes = await request(app)
+        .post(`/api/trips/${tripId}/decision`)
+        .set('Authorization', `Bearer ${picToken}`)
+        .send({
+          decision: 'APPROVED',
+          reason: 'Vehicle and driver verified by PIC',
+          driver_profile_id: 1,
+        });
+      expect(picDecisionRes.status).toBe(200);
+      expect(picDecisionRes.body.status).toBe('PENDING_APPROVAL');
+      expect(picDecisionRes.body.stage).toBe('AWAITING_HWS');
+      expect(picDecisionRes.body.isFinal).toBe(false);
+
+      // Verify duplicate approval by PIC is rejected
+      const dupPicRes = await request(app)
+        .post(`/api/trips/${tripId}/decision`)
+        .set('Authorization', `Bearer ${picToken}`)
+        .send({ decision: 'APPROVED' });
+      expect(dupPicRes.status).toBe(400);
+
+      // 3. Stage 2: Head Of WS Part approves
+      const hwsDecisionRes = await request(app)
+        .post(`/api/trips/${tripId}/decision`)
+        .set('Authorization', `Bearer ${hwsToken}`)
+        .send({
+          decision: 'APPROVED',
+          reason: 'Budget and WS operational schedule verified by Head Of WS Part',
+        });
+      expect(hwsDecisionRes.status).toBe(200);
+      expect(hwsDecisionRes.body.status).toBe('APPROVED');
+      expect(hwsDecisionRes.body.isFinal).toBe(true);
+
+      // Verify trip is now APPROVED and booking confirmed
+      const db = getDb();
+      const updatedTrip = db.prepare('SELECT status FROM trip_requests WHERE id = ?').get(tripId) as { status: string };
+      expect(updatedTrip.status).toBe('APPROVED');
+
+      const booking = db.prepare('SELECT status FROM bookings WHERE trip_request_id = ?').get(tripId) as { status: string };
+      expect(booking.status).toBe('ACTIVE');
+    });
+
+    it('allows Admin to delegate and immediately dispatch trip without waiting for both parties', async () => {
+      // 1. Employee submits a trip request
+      const start = new Date(Date.now() + 86400000).toISOString();
+      const end = new Date(Date.now() + 90000000).toISOString();
+      const createRes = await request(app)
+        .post('/api/trips')
+        .set('Authorization', `Bearer ${currentEmpToken}`)
+        .send({
+          vehicle_id: 2,
+          purpose: 'Urgent Executive Dispatch',
+          origin: 'HQ Building A',
+          destination: 'Ministry Office',
+          start_time: start,
+          end_time: end,
+        });
+      expect(createRes.status).toBe(201);
+      const tripId = createRes.body.tripId;
+
+      // 2. Admin directly approves with delegation
+      const adminDecisionRes = await request(app)
+        .post(`/api/trips/${tripId}/decision`)
+        .set('Authorization', `Bearer ${currentAdminToken}`)
+        .send({
+          decision: 'APPROVED',
+          reason: 'Executive delegation: authorized directly by System Admin',
+          driver_profile_id: 2,
+        });
+      expect(adminDecisionRes.status).toBe(200);
+      expect(adminDecisionRes.body.status).toBe('APPROVED');
+      expect(adminDecisionRes.body.isFinal).toBe(true);
+      expect(adminDecisionRes.body.isDelegated).toBe(true);
+
+      const db = getDb();
+      const updatedTrip = db.prepare('SELECT status FROM trip_requests WHERE id = ?').get(tripId) as { status: string };
+      expect(updatedTrip.status).toBe('APPROVED');
+    });
+
+    it('supports push notification subscriptions and delivers notifications to role mailboxes', async () => {
+      // Subscribe PIC to web push notifications
+      const subRes = await request(app)
+        .post('/api/notifications/subscribe')
+        .set('Authorization', `Bearer ${picToken}`)
+        .send({
+          endpoint: 'https://updates.push.services.mozilla.com/wpush/v2/test-sub-pic',
+          keys: { p256dh: 'test-p256dh-key', auth: 'test-auth-secret' },
+        });
+      expect(subRes.status).toBe(201);
+      expect(subRes.body.subscribed).toBe(true);
+
+      // Verify notifications endpoint works
+      const notifsRes = await request(app)
+        .get('/api/notifications')
+        .set('Authorization', `Bearer ${picToken}`);
+      expect(notifsRes.status).toBe(200);
+      expect(Array.isArray(notifsRes.body.notifications)).toBe(true);
     });
   });
 });

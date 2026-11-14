@@ -188,6 +188,7 @@ export function App() {
   const [pushSubscribed, setPushSubscribed] = useState<boolean>(false);
   const [showInstallGuideModal, setShowInstallGuideModal] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [showNotificationPromptBanner, setShowNotificationPromptBanner] = useState<boolean>(false);
 
   // Navigation & Presentation State
   const [navSection, setNavSection] = useState<NavSection>('HOME');
@@ -792,26 +793,34 @@ export function App() {
     }
   };
 
-  const handleEnablePushNotifications = async () => {
+  const handleEnablePushNotifications = async (silent: boolean | React.SyntheticEvent = false) => {
+    if (!user) return;
+    const isSilent = silent === true;
     try {
       if ('Notification' in window) {
-        const perm = await Notification.requestPermission();
-        if (perm === 'granted' && 'serviceWorker' in navigator && vapidPublicKey) {
-          const reg = await navigator.serviceWorker.ready;
-          if (reg.pushManager) {
-            const sub = await reg.pushManager
-              .subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
-              })
-              .catch(() => null);
+        let perm = Notification.permission;
+        if (perm !== 'granted') {
+          perm = await Notification.requestPermission();
+        }
+        if (perm === 'granted') {
+          setShowNotificationPromptBanner(false);
+          if ('serviceWorker' in navigator && vapidPublicKey) {
+            const reg = await navigator.serviceWorker.ready;
+            if (reg.pushManager) {
+              const sub = await reg.pushManager
+                .subscribe({
+                  userVisibleOnly: true,
+                  applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
+                })
+                .catch(() => null);
 
-            if (sub) {
-              const subJson = sub.toJSON();
-              await apiRequest('/api/notifications/subscribe', {
-                method: 'POST',
-                body: JSON.stringify(subJson),
-              });
+              if (sub) {
+                const subJson = sub.toJSON();
+                await apiRequest('/api/notifications/subscribe', {
+                  method: 'POST',
+                  body: JSON.stringify(subJson),
+                });
+              }
             }
           }
         }
@@ -824,28 +833,34 @@ export function App() {
           keys: { p256dh: 'BOr9_push_p256dh_key', auth: 'push_auth_secret' },
         }),
       });
-      await apiRequest('/api/notifications/test', {
-        method: 'POST',
-        body: JSON.stringify({
-          body: `Push notifications enabled for ${user.nickname} (${user.role}). You will receive booking updates, reminders, and dispatch alerts.`,
-        }),
-      });
-
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('GalaxyFleet PWA Push Active', {
-          body: 'You will now receive instant booking, reminder, and dispatch notifications.',
-          icon: '/icons/icon.svg',
-        });
-      }
 
       setPushSubscribed(true);
-      setStatusBanner({
-        type: 'success',
-        text: 'Push notifications active. Alerts will appear here and on your lock screen.',
-      });
-      await loadAllData(user);
+
+      if (!isSilent) {
+        await apiRequest('/api/notifications/test', {
+          method: 'POST',
+          body: JSON.stringify({
+            body: `Push notifications enabled for ${user.nickname} (${user.role}). You will receive booking updates, reminders, and dispatch alerts.`,
+          }),
+        });
+
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('GalaxyFleet PWA Push Active', {
+            body: 'You will now receive instant booking, reminder, and dispatch notifications.',
+            icon: '/icons/icon.svg',
+          });
+        }
+
+        setStatusBanner({
+          type: 'success',
+          text: 'Push notifications active. Alerts will appear here and on your device.',
+        });
+        await loadAllData(user);
+      }
     } catch (err: any) {
-      setStatusBanner({ type: 'danger', text: err.message });
+      if (!isSilent) {
+        setStatusBanner({ type: 'danger', text: err.message });
+      }
     }
   };
 
@@ -967,21 +982,53 @@ export function App() {
     });
   };
 
-  // Automatically detect & share user location when logged in, and refresh all users' pins periodically
+  // Automatically detect & share user location when logged in, prompt for notifications, and refresh all users' pins periodically
   useEffect(() => {
     if (!user) return;
     detectAndReportUserLocation(false);
+
+    // If user hasn't chosen notification permission yet, proactively prompt them
+    if ('Notification' in window) {
+      if (Notification.permission === 'default') {
+        setShowNotificationPromptBanner(true);
+      } else if (Notification.permission === 'granted') {
+        handleEnablePushNotifications(true);
+      }
+    }
 
     // If user is on Employee Home or Driver Dispatch and hasn't verified location permission yet, show the location permission popup
     if (!locationPermissionVerified && !myCoords && (user.role === 'EMP' || user.role === 'DRV')) {
       setShowLocationPermissionModal(true);
     }
 
-    const intervalId = window.setInterval(() => {
+    const locInterval = window.setInterval(() => {
       detectAndReportUserLocation(false);
     }, 45 * 1000);
 
-    return () => window.clearInterval(intervalId);
+    // Real-time notification poller (delivers alerts to Driver, User, Admin, Head of WS Part, Fleet Operation PIC)
+    const notifInterval = window.setInterval(async () => {
+      try {
+        const res = await apiRequest('/api/notifications');
+        const list = res.notifications || [];
+        setNotifications((prev) => {
+          const prevIds = new Set(prev.map((n: any) => n.id));
+          const newItems = list.filter((n: any) => !prevIds.has(n.id) && !n.is_read);
+          if (newItems.length > 0 && 'Notification' in window && Notification.permission === 'granted') {
+            for (const item of newItems) {
+              try {
+                new Notification(item.title, { body: item.body, icon: '/icons/icon.svg' });
+              } catch {}
+            }
+          }
+          return list;
+        });
+      } catch {}
+    }, 15 * 1000);
+
+    return () => {
+      window.clearInterval(locInterval);
+      window.clearInterval(notifInterval);
+    };
   }, [user]);
 
   const handleUseCurrentGpsForField = () => {
@@ -1143,24 +1190,31 @@ export function App() {
   const handleAdminTripDecision = async (decision: 'APPROVED' | 'REJECTED') => {
     if (!dispatchModalTrip) return;
     try {
-      await apiRequest(`/api/trips/${dispatchModalTrip.id}/decision`, {
+      const res = await apiRequest(`/api/trips/${dispatchModalTrip.id}/decision`, {
         method: 'POST',
         body: JSON.stringify({
           decision,
-          reason: dispatchDecisionReason || (decision === 'APPROVED' ? 'Approved and dispatched by Admin' : ''),
+          reason: dispatchDecisionReason || (decision === 'APPROVED' ? `Approved by ${user.role}` : ''),
           vehicle_id: Number(dispatchVehicleId || dispatchModalTrip.vehicle_id),
           driver_profile_id: dispatchDriverId ? Number(dispatchDriverId) : null,
         }),
       });
       setDispatchModalTrip(null);
       setDispatchDecisionReason('');
-      setStatusBanner({
-        type: 'success',
-        text:
-          decision === 'APPROVED'
-            ? `Trip #${dispatchModalTrip.id} approved and dispatched!`
-            : `Trip #${dispatchModalTrip.id} rejected and vehicle schedule slot released.`,
-      });
+      if (res.status === 'PENDING_APPROVAL') {
+        setStatusBanner({
+          type: 'success',
+          text: `Trip #${dispatchModalTrip.id} approved by ${user.role === 'FM' ? 'Fleet Operation PIC' : 'Head Of WS Part'}! Awaiting second approval to finalize dispatch.`,
+        });
+      } else {
+        setStatusBanner({
+          type: 'success',
+          text:
+            decision === 'APPROVED'
+              ? `Trip #${dispatchModalTrip.id} fully approved and dispatched!`
+              : `Trip #${dispatchModalTrip.id} rejected and vehicle schedule slot released.`,
+        });
+      }
       await loadAllData(user);
     } catch (err: any) {
       setStatusBanner({ type: 'danger', text: err.message });
@@ -1767,6 +1821,27 @@ export function App() {
               <div className="type-caption">{dispatchModalTrip.origin} → {dispatchModalTrip.destination}</div>
               <div className="type-caption">{dispatchModalTrip.requester_name} ({dispatchModalTrip.department_name})</div>
             </div>
+
+            {dispatchModalTrip.requires_dual_approval && (
+              <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#eff6ff', border: '1.5px solid #bfdbfe', marginBottom: '12px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: '#1e40af', textTransform: 'uppercase', marginBottom: '4px' }}>Dual-Approval Requirement</div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '11.5px' }}>
+                  <span style={{ color: dispatchModalTrip.pic_approved ? '#059669' : '#64748b', fontWeight: 700 }}>
+                    {dispatchModalTrip.pic_approved ? '✓ Fleet Operation PIC: Approved' : '⏳ Fleet Operation PIC: Pending'}
+                  </span>
+                  <span>•</span>
+                  <span style={{ color: dispatchModalTrip.hws_approved ? '#059669' : '#64748b', fontWeight: 700 }}>
+                    {dispatchModalTrip.hws_approved ? '✓ Head Of WS Part: Approved' : '⏳ Head Of WS Part: Pending'}
+                  </span>
+                </div>
+                {user.role === 'ADM' && (
+                  <div style={{ fontSize: '11px', color: '#1e3a8a', marginTop: '4px', fontStyle: 'italic' }}>
+                    Admin Delegation: Approving now immediately authorizes the trip and delegates for any pending approver.
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
                 <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Assigned Vehicle</label>
@@ -1804,7 +1879,17 @@ export function App() {
                   Reject
                 </button>
                 <button type="button" className="gf-btn gf-btn-primary" style={{ flex: 1 }} onClick={() => handleAdminTripDecision('APPROVED')}>
-                  Approve & Dispatch
+                  {user.role === 'ADM' && dispatchModalTrip.requires_dual_approval && (!dispatchModalTrip.pic_approved || !dispatchModalTrip.hws_approved)
+                    ? 'Approve & Delegate as Admin'
+                    : user.role === 'FM'
+                    ? dispatchModalTrip.hws_approved
+                      ? 'Complete Final Approval & Dispatch'
+                      : 'Approve as Fleet Operation PIC'
+                    : user.role === 'HWS'
+                    ? dispatchModalTrip.pic_approved
+                      ? 'Authorize & Finalize Dispatch'
+                      : 'Approve as Head Of WS Part'
+                    : 'Approve & Dispatch'}
                 </button>
               </div>
             </div>
@@ -2283,47 +2368,47 @@ export function App() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {/* Header visible on paper printout */}
-              <div className="gf-print-only" style={{ borderBottom: '2.5px solid #0072de', paddingBottom: '12px', marginBottom: '8px' }}>
-                <h1 style={{ fontSize: '22px', fontWeight: 800, margin: 0, color: '#0072de' }}>GALAXYFLEET EXECUTIVE MANAGEMENT REPORT</h1>
-                <div style={{ fontSize: '12px', color: '#475569', marginTop: '2px' }}>
-                  Official Fleet Operations, Odometer Audit & Financial Ledger • Denominated in Indonesian Rupiah (IDR) • Generated {new Date().toLocaleDateString('id-ID', { dateStyle: 'full' })}
+              <div className="gf-print-only" style={{ borderBottom: '2px solid #0072de', paddingBottom: '8px', marginBottom: '8px' }}>
+                <h1 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: '#0072de' }}>GALAXYFLEET EXECUTIVE MANAGEMENT REPORT</h1>
+                <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px' }}>
+                  Official Fleet Operations & Financial Summary • Currency: Indonesian Rupiah (IDR) • Generated {new Date().toLocaleDateString('id-ID', { dateStyle: 'full' })}
                 </div>
               </div>
 
               {/* 1. Operational & Financial KPI Overview */}
-              <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '16px', border: '1.5px solid #e2e8f0' }}>
-                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '12px' }}>1. Operational & Financial KPI Overview</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
-                  <div className="gf-card-flat" style={{ padding: '10px 12px', background: '#ffffff' }}>
-                    <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Completed Trips</div>
-                    <div style={{ fontSize: '19px', fontWeight: 800, color: '#0072de' }}>{usageAnalytics.tripDurationSummary?.totalCompletedTrips || 0} Trips</div>
-                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>Across {vehicles.length} Operational Vehicles</div>
+              <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '12px 14px', border: '1.5px solid #e2e8f0' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: 800, color: '#0f172a', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>1. Operational & Financial KPI Overview</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' }}>
+                  <div className="gf-card-flat" style={{ padding: '8px 10px', background: '#ffffff' }}>
+                    <div style={{ fontSize: '9.5px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>Total Completed Trips</div>
+                    <div style={{ fontSize: '17px', fontWeight: 800, color: '#0072de' }}>{usageAnalytics.tripDurationSummary?.totalCompletedTrips || 0} Trips</div>
+                    <div style={{ fontSize: '10px', color: '#94a3b8' }}>Across {vehicles.length} Operational Vehicles</div>
                   </div>
-                  <div className="gf-card-flat" style={{ padding: '10px 12px', background: '#ffffff' }}>
-                    <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Cumulative Trip Duration</div>
-                    <div style={{ fontSize: '19px', fontWeight: 800, color: '#059669' }}>{usageAnalytics.tripDurationSummary?.totalDurationFormatted || '0 Hours 0 Minutes'}</div>
-                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>Total Driver Driving Hours Logged</div>
+                  <div className="gf-card-flat" style={{ padding: '8px 10px', background: '#ffffff' }}>
+                    <div style={{ fontSize: '9.5px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>Cumulative Trip Duration</div>
+                    <div style={{ fontSize: '17px', fontWeight: 800, color: '#059669' }}>{usageAnalytics.tripDurationSummary?.totalDurationFormatted || '0 Hours 0 Minutes'}</div>
+                    <div style={{ fontSize: '10px', color: '#94a3b8' }}>Total Driver Road Time Logged</div>
                   </div>
-                  <div className="gf-card-flat" style={{ padding: '10px 12px', background: '#ffffff' }}>
-                    <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Distance Traveled</div>
-                    <div style={{ fontSize: '19px', fontWeight: 800, color: '#0f172a' }}>{Number(usageAnalytics.combinedOverall?.allTime?.distanceKm || 0).toLocaleString('id-ID')} km</div>
-                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>Verified Odometer Mileage</div>
+                  <div className="gf-card-flat" style={{ padding: '8px 10px', background: '#ffffff' }}>
+                    <div style={{ fontSize: '9.5px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>Total Distance Traveled</div>
+                    <div style={{ fontSize: '17px', fontWeight: 800, color: '#0f172a' }}>{Number(usageAnalytics.combinedOverall?.allTime?.distanceKm || 0).toLocaleString('id-ID')} km</div>
+                    <div style={{ fontSize: '10px', color: '#94a3b8' }}>Verified Odometer Mileage</div>
                   </div>
-                  <div className="gf-card-flat" style={{ padding: '10px 12px', background: '#ffffff' }}>
-                    <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Total Operational Expenditure</div>
-                    <div style={{ fontSize: '19px', fontWeight: 800, color: '#b45309' }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.total_operational_cost_idr || 0)}</div>
-                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>Fuel, EV, Toll, Parking & Maintenance</div>
+                  <div className="gf-card-flat" style={{ padding: '8px 10px', background: '#ffffff' }}>
+                    <div style={{ fontSize: '9.5px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>Total Operational Cost</div>
+                    <div style={{ fontSize: '17px', fontWeight: 800, color: '#b45309' }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.total_operational_cost_idr || 0)}</div>
+                    <div style={{ fontSize: '10px', color: '#94a3b8' }}>Fuel, EV, Toll, Parking & Maint</div>
                   </div>
                 </div>
               </div>
 
-              {/* 2. Vehicle Odometer & Mileage Audit Table */}
+              {/* 2. Vehicle Fleet & Energy Audit Summary */}
               <div>
-                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>2. Vehicle Odometer & Mileage Audit Table</h3>
+                <h3 style={{ fontSize: '13px', fontWeight: 800, color: '#0f172a', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>2. Vehicle Fleet & Energy Audit Summary</h3>
                 <div className="gf-table-wrap">
-                  <table className="gf-table" style={{ width: '100%', fontSize: '12px' }}>
+                  <table className="gf-table" style={{ width: '100%', fontSize: '11px' }}>
                     <thead>
                       <tr>
                         <th>Plate Number</th>
@@ -2335,7 +2420,6 @@ export function App() {
                         <th style={{ textAlign: 'center' }}>Trips</th>
                         <th style={{ textAlign: 'right' }}>Fuel / Energy</th>
                         <th style={{ textAlign: 'right' }}>Cost (IDR)</th>
-                        <th style={{ textAlign: 'center' }}>Efficiency</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2345,16 +2429,13 @@ export function App() {
                           const baselineOdo = Math.max(0, (v.current_odometer || 0) - dist);
                           const isEv = v.energy_type === 'Electric';
                           const qty = isEv ? `${v.energy?.totalKwh || 0} kWh` : `${v.energy?.totalLitres || 0} L`;
-                          const eff = isEv
-                            ? (v.energy?.efficiencyKwhPer100Km ? `${v.energy.efficiencyKwhPer100Km} kWh/100km` : '—')
-                            : (v.energy?.efficiencyKmPerLitre ? `${v.energy.efficiencyKmPerLitre} km/L` : '—');
 
                           return (
                             <tr key={v.vehicle_id}>
                               <td style={{ fontWeight: 800 }}>{v.registration_plate}</td>
-                              <td>{v.make} {v.model} ({v.car_type})</td>
+                              <td>{v.make} {v.model}</td>
                               <td>
-                                <span className={`gf-badge ${isEv ? 'gf-badge-blue' : 'gf-badge-neutral'}`} style={{ padding: '2px 7px', fontSize: '10px' }}>
+                                <span className={`gf-badge ${isEv ? 'gf-badge-blue' : 'gf-badge-neutral'}`} style={{ padding: '1px 6px', fontSize: '9.5px' }}>
                                   {isEv ? '⚡ Electric' : '⛽ Gasoline'}
                                 </span>
                               </td>
@@ -2364,13 +2445,12 @@ export function App() {
                               <td style={{ textAlign: 'center', fontWeight: 700 }}>{v.overall?.trips || 0}</td>
                               <td className="mono" style={{ textAlign: 'right' }}>{qty}</td>
                               <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{formatIdr(v.energy?.energyCost || 0)}</td>
-                              <td className="mono" style={{ textAlign: 'center', fontSize: '11px' }}>{eff}</td>
                             </tr>
                           );
                         })
                       ) : (
                         <tr>
-                          <td colSpan={10} style={{ textAlign: 'center', color: '#94a3b8', padding: '16px' }}>No vehicles registered yet.</td>
+                          <td colSpan={9} style={{ textAlign: 'center', color: '#94a3b8', padding: '12px' }}>No vehicles registered yet.</td>
                         </tr>
                       )}
                     </tbody>
@@ -2378,54 +2458,15 @@ export function App() {
                 </div>
               </div>
 
-              {/* 3. Driver Working Hours & Performance Table */}
+              {/* 3. Comprehensive Energy & Operating Expense Ledger in IDR */}
               <div>
-                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>3. Driver Working Hours & Performance Table</h3>
+                <h3 style={{ fontSize: '13px', fontWeight: 800, color: '#0f172a', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>3. Comprehensive Energy & Operating Expense Ledger (IDR)</h3>
                 <div className="gf-table-wrap">
-                  <table className="gf-table" style={{ width: '100%', fontSize: '12px' }}>
-                    <thead>
-                      <tr>
-                        <th>Driver Full Name</th>
-                        <th style={{ textAlign: 'center' }}>Completed Trips</th>
-                        <th style={{ textAlign: 'right' }}>Total Distance</th>
-                        <th>Availability Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {usageAnalytics.perDriver && usageAnalytics.perDriver.length > 0 ? (
-                        usageAnalytics.perDriver.map((d: any) => (
-                          <tr key={d.driver_profile_id}>
-                            <td style={{ fontWeight: 800 }}>{d.driver_name}</td>
-                            <td style={{ textAlign: 'center', fontWeight: 700 }}>{d.overall?.trips || 0}</td>
-                            <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: '#059669' }}>
-                              {Number(d.overall?.distanceKm || 0).toLocaleString('id-ID')} km
-                            </td>
-                            <td>
-                              <span className={`gf-badge ${d.availability_status === 'Active' ? 'gf-badge-success' : 'gf-badge-neutral'}`} style={{ padding: '2px 7px', fontSize: '10px' }}>
-                                {d.availability_status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={4} style={{ textAlign: 'center', color: '#94a3b8', padding: '16px' }}>No drivers registered yet.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* 4. Energy & Operating Cost Breakdown */}
-              <div>
-                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>4. Energy & Operating Expense Ledger (IDR)</h3>
-                <div className="gf-table-wrap">
-                  <table className="gf-table" style={{ width: '100%' }}>
+                  <table className="gf-table" style={{ width: '100%', fontSize: '11px' }}>
                     <thead>
                       <tr>
                         <th>Expense Category</th>
-                        <th>Quantity / Verified Usage</th>
+                        <th>Usage / Verified Metrics</th>
                         <th>Description</th>
                         <th style={{ textAlign: 'right' }}>Total Cost (IDR)</th>
                       </tr>
@@ -2463,101 +2504,48 @@ export function App() {
                       </tr>
                       <tr style={{ background: '#f8fafc', fontWeight: 800 }}>
                         <td colSpan={3}>GRAND TOTAL OPERATIONAL EXPENDITURE</td>
-                        <td className="mono" style={{ textAlign: 'right', color: '#0072de', fontSize: '15px' }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.total_operational_cost_idr || 0)}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: '#0072de', fontSize: '13px' }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.total_operational_cost_idr || 0)}</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
               </div>
 
-              {/* 5. Chronological Trip Manifest Log */}
-              <div>
-                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>5. Chronological Trip Manifest Log</h3>
-                <div className="gf-table-wrap">
-                  <table className="gf-table" style={{ width: '100%', fontSize: '12px' }}>
-                    <thead>
-                      <tr>
-                        <th>Trip</th>
-                        <th>Date & Time</th>
-                        <th>Vehicle</th>
-                        <th>Driver</th>
-                        <th>Requester</th>
-                        <th>Route & Purpose</th>
-                        <th style={{ textAlign: 'right' }}>Start Odo</th>
-                        <th style={{ textAlign: 'right' }}>End Odo</th>
-                        <th style={{ textAlign: 'right' }}>Distance</th>
-                        <th>Duration</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {usageAnalytics.tripDurationSummary?.trips && usageAnalytics.tripDurationSummary.trips.length > 0 ? (
-                        usageAnalytics.tripDurationSummary.trips.map((t: any) => {
-                          const vPlate = t.vehicle_plate || t.registration_plate || '—';
-                          const vName = t.make && t.model ? `${t.make} ${t.model}` : '';
-
-                          return (
-                            <tr key={t.id}>
-                              <td className="mono">#{t.id}</td>
-                              <td className="mono" style={{ fontSize: '11px' }}>
-                                {(t.actual_start_time || t.start_time || '').slice(0, 16).replace('T', ' ')}
-                              </td>
-                              <td>
-                                <strong>{vPlate}</strong>
-                                {vName && <div style={{ fontSize: '11px', color: '#64748b' }}>{vName}</div>}
-                              </td>
-                              <td><strong>{t.driver_name || 'Standby Driver'}</strong></td>
-                              <td>
-                                <div>{t.requester_nickname || 'Requester'}</div>
-                                {t.requester_department && (
-                                  <div className="type-caption notranslate" translate="no" style={{ color: '#64748b' }}>{t.requester_department}</div>
-                                )}
-                              </td>
-                              <td>
-                                <div>{t.origin || 'HQ Pool'} ➔ <strong>{t.destination}</strong></div>
-                                <div style={{ fontSize: '11px', color: '#64748b' }}>{t.purpose}</div>
-                              </td>
-                              <td className="mono" style={{ textAlign: 'right' }}>
-                                {t.start_odometer !== null && t.start_odometer !== undefined ? `${Number(t.start_odometer).toLocaleString('id-ID')} km` : '—'}
-                              </td>
-                              <td className="mono" style={{ textAlign: 'right' }}>
-                                {t.end_odometer !== null && t.end_odometer !== undefined ? `${Number(t.end_odometer).toLocaleString('id-ID')} km` : '—'}
-                              </td>
-                              <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: '#0072de' }}>
-                                {Number(t.distance_km || 0).toLocaleString('id-ID')} km
-                              </td>
-                              <td style={{ fontWeight: 700, color: '#059669' }}>{t.durationFormatted}</td>
-                            </tr>
-                          );
-                        })
-                      ) : (
-                        <tr>
-                          <td colSpan={10} style={{ textAlign: 'center', color: '#94a3b8', padding: '16px' }}>
-                            No completed trips recorded yet.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+              {/* 4. Digital Audit Certification (APPROVED BY SYSTEM) */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '8px', paddingTop: '10px', borderTop: '1px dashed #cbd5e1' }}>
+                <div style={{ border: '1.5px solid #dbeafe', borderRadius: '8px', padding: '10px', textAlign: 'center', background: '#f8fafc' }}>
+                  <div style={{ fontSize: '9.5px', color: '#64748b', textTransform: 'uppercase', fontWeight: 800 }}>Prepared & Dispatched By</div>
+                  <div style={{ fontWeight: 800, fontSize: '12px', color: '#0f172a', marginTop: '2px' }}>Fleet Operation PIC</div>
+                  <div style={{ margin: '6px 0 2px 0' }}>
+                    <span className="gf-badge" style={{ background: '#ecfdf5', color: '#065f46', border: '1.5px solid #10b981', fontWeight: 800, padding: '3px 8px', fontSize: '10.5px' }}>
+                      ✓ APPROVED BY SYSTEM
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '9px', color: '#64748b', fontFamily: 'monospace' }}>Digital Audit: SYS-PIC-CERTIFIED</div>
+                </div>
+                <div style={{ border: '1.5px solid #dbeafe', borderRadius: '8px', padding: '10px', textAlign: 'center', background: '#f8fafc' }}>
+                  <div style={{ fontSize: '9.5px', color: '#64748b', textTransform: 'uppercase', fontWeight: 800 }}>Reviewed & Authorized By</div>
+                  <div style={{ fontWeight: 800, fontSize: '12px', color: '#0f172a', marginTop: '2px' }}>Head Of WS Part</div>
+                  <div style={{ margin: '6px 0 2px 0' }}>
+                    <span className="gf-badge" style={{ background: '#ecfdf5', color: '#065f46', border: '1.5px solid #10b981', fontWeight: 800, padding: '3px 8px', fontSize: '10.5px' }}>
+                      ✓ APPROVED BY SYSTEM
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '9px', color: '#64748b', fontFamily: 'monospace' }}>Digital Audit: SYS-HWS-CERTIFIED</div>
+                </div>
+                <div style={{ border: '1.5px solid #dbeafe', borderRadius: '8px', padding: '10px', textAlign: 'center', background: '#f8fafc' }}>
+                  <div style={{ fontSize: '9.5px', color: '#64748b', textTransform: 'uppercase', fontWeight: 800 }}>Final Executive Sign-Off</div>
+                  <div style={{ fontWeight: 800, fontSize: '12px', color: '#0f172a', marginTop: '2px' }}>Executive General Manager</div>
+                  <div style={{ margin: '6px 0 2px 0' }}>
+                    <span className="gf-badge" style={{ background: '#ecfdf5', color: '#065f46', border: '1.5px solid #10b981', fontWeight: 800, padding: '3px 8px', fontSize: '10.5px' }}>
+                      ✓ APPROVED BY SYSTEM
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '9px', color: '#64748b', fontFamily: 'monospace' }}>Digital Audit: SYS-EGM-CERTIFIED</div>
                 </div>
               </div>
 
-              {/* 6. Executive Signatures block */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginTop: '16px', paddingTop: '16px', borderTop: '1px dashed #cbd5e1' }}>
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', textAlign: 'center', background: '#f8fafc' }}>
-                  <div style={{ fontSize: '10.5px', color: '#64748b', textTransform: 'uppercase', fontWeight: 800 }}>Prepared By</div>
-                  <div style={{ marginTop: '40px', borderTop: '1.5px solid #0f172a', paddingTop: '4px', fontWeight: 800, fontSize: '12px' }}>Fleet Dispatcher</div>
-                </div>
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', textAlign: 'center', background: '#f8fafc' }}>
-                  <div style={{ fontSize: '10.5px', color: '#64748b', textTransform: 'uppercase', fontWeight: 800 }}>Reviewed By</div>
-                  <div style={{ marginTop: '40px', borderTop: '1.5px solid #0f172a', paddingTop: '4px', fontWeight: 800, fontSize: '12px' }}>Head of Workplace Services</div>
-                </div>
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', textAlign: 'center', background: '#f8fafc' }}>
-                  <div style={{ fontSize: '10.5px', color: '#64748b', textTransform: 'uppercase', fontWeight: 800 }}>Approved By</div>
-                  <div style={{ marginTop: '40px', borderTop: '1.5px solid #0f172a', paddingTop: '4px', fontWeight: 800, fontSize: '12px' }}>Executive General Manager</div>
-                </div>
-              </div>
-
-              <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '10px', fontSize: '11px', color: '#94a3b8', textAlign: 'center' }}>
+              <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '8px', fontSize: '10px', color: '#94a3b8', textAlign: 'center' }}>
                 CONFIDENTIAL — STRICTLY FOR INTERNAL CORPORATE EXECUTIVE MANAGEMENT REVIEW ONLY
               </div>
             </div>
@@ -2803,6 +2791,50 @@ export function App() {
           groupCount={groupsList.length}
         >
           {isOffline && <ErrorState message="Connection required (WEB-03). Fleet mutations require active network connectivity." />}
+          {showNotificationPromptBanner && (
+            <div
+              style={{
+                background: 'linear-gradient(135deg, #0072de, #0052b4)',
+                color: '#ffffff',
+                padding: '12px 16px',
+                borderRadius: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                boxShadow: '0 4px 12px rgba(0, 114, 222, 0.25)',
+                marginBottom: '12px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Bell size={20} style={{ flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: '13px' }}>Enable Real-Time Notifications</div>
+                  <div style={{ fontSize: '11px', opacity: 0.9 }}>
+                    Get instant push alerts for car approvals, driver dispatches, and operations.
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                <button
+                  type="button"
+                  className="gf-btn"
+                  style={{ background: '#ffffff', color: '#0072de', fontWeight: 800, border: 'none', padding: '6px 12px', fontSize: '12px' }}
+                  onClick={() => handleEnablePushNotifications(false)}
+                >
+                  Allow Alerts
+                </button>
+                <button
+                  type="button"
+                  className="gf-btn"
+                  style={{ background: 'transparent', color: '#ffffff', border: '1px solid rgba(255,255,255,0.4)', padding: '6px 10px', fontSize: '11px' }}
+                  onClick={() => setShowNotificationPromptBanner(false)}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
           {statusBanner && (
             <div
               style={{
@@ -3281,8 +3313,8 @@ export function App() {
                                 >
                                   <option value="EMP">EMP (Employee)</option>
                                   <option value="DRV">DRV (Driver)</option>
-                                  <option value="FM">FM (Fleet Manager)</option>
-                                  <option value="HWS">HWS (Approver)</option>
+                                  <option value="FM">FM (Fleet Operation PIC)</option>
+                                  <option value="HWS">HWS (Head Of WS Part)</option>
                                   <option value="ADM">ADM (Admin)</option>
                                 </select>
                               </td>
@@ -3343,7 +3375,20 @@ export function App() {
                               <div style={{ fontWeight: 700 }}>{t.registration_plate}</div>
                               <div className="type-caption">Driver: {t.assigned_driver_name || 'Unassigned'}</div>
                             </td>
-                            <td><StatusBadge label={t.status} tone={toneFromStatus(t.status)} /></td>
+                            <td>
+                              <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />
+                              {t.status === 'PENDING_APPROVAL' && t.requires_dual_approval && (
+                                <div style={{ marginTop: '4px', fontSize: '11px', fontWeight: 600 }}>
+                                  {t.pic_approved && !t.hws_approved ? (
+                                    <span style={{ color: '#0072de' }}>✓ PIC Approved • Awaiting Head Of WS Part</span>
+                                  ) : t.hws_approved && !t.pic_approved ? (
+                                    <span style={{ color: '#059669' }}>✓ Head Of WS Part Approved • Awaiting PIC</span>
+                                  ) : (
+                                    <span style={{ color: '#d97706' }}>⏳ Pending PIC & Head Of WS Part</span>
+                                  )}
+                                </div>
+                              )}
+                            </td>
                             <td>
                               <button
                                 type="button"
@@ -3419,8 +3464,8 @@ export function App() {
                   >
                     <option value="EMP">EMP (Employee)</option>
                     <option value="DRV">DRV (Driver Account)</option>
-                    <option value="FM">FM (Fleet Manager)</option>
-                    <option value="HWS">HWS (Approver)</option>
+                    <option value="FM">FM (Fleet Operation PIC)</option>
+                    <option value="HWS">HWS (Head Of WS Part)</option>
                     <option value="ADM">ADM (Admin)</option>
                   </select>
                   <button type="submit" className="gf-btn gf-btn-primary">
@@ -3513,8 +3558,8 @@ export function App() {
                                 >
                                   <option value="EMP">EMP (Employee)</option>
                                   <option value="DRV">DRV (Driver)</option>
-                                  <option value="FM">FM (Fleet Manager)</option>
-                                  <option value="HWS">HWS (Approver)</option>
+                                  <option value="FM">FM (Fleet Operation PIC)</option>
+                                  <option value="HWS">HWS (Head Of WS Part)</option>
                                   <option value="ADM">ADM (Admin)</option>
                                 </select>
                               </td>
@@ -4923,30 +4968,80 @@ export function App() {
       return <ErrorState message={dataError} onRetry={() => loadAllData(user)} />;
     }
 
-    const feedbackBanner = statusBanner ? (
+    const notificationPromptBanner = showNotificationPromptBanner ? (
       <div
         style={{
-          padding: '10px 14px',
-          borderRadius: 'var(--radius-control)',
-          marginBottom: '12px',
-          background: statusBanner.type === 'danger' ? 'var(--color-status-red-bg)' : 'var(--color-status-green-bg)',
-          color: statusBanner.type === 'danger' ? 'var(--color-status-red-fg)' : 'var(--color-status-green-fg)',
+          background: 'linear-gradient(135deg, #0072de, #0052b4)',
+          color: '#ffffff',
+          padding: '12px 14px',
+          borderRadius: '12px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: '8px',
+          gap: '10px',
+          boxShadow: '0 4px 12px rgba(0, 114, 222, 0.25)',
+          marginBottom: '12px',
         }}
       >
-        <span className="type-caption" style={{ fontWeight: 700, color: 'inherit' }}>{statusBanner.text}</span>
-        <button
-          type="button"
-          onClick={() => setStatusBanner(null)}
-          style={{ border: 'none', background: 'transparent', color: 'inherit', fontWeight: 700, cursor: 'pointer', minHeight: '32px' }}
-        >
-          OK
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Bell size={18} style={{ flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 800, fontSize: '12.5px' }}>Enable Real-Time Alerts</div>
+            <div style={{ fontSize: '11px', opacity: 0.9 }}>
+              Get instant alerts for car approvals, dispatches, and trips.
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+          <button
+            type="button"
+            className="gf-btn"
+            style={{ background: '#ffffff', color: '#0072de', fontWeight: 800, border: 'none', padding: '5px 10px', fontSize: '12px' }}
+            onClick={() => handleEnablePushNotifications(false)}
+          >
+            Allow
+          </button>
+          <button
+            type="button"
+            className="gf-btn"
+            style={{ background: 'transparent', color: '#ffffff', border: '1px solid rgba(255,255,255,0.4)', padding: '5px 8px', fontSize: '11px' }}
+            onClick={() => setShowNotificationPromptBanner(false)}
+          >
+            Later
+          </button>
+        </div>
       </div>
     ) : null;
+
+    const feedbackBanner = (
+      <>
+        {notificationPromptBanner}
+        {statusBanner ? (
+          <div
+            style={{
+              padding: '10px 14px',
+              borderRadius: 'var(--radius-control)',
+              marginBottom: '12px',
+              background: statusBanner.type === 'danger' ? 'var(--color-status-red-bg)' : 'var(--color-status-green-bg)',
+              color: statusBanner.type === 'danger' ? 'var(--color-status-red-fg)' : 'var(--color-status-green-fg)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+            }}
+          >
+            <span className="type-caption" style={{ fontWeight: 700, color: 'inherit' }}>{statusBanner.text}</span>
+            <button
+              type="button"
+              onClick={() => setStatusBanner(null)}
+              style={{ border: 'none', background: 'transparent', color: 'inherit', fontWeight: 700, cursor: 'pointer', minHeight: '32px' }}
+            >
+              OK
+            </button>
+          </div>
+        ) : null}
+      </>
+    );
 
     // -------------------------------------------------------------------------
     // DRIVER DISPATCH SHEET (Gojek-style Driver Check-In + Duty Confirmation)
