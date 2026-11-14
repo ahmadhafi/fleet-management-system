@@ -1,5 +1,25 @@
+import type { Request, Response } from 'express';
 import { createApp } from '../src/server/app.ts';
+import { ensureCloudSync, persistDatabaseToCloud } from '../src/server/cloud-sync.ts';
 
 const app = createApp();
+let syncPromise: Promise<void> | null = null;
 
-export default app;
+export default async function handler(req: Request, res: Response) {
+  if (process.env.BLOB_READ_WRITE_TOKEN && !syncPromise) {
+    syncPromise = ensureCloudSync();
+  }
+  if (syncPromise) {
+    await syncPromise;
+  }
+
+  if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method || '')) {
+    res.on('finish', () => {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        persistDatabaseToCloud();
+      }
+    });
+  }
+
+  return app(req, res);
+}
