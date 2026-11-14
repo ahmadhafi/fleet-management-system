@@ -36,7 +36,7 @@ import {
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
 import { AppShell, DesktopPanelNav, AdminShell, type NavSection } from './components/AppShell';
 import { BottomSheet, type SnapPoint } from './components/BottomSheet';
-import { MapView, estimateRouteMetrics, type GeoPlace } from './components/MapView';
+import { MapView, estimateRouteMetrics, type GeoPlace, type UserLocationPin } from './components/MapView';
 import { RouteFields } from './components/RouteFields';
 import { VehicleArt } from './components/VehicleArt';
 import {
@@ -137,9 +137,12 @@ export function App() {
   const [summaryPicker, setSummaryPicker] = useState<'PURPOSE' | 'PAX' | 'NOTES' | 'CHARGE' | null>(null);
   const [focusedTripId, setFocusedTripId] = useState<number | null>(null);
 
-  // Live OpenStreetMap Geocoding & User Saved Places
+  // Live MapTiler Geocoding, User Location Detection & All-User Pinpoint Dots
   const [originCoords, setOriginCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [destCoords, setDestCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [myCoords, setMyCoords] = useState<{ lat: number; lon: number; accuracy?: number } | null>(null);
+  const [userPins, setUserPins] = useState<UserLocationPin[]>([]);
+  const [locatingUser, setLocatingUser] = useState<boolean>(false);
   const [geoResults, setGeoResults] = useState<GeoPlace[]>([]);
   const [geoLoading, setGeoLoading] = useState<boolean>(false);
   const [savedPlaces, setSavedPlaces] = useState<GeoPlace[]>(() => {
@@ -303,13 +306,14 @@ export function App() {
     setLoadingData(true);
     setDataError(null);
     try {
-      const [vehRes, drvRes, trpRes, bkgRes, ntfRes, deptRes] = await Promise.all([
+      const [vehRes, drvRes, trpRes, bkgRes, ntfRes, deptRes, pinRes] = await Promise.all([
         apiRequest('/api/vehicles'),
         apiRequest('/api/drivers'),
         apiRequest('/api/trips'),
         apiRequest('/api/bookings'),
         apiRequest('/api/notifications'),
         apiRequest('/api/departments'),
+        apiRequest('/api/location/pins').catch(() => ({ pins: [] })),
       ]);
       const loadedVehicles = vehRes.vehicles || [];
       setVehicles(loadedVehicles);
@@ -317,6 +321,7 @@ export function App() {
       setTrips(trpRes.trips || []);
       setBookings(bkgRes.bookings || []);
       setNotifications(ntfRes.notifications || []);
+      setUserPins(pinRes.pins || []);
       if (Array.isArray(deptRes.departments) && deptRes.departments.length > 0) {
         setGroupsList(deptRes.departments);
       }
@@ -645,47 +650,97 @@ export function App() {
     }
   };
 
-  const handleUseCurrentGpsForField = () => {
-    if (!('geolocation' in navigator)) {
-      setStatusBanner({ type: 'warning', text: 'Geolocation is not supported by your browser. Please search or pin on the map.' });
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const res = await apiRequest(
-            `/api/geocode/reverse?lat=${encodeURIComponent(pos.coords.latitude)}&lon=${encodeURIComponent(pos.coords.longitude)}`
-          );
-          const place: GeoPlace = res.place || {
-            name: `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`,
-            address: 'Current GPS coordinates',
-            lat: pos.coords.latitude,
-            lon: pos.coords.longitude,
-          };
-          if (activeRouteField === 'pickup') {
-            setBookOrigin(place.name);
-            setOriginCoords({ lat: place.lat, lon: place.lon });
-            setActiveRouteField('destination');
-          } else {
-            setBookDest(place.name);
-            setDestCoords({ lat: place.lat, lon: place.lon });
-          }
-        } catch {
-          const fallback = `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
-          if (activeRouteField === 'pickup') {
-            setBookOrigin(fallback);
-            setOriginCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude });
-          } else {
-            setBookDest(fallback);
-            setDestCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude });
-          }
+  const detectAndReportUserLocation = useCallback(
+    (fillActiveField: boolean = false) => {
+      if (!user || !('geolocation' in navigator)) {
+        if (fillActiveField) {
+          setStatusBanner({ type: 'warning', text: 'Geolocation is not supported by your browser. Please search or pin on the map.' });
         }
-      },
-      () => {
-        setStatusBanner({ type: 'warning', text: 'Unable to read GPS position. Type an address or use Pin on map.' });
-      },
-      { enableHighAccuracy: true, timeout: 6000 }
-    );
+        return;
+      }
+      setLocatingUser(true);
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          const accuracy = Math.round(pos.coords.accuracy || 25);
+          setMyCoords({ lat, lon, accuracy });
+
+          let resolvedLabel = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+          try {
+            const rev = await apiRequest(`/api/geocode/reverse?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
+            if (rev?.name) {
+              resolvedLabel = rev.name;
+            }
+          } catch {
+            // keep coordinate label
+          }
+
+          // Auto-fill pickup field if empty, or fill active route field when requested
+          if (fillActiveField) {
+            if (activeRouteField === 'pickup') {
+              setBookOrigin(resolvedLabel);
+              setOriginCoords({ lat, lon });
+              setActiveRouteField('destination');
+            } else {
+              setBookDest(resolvedLabel);
+              setDestCoords({ lat, lon });
+            }
+          } else {
+            setBookOrigin((prev) => {
+              if (!prev.trim()) {
+                setOriginCoords({ lat, lon });
+                return resolvedLabel;
+              }
+              return prev;
+            });
+          }
+
+          // Send user's location to backend so their pinpoint dot appears on the map for all users
+          try {
+            await apiRequest('/api/location/ping', {
+              method: 'POST',
+              body: JSON.stringify({
+                latitude: lat,
+                longitude: lon,
+                accuracy_meters: accuracy,
+                address_label: resolvedLabel,
+              }),
+            });
+            const pinRes = await apiRequest('/api/location/pins');
+            setUserPins(pinRes.pins || []);
+          } catch {
+            // ignore transient network error
+          } finally {
+            setLocatingUser(false);
+          }
+        },
+        () => {
+          setLocatingUser(false);
+          if (fillActiveField) {
+            setStatusBanner({ type: 'warning', text: 'Unable to read GPS position. Type an address or use Pin on map.' });
+          }
+        },
+        { enableHighAccuracy: true, timeout: 7000, maximumAge: 15000 }
+      );
+    },
+    [user, activeRouteField]
+  );
+
+  // Automatically detect & share user location when logged in, and refresh all users' pins periodically
+  useEffect(() => {
+    if (!user) return;
+    detectAndReportUserLocation(false);
+
+    const intervalId = window.setInterval(() => {
+      detectAndReportUserLocation(false);
+    }, 45 * 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [user, detectAndReportUserLocation]);
+
+  const handleUseCurrentGpsForField = () => {
+    detectAndReportUserLocation(true);
   };
 
   const handleCreateTripBooking = async () => {
@@ -2376,6 +2431,46 @@ export function App() {
                 </div>
               </section>
 
+              <section className="gf-card-flat">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                  <div>
+                    <h2 className="type-section">Live User & Driver Location Pinpoints ({userPins.length})</h2>
+                    <p className="type-caption">Detected GPS coordinates reported by active app users & drivers</p>
+                  </div>
+                  <button type="button" className="gf-btn gf-btn-secondary" onClick={() => detectAndReportUserLocation(false)}>
+                    <MapPin size={15} /> Refresh My Location
+                  </button>
+                </div>
+                {userPins.length === 0 ? (
+                  <EmptyState message="No user locations reported yet." />
+                ) : (
+                  <div className="gf-table-wrap">
+                    <table className="gf-table">
+                      <thead>
+                        <tr>
+                          <th>User</th>
+                          <th>Group & Role</th>
+                          <th>Detected Address / Pinpoint</th>
+                          <th>Coordinates</th>
+                          <th>Updated</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {userPins.map((p) => (
+                          <tr key={p.user_id}>
+                            <td style={{ fontWeight: 700 }}>{p.nickname} <span className="mono type-caption">@{p.group_username}</span></td>
+                            <td>{p.group_name || '—'} • <StatusBadge label={p.role} tone="green" /></td>
+                            <td>{p.address_label || 'GPS Pinpoint'}</td>
+                            <td className="mono type-caption">{Number(p.latitude).toFixed(5)}, {Number(p.longitude).toFixed(5)}</td>
+                            <td className="mono type-caption">{new Date(p.updated_at).toLocaleTimeString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+
               {gpsLatest && (
                 <section className="gf-card-flat">
                   <h2 className="type-section" style={{ marginBottom: '8px' }}>Periodic Location Monitor (Best-Effort GPS)</h2>
@@ -3951,6 +4046,11 @@ export function App() {
             destination={mapDest}
             originCoords={originCoords}
             destCoords={destCoords}
+            myCoords={myCoords}
+            userPins={userPins}
+            currentUserId={user.id}
+            onLocateMe={() => detectAndReportUserLocation(false)}
+            locatingUser={locatingUser}
             showRoute={showRouteOnMap}
             pinMode={navSection === 'HOME' && bookingStep === 'ROUTE' && routeTab === 'PIN'}
             onPinMoveAddress={(place: GeoPlace) => {

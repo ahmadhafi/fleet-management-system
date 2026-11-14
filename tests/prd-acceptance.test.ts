@@ -689,6 +689,28 @@ describe('Internal Company Fleet Management System — Full PRD & Revision Accep
 
     const checkTrips = await request(app).get('/api/trips').set('Authorization', `Bearer ${rinaToken}`);
     expect(checkTrips.body.trips[0].status).toBe('CANCELLED');
+
+    // Both Employee (Rina) and Admin send their detected GPS locations and appear as pinpoint dots on the map
+    const pingRina = await request(app).post('/api/location/ping').set('Authorization', `Bearer ${rinaToken}`).send({
+      latitude: -6.19834,
+      longitude: 106.88873,
+      accuracy_meters: 15,
+      address_label: 'Rawamangun, Pulo Gadung',
+    });
+    expect(pingRina.status).toBe(201);
+
+    const pingAdmin = await request(app).post('/api/location/ping').set('Authorization', `Bearer ${adminToken}`).send({
+      latitude: -6.205,
+      longitude: 106.892,
+      accuracy_meters: 12,
+      address_label: 'Pulo Gadung Industrial Office',
+    });
+    expect(pingAdmin.status).toBe(201);
+
+    const pinsRes = await request(app).get('/api/location/pins').set('Authorization', `Bearer ${rinaToken}`);
+    expect(pinsRes.status).toBe(200);
+    expect(pinsRes.body.pins).toHaveLength(2);
+    expect(pinsRes.body.pins.map((p: any) => p.group_username).sort()).toEqual(['admin', 'rina_innov']);
   });
 });
 

@@ -2519,8 +2519,82 @@ export function createApp() {
   });
 
   // ============================================================================
-  // 9. BEST-EFFORT GPS REPORTING & DISPLAY STATES (GPS-01 to GPS-18)
+  // 9. ALL-USER LOCATION PINPOINTS & BEST-EFFORT GPS REPORTING (GPS-01 to GPS-18)
   // ============================================================================
+
+  // Any authenticated user (EMP, DRV, FM, HWS, ADM) can send their live detected GPS coordinates
+  app.post('/api/location/ping', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const user = req.user!;
+    const { latitude, longitude, accuracy_meters, address_label } = req.body ?? {};
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+      res.status(400).json({ error: 'Valid latitude [-90, 90] and longitude [-180, 180] are required' });
+      return;
+    }
+
+    const acc = accuracy_meters !== undefined && accuracy_meters !== null ? Number(accuracy_meters) : null;
+    const label = address_label ? String(address_label).trim() : null;
+    const nowIso = new Date().toISOString();
+
+    db.prepare(
+      `INSERT INTO user_locations (user_id, latitude, longitude, accuracy_meters, address_label, updated_at)
+       VALUES (?, ?, ?, ?, COALESCE(?, (SELECT address_label FROM user_locations WHERE user_id = ?)), ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         latitude = excluded.latitude,
+         longitude = excluded.longitude,
+         accuracy_meters = excluded.accuracy_meters,
+         address_label = COALESCE(excluded.address_label, user_locations.address_label),
+         updated_at = excluded.updated_at`
+    ).run(user.id, lat, lng, acc, label, user.id, nowIso);
+
+    // If this user also has a driver profile, record in location_reports as well
+    if (user.driver_profile_id) {
+      const activeAsn = db
+        .prepare('SELECT id, vehicle_id FROM assignments WHERE driver_profile_id = ? AND is_current = 1 ORDER BY id DESC LIMIT 1')
+        .get(user.driver_profile_id) as { id: number; vehicle_id: number } | undefined;
+
+      db.prepare(
+        `INSERT INTO location_reports (
+          driver_profile_id, driver_user_id, vehicle_id, assignment_id,
+          latitude, longitude, accuracy_meters, capture_time, server_receipt_time,
+          permission_state, phone_state, is_flagged_implausible, flag_reason
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'GRANTED', 'FOREGROUND', 0, NULL)`
+      ).run(user.driver_profile_id, user.id, activeAsn?.vehicle_id ?? null, activeAsn?.id ?? null, lat, lng, acc, nowIso, nowIso);
+    }
+
+    const saved = db
+      .prepare(
+        `SELECT ul.user_id, u.nickname, u.group_username, u.role, d.name as group_name,
+                ul.latitude, ul.longitude, ul.accuracy_meters, ul.address_label, ul.updated_at
+         FROM user_locations ul
+         JOIN users u ON u.id = ul.user_id
+         LEFT JOIN departments d ON d.id = u.department_id
+         WHERE ul.user_id = ?`
+      )
+      .get(user.id);
+
+    res.status(201).json({ location: saved });
+  });
+
+  // Returns all active users' pinpoint locations for rendering dots on the map
+  app.get('/api/location/pins', requireAuth, (_req: Request, res: Response) => {
+    const db = getDb();
+    const pins = db
+      .prepare(
+        `SELECT ul.user_id, u.nickname, u.group_username, u.role, d.name as group_name,
+                ul.latitude, ul.longitude, ul.accuracy_meters, ul.address_label, ul.updated_at
+         FROM user_locations ul
+         JOIN users u ON u.id = ul.user_id
+         LEFT JOIN departments d ON d.id = u.department_id
+         WHERE u.is_active = 1
+         ORDER BY ul.updated_at DESC`
+      )
+      .all();
+    res.json({ pins });
+  });
 
   app.post('/api/gps/report', requireAuth, requireRoles(['DRV', 'ADM', 'FM']), (req: Request, res: Response) => {
     const db = getDb();
@@ -2590,6 +2664,18 @@ export function createApp() {
         isOldClock,
         flagReason
       );
+
+    if (permState === 'GRANTED') {
+      db.prepare(
+        `INSERT INTO user_locations (user_id, latitude, longitude, accuracy_meters, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET
+           latitude = excluded.latitude,
+           longitude = excluded.longitude,
+           accuracy_meters = excluded.accuracy_meters,
+           updated_at = excluded.updated_at`
+      ).run(user.id, Number(latitude), Number(longitude), accuracy_meters !== undefined && accuracy_meters !== null ? Number(accuracy_meters) : null, serverReceiptTime);
+    }
 
     const report = db.prepare('SELECT * FROM location_reports WHERE id = ?').get(Number(result.lastInsertRowid));
     res.status(201).json({ report });

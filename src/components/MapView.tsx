@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { ArrowLeft, Crosshair, Navigation2, WifiOff } from 'lucide-react';
+import { ArrowLeft, Crosshair, LocateFixed, Navigation2, Users, WifiOff } from 'lucide-react';
 import { apiRequest } from '../api';
 
 export interface GeoPlace {
@@ -9,6 +9,19 @@ export interface GeoPlace {
   address: string;
   lat: number;
   lon: number;
+}
+
+export interface UserLocationPin {
+  user_id: number;
+  nickname: string;
+  group_username: string;
+  role: string;
+  group_name?: string;
+  latitude: number;
+  longitude: number;
+  accuracy_meters?: number | null;
+  address_label?: string | null;
+  updated_at: string;
 }
 
 const DEFAULT_CENTER: [number, number] = [-6.19834, 106.88873];
@@ -45,7 +58,6 @@ export function estimateRouteMetrics(
     const durationMin = Math.max(4, Math.round(roadKm * 2.4 + 4));
     return { distanceKm: roadKm, durationMin };
   }
-  // Deterministic road estimate from string hashes when coordinates aren't resolved yet
   const str = `${origin || ''}->${destination}`;
   let h = 0;
   for (let i = 0; i < str.length; i++) {
@@ -56,11 +68,24 @@ export function estimateRouteMetrics(
   return { distanceKm, durationMin };
 }
 
+function escapeHtml(text: string): string {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 interface MapViewProps {
   origin: string;
   destination: string;
   originCoords?: { lat: number; lon: number } | null;
   destCoords?: { lat: number; lon: number } | null;
+  myCoords?: { lat: number; lon: number; accuracy?: number } | null;
+  userPins?: UserLocationPin[];
+  currentUserId?: number;
+  onLocateMe?: () => void;
+  locatingUser?: boolean;
   showRoute: boolean;
   pinMode: boolean;
   onPinMoveAddress?: (place: GeoPlace) => void;
@@ -77,6 +102,11 @@ export const MapView: React.FC<MapViewProps> = ({
   destination,
   originCoords,
   destCoords,
+  myCoords,
+  userPins = [],
+  currentUserId,
+  onLocateMe,
+  locatingUser = false,
   showRoute,
   pinMode,
   onPinMoveAddress,
@@ -89,7 +119,9 @@ export const MapView: React.FC<MapViewProps> = ({
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
-  const layerGroupRef = useRef<L.LayerGroup | null>(null);
+  const routeLayerRef = useRef<L.LayerGroup | null>(null);
+  const pinsLayerRef = useRef<L.LayerGroup | null>(null);
+  const hasCenteredOnMyCoordsRef = useRef<boolean>(false);
   const onPinMoveRef = useRef(onPinMoveAddress);
   onPinMoveRef.current = onPinMoveAddress;
 
@@ -101,8 +133,11 @@ export const MapView: React.FC<MapViewProps> = ({
     if (originCoords && Number.isFinite(originCoords.lat) && Number.isFinite(originCoords.lon)) {
       return [originCoords.lat, originCoords.lon];
     }
+    if (myCoords && Number.isFinite(myCoords.lat) && Number.isFinite(myCoords.lon)) {
+      return [myCoords.lat, myCoords.lon];
+    }
     return DEFAULT_CENTER;
-  }, [originCoords]);
+  }, [originCoords, myCoords]);
 
   const effDest = useMemo<[number, number] | null>(() => {
     if (destCoords && Number.isFinite(destCoords.lat) && Number.isFinite(destCoords.lon)) {
@@ -136,7 +171,6 @@ export const MapView: React.FC<MapViewProps> = ({
       attributionControl: true,
     });
 
-    // MapTiler outdoor-v4 tiles with provided API key
     L.tileLayer(MAPTILER_OUTDOOR_V4_TILE_URL, {
       maxZoom: 20,
       tileSize: 256,
@@ -144,33 +178,29 @@ export const MapView: React.FC<MapViewProps> = ({
         '&copy; <a href="https://www.maptiler.com/copyright/" target="_blank" rel="noreferrer">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
     }).addTo(map);
 
-    const group = L.layerGroup().addTo(map);
+    const pinsLayer = L.layerGroup().addTo(map);
+    const routeLayer = L.layerGroup().addTo(map);
     mapInstanceRef.current = map;
-    layerGroupRef.current = group;
-
-    // Try browser geolocation once to center map near user if no explicit coordinates yet
-    if ('geolocation' in navigator && !originCoords) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          if (mapInstanceRef.current) {
-            mapInstanceRef.current.setView([pos.coords.latitude, pos.coords.longitude], 15);
-          }
-        },
-        () => {
-          // keep default center
-        },
-        { timeout: 4000 }
-      );
-    }
+    pinsLayerRef.current = pinsLayer;
+    routeLayerRef.current = routeLayer;
 
     return () => {
       map.remove();
       mapInstanceRef.current = null;
-      layerGroupRef.current = null;
+      pinsLayerRef.current = null;
+      routeLayerRef.current = null;
     };
   }, []);
 
-  // Handle Pin-on-Map Drag & Reverse Geocoding via OpenStreetMap Nominatim
+  // Automatically fly to the user's detected GPS location the first time it arrives
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !myCoords || hasCenteredOnMyCoordsRef.current) return;
+    hasCenteredOnMyCoordsRef.current = true;
+    map.setView([myCoords.lat, myCoords.lon], 15, { animate: true });
+  }, [myCoords]);
+
+  // Handle Pin-on-Map Drag & Reverse Geocoding via MapTiler / Nominatim
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -223,24 +253,105 @@ export const MapView: React.FC<MapViewProps> = ({
     };
   }, [pinMode]);
 
-  // Render Markers & Route Polyline whenever coordinates or mode change
+  // Render All Users' Pinpoint Dots on the Map
+  useEffect(() => {
+    const pinsLayer = pinsLayerRef.current;
+    if (!pinsLayer) return;
+
+    pinsLayer.clearLayers();
+
+    // Render all reported user locations
+    const renderedIds = new Set<number>();
+    for (const pin of userPins) {
+      if (!Number.isFinite(pin.latitude) || !Number.isFinite(pin.longitude)) continue;
+      renderedIds.add(pin.user_id);
+
+      const isMe = currentUserId !== undefined && pin.user_id === currentUserId;
+      const isDriver = pin.role === 'DRV';
+      const dotColor = isMe ? '#00AA13' : isDriver ? '#00AA13' : '#111827';
+      const ringColor = isMe ? 'rgba(0, 170, 19, 0.25)' : isDriver ? 'rgba(0, 170, 19, 0.18)' : 'rgba(17, 24, 39, 0.15)';
+      const badgeLabel = isMe ? `You (${escapeHtml(pin.nickname)})` : `${escapeHtml(pin.nickname)} • ${escapeHtml(pin.role)}`;
+
+      if (isMe && pin.accuracy_meters) {
+        L.circle([pin.latitude, pin.longitude], {
+          radius: Math.min(250, Math.max(25, Number(pin.accuracy_meters))),
+          color: '#00AA13',
+          weight: 1,
+          fillColor: '#00AA13',
+          fillOpacity: 0.1,
+        }).addTo(pinsLayer);
+      }
+
+      const userDotIcon = L.divIcon({
+        className: 'gf-leaflet-marker',
+        html: `
+          <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);">
+            <div style="background:#ffffff;color:#111827;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.18);margin-bottom:4px;border:1.5px solid ${dotColor};">
+              ${badgeLabel}
+            </div>
+            <div style="width:16px;height:16px;border-radius:9999px;background:${dotColor};outline:3px solid #ffffff;box-shadow:0 0 0 5px ${ringColor}, 0 2px 6px rgba(0,0,0,0.3);"></div>
+          </div>
+        `,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
+      });
+
+      const marker = L.marker([pin.latitude, pin.longitude], { icon: userDotIcon }).addTo(pinsLayer);
+      marker.bindPopup(
+        `<div style="font-family:inherit;font-size:12px;line-height:1.4;">
+          <div style="font-weight:800;font-size:13px;">${escapeHtml(pin.nickname)} (@${escapeHtml(pin.group_username)})</div>
+          <div style="color:#4B5563;">${escapeHtml(pin.group_name || 'Company Group')} • Role: <strong>${escapeHtml(pin.role)}</strong></div>
+          ${pin.address_label ? `<div style="margin-top:4px;font-weight:600;">${escapeHtml(pin.address_label)}</div>` : ''}
+          <div style="margin-top:2px;font-family:monospace;font-size:11px;color:#6B7280;">${Number(pin.latitude).toFixed(5)}, ${Number(pin.longitude).toFixed(5)}</div>
+        </div>`
+      );
+    }
+
+    // If current user's browser coordinates are known before the first server refresh finishes, render their dot immediately
+    if (myCoords && (!currentUserId || !renderedIds.has(currentUserId))) {
+      L.circle([myCoords.lat, myCoords.lon], {
+        radius: Math.min(250, Math.max(25, Number(myCoords.accuracy || 40))),
+        color: '#00AA13',
+        weight: 1,
+        fillColor: '#00AA13',
+        fillOpacity: 0.1,
+      }).addTo(pinsLayer);
+
+      const meIcon = L.divIcon({
+        className: 'gf-leaflet-marker',
+        html: `
+          <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);">
+            <div style="background:#00AA13;color:#ffffff;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.2);margin-bottom:4px;">
+              You
+            </div>
+            <div style="width:16px;height:16px;border-radius:9999px;background:#00AA13;outline:3px solid #ffffff;box-shadow:0 0 0 6px rgba(0,170,19,0.25), 0 2px 6px rgba(0,0,0,0.3);"></div>
+          </div>
+        `,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
+      });
+      L.marker([myCoords.lat, myCoords.lon], { icon: meIcon }).addTo(pinsLayer);
+    }
+  }, [userPins, currentUserId, myCoords]);
+
+  // Render Route Pickup, Destination & Polyline whenever route coordinates or mode change
   useEffect(() => {
     const map = mapInstanceRef.current;
-    const group = layerGroupRef.current;
+    const group = routeLayerRef.current;
     if (!map || !group) return;
 
     group.clearLayers();
 
-    // Pickup Marker (Green dot)
-    const pickupIcon = L.divIcon({
-      className: 'gf-leaflet-marker',
-      html: `<div style="width:18px;height:18px;border-radius:9999px;background:#00AA13;outline:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.25);"></div>`,
-      iconSize: [18, 18],
-      iconAnchor: [9, 9],
-    });
-    L.marker(effOrigin, { icon: pickupIcon }).addTo(group);
+    if (showRoute || Boolean(origin && origin.trim())) {
+      const pickupIcon = L.divIcon({
+        className: 'gf-leaflet-marker',
+        html: `<div style="width:18px;height:18px;border-radius:9999px;background:#00AA13;outline:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.25);"></div>`,
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+      });
+      L.marker(effOrigin, { icon: pickupIcon }).addTo(group);
+    }
 
-    // Destination Marker & Route Polyline (Dark 4px line with white outline)
     if (showRoute && effDest && !pinMode) {
       const destIcon = L.divIcon({
         className: 'gf-leaflet-marker',
@@ -254,7 +365,6 @@ export const MapView: React.FC<MapViewProps> = ({
       const midLon = (effOrigin[1] + effDest[1]) / 2 - (effDest[0] - effOrigin[0]) * 0.12;
       const latlngs: L.LatLngExpression[] = [effOrigin, [midLat, midLon], effDest];
 
-      // White outline under dark 4px route line
       L.polyline(latlngs, {
         color: '#ffffff',
         weight: 8,
@@ -283,10 +393,8 @@ export const MapView: React.FC<MapViewProps> = ({
 
       const bounds = L.latLngBounds([effOrigin, effDest]);
       map.fitBounds(bounds, { padding: [70, 70], maxZoom: 16 });
-    } else if (!pinMode) {
-      map.setView(effOrigin, map.getZoom() || 14);
     }
-  }, [effOrigin, effDest, showRoute, pinMode, driverActive]);
+  }, [effOrigin, effDest, showRoute, pinMode, driverActive, origin]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!pinMode || !mapInstanceRef.current) return;
@@ -311,10 +419,114 @@ export const MapView: React.FC<MapViewProps> = ({
       className="gf-map-stage"
       tabIndex={pinMode ? 0 : -1}
       role={pinMode ? 'application' : undefined}
-      aria-label={pinMode ? 'Interactive OpenStreetMap. Drag or use arrow keys to position the pin.' : 'OpenStreetMap route view'}
+      aria-label={pinMode ? 'Interactive MapTiler map. Drag or use arrow keys to position the pin.' : 'MapTiler route and user location view'}
       onKeyDown={handleKeyDown}
     >
       <div ref={mapContainerRef} style={{ width: '100%', height: '100%', zIndex: 1 }} />
+
+      {/* Active User Pinpoints Count Badge + Locate Me GPS Button */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 'calc(var(--space-4) + var(--safe-top))',
+          right: 'var(--space-4)',
+          zIndex: 455,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: '8px',
+        }}
+      >
+        {showRoute && effDest && !pinMode && (
+          <div
+            style={{
+              background: 'var(--color-bg-surface)',
+              color: 'var(--color-text-primary)',
+              padding: '8px 14px',
+              borderRadius: 'var(--radius-pill)',
+              boxShadow: 'var(--shadow-floating)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: 'var(--text-caption-size)',
+              fontWeight: 700,
+            }}
+          >
+            <Navigation2 size={14} style={{ color: 'var(--color-green)' }} />
+            <span>
+              {metrics.distanceKm} km • ~{metrics.durationMin} min
+            </span>
+          </div>
+        )}
+
+        {driverActive && driverName && (
+          <div
+            style={{
+              background: 'var(--color-bg-surface)',
+              color: 'var(--color-text-primary)',
+              padding: '8px 14px',
+              borderRadius: 'var(--radius-pill)',
+              boxShadow: 'var(--shadow-floating)',
+              fontSize: 'var(--text-caption-size)',
+              fontWeight: 700,
+            }}
+          >
+            Driver assigned • {driverName}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {userPins.length > 0 && (
+            <div
+              style={{
+                background: 'var(--color-bg-surface)',
+                color: 'var(--color-text-primary)',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-pill)',
+                boxShadow: 'var(--shadow-floating)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: 'var(--text-caption-size)',
+                fontWeight: 700,
+              }}
+              title="Active users sharing their live pinpoint on the map"
+            >
+              <span className="gf-dot-green" />
+              <Users size={13} />
+              <span>{userPins.length} live on map</span>
+            </div>
+          )}
+
+          {onLocateMe && (
+            <button
+              id="map-locate-me-btn"
+              type="button"
+              className="gf-icon-btn-48 pressable"
+              style={{
+                width: '44px',
+                height: '44px',
+                minWidth: '44px',
+                minHeight: '44px',
+                background: 'var(--color-bg-surface)',
+                color: myCoords ? 'var(--color-green)' : 'var(--color-text-primary)',
+                boxShadow: 'var(--shadow-floating)',
+                border: 'none',
+              }}
+              onClick={() => {
+                onLocateMe();
+                if (myCoords && mapInstanceRef.current) {
+                  mapInstanceRef.current.setView([myCoords.lat, myCoords.lon], 16, { animate: true });
+                }
+              }}
+              aria-label="Detect and center on my GPS location"
+              title={locatingUser ? 'Detecting GPS location...' : 'Detect & center on my location'}
+            >
+              <LocateFixed size={20} />
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* Pulsing Green Radar Rings when Waiting for Approval (3 rings, 2s loop) */}
       {waitingRadar && (
@@ -404,54 +616,6 @@ export const MapView: React.FC<MapViewProps> = ({
               transition: 'width 160ms var(--ease-spring)',
             }}
           />
-        </div>
-      )}
-
-      {/* Distance & Duration Chip when Route is Drawn */}
-      {showRoute && effDest && !pinMode && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 'calc(var(--space-4) + var(--safe-top))',
-            right: 'var(--space-4)',
-            zIndex: 450,
-            background: 'var(--color-bg-surface)',
-            color: 'var(--color-text-primary)',
-            padding: '8px 14px',
-            borderRadius: 'var(--radius-pill)',
-            boxShadow: 'var(--shadow-floating)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontSize: 'var(--text-caption-size)',
-            fontWeight: 700,
-          }}
-        >
-          <Navigation2 size={14} style={{ color: 'var(--color-green)' }} />
-          <span>
-            {metrics.distanceKm} km • ~{metrics.durationMin} min
-          </span>
-        </div>
-      )}
-
-      {/* Driver Assigned Pill */}
-      {driverActive && driverName && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 'calc(var(--space-4) + var(--safe-top))',
-            right: 'var(--space-4)',
-            zIndex: 450,
-            background: 'var(--color-bg-surface)',
-            color: 'var(--color-text-primary)',
-            padding: '8px 14px',
-            borderRadius: 'var(--radius-pill)',
-            boxShadow: 'var(--shadow-floating)',
-            fontSize: 'var(--text-caption-size)',
-            fontWeight: 700,
-          }}
-        >
-          Driver assigned • {driverName}
         </div>
       )}
 

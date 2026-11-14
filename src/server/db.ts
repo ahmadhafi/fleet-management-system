@@ -385,6 +385,15 @@ function initializeSchema(db: AppDatabase) {
       SELECT RAISE(ABORT, 'Location reports are append-only and cannot be updated (GPS-09)');
     END;
 
+    CREATE TABLE IF NOT EXISTS user_locations (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      latitude REAL NOT NULL CHECK (latitude >= -90 AND latitude <= 90),
+      longitude REAL NOT NULL CHECK (longitude >= -180 AND longitude <= 180),
+      accuracy_meters REAL,
+      address_label TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL REFERENCES users(id),
