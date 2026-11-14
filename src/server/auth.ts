@@ -14,6 +14,8 @@ export interface AuthenticatedUser {
   approval_status: string;
   is_active: number;
   driver_profile_id?: number | null;
+  contact_number?: string;
+  photo_url?: string | null;
 }
 
 declare global {
@@ -122,6 +124,8 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   const user = db.prepare(`
     SELECT u.id, u.nickname, u.group_username, u.role, u.is_department_admin,
            u.department_id, d.name as department_name, u.approval_status, u.is_active,
+           COALESCE(u.contact_number, dp.contact_number, '') as contact_number,
+           COALESCE(u.photo_url, dp.photo_url) as photo_url,
            dp.id as driver_profile_id
     FROM users u
     LEFT JOIN departments d ON d.id = u.department_id

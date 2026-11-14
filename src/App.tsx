@@ -38,6 +38,9 @@ import {
   Printer,
   BarChart3,
   ScrollText,
+  Eye,
+  EyeOff,
+  User,
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
 import { AppShell, AdminShell, type NavSection, type AdminModule } from './components/AppShell';
@@ -211,6 +214,21 @@ export function App() {
   const [endOdoPhoto, setEndOdoPhoto] = useState<Record<number, string>>({});
   const [endOdoTime, setEndOdoTime] = useState<Record<number, string>>({});
   const [statusBanner, setStatusBanner] = useState<{ type: 'info' | 'success' | 'warning' | 'danger'; text: string } | null>(null);
+
+  // Profile modal and password change states
+  const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
+  const [profileNickname, setProfileNickname] = useState<string>('');
+  const [profileContactNumber, setProfileContactNumber] = useState<string>('');
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [profileTab, setProfileTab] = useState<'DETAILS' | 'PASSWORD'>('DETAILS');
+  const [currentPassword, setCurrentPassword] = useState<string>('');
+  const [newPassword, setNewPassword] = useState<string>('');
+  const [confirmPassword, setConfirmPassword] = useState<string>('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState<boolean>(false);
+  const [showNewPassword, setShowNewPassword] = useState<boolean>(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState<boolean>(false);
+  const [profileSaving, setProfileSaving] = useState<boolean>(false);
+  const [profileStatusBanner, setProfileStatusBanner] = useState<{ type: 'success' | 'danger'; text: string } | null>(null);
 
   // Home / Route / Ride / Activity sub-states
   const [carouselIdx, setCarouselIdx] = useState(0);
@@ -864,6 +882,119 @@ export function App() {
     }
   };
 
+  const handleOpenProfileModal = () => {
+    if (user) {
+      setProfileNickname(user.nickname || '');
+      setProfileContactNumber(user.contact_number || '');
+      setProfilePhotoUrl(user.photo_url || null);
+    }
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
+    setProfileStatusBanner(null);
+    setProfileTab('DETAILS');
+    setShowProfileModal(true);
+  };
+
+  const handleProfilePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setProfileStatusBanner({ type: 'danger', text: 'Please select an image file (PNG, JPG, SVG).' });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      setProfilePhotoUrl(result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveProfileDetails = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profileNickname.trim() || profileNickname.trim().length < 2) {
+      setProfileStatusBanner({ type: 'danger', text: 'Nickname must be at least 2 characters long.' });
+      return;
+    }
+    setProfileSaving(true);
+    setProfileStatusBanner(null);
+    try {
+      const res = await apiRequest('/api/user/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          nickname: profileNickname.trim(),
+          contact_number: profileContactNumber.trim(),
+          photo_url: profilePhotoUrl,
+        }),
+      });
+      if (res.user) {
+        setUser((prev: any) => (prev ? { ...prev, ...res.user } : res.user));
+      }
+      setProfileStatusBanner({ type: 'success', text: 'Profile details saved successfully!' });
+      if (user?.role === 'DRV') {
+        setDrivers((prev: any[]) =>
+          prev.map((d: any) =>
+            d.user_id === user.id
+              ? {
+                  ...d,
+                  full_name: profileNickname.trim(),
+                  contact_number: profileContactNumber.trim(),
+                  photo_url: profilePhotoUrl,
+                }
+              : d
+          )
+        );
+      }
+    } catch (err: any) {
+      setProfileStatusBanner({ type: 'danger', text: err.message || 'Failed to update profile.' });
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentPassword) {
+      setProfileStatusBanner({ type: 'danger', text: 'Current password is required.' });
+      return;
+    }
+    if (!newPassword || newPassword.length < 6) {
+      setProfileStatusBanner({ type: 'danger', text: 'New password must be at least 6 characters long.' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setProfileStatusBanner({ type: 'danger', text: 'New password and confirmation do not match.' });
+      return;
+    }
+    if (currentPassword === newPassword) {
+      setProfileStatusBanner({ type: 'danger', text: 'New password must be different from current password.' });
+      return;
+    }
+    setProfileSaving(true);
+    setProfileStatusBanner(null);
+    try {
+      await apiRequest('/api/user/change-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setProfileStatusBanner({ type: 'success', text: 'Password successfully changed! Your account is protected.' });
+    } catch (err: any) {
+      setProfileStatusBanner({ type: 'danger', text: err.message || 'Failed to change password.' });
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
   const markLocationVerified = useCallback(() => {
     setLocationPermissionVerified(true);
     try {
@@ -1025,9 +1156,23 @@ export function App() {
       } catch {}
     }, 15 * 1000);
 
+    // Real-time Fleet Map GPS positions poller (updates vehicle markers to follow real drivers live)
+    let fleetInterval: number | null = null;
+    if (['ADM', 'FM', 'HWS'].includes(user.role)) {
+      fleetInterval = window.setInterval(async () => {
+        try {
+          const res = await apiRequest('/api/admin/fleet-map-positions');
+          if (res.fleetPositions) {
+            setFleetPositions(res.fleetPositions);
+          }
+        } catch {}
+      }, 15 * 1000);
+    }
+
     return () => {
       window.clearInterval(locInterval);
       window.clearInterval(notifInterval);
+      if (fleetInterval) window.clearInterval(fleetInterval);
     };
   }, [user]);
 
@@ -1453,6 +1598,18 @@ export function App() {
     () => trips.find((t) => t.id === focusedTripId) || ongoingTrips[0] || null,
     [trips, focusedTripId, ongoingTrips]
   );
+
+  const activeTripDriverCoords = useMemo(() => {
+    if (!focusedTrip) return null;
+    const carPos = fleetPositions.find((p) => p.id === focusedTrip.vehicle_id);
+    if (carPos && Number.isFinite(carPos.latitude) && Number.isFinite(carPos.longitude)) {
+      return { lat: carPos.latitude, lon: carPos.longitude };
+    }
+    const drvPin = userPins.find((p) =>
+      (focusedTrip.assigned_driver_name && p.nickname.toLowerCase() === focusedTrip.assigned_driver_name.toLowerCase()) || p.role === 'DRV'
+    );
+    return drvPin ? { lat: drvPin.latitude, lon: drvPin.longitude } : null;
+  }, [focusedTrip, fleetPositions, userPins]);
 
   // Real user recent destinations from their actual trip history (no dummy places)
   const recentDestinationChips = useMemo(() => {
@@ -2771,6 +2928,312 @@ export function App() {
           </div>
         </div>
       )}
+
+      {showProfileModal && (
+        <div
+          className="gf-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Account Profile & Password Settings"
+          style={{ zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', background: 'rgba(0, 0, 0, 0.7)' }}
+          onClick={() => setShowProfileModal(false)}
+        >
+          <div
+            className="gf-modal-card"
+            style={{ maxWidth: '520px', width: '100%', maxHeight: '90vh', overflowY: 'auto' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--color-border)', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div
+                  style={{
+                    width: '38px',
+                    height: '38px',
+                    borderRadius: '10px',
+                    background: 'var(--color-samsung-blue)',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 800,
+                  }}
+                >
+                  <User size={20} />
+                </div>
+                <div>
+                  <h2 className="type-title" style={{ margin: 0, fontSize: '18px' }}>Account Settings</h2>
+                  <p className="type-caption" style={{ margin: 0 }}>@{user.group_username} • Role: {user.role}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="gf-btn gf-btn-secondary"
+                style={{ padding: '4px 10px', minHeight: '32px' }}
+                onClick={() => setShowProfileModal(false)}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            {profileStatusBanner && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  marginBottom: '14px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  background: profileStatusBanner.type === 'success' ? '#ecfdf5' : '#fef2f2',
+                  color: profileStatusBanner.type === 'success' ? '#065f46' : '#991b1b',
+                  border: `1px solid ${profileStatusBanner.type === 'success' ? '#a7f3d0' : '#fecaca'}`,
+                }}
+              >
+                {profileStatusBanner.text}
+              </div>
+            )}
+
+            {/* Tab navigation */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--color-border)', paddingBottom: '10px' }}>
+              <button
+                type="button"
+                className={`gf-btn ${profileTab === 'DETAILS' ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
+                style={{ flex: 1, minHeight: '36px', fontSize: '13.5px' }}
+                onClick={() => {
+                  setProfileTab('DETAILS');
+                  setProfileStatusBanner(null);
+                }}
+              >
+                👤 Profile Details
+              </button>
+              <button
+                type="button"
+                className={`gf-btn ${profileTab === 'PASSWORD' ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
+                style={{ flex: 1, minHeight: '36px', fontSize: '13.5px' }}
+                onClick={() => {
+                  setProfileTab('PASSWORD');
+                  setProfileStatusBanner(null);
+                }}
+              >
+                🔒 Change Password
+              </button>
+            </div>
+
+            {profileTab === 'DETAILS' ? (
+              <form onSubmit={handleSaveProfileDetails} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', background: 'var(--color-bg-subtle)', padding: '12px 14px', borderRadius: '10px' }}>
+                  <div style={{ position: 'relative', width: '64px', height: '64px', flexShrink: 0 }}>
+                    {profilePhotoUrl ? (
+                      <img
+                        src={profilePhotoUrl}
+                        alt={profileNickname}
+                        style={{ width: '64px', height: '64px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--color-samsung-blue)' }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: '64px',
+                          height: '64px',
+                          borderRadius: '50%',
+                          background: 'var(--color-samsung-blue)',
+                          color: '#fff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '22px',
+                          fontWeight: 800,
+                        }}
+                      >
+                        {(profileNickname || user.nickname || 'U').slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label className="gf-btn gf-btn-secondary" style={{ cursor: 'pointer', fontSize: '12px', padding: '6px 12px', minHeight: '32px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <Camera size={14} /> Upload New Photo
+                      <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleProfilePhotoChange} />
+                    </label>
+                    {profilePhotoUrl && (
+                      <button
+                        type="button"
+                        className="gf-btn gf-btn-ghost"
+                        style={{ fontSize: '11px', color: '#dc2626', padding: '2px 6px', textAlign: 'left' }}
+                        onClick={() => setProfilePhotoUrl(null)}
+                      >
+                        Remove Photo
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    Full Name / Display Nickname <span style={{ color: '#dc2626' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="gf-input"
+                    required
+                    value={profileNickname}
+                    onChange={(e) => setProfileNickname(e.target.value)}
+                    placeholder="e.g. John Doe"
+                  />
+                </div>
+
+                <div>
+                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    Contact Phone Number (WhatsApp / Mobile)
+                  </label>
+                  <input
+                    type="tel"
+                    className="gf-input"
+                    value={profileContactNumber}
+                    onChange={(e) => setProfileContactNumber(e.target.value)}
+                    placeholder="e.g. 081234567890"
+                  />
+                  <p className="type-caption" style={{ marginTop: '3px', color: 'var(--color-text-secondary)' }}>
+                    Used for ride coordination, WhatsApp dispatch, and emergency contact.
+                  </p>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>System Role</label>
+                    <input type="text" className="gf-input" disabled value={user.role} />
+                  </div>
+                  <div>
+                    <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Assigned Group</label>
+                    <input type="text" className="gf-input" disabled value={user.department_name || `Group #${user.department_id}`} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-secondary"
+                    style={{ flex: 1 }}
+                    onClick={() => setShowProfileModal(false)}
+                    disabled={profileSaving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="gf-btn gf-btn-primary"
+                    style={{ flex: 1 }}
+                    disabled={profileSaving}
+                  >
+                    {profileSaving ? 'Saving...' : 'Save Profile'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12.5px', color: '#475569' }}>
+                  🔒 For your security, enter your current password to verify your identity before setting a new password (min. 6 characters).
+                </div>
+
+                <div>
+                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    Current Password <span style={{ color: '#dc2626' }}>*</span>
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showCurrentPassword ? 'text' : 'password'}
+                      className="gf-input"
+                      required
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="Enter your existing password"
+                      style={{ paddingRight: '40px' }}
+                    />
+                    <button
+                      type="button"
+                      style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
+                      onClick={() => setShowCurrentPassword((prev) => !prev)}
+                      aria-label={showCurrentPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showCurrentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    New Password (min 6 characters) <span style={{ color: '#dc2626' }}>*</span>
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      className="gf-input"
+                      required
+                      minLength={6}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Enter your new secure password"
+                      style={{ paddingRight: '40px' }}
+                    />
+                    <button
+                      type="button"
+                      style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
+                      onClick={() => setShowNewPassword((prev) => !prev)}
+                      aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    Confirm New Password <span style={{ color: '#dc2626' }}>*</span>
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      className="gf-input"
+                      required
+                      minLength={6}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Re-enter your new password"
+                      style={{ paddingRight: '40px' }}
+                    />
+                    <button
+                      type="button"
+                      style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
+                      onClick={() => setShowConfirmPassword((prev) => !prev)}
+                      aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-secondary"
+                    style={{ flex: 1 }}
+                    onClick={() => setShowProfileModal(false)}
+                    disabled={profileSaving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="gf-btn gf-btn-primary"
+                    style={{ flex: 1 }}
+                    disabled={profileSaving}
+                  >
+                    {profileSaving ? 'Updating Password...' : 'Update Password'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -2784,6 +3247,7 @@ export function App() {
           activeModule={adminModule}
           onSelectModule={setAdminModule}
           onSignOut={handleLogout}
+          onOpenProfile={handleOpenProfileModal}
           pendingCount={pendingTrips.length + pendingUsers.length}
           userNickname={user.nickname}
           userRole={user.role}
@@ -5068,6 +5532,16 @@ export function App() {
               <StatusBadge label={driverCheckedInReady ? 'Online & Checked In' : 'Offline / Standby'} tone={driverCheckedInReady ? 'green' : 'amber'} />
               <button
                 type="button"
+                className="gf-btn gf-btn-secondary"
+                style={{ minHeight: '38px', padding: '0 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                onClick={handleOpenProfileModal}
+                aria-label="Account Profile & Password"
+                title="Account Profile & Password"
+              >
+                <User size={16} /> Profile
+              </button>
+              <button
+                type="button"
                 className="gf-btn gf-btn-outline-danger"
                 style={{ minHeight: '38px', padding: '0 10px' }}
                 onClick={handleLogout}
@@ -5170,37 +5644,47 @@ export function App() {
                   </div>
                 </div>
 
-                <label
-                  className="gf-btn gf-btn-secondary"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0, minHeight: '34px', fontSize: '12.5px' }}
-                >
-                  <Camera size={14} /> Update My Photo
-                  <input
-                    type="file"
-                    accept="image/*"
-                    style={{ display: 'none' }}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onload = async (ev) => {
-                          const base64 = String(ev.target?.result || '');
-                          try {
-                            await apiRequest('/api/driver/profile/photo', {
-                              method: 'POST',
-                              body: JSON.stringify({ photo_url: base64 }),
-                            });
-                            setStatusBanner({ type: 'success', text: 'Driver profile photo updated successfully!' });
-                            await loadAllData(user);
-                          } catch (err: any) {
-                            setStatusBanner({ type: 'danger', text: err.message });
-                          }
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }}
-                  />
-                </label>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-secondary"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', minHeight: '34px', fontSize: '12.5px' }}
+                    onClick={handleOpenProfileModal}
+                  >
+                    <User size={14} /> Edit Profile & Password
+                  </button>
+                  <label
+                    className="gf-btn gf-btn-secondary"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0, minHeight: '34px', fontSize: '12.5px' }}
+                  >
+                    <Camera size={14} /> Update Photo
+                    <input
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = async (ev) => {
+                            const base64 = String(ev.target?.result || '');
+                            try {
+                              await apiRequest('/api/driver/profile/photo', {
+                                method: 'POST',
+                                body: JSON.stringify({ photo_url: base64 }),
+                              });
+                              setStatusBanner({ type: 'success', text: 'Driver profile photo updated successfully!' });
+                              await loadAllData(user);
+                            } catch (err: any) {
+                              setStatusBanner({ type: 'danger', text: err.message });
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
               </div>
             );
           })()}
@@ -6057,32 +6541,53 @@ export function App() {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {feedbackBanner}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <div
-              style={{
-                width: '56px',
-                height: '56px',
-                borderRadius: 'var(--radius-pill)',
-                background: 'var(--color-green-tint)',
-                color: 'var(--color-green-text)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 800,
-                fontSize: '18px',
-                flexShrink: 0,
-              }}
-            >
-              {initials}
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <h1 className="type-title">{user.nickname}</h1>
-              <div className="type-caption">@{user.group_username} • {user.department_name || `Group #${user.department_id}`}</div>
-              <div style={{ marginTop: '4px', display: 'flex', gap: '6px' }}>
-                <StatusBadge label={`Role: ${user.role}`} tone="green" />
-                {user.is_department_admin === 1 && <StatusBadge label="Group Admin" tone="blue" />}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div
+                style={{
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: 'var(--radius-pill)',
+                  background: 'var(--color-green-tint)',
+                  color: 'var(--color-green-text)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 800,
+                  fontSize: '18px',
+                  flexShrink: 0,
+                  overflow: 'hidden',
+                  border: '2px solid var(--color-samsung-blue)',
+                }}
+              >
+                {user.photo_url ? (
+                  <img src={user.photo_url} alt={user.nickname} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  initials
+                )}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <h1 className="type-title">{user.nickname}</h1>
+                <div className="type-caption">@{user.group_username} • {user.department_name || `Group #${user.department_id}`}</div>
+                {user.contact_number && (
+                  <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    📞 {user.contact_number}
+                  </div>
+                )}
+                <div style={{ marginTop: '4px', display: 'flex', gap: '6px' }}>
+                  <StatusBadge label={`Role: ${user.role}`} tone="green" />
+                  {user.is_department_admin === 1 && <StatusBadge label="Group Admin" tone="blue" />}
+                </div>
               </div>
             </div>
+            <button
+              type="button"
+              className="gf-btn gf-btn-secondary"
+              style={{ minHeight: '36px', padding: '0 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              onClick={handleOpenProfileModal}
+            >
+              <User size={16} /> Edit Profile
+            </button>
           </div>
 
           <div style={{ padding: '12px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
@@ -6105,6 +6610,23 @@ export function App() {
           </div>
 
           <div>
+            <ListRow
+              icon={<User size={18} />}
+              title="Edit Profile & Details"
+              subtitle={user.contact_number ? `Phone: ${user.contact_number}` : 'Update display nickname, phone & photo'}
+              showChevron
+              onClick={handleOpenProfileModal}
+            />
+            <ListRow
+              icon={<ShieldCheck size={18} />}
+              title="Change Account Password"
+              subtitle="Update login password securely"
+              showChevron
+              onClick={() => {
+                handleOpenProfileModal();
+                setProfileTab('PASSWORD');
+              }}
+            />
             <ListRow
               icon={<Bell size={18} />}
               title="Push Notifications"
@@ -7563,6 +8085,7 @@ export function App() {
           }
         }}
         onSignOut={handleLogout}
+        onOpenProfile={handleOpenProfileModal}
         hideChromeDuringBooking={inActiveBookingFlow && !isDriverOnly}
         isDriverOrPrivileged={user.role === 'DRV' || Boolean(isPrivileged)}
         isPrivileged={Boolean(isPrivileged)}
@@ -7582,6 +8105,7 @@ export function App() {
             destCoords={destCoords}
             myCoords={myCoords}
             userPins={userPins}
+            fleetPositions={fleetPositions}
             currentUserId={user.id}
             onLocateMe={() => detectAndReportUserLocation(false)}
             locatingUser={locatingUser}
@@ -7601,6 +8125,8 @@ export function App() {
             waitingRadar={navSection === 'HOME' && bookingStep === 'WAITING'}
             driverActive={navSection === 'HOME' && bookingStep === 'IN_TRIP'}
             driverName={focusedTrip?.assigned_driver_name}
+            driverCoords={activeTripDriverCoords}
+            activeVehicleModel={focusedTrip?.model || 'Stargazer'}
             showBackButton={inActiveBookingFlow && !isDriverOnly}
             onBack={handleMapBack}
             isOffline={isOffline}

@@ -201,7 +201,9 @@ export function createApp() {
 
     const user = db
       .prepare(
-        `SELECT u.*, d.name as department_name, dp.id as driver_profile_id
+        `SELECT u.*, d.name as department_name, dp.id as driver_profile_id,
+                COALESCE(u.contact_number, dp.contact_number, '') as contact_number,
+                COALESCE(u.photo_url, dp.photo_url) as photo_url
          FROM users u
          LEFT JOIN departments d ON d.id = u.department_id
          LEFT JOIN driver_profiles dp ON dp.user_id = u.id
@@ -220,6 +222,8 @@ export function createApp() {
           approval_status: string;
           is_active: number;
           driver_profile_id: number | null;
+          contact_number?: string;
+          photo_url?: string | null;
         }
       | undefined;
 
@@ -298,6 +302,8 @@ export function createApp() {
         department_name: user.department_name,
         approval_status: user.approval_status,
         driver_profile_id: user.driver_profile_id,
+        contact_number: user.contact_number || '',
+        photo_url: user.photo_url || null,
       },
     });
   });
@@ -321,6 +327,129 @@ export function createApp() {
       vapidPublicKey: publicKey,
       unreadNotifications: unread.count,
     });
+  });
+
+  // User Profile: View current account details
+  app.get('/api/user/profile', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const user = db.prepare(`
+      SELECT u.id, u.nickname, u.group_username, u.role, u.is_department_admin,
+             u.department_id, d.name as department_name, u.approval_status, u.is_active,
+             COALESCE(u.contact_number, dp.contact_number, '') as contact_number,
+             COALESCE(u.photo_url, dp.photo_url) as photo_url,
+             dp.id as driver_profile_id, dp.licence_number, dp.licence_class, dp.licence_expiry,
+             u.created_at
+      FROM users u
+      LEFT JOIN departments d ON d.id = u.department_id
+      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+      WHERE u.id = ?
+    `).get(req.user!.id);
+    res.json({ user });
+  });
+
+  // User Profile: Update current account details (nickname, contact_number, photo_url)
+  app.patch('/api/user/profile', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const userId = req.user!.id;
+    const { nickname, contact_number, photo_url } = req.body ?? {};
+
+    if (nickname !== undefined) {
+      if (typeof nickname !== 'string' || nickname.trim().length < 2) {
+        res.status(400).json({ error: 'Nickname must be at least 2 characters long' });
+        return;
+      }
+    }
+
+    const trimmedNickname = nickname !== undefined ? String(nickname).trim() : undefined;
+    const trimmedContact = contact_number !== undefined ? String(contact_number).trim() : undefined;
+    const cleanPhoto = photo_url !== undefined ? (photo_url ? String(photo_url) : null) : undefined;
+
+    // Update users table
+    if (trimmedNickname !== undefined || trimmedContact !== undefined || cleanPhoto !== undefined) {
+      db.prepare(`
+        UPDATE users
+        SET nickname = COALESCE(?, nickname),
+            contact_number = COALESCE(?, contact_number),
+            photo_url = COALESCE(?, photo_url)
+        WHERE id = ?
+      `).run(
+        trimmedNickname ?? null,
+        trimmedContact ?? null,
+        cleanPhoto ?? null,
+        userId
+      );
+    }
+
+    // If driver, sync with driver_profiles
+    if (req.user!.driver_profile_id) {
+      db.prepare(`
+        UPDATE driver_profiles
+        SET full_name = COALESCE(?, full_name),
+            contact_number = COALESCE(?, contact_number),
+            photo_url = COALESCE(?, photo_url),
+            updated_at = datetime('now')
+        WHERE id = ?
+      `).run(
+        trimmedNickname ?? null,
+        trimmedContact ?? null,
+        cleanPhoto ?? null,
+        req.user!.driver_profile_id
+      );
+    }
+
+    recordAudit(db, req.user, 'PROFILE_UPDATED', 'USER', userId, null, {
+      nickname: trimmedNickname,
+      hasContact: Boolean(trimmedContact),
+      hasPhoto: Boolean(cleanPhoto),
+    });
+
+    const updatedUser = db.prepare(`
+      SELECT u.id, u.nickname, u.group_username, u.role, u.is_department_admin,
+             u.department_id, d.name as department_name, u.approval_status, u.is_active,
+             COALESCE(u.contact_number, dp.contact_number, '') as contact_number,
+             COALESCE(u.photo_url, dp.photo_url) as photo_url,
+             dp.id as driver_profile_id
+      FROM users u
+      LEFT JOIN departments d ON d.id = u.department_id
+      LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+      WHERE u.id = ?
+    `).get(userId);
+
+    res.json({ success: true, message: 'Profile updated successfully', user: updatedUser });
+  });
+
+  // User Profile: Change account password
+  app.post('/api/user/change-password', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const userId = req.user!.id;
+    const { current_password, new_password } = req.body ?? {};
+
+    if (!current_password || typeof current_password !== 'string') {
+      res.status(400).json({ error: 'Current password is required' });
+      return;
+    }
+
+    if (!new_password || typeof new_password !== 'string' || new_password.length < 6) {
+      res.status(400).json({ error: 'New password must be at least 6 characters long' });
+      return;
+    }
+
+    const userRow = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId) as { password_hash: string } | undefined;
+    if (!userRow || !verifyPassword(current_password, userRow.password_hash)) {
+      res.status(400).json({ error: 'Current password is incorrect' });
+      return;
+    }
+
+    if (current_password === new_password) {
+      res.status(400).json({ error: 'New password must be different from current password' });
+      return;
+    }
+
+    const newHash = hashPassword(new_password);
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(newHash, userId);
+
+    recordAudit(db, req.user, 'PASSWORD_CHANGED', 'USER', userId, null, { timestamp: new Date().toISOString() });
+    res.json({ success: true, message: 'Password updated successfully' });
   });
 
   // ============================================================================
@@ -4236,23 +4365,76 @@ export function createApp() {
         ORDER BY tr.id DESC LIMIT 1
       `).get(v.id) as any;
 
+      // Real Driver Tracking: Determine active assigned driver (trip -> assignment -> default driver)
+      const assignedDriverProfileId = activeTrip?.assigned_driver_id || (
+        db.prepare('SELECT driver_profile_id FROM assignments WHERE vehicle_id = ? AND is_current = 1 ORDER BY id DESC LIMIT 1').get(v.id) as { driver_profile_id: number } | undefined
+      )?.driver_profile_id || v.default_driver_id;
+
+      let driverUserId: number | null = null;
+      let driverFullName = activeTrip?.assigned_driver_name || v.default_driver_name || null;
+      if (assignedDriverProfileId) {
+        const dpRow = db.prepare('SELECT user_id, full_name, contact_number, photo_url FROM driver_profiles WHERE id = ?').get(assignedDriverProfileId) as { user_id: number; full_name: string; contact_number: string; photo_url: string } | undefined;
+        if (dpRow) {
+          driverUserId = dpRow.user_id;
+          if (!driverFullName) driverFullName = dpRow.full_name;
+        }
+      }
+
+      // Check real driver location reports (by vehicle_id, driver_profile_id, or driver_user_id)
       const latestGps = db.prepare(`
         SELECT latitude, longitude, capture_time, phone_state, accuracy_meters
         FROM location_reports
-        WHERE vehicle_id = ?
+        WHERE (vehicle_id = ? OR (? IS NOT NULL AND driver_profile_id = ?) OR (? IS NOT NULL AND driver_user_id = ?))
+          AND latitude IS NOT NULL AND longitude IS NOT NULL
         ORDER BY id DESC LIMIT 1
-      `).get(v.id) as any;
+      `).get(v.id, assignedDriverProfileId, assignedDriverProfileId, driverUserId, driverUserId) as any;
 
-      let lat = latestGps?.latitude;
-      let lon = latestGps?.longitude;
-      let locationName = latestGps ? `GPS Live (${latestGps.accuracy_meters || 10}m)` : v.last_parking_spot || DEFAULT_POOL.name;
+      // Also check user_locations for the driver's real-time phone GPS updates
+      const latestUserLoc = driverUserId ? db.prepare(`
+        SELECT latitude, longitude, accuracy_meters, updated_at
+        FROM user_locations
+        WHERE user_id = ? AND latitude IS NOT NULL AND longitude IS NOT NULL
+      `).get(driverUserId) as any : null;
 
-      if (!lat || !lon) {
+      let lat: number | null = null;
+      let lon: number | null = null;
+      let isFollowingDriver = false;
+      let locationName = v.last_parking_spot || DEFAULT_POOL.name;
+
+      if (latestUserLoc && latestGps) {
+        const gpsTime = new Date(latestGps.capture_time).getTime();
+        const userLocTime = new Date(latestUserLoc.updated_at).getTime();
+        if (userLocTime >= gpsTime) {
+          lat = Number(latestUserLoc.latitude);
+          lon = Number(latestUserLoc.longitude);
+          isFollowingDriver = true;
+          locationName = `Following Driver GPS (${latestUserLoc.accuracy_meters ? `${latestUserLoc.accuracy_meters}m` : 'Live'})`;
+        } else {
+          lat = Number(latestGps.latitude);
+          lon = Number(latestGps.longitude);
+          isFollowingDriver = true;
+          locationName = `Following Driver GPS (${latestGps.accuracy_meters ? `${latestGps.accuracy_meters}m` : 'Live'})`;
+        }
+      } else if (latestUserLoc) {
+        lat = Number(latestUserLoc.latitude);
+        lon = Number(latestUserLoc.longitude);
+        isFollowingDriver = true;
+        locationName = `Following Driver GPS (${latestUserLoc.accuracy_meters ? `${latestUserLoc.accuracy_meters}m` : 'Live'})`;
+      } else if (latestGps) {
+        lat = Number(latestGps.latitude);
+        lon = Number(latestGps.longitude);
+        isFollowingDriver = true;
+        locationName = `Following Driver GPS (${latestGps.accuracy_meters ? `${latestGps.accuracy_meters}m` : 'Live'})`;
+      }
+
+      if (lat === null || lon === null || !Number.isFinite(lat) || !Number.isFinite(lon)) {
         const base = v.last_parking_spot?.includes('SCBD') ? HQ_POOL : DEFAULT_POOL;
         const offsetLat = ((index % 4) - 1.5) * 0.0008;
         const offsetLon = (Math.floor(index / 4) - 0.5) * 0.0009;
         lat = Number((base.lat + offsetLat).toFixed(6));
         lon = Number((base.lon + offsetLon).toFixed(6));
+        isFollowingDriver = false;
+        locationName = v.last_parking_spot || base.name;
       }
 
       let rideDuration = '';
@@ -4281,6 +4463,8 @@ export function createApp() {
         lat: lat,
         lng: lon,
         location_label: locationName,
+        is_following_driver: isFollowingDriver,
+        following_driver_name: isFollowingDriver ? driverFullName : null,
         driver_name: activeTrip?.assigned_driver_name || v.default_driver_name || 'Standby Driver',
         driver_phone: activeTrip?.assigned_driver_phone || v.default_driver_phone || '',
         driver_photo_url: activeTrip?.assigned_driver_photo || v.default_driver_photo || null,

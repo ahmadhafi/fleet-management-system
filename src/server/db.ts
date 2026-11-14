@@ -129,6 +129,8 @@ function initializeSchema(db: AppDatabase) {
       approved_at TEXT,
       rejection_reason TEXT,
       is_active INTEGER NOT NULL DEFAULT 1,
+      contact_number TEXT,
+      photo_url TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -509,6 +511,12 @@ function initializeSchema(db: AppDatabase) {
   } catch {}
   try {
     db.exec('ALTER TABLE driver_profiles ADD COLUMN photo_url TEXT;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE users ADD COLUMN contact_number TEXT;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE users ADD COLUMN photo_url TEXT;');
   } catch {}
 }
 

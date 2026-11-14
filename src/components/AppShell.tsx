@@ -40,6 +40,7 @@ export interface EmbeddedTopNavProps {
   userNickname?: string;
   departmentName?: string;
   userRole?: string;
+  onOpenProfile?: () => void;
   onSwitchToDriverDispatch?: () => void;
   onSwitchToAdmin?: () => void;
 }
@@ -56,6 +57,7 @@ export const EmbeddedTopNav: React.FC<EmbeddedTopNavProps> = ({
   userNickname,
   departmentName,
   userRole,
+  onOpenProfile,
   onSwitchToDriverDispatch,
   onSwitchToAdmin,
 }) => {
@@ -131,6 +133,20 @@ export const EmbeddedTopNav: React.FC<EmbeddedTopNavProps> = ({
           <LanguageSwitcher compact={false} />
         </div>
 
+        {onOpenProfile && (
+          <button
+            type="button"
+            id="topbar-profile-btn"
+            className="gf-btn gf-btn-secondary pressable"
+            onClick={onOpenProfile}
+            style={{ fontSize: '13px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', height: '36px' }}
+            title="My Profile & Change Password"
+          >
+            <User size={15} color="#0072de" />
+            <span style={{ fontWeight: 700 }}>{userNickname || 'Profile'}</span>
+          </button>
+        )}
+
         {userRole && (
           <div className="gf-topbar-role-badge" title={`Role: ${userRole}`}>
             {userRole}
@@ -172,6 +188,7 @@ interface AppShellProps {
   userNickname?: string;
   departmentName?: string;
   userRole?: string;
+  onOpenProfile?: () => void;
   onSwitchToDriverDispatch?: () => void;
   onSwitchToAdmin?: () => void;
 }
@@ -191,6 +208,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   userNickname,
   departmentName,
   userRole,
+  onOpenProfile,
   onSwitchToDriverDispatch,
   onSwitchToAdmin,
 }) => {
@@ -223,6 +241,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         userNickname={userNickname}
         departmentName={departmentName}
         userRole={userRole}
+        onOpenProfile={onOpenProfile}
         onSwitchToDriverDispatch={onSwitchToDriverDispatch}
         onSwitchToAdmin={onSwitchToAdmin}
       />
@@ -386,6 +405,7 @@ interface AdminShellProps {
   groupCount: number;
   userNickname: string;
   userRole: string;
+  onOpenProfile?: () => void;
   children: React.ReactNode;
 }
 
@@ -398,6 +418,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
   groupCount,
   userNickname,
   userRole,
+  onOpenProfile,
   children,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
@@ -509,8 +530,14 @@ export const AdminShell: React.FC<AdminShellProps> = ({
               GalaxyFleet
             </div>
           </div>
-          <div className="type-caption" style={{ fontSize: '12.5px', color: 'var(--color-text-secondary)' }}>
-            Admin Console • {userNickname} ({userRole})
+          <div
+            className="type-caption pressable"
+            onClick={onOpenProfile}
+            style={{ fontSize: '12.5px', color: 'var(--color-text-secondary)', cursor: onOpenProfile ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '5px' }}
+            title="My Profile & Change Password"
+          >
+            <User size={14} color="#0072de" />
+            <span>Admin Console • {userNickname} ({userRole})</span>
           </div>
         </div>
         {navButtons}
@@ -541,6 +568,19 @@ export const AdminShell: React.FC<AdminShellProps> = ({
             <div className="gf-topbar-lang-wrap">
               <LanguageSwitcher compact={false} />
             </div>
+            {onOpenProfile && (
+              <button
+                id="admin-topbar-profile-btn"
+                type="button"
+                className="gf-btn gf-btn-secondary pressable"
+                onClick={onOpenProfile}
+                style={{ fontSize: '13.5px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                title="My Account Profile & Change Password"
+              >
+                <User size={16} />
+                <span>Profile</span>
+              </button>
+            )}
             <button
               id="admin-topbar-signout-btn"
               type="button"

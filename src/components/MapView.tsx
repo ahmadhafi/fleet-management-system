@@ -42,6 +42,8 @@ export interface FleetVehiclePosition {
   lat?: number;
   lng?: number;
   location_label?: string;
+  is_following_driver?: boolean;
+  following_driver_name?: string | null;
   driver_name?: string;
   driver_phone?: string;
   driver_photo_url?: string | null;
@@ -195,6 +197,8 @@ interface MapViewProps {
   waitingRadar?: boolean;
   driverActive?: boolean;
   driverName?: string;
+  driverCoords?: { lat: number; lon: number } | null;
+  activeVehicleModel?: string;
   showBackButton?: boolean;
   onBack?: () => void;
   isOffline?: boolean;
@@ -221,6 +225,8 @@ export const MapView: React.FC<MapViewProps> = ({
   waitingRadar = false,
   driverActive = false,
   driverName,
+  driverCoords,
+  activeVehicleModel,
   showBackButton = false,
   onBack,
   isOffline = false,
@@ -542,12 +548,13 @@ export const MapView: React.FC<MapViewProps> = ({
       const carFrontSvg = getCarFrontAvatarSvg(avatarKey, isInTrip);
       const driverPhoto = getDriverAvatarDataUri(v.driver_name || 'Driver', v.driver_photo_url);
 
+      const isFollowing = Boolean(v.is_following_driver);
       const carIcon = L.divIcon({
         className: 'gf-leaflet-marker',
         html: `
           <div class="gf-fleet-marker-wrap ${isInTrip ? 'is-driving' : ''}" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
-            <div style="background:#ffffff;color:#0f172a;padding:2px 8px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.24);margin-bottom:2px;border:1.5px solid ${mainColor};display:flex;align-items:center;gap:4px;">
-              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${isInTrip ? '#258cfb' : '#10b981'};"></span>
+            <div style="background:#ffffff;color:#0f172a;padding:2px 8px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.24);margin-bottom:2px;border:1.5px solid ${isFollowing ? '#059669' : mainColor};display:flex;align-items:center;gap:4px;">
+              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${isInTrip || isFollowing ? '#258cfb' : '#10b981'};"></span>
               <span>${escapeHtml(v.registration_plate)}</span>
               <span style="color:#64748b;font-weight:600;font-size:10px;">• ${escapeHtml(v.driver_name?.split(' ')[0] || 'Driver')}</span>
               <span style="font-size:10px;">${isEv ? '⚡' : '⛽'}</span>
@@ -559,6 +566,10 @@ export const MapView: React.FC<MapViewProps> = ({
               ${isInTrip ? `
                 <div style="position:absolute;top:-4px;right:-4px;background:#258cfb;color:#ffffff;border-radius:9999px;padding:1px 5px;font-size:8px;font-weight:900;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(37,140,251,0.5);border:1px solid #ffffff;">
                   DRIVING
+                </div>
+              ` : isFollowing ? `
+                <div style="position:absolute;top:-4px;right:-4px;background:#059669;color:#ffffff;border-radius:9999px;padding:1px 5px;font-size:8px;font-weight:900;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(5,150,105,0.5);border:1px solid #ffffff;">
+                  GPS LIVE
                 </div>
               ` : ''}
             </div>
@@ -787,22 +798,38 @@ export const MapView: React.FC<MapViewProps> = ({
       }).addTo(group);
 
       if (driverActive) {
-        const midPoint = hasFullGeometry
+        const carPoint = (driverCoords && Number.isFinite(driverCoords.lat) && Number.isFinite(driverCoords.lon))
+          ? [driverCoords.lat, driverCoords.lon] as [number, number]
+          : hasFullGeometry
           ? routeGeometry![Math.floor(routeGeometry!.length / 2)]
           : ([midLat, midLon] as [number, number]);
+
+        const avatarKey = resolveCarAvatarKey(activeVehicleModel || 'Stargazer', 'Hyundai', 'Gasoline');
+        const carSvg = getCarFrontAvatarSvg(avatarKey, true);
+
         const drvIcon = L.divIcon({
           className: 'gf-leaflet-marker',
-          html: `<div style="width:28px;height:28px;border-radius:9999px;background:#0f172a;color:#ffffff;outline:3px solid #258cfb;box-shadow:0 3px 8px rgba(37,140,251,0.4);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;">GF</div>`,
-          iconSize: [28, 28],
-          iconAnchor: [14, 14],
+          html: `
+            <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
+              <div style="background:#0f172a;color:#ffffff;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 3px 8px rgba(0,0,0,0.3);margin-bottom:2px;display:flex;align-items:center;gap:4px;border:1.5px solid #258cfb;">
+                <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#258cfb;animation:pulse 1.5s infinite;"></span>
+                <span>${escapeHtml(driverName || 'Driver')} (Live Car)</span>
+              </div>
+              <div style="width:54px;height:38px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 4px 8px rgba(0,0,0,0.3));">
+                ${carSvg}
+              </div>
+            </div>
+          `,
+          iconSize: [0, 0],
+          iconAnchor: [0, 0],
         });
-        L.marker(midPoint, { icon: drvIcon }).addTo(group);
+        L.marker(carPoint, { icon: drvIcon }).addTo(group);
       }
 
       const bounds = L.latLngBounds(latlngs);
       map.fitBounds(bounds, { padding: [70, 70], maxZoom: 16 });
     }
-  }, [effOrigin, effDest, routeGeometry, metrics.etaText, metrics.durationMin, showRoute, pinMode, driverActive, origin]);
+  }, [effOrigin, effDest, routeGeometry, metrics.etaText, metrics.durationMin, showRoute, pinMode, driverActive, origin, driverCoords, driverName, activeVehicleModel]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!pinMode || !mapInstanceRef.current) return;

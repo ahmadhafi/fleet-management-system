@@ -684,6 +684,7 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
     let hwsToken: string;
     let currentAdminToken: string;
     let currentEmpToken: string;
+    let currentDriverToken: string;
 
     beforeAll(async () => {
       // Login as Admin
@@ -713,6 +714,13 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         .send({ group_username: 'hws_head', password: 'Hws@123' });
       expect(hwsRes.status).toBe(200);
       hwsToken = hwsRes.body.token;
+
+      // Login as Driver
+      const drvRes = await request(app)
+        .post('/api/auth/login')
+        .send({ group_username: 'drv_budi', password: 'Driver@123' });
+      expect(drvRes.status).toBe(200);
+      currentDriverToken = drvRes.body.token;
     });
 
     it('requires both PIC and HWS approval when HWS account exists, or can be delegated by Admin', async () => {
@@ -841,6 +849,157 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         .set('Authorization', `Bearer ${picToken}`);
       expect(notifsRes.status).toBe(200);
       expect(Array.isArray(notifsRes.body.notifications)).toBe(true);
+    });
+
+    it('allows any account to fetch and update their profile details (nickname, phone, photo)', async () => {
+      // Fetch current profile of currentEmpToken
+      const profileRes = await request(app)
+        .get('/api/user/profile')
+        .set('Authorization', `Bearer ${currentEmpToken}`);
+      expect(profileRes.status).toBe(200);
+      expect(profileRes.body.user).toBeDefined();
+      expect(profileRes.body.user.role).toBe('EMP');
+
+      // Update profile
+      const patchRes = await request(app)
+        .patch('/api/user/profile')
+        .set('Authorization', `Bearer ${currentEmpToken}`)
+        .send({
+          nickname: 'Alex Employee Updated',
+          contact_number: '081299887766',
+          photo_url: 'data:image/png;base64,EMP_TEST_PHOTO_SAMPLE',
+        });
+      expect(patchRes.status).toBe(200);
+      expect(patchRes.body.user.nickname).toBe('Alex Employee Updated');
+      expect(patchRes.body.user.contact_number).toBe('081299887766');
+      expect(patchRes.body.user.photo_url).toBe('data:image/png;base64,EMP_TEST_PHOTO_SAMPLE');
+    });
+
+    it('synchronizes driver_profiles when a driver updates their user profile', async () => {
+      const driverRes = await request(app)
+        .patch('/api/user/profile')
+        .set('Authorization', `Bearer ${currentDriverToken}`)
+        .send({
+          nickname: 'Budi Driver Pro',
+          contact_number: '085511223344',
+          photo_url: 'data:image/png;base64,DRIVER_PRO_PHOTO',
+        });
+      expect(driverRes.status).toBe(200);
+      expect(driverRes.body.user.nickname).toBe('Budi Driver Pro');
+      expect(driverRes.body.user.contact_number).toBe('085511223344');
+
+      // Check driver_profiles record in DB
+      const db = getDb();
+      const drvProfile = db.prepare('SELECT full_name, contact_number, photo_url FROM driver_profiles WHERE full_name = ?').get('Budi Driver Pro') as any;
+      expect(drvProfile).toBeDefined();
+      expect(drvProfile.contact_number).toBe('085511223344');
+      expect(drvProfile.photo_url).toBe('data:image/png;base64,DRIVER_PRO_PHOTO');
+    });
+
+    it('enforces secure password change rules with current password verification', async () => {
+      // 1. Wrong current password
+      const wrongCurrentRes = await request(app)
+        .post('/api/user/change-password')
+        .set('Authorization', `Bearer ${currentEmpToken}`)
+        .send({
+          current_password: 'WrongPassword123!',
+          new_password: 'NewStrongPassword123!',
+        });
+      expect(wrongCurrentRes.status).toBe(400);
+      expect(wrongCurrentRes.body.error).toMatch(/current password/i);
+
+      // 2. Too short new password (< 6 chars)
+      const shortPassRes = await request(app)
+        .post('/api/user/change-password')
+        .set('Authorization', `Bearer ${currentEmpToken}`)
+        .send({
+          current_password: 'Emp@123',
+          new_password: '123',
+        });
+      expect(shortPassRes.status).toBe(400);
+      expect(shortPassRes.body.error).toMatch(/at least 6 characters/i);
+
+      // 3. Same as current password
+      const samePassRes = await request(app)
+        .post('/api/user/change-password')
+        .set('Authorization', `Bearer ${currentEmpToken}`)
+        .send({
+          current_password: 'Emp@123',
+          new_password: 'Emp@123',
+        });
+      expect(samePassRes.status).toBe(400);
+      expect(samePassRes.body.error).toMatch(/different/i);
+
+      // 4. Successful password change
+      const successRes = await request(app)
+        .post('/api/user/change-password')
+        .set('Authorization', `Bearer ${currentEmpToken}`)
+        .send({
+          current_password: 'Emp@123',
+          new_password: 'BrandNewSecret2026!',
+        });
+      expect(successRes.status).toBe(200);
+      expect(successRes.body.success).toBe(true);
+
+      // 5. Verify old password no longer works
+      const oldLoginRes = await request(app)
+        .post('/api/auth/login')
+        .send({
+          group_username: 'emp_alex',
+          password: 'Emp@123',
+        });
+      expect(oldLoginRes.status).toBe(401);
+
+      // 6. Verify new password logs in successfully
+      const newLoginRes = await request(app)
+        .post('/api/auth/login')
+        .send({
+          group_username: 'emp_alex',
+          password: 'BrandNewSecret2026!',
+        });
+      expect(newLoginRes.status).toBe(200);
+      expect(newLoginRes.body.token).toBeDefined();
+
+      // Restore password back to Emp@123 for test hygiene
+      const restoreRes = await request(app)
+        .post('/api/user/change-password')
+        .set('Authorization', `Bearer ${newLoginRes.body.token}`)
+        .send({
+          current_password: 'BrandNewSecret2026!',
+          new_password: 'Emp@123',
+        });
+      expect(restoreRes.status).toBe(200);
+    });
+
+    it('dynamically follows the real GPS coordinates of the active assigned driver on the fleet map', async () => {
+      // 1. Driver posts live GPS ping to /api/location/ping
+      const driverGpsPing = await request(app)
+        .post('/api/location/ping')
+        .set('Authorization', `Bearer ${currentDriverToken}`)
+        .send({
+          latitude: -6.175402,
+          longitude: 106.827153,
+          accuracy: 5.5,
+          speed: 12.0,
+          heading: 90.0,
+        });
+      expect([200, 201]).toContain(driverGpsPing.status);
+
+      // 2. Query fleet map positions as Admin
+      const fleetRes = await request(app)
+        .get('/api/admin/fleet-map-positions')
+        .set('Authorization', `Bearer ${currentAdminToken}`);
+      expect(fleetRes.status).toBe(200);
+      expect(Array.isArray(fleetRes.body.fleetPositions)).toBe(true);
+
+      // 3. Find vehicle assigned to Budi (Vehicle #1 has dedicated driver Budi or assignment)
+      const vehiclePos = fleetRes.body.fleetPositions.find(
+        (p: any) => p.assigned_driver_name === 'Budi Driver Pro' || p.following_driver_name === 'Budi Driver Pro' || p.is_following_driver
+      );
+      expect(vehiclePos).toBeDefined();
+      expect(vehiclePos.is_following_driver).toBe(true);
+      expect(vehiclePos.latitude).toBeCloseTo(-6.175402, 4);
+      expect(vehiclePos.longitude).toBeCloseTo(106.827153, 4);
     });
   });
 });
