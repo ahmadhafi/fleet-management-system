@@ -32,23 +32,28 @@
   --color-text-muted: #64748b;
   --color-text-inverse: #ffffff;
 
-  /* Primary Accent: Samsung One UI Blue (#0072DE) */
+  /* Primary Accent: Samsung One UI Blue (#0072DE) & Monochrome Black/White */
+  --color-primary: #0072de;
   --color-samsung-blue: #0072de;
   --color-samsung-blue-hover: #005bb5;
+  --color-samsung-blue-dark: #004494;
   --color-samsung-blue-text: #005bb5;
-  --color-samsung-blue-tint: #edf5ff;
+  --color-samsung-blue-tint: #ebf5ff;
+  --color-samsung-blue-row: #dbeafe;
   --color-samsung-blue-ring: rgba(0, 114, 222, 0.25);
+  --color-samsung-black: #0a0a0a;
+  --color-dest-accent: #0f172a;
 
   /* Mapped Brand Accent (Samsung Blue replaces Gojek Green) */
   --color-green: #0072de;
   --color-green-hover: #005bb5;
   --color-green-text: #005bb5;
-  --color-green-tint: #edf5ff;
+  --color-green-tint: #ebf5ff;
   --color-green-ring: rgba(0, 114, 222, 0.25);
 
-  /* Semantic Status (Chips & Badges) */
-  --color-status-green-bg: #e6f9ed;
-  --color-status-green-fg: #0d8a3e;
+  /* Semantic Status (Chips & Badges — Strictly Samsung Blue/White & Black/White, No Green) */
+  --color-status-green-bg: #ebf5ff;
+  --color-status-green-fg: #005bb5;
   --color-status-amber-bg: #fef3c7;
   --color-status-amber-fg: #92400e;
   --color-status-red: #dc2626;
@@ -57,11 +62,11 @@
   --color-status-blue-bg: #e0edff;
   --color-status-blue-fg: #005bb5;
   --color-status-neutral-bg: #edf1f7;
-  --color-status-neutral-fg: #475569;
+  --color-status-neutral-fg: #0f172a;
 
-  /* Map Palette */
+  /* Map Palette (Samsung Blue & Slate) */
   --color-map-land: #edf1f5;
-  --color-map-park: #e0ecde;
+  --color-map-park: #e4ebf5;
   --color-map-water: #d8e5f5;
   --color-map-road: #ffffff;
   --color-map-road-minor: #f6f8fb;
@@ -70,10 +75,10 @@
   --color-route-line: #0072de;
   --color-route-outline: #ffffff;
 
-  /* Radii — Samsung One UI Rounded Squircle */
+  /* Radii — GoCar Reference + Samsung One UI Squircle (Cards 16px, Sheets 24px, Pills 9999px) */
   --radius-control: 16px;
-  --radius-card: 22px;
-  --radius-sheet: 28px;
+  --radius-card: 16px;
+  --radius-sheet: 24px;
   --radius-pill: 9999px;
 
   /* Spacing */
@@ -142,8 +147,8 @@
   --color-green-tint: rgba(37, 140, 251, 0.18);
   --color-green-ring: rgba(37, 140, 251, 0.35);
 
-  --color-status-green-bg: rgba(16, 185, 129, 0.2);
-  --color-status-green-fg: #6ee7b7;
+  --color-status-green-bg: rgba(37, 140, 251, 0.22);
+  --color-status-green-fg: #93c5fd;
   --color-status-amber-bg: rgba(245, 158, 11, 0.2);
   --color-status-amber-fg: #fcd34d;
   --color-status-red: #f87171;
@@ -155,7 +160,7 @@
   --color-status-neutral-fg: #cbd5e1;
 
   --color-map-land: #111620;
-  --color-map-park: #142220;
+  --color-map-park: #141c2c;
   --color-map-water: #0f1d2e;
   --color-map-road: #222c3c;
   --color-map-road-minor: #18202d;
@@ -195,8 +200,8 @@
     --color-green-tint: rgba(37, 140, 251, 0.18);
     --color-green-ring: rgba(37, 140, 251, 0.35);
 
-    --color-status-green-bg: rgba(16, 185, 129, 0.2);
-    --color-status-green-fg: #6ee7b7;
+    --color-status-green-bg: rgba(37, 140, 251, 0.22);
+    --color-status-green-fg: #93c5fd;
     --color-status-amber-bg: rgba(245, 158, 11, 0.2);
     --color-status-amber-fg: #fcd34d;
     --color-status-red: #f87171;
@@ -208,7 +213,7 @@
     --color-status-neutral-fg: #cbd5e1;
 
     --color-map-land: #111620;
-    --color-map-park: #142220;
+    --color-map-park: #141c2c;
     --color-map-water: #0f1d2e;
     --color-map-road: #222c3c;
     --color-map-road-minor: #18202d;

@@ -43,6 +43,9 @@ import {
   EyeOff,
   User,
   RefreshCw,
+  ArrowUp,
+  ArrowRight,
+  X,
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
 import { AppShell, AdminShell, type NavSection, type AdminModule } from './components/AppShell';
@@ -101,6 +104,23 @@ const QUICK_CORPORATE_POIS = [
 ];
 
 type BookingStep = 'HOME' | 'ROUTE' | 'VEHICLE' | 'SUMMARY' | 'WAITING' | 'IN_TRIP' | 'SCHEDULE_VIEW';
+
+function highlightQueryMatch(text: string, query: string): React.ReactNode {
+  const q = query.trim();
+  if (!q || q.length < 2) return text;
+  const idx = text.toLowerCase().indexOf(q.toLowerCase());
+  if (idx === -1) return text;
+  const before = text.slice(0, idx);
+  const match = text.slice(idx, idx + q.length);
+  const after = text.slice(idx + q.length);
+  return (
+    <>
+      {before}
+      <span style={{ color: '#0072de', fontWeight: 800 }}>{match}</span>
+      {after}
+    </>
+  );
+}
 
 function getWhatsAppUrl(phone: string, text?: string): string {
   if (!phone) return '';
@@ -271,7 +291,8 @@ export function App() {
 
   // Home / Route / Ride / Activity sub-states
   const [carouselIdx, setCarouselIdx] = useState(0);
-  const [routeTab, setRouteTab] = useState<'RECENT' | 'SAVED' | 'PIN'>('RECENT');
+  const [routeTab, setRouteTab] = useState<'RECENT' | 'SAVED' | 'PIN' | 'PICKUP'>('RECENT');
+  const [selectedPickupSpot, setSelectedPickupSpot] = useState<'A' | 'B' | 'C'>('A');
   const [activeRouteField, setActiveRouteField] = useState<'pickup' | 'destination'>('destination');
   const [scheduleMode, setScheduleMode] = useState<'NOW' | 'SCHEDULE'>('NOW');
   const [vehicleFilter, setVehicleFilter] = useState<'ALL' | 'Electric' | 'MPV'>('ALL');
@@ -2250,11 +2271,11 @@ export function App() {
               <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#eff6ff', border: '1.5px solid #bfdbfe', marginBottom: '12px' }}>
                 <div style={{ fontSize: '11px', fontWeight: 800, color: '#1e40af', textTransform: 'uppercase', marginBottom: '4px' }}>Dual-Approval Requirement</div>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '11.5px' }}>
-                  <span style={{ color: dispatchModalTrip.pic_approved ? '#059669' : '#64748b', fontWeight: 700 }}>
+                  <span style={{ color: dispatchModalTrip.pic_approved ? '#0072de' : '#64748b', fontWeight: 700 }}>
                     {dispatchModalTrip.pic_approved ? '✓ Fleet Operation PIC: Approved' : '⏳ Fleet Operation PIC: Pending'}
                   </span>
                   <span>•</span>
-                  <span style={{ color: dispatchModalTrip.hws_approved ? '#059669' : '#64748b', fontWeight: 700 }}>
+                  <span style={{ color: dispatchModalTrip.hws_approved ? '#0072de' : '#64748b', fontWeight: 700 }}>
                     {dispatchModalTrip.hws_approved ? '✓ Head Of WS Part: Approved' : '⏳ Head Of WS Part: Pending'}
                   </span>
                 </div>
@@ -2812,7 +2833,7 @@ export function App() {
                   </div>
                   <div className="gf-card-flat" style={{ padding: '8px 10px', background: '#ffffff' }}>
                     <div style={{ fontSize: '9.5px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>Cumulative Trip Duration</div>
-                    <div style={{ fontSize: '17px', fontWeight: 800, color: '#059669' }}>{usageAnalytics.tripDurationSummary?.totalDurationFormatted || '0 Hours 0 Minutes'}</div>
+                    <div style={{ fontSize: '17px', fontWeight: 800, color: '#005bb5' }}>{usageAnalytics.tripDurationSummary?.totalDurationFormatted || '0 Hours 0 Minutes'}</div>
                     <div style={{ fontSize: '10px', color: '#94a3b8' }}>Total Driver Road Time Logged</div>
                   </div>
                   <div className="gf-card-flat" style={{ padding: '8px 10px', background: '#ffffff' }}>
@@ -2941,7 +2962,7 @@ export function App() {
                   <div style={{ fontSize: '9.5px', color: '#64748b', textTransform: 'uppercase', fontWeight: 800 }}>Prepared & Dispatched By</div>
                   <div style={{ fontWeight: 800, fontSize: '12px', color: '#0f172a', marginTop: '2px' }}>Fleet Operation PIC</div>
                   <div style={{ margin: '6px 0 2px 0' }}>
-                    <span className="gf-badge" style={{ background: '#ecfdf5', color: '#065f46', border: '1.5px solid #10b981', fontWeight: 800, padding: '3px 8px', fontSize: '10.5px' }}>
+                    <span className="gf-badge" style={{ background: '#ebf5ff', color: '#005bb5', border: '1.5px solid #0072de', fontWeight: 800, padding: '3px 8px', fontSize: '10.5px' }}>
                       ✓ APPROVED BY SYSTEM
                     </span>
                   </div>
@@ -2951,7 +2972,7 @@ export function App() {
                   <div style={{ fontSize: '9.5px', color: '#64748b', textTransform: 'uppercase', fontWeight: 800 }}>Reviewed & Authorized By</div>
                   <div style={{ fontWeight: 800, fontSize: '12px', color: '#0f172a', marginTop: '2px' }}>Head Of WS Part</div>
                   <div style={{ margin: '6px 0 2px 0' }}>
-                    <span className="gf-badge" style={{ background: '#ecfdf5', color: '#065f46', border: '1.5px solid #10b981', fontWeight: 800, padding: '3px 8px', fontSize: '10.5px' }}>
+                    <span className="gf-badge" style={{ background: '#ebf5ff', color: '#005bb5', border: '1.5px solid #0072de', fontWeight: 800, padding: '3px 8px', fontSize: '10.5px' }}>
                       ✓ APPROVED BY SYSTEM
                     </span>
                   </div>
@@ -2961,7 +2982,7 @@ export function App() {
                   <div style={{ fontSize: '9.5px', color: '#64748b', textTransform: 'uppercase', fontWeight: 800 }}>Final Executive Sign-Off</div>
                   <div style={{ fontWeight: 800, fontSize: '12px', color: '#0f172a', marginTop: '2px' }}>Executive General Manager</div>
                   <div style={{ margin: '6px 0 2px 0' }}>
-                    <span className="gf-badge" style={{ background: '#ecfdf5', color: '#065f46', border: '1.5px solid #10b981', fontWeight: 800, padding: '3px 8px', fontSize: '10.5px' }}>
+                    <span className="gf-badge" style={{ background: '#ebf5ff', color: '#005bb5', border: '1.5px solid #0072de', fontWeight: 800, padding: '3px 8px', fontSize: '10.5px' }}>
                       ✓ APPROVED BY SYSTEM
                     </span>
                   </div>
@@ -3033,7 +3054,7 @@ export function App() {
                     <div>
                       <div style={{ fontWeight: 800, fontSize: '14px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <span>1. Reset Test Operations & Trips</span>
-                        <span style={{ background: '#dcfce7', color: '#166534', fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '9999px' }}>
+                        <span style={{ background: '#ebf5ff', color: '#005bb5', fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '9999px' }}>
                           ✅ Recommended for Real Fleet Launch
                         </span>
                       </div>
@@ -3251,9 +3272,9 @@ export function App() {
                   marginBottom: '14px',
                   fontSize: '13px',
                   fontWeight: 600,
-                  background: profileStatusBanner.type === 'success' ? '#ecfdf5' : '#fef2f2',
-                  color: profileStatusBanner.type === 'success' ? '#065f46' : '#991b1b',
-                  border: `1px solid ${profileStatusBanner.type === 'success' ? '#a7f3d0' : '#fecaca'}`,
+                  background: profileStatusBanner.type === 'success' ? '#ebf5ff' : '#fef2f2',
+                  color: profileStatusBanner.type === 'success' ? '#005bb5' : '#991b1b',
+                  border: `1px solid ${profileStatusBanner.type === 'success' ? '#93c5fd' : '#fecaca'}`,
                 }}
               >
                 {profileStatusBanner.text}
@@ -3619,10 +3640,10 @@ export function App() {
                     <p className="type-caption">Live GPS positions, model-specific vehicle avatars, and driver profiles for all {fleetPositions.length} operational company vehicles.</p>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <span className="gf-badge" style={{ background: '#e0edff', color: '#005bb5', fontWeight: 700, padding: '4px 10px' }}>
+                    <span className="gf-badge" style={{ background: '#f1f5f9', color: '#0f172a', fontWeight: 700, padding: '4px 10px' }}>
                       ⛽ Gasoline: {fleetPositions.filter((p) => p.energy_type === 'Gasoline').length} Cars
                     </span>
-                    <span className="gf-badge" style={{ background: '#ecfdf5', color: '#059669', fontWeight: 700, padding: '4px 10px' }}>
+                    <span className="gf-badge" style={{ background: '#ebf5ff', color: '#0072de', fontWeight: 700, padding: '4px 10px' }}>
                       ⚡ EV: {fleetPositions.filter((p) => p.energy_type === 'Electric').length} Cars
                     </span>
                     <span className="gf-badge" style={{ background: '#fef3c7', color: '#b45309', fontWeight: 700, padding: '4px 10px' }}>
@@ -3760,7 +3781,7 @@ export function App() {
                                       width: '10px',
                                       height: '10px',
                                       borderRadius: '50%',
-                                      background: isInTrip ? '#258cfb' : '#10b981',
+                                      background: isInTrip ? '#258cfb' : '#0072de',
                                       border: '2px solid #ffffff',
                                     }}
                                   />
@@ -3774,8 +3795,8 @@ export function App() {
                                         fontWeight: 800,
                                         padding: '2px 6px',
                                         borderRadius: '9999px',
-                                        background: isInTrip ? '#fef3c7' : '#ecfdf5',
-                                        color: isInTrip ? '#b45309' : '#059669',
+                                        background: isInTrip ? '#fef3c7' : '#ebf5ff',
+                                        color: isInTrip ? '#b45309' : '#005bb5',
                                       }}
                                     >
                                       {isInTrip ? '🚗 Driving' : '🅿️ Standby'}
@@ -3845,7 +3866,7 @@ export function App() {
                                       target="_blank"
                                       rel="noreferrer"
                                       className="gf-btn gf-btn-secondary"
-                                      style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', background: '#dcfce7', color: '#166534', textDecoration: 'none', display: 'flex', alignItems: 'center' }}
+                                      style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', background: '#ebf5ff', color: '#005bb5', textDecoration: 'none', display: 'flex', alignItems: 'center' }}
                                       title="WhatsApp Driver"
                                     >
                                       <MessageSquare size={13} />
@@ -3965,7 +3986,7 @@ export function App() {
                                         target="_blank"
                                         rel="noreferrer"
                                         className="gf-btn gf-btn-secondary"
-                                        style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px', background: '#dcfce7', color: '#166534', textDecoration: 'none' }}
+                                        style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px', background: '#ebf5ff', color: '#005bb5', textDecoration: 'none' }}
                                         title="WhatsApp Chat"
                                       >
                                         WhatsApp
@@ -4130,7 +4151,7 @@ export function App() {
                                   {t.pic_approved && !t.hws_approved ? (
                                     <span style={{ color: '#0072de' }}>✓ PIC Approved • Awaiting Head Of WS Part</span>
                                   ) : t.hws_approved && !t.pic_approved ? (
-                                    <span style={{ color: '#059669' }}>✓ Head Of WS Part Approved • Awaiting PIC</span>
+                                    <span style={{ color: '#005bb5' }}>✓ Head Of WS Part Approved • Awaiting PIC</span>
                                   ) : (
                                     <span style={{ color: '#d97706' }}>⏳ Pending PIC & Head Of WS Part</span>
                                   )}
@@ -5296,7 +5317,7 @@ export function App() {
                 </div>
                 <div className="gf-card-flat">
                   <div className="type-caption">DRIVER TRIP TIME ELAPSED</div>
-                  <div className="type-title mono" style={{ fontSize: '18px', color: '#059669' }}>
+                  <div className="type-title mono" style={{ fontSize: '18px', color: '#005bb5' }}>
                     {usageAnalytics.tripDurationSummary?.totalDurationFormatted || '0 Hours 0 Minutes'}
                   </div>
                   <div className="type-caption">Cumulative driving hours count</div>
@@ -5317,22 +5338,22 @@ export function App() {
 
               {/* Energy & Operating Fees Breakdown strictly in IDR */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', marginBottom: '14px' }}>
-                <div className="gf-card-flat" style={{ borderLeft: '4px solid #0072de' }}>
+                <div className="gf-card-flat" style={{ borderLeft: '4px solid #0a0a0a' }}>
                   <div className="type-section" style={{ fontSize: '14.5px' }}>Gasoline Fleet Summary</div>
                   <div className="type-title mono" style={{ fontSize: '16.5px', marginTop: '4px' }}>
                     {usageAnalytics.expensesBreakdownIdr?.gas_litres || usageAnalytics.combinedOverall.gasolineSummary.totalLitres} Litres
                   </div>
-                  <div className="type-caption" style={{ fontWeight: 700, color: '#005bb5' }}>
+                  <div className="type-caption" style={{ fontWeight: 700, color: '#0a0a0a' }}>
                     Cost: {formatIdr(usageAnalytics.expensesBreakdownIdr?.gas_idr || usageAnalytics.combinedOverall.gasolineSummary.totalFuelCost)}
                   </div>
                 </div>
 
-                <div className="gf-card-flat" style={{ borderLeft: '4px solid #059669' }}>
+                <div className="gf-card-flat" style={{ borderLeft: '4px solid #0072de' }}>
                   <div className="type-section" style={{ fontSize: '14.5px' }}>Electric (EV) Fleet Summary</div>
                   <div className="type-title mono" style={{ fontSize: '16.5px', marginTop: '4px' }}>
                     {usageAnalytics.expensesBreakdownIdr?.electric_kwh || usageAnalytics.combinedOverall.electricSummary.totalKwh} kWh
                   </div>
-                  <div className="type-caption" style={{ fontWeight: 700, color: '#059669' }}>
+                  <div className="type-caption" style={{ fontWeight: 700, color: '#0072de' }}>
                     Cost: {formatIdr(usageAnalytics.expensesBreakdownIdr?.electric_idr || usageAnalytics.combinedOverall.electricSummary.totalChargingCost)}
                   </div>
                 </div>
@@ -5384,7 +5405,7 @@ export function App() {
                             </td>
                             <td className="mono">{t.distance_km || 0} km</td>
                             <td>
-                              <span className="gf-badge" style={{ background: '#ecfdf5', color: '#059669', fontWeight: 800 }}>
+                              <span className="gf-badge" style={{ background: '#ebf5ff', color: '#005bb5', fontWeight: 800 }}>
                                 ⏱️ {t.durationFormatted}
                               </span>
                             </td>
@@ -5596,17 +5617,43 @@ export function App() {
     }
   };
 
-  // Sticky Footer per Booking Step
+  // Sticky Footer per Booking Step (GoCar Reference UI in Samsung Blue & White / Black & White)
   let stickyFooter: React.ReactNode = null;
   if (navSection === 'HOME') {
     if (bookingStep === 'ROUTE') {
-      if (routeTab === 'PIN') {
+      if (routeTab === 'PICKUP') {
+        stickyFooter = (
+          <StickyActionBar>
+            <button
+              id="confirm-pickup-spot-btn"
+              type="button"
+              className="gf-btn gf-btn-primary gf-btn-full pressable"
+              style={{ minHeight: '52px', fontSize: '15px', fontWeight: 800 }}
+              onClick={() => {
+                const baseOrigin = (bookOrigin || 'Company HQ').replace(/\s*•\s*Spot\s*[ABC]$/i, '').trim();
+                setBookOrigin(`${baseOrigin} • Spot ${selectedPickupSpot}`);
+                setRouteTab('RECENT');
+                if (bookDest.trim()) {
+                  setBookingStep('VEHICLE');
+                  setSheetSnap('full');
+                } else {
+                  setActiveRouteField('destination');
+                  setSheetSnap('full');
+                }
+              }}
+            >
+              Confirm pickup point (Spot {selectedPickupSpot})
+            </button>
+          </StickyActionBar>
+        );
+      } else if (routeTab === 'PIN') {
         stickyFooter = (
           <StickyActionBar>
             <button
               id="confirm-pin-btn"
               type="button"
               className="gf-btn gf-btn-primary gf-btn-full"
+              style={{ minHeight: '52px', fontSize: '15px', fontWeight: 800 }}
               onClick={() => {
                 if (activeRouteField === 'pickup' && !bookDest.trim()) {
                   setActiveRouteField('destination');
@@ -5654,26 +5701,47 @@ export function App() {
       const availSelected = selectedVehicle.isAvailable !== false && selectedVehicle.status === 'Available';
       stickyFooter = (
         <StickyActionBar>
-          <div className="gf-sticky-row">
-            <div style={{ minWidth: 0 }}>
-              <div className="type-body" style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {selectedVehicle.make} {selectedVehicle.model}
-              </div>
-              <div className="type-caption">
-                {scheduleMode === 'NOW' ? `Now • ETA ${currentMetrics.etaText}` : new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-              </div>
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%' }}>
+            <button
+              type="button"
+              className="gf-icon-btn-48 pressable"
+              style={{ width: '52px', height: '52px', minWidth: '52px', minHeight: '52px', border: '1.5px solid #cbd5e1', color: '#0a0a0a' }}
+              title="Schedule & Hours of Booking"
+              aria-label="Schedule & Hours of Booking"
+              onClick={() => {
+                const el = document.getElementById('schedule-start');
+                if (el) {
+                  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  el.focus();
+                }
+              }}
+            >
+              <Calendar size={20} />
+            </button>
             <button
               id="vehicle-continue-btn"
               type="button"
-              className="gf-btn gf-btn-primary"
+              className="gf-gocar-book-cta pressable"
               disabled={!availSelected}
               onClick={() => {
                 setBookingStep('SUMMARY');
                 setSheetSnap('half');
               }}
             >
-              Continue
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0 }}>
+                <span style={{ fontSize: '15px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  Book {selectedVehicle.make} {selectedVehicle.model}
+                </span>
+                <span style={{ fontSize: '11.5px', fontWeight: 600, opacity: 0.9 }}>
+                  {bookDurationHours}h Slot • ETA {currentMetrics.etaText}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                <span style={{ fontSize: '14px', fontWeight: 800 }}>0 IDR</span>
+                <span className="gf-gocar-book-arrow">
+                  <ArrowRight size={17} strokeWidth={2.75} />
+                </span>
+              </div>
             </button>
           </div>
         </StickyActionBar>
@@ -5688,11 +5756,18 @@ export function App() {
             <button
               id="submit-booking-btn"
               type="button"
-              className="gf-btn gf-btn-primary gf-btn-full"
+              className="gf-gocar-book-cta pressable"
+              style={{ width: '100%' }}
               disabled={isOffline}
               onClick={handleCreateTripBooking}
             >
-              Request GalaxyFleet
+              <span style={{ fontSize: '15.5px', fontWeight: 800 }}>Request GalaxyFleet</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '13.5px', fontWeight: 800 }}>0 IDR Corp</span>
+                <span className="gf-gocar-book-arrow">
+                  <ArrowRight size={17} strokeWidth={2.75} />
+                </span>
+              </div>
             </button>
           </div>
         </StickyActionBar>
@@ -7301,119 +7376,139 @@ export function App() {
       ];
 
       const activeOverview = liveOverviewCards[carouselIdx % liveOverviewCards.length];
+      const oneTapDest = recentDestinationChips[0] || QUICK_CORPORATE_POIS[0]?.name || 'Sudirman Central Business District (SCBD)';
+      const oneTapAddr = recentPlacesList[0]?.address || QUICK_CORPORATE_POIS[0]?.address || 'Jl. Jend. Sudirman Kav 52-53, Jakarta Selatan';
 
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {feedbackBanner}
 
-          {/* Greeting + Group Chip + Language Switcher + Notification Bell + Sign Out Button */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
-            <div style={{ minWidth: 0 }}>
-              <h1 className="type-title">
-                {getTimeGreeting()}, {user.nickname}
-              </h1>
-              <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                <Chip subtle><span className="notranslate" translate="no">{user.department_name || 'Company Group'}</span></Chip>
+          {/* GoCar Reference Screen 1: Hero Banner (Samsung Black & Blue Gradient) */}
+          <div className="gf-gocar-hero">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', position: 'relative', zIndex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '4px 10px',
+                    borderRadius: '9999px',
+                    background: 'rgba(255,255,255,0.14)',
+                    color: '#ffffff',
+                    fontSize: '11.5px',
+                    fontWeight: 700,
+                    backdropFilter: 'blur(6px)',
+                  }}
+                >
+                  <ShieldCheck size={13} />
+                  <span className="notranslate" translate="no">{user.department_name || 'Company Group'}</span>
+                </span>
                 <LanguageSwitcher compact />
               </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                <button
+                  type="button"
+                  className="gf-icon-btn-48 pressable"
+                  onClick={() => setNavSection('INBOX')}
+                  aria-label={`Notifications (${unreadCount} unread)`}
+                  title="Notifications"
+                  style={{
+                    width: '38px',
+                    height: '38px',
+                    background: 'rgba(255,255,255,0.14)',
+                    border: '1px solid rgba(255,255,255,0.22)',
+                    color: '#ffffff',
+                  }}
+                >
+                  <Bell size={18} />
+                  {unreadCount > 0 && (
+                    <span className="gf-nav-badge" style={{ top: '3px', right: '3px' }}>
+                      {unreadCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  id="home-signout-btn"
+                  type="button"
+                  className="gf-icon-btn-48 pressable"
+                  onClick={handleLogout}
+                  aria-label="Sign Out"
+                  title="Sign Out"
+                  style={{
+                    width: '38px',
+                    height: '38px',
+                    background: 'rgba(255,255,255,0.14)',
+                    border: '1px solid rgba(255,255,255,0.22)',
+                    color: '#ffffff',
+                  }}
+                >
+                  <LogOut size={17} />
+                </button>
+              </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-              <button
-                type="button"
-                className="gf-icon-btn-48 pressable"
-                onClick={() => setNavSection('INBOX')}
-                aria-label={`Notifications (${unreadCount} unread)`}
-                title="Notifications"
+
+            {/* Centered Hero Headline + Subtitle (GoCar Reference Screen 1) */}
+            <div style={{ textAlign: 'center', padding: '14px 8px 12px', position: 'relative', zIndex: 1 }}>
+              <h1
+                style={{
+                  fontSize: '21px',
+                  fontWeight: 800,
+                  letterSpacing: '-0.02em',
+                  color: '#ffffff',
+                  margin: 0,
+                  textTransform: 'uppercase',
+                }}
               >
-                <Bell size={20} />
-                {unreadCount > 0 && (
-                  <span className="gf-nav-badge" style={{ top: '6px', right: '6px' }}>
-                    {unreadCount}
-                  </span>
-                )}
-              </button>
-              <button
-                id="home-signout-btn"
-                type="button"
-                className="gf-icon-btn-48 pressable"
-                onClick={handleLogout}
-                aria-label="Sign Out"
-                title="Sign Out"
-                style={{ color: 'var(--color-status-red-fg)' }}
-              >
-                <LogOut size={19} />
-              </button>
+                {getTimeGreeting()}, {(user.nickname || 'USER').toUpperCase()}
+              </h1>
+              <div style={{ fontSize: '12.5px', color: 'rgba(255,255,255,0.84)', marginTop: '4px', fontWeight: 500 }}>
+                Samsung Corporate Mobility • Fast Dispatch & Real-Time GPS
+              </div>
             </div>
-          </div>
 
-          {/* Hero Action Cards for Primary Workflows (Revision #7) */}
-          <div className="gf-hero-action-grid">
-            <button
-              id="hero-book-ride-card"
-              type="button"
-              className="gf-hero-action-card pressable"
-              onClick={() =>
-                requireLocationBeforeCarUse(() => {
-                  setVehicleFilter('ALL');
-                  setScheduleMode('NOW');
-                  setBookingStep('ROUTE');
-                  setSheetSnap('full');
-                })
-              }
-              style={{ borderLeft: '4px solid var(--color-green)' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className="gf-circle-icon is-green" style={{ width: '40px', height: '40px' }}>
-                  <Car size={22} />
+            {/* Embedded Promo Banner inside Hero (GoCar Reference Screen 1) */}
+            <div className="gf-gocar-promo-banner" style={{ position: 'relative', zIndex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                <div
+                  style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '10px',
+                    background: '#0072de',
+                    color: '#ffffff',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Car size={20} />
                 </div>
-                <ChevronRight size={18} style={{ color: 'var(--color-green)' }} />
-              </div>
-              <div>
-                <div className="type-title" style={{ fontSize: '16px', fontWeight: 800 }}>Book a Ride</div>
-                <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                  Request operational car
-                </div>
-              </div>
-            </button>
-
-            <button
-              id="hero-fleet-schedule-card"
-              type="button"
-              className="gf-hero-action-card pressable"
-              onClick={() => {
-                setBookingStep('SCHEDULE_VIEW');
-                setSheetSnap('full');
-              }}
-              style={{ borderLeft: '4px solid var(--color-text-primary)' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className="gf-circle-icon" style={{ width: '40px', height: '40px', background: 'var(--color-bg-subtle)' }}>
-                  <Calendar size={22} />
-                </div>
-                <ChevronRight size={18} style={{ color: 'var(--color-text-secondary)' }} />
-              </div>
-              <div>
-                <div className="type-title" style={{ fontSize: '16px', fontWeight: 800 }}>Fleet Schedule</div>
-                <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                  Live slots & cars
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '13px', fontWeight: 800, color: '#ffffff', lineHeight: 1.2 }}>
+                    Corporate Group & Shared Fleet
+                  </div>
+                  <div style={{ fontSize: '11.5px', color: 'rgba(255,255,255,0.78)', marginTop: '2px' }}>
+                    0 IDR Company Covered • Verified Chauffeur
+                  </div>
                 </div>
               </div>
-            </button>
-          </div>
-
-          {/* Quick Collapse to Map Toggle */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '-8px 0 -4px 0' }}>
-            <span className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-              Operational Quick Access
-            </span>
-            <button
-              type="button"
-              className="gf-btn gf-btn-ghost"
-              style={{ minHeight: '30px', padding: '0 8px', fontSize: '12px' }}
-              onClick={() => setSheetSnap(sheetSnap === 'peek' ? 'half' : 'peek')}
-            >
-              <Navigation size={13} /> {sheetSnap === 'peek' ? 'Expand Menu' : 'View Full Map'}
-            </button>
+              <span
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '9999px',
+                  background: '#ffffff',
+                  color: '#0a0a0a',
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  flexShrink: 0,
+                }}
+              >
+                CORP PASS
+              </span>
+            </div>
           </div>
 
           {/* Active ongoing trip card if any */}
@@ -7431,7 +7526,7 @@ export function App() {
               badgeLabel = 'IN TRIP';
             } else if (topTrip.status === 'APPROVED') {
               statusText = topTrip.assigned_driver_name ? `Ride Assigned • Driver: ${topTrip.assigned_driver_name}` : 'Ride Approved & Dispatched';
-              badgeTone = 'green';
+              badgeTone = 'blue';
               badgeLabel = 'APPROVED';
             } else if (isDual && topTrip.pic_approved) {
               statusText = 'Approved by Fleet PIC • Awaiting Head of WS Part';
@@ -7454,7 +7549,7 @@ export function App() {
                   setSheetSnap('half');
                 }}
               >
-                <div className="gf-circle-icon" style={{ background: isApproved ? 'var(--color-green)' : 'var(--color-amber)', color: '#ffffff', flexShrink: 0 }}>
+                <div className="gf-circle-icon" style={{ background: isApproved ? 'var(--color-primary)' : 'var(--color-amber)', color: '#ffffff', flexShrink: 0 }}>
                   <Car size={18} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
@@ -7466,12 +7561,12 @@ export function App() {
                     {topTrip.origin} → {topTrip.destination} • {topTrip.make} {topTrip.model} ({topTrip.registration_plate || '—'})
                   </div>
                 </div>
-                <ChevronRight size={18} style={{ color: 'var(--color-green-text)', flexShrink: 0 }} />
+                <ChevronRight size={18} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
               </button>
             );
           })()}
 
-          {/* Large Rounded "Where to?" Search Pill (height 56px, grey fill, magnifier, green dot) */}
+          {/* GoCar Reference Screen 1: Search Pill ("Where to?" with target ring-dot at left & magnifier at right) */}
           <button
             id="home-where-to-btn"
             type="button"
@@ -7483,14 +7578,240 @@ export function App() {
               })
             }
           >
-            <Search size={20} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
-            <span className="type-section" style={{ flex: 1, color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+            <span className="gf-dest-ring-dot" aria-hidden="true" />
+            <span className="type-section" style={{ flex: 1, color: 'var(--color-text-primary)', fontWeight: 700 }}>
               Where to?
             </span>
-            <span className="gf-dot-green" aria-hidden="true" />
+            <Search size={20} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
           </button>
 
-          {/* Service Shortcuts (4 columns, 56px tiles, 12px labels, max 8 items, zero borders) */}
+          {/* GoCar Reference Screen 1: Saved-Place / Quick Destination Chips (Horizontal Scroll) */}
+          <div className="gf-hscroll" style={{ marginTop: '-4px' }}>
+            {(recentDestinationChips.length > 0 ? recentDestinationChips : QUICK_CORPORATE_POIS.map((p) => p.label)).map((dest) => (
+              <Chip
+                key={dest}
+                icon={<Bookmark size={14} style={{ color: '#0072de' }} />}
+                onClick={() =>
+                  requireLocationBeforeCarUse(() => {
+                    const matchedPoi = QUICK_CORPORATE_POIS.find((p) => p.label === dest || p.name === dest);
+                    setBookDest(matchedPoi ? matchedPoi.name : dest);
+                    if (matchedPoi) setDestCoords({ lat: matchedPoi.lat, lon: matchedPoi.lon });
+                    setBookingStep('ROUTE');
+                    setSheetSnap('full');
+                  })
+                }
+              >
+                {dest}
+              </Chip>
+            ))}
+          </div>
+
+          {/* GoCar Reference Screen 1: Expandable OneTap Card */}
+          <div className="gf-gocar-onetap-card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <span
+                  style={{
+                    background: '#0072de',
+                    color: '#ffffff',
+                    fontSize: '10.5px',
+                    fontWeight: 800,
+                    padding: '2px 8px',
+                    borderRadius: '9999px',
+                    letterSpacing: '0.03em',
+                  }}
+                >
+                  OneTap
+                </span>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                  GalaxyFleet
+                </span>
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 800,
+                    fontStyle: 'italic',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    background: '#0a0a0a',
+                    color: '#ffffff',
+                  }}
+                >
+                  PRIORITY
+                </span>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: '#0072de' }}>0 IDR</span>
+                <span style={{ fontSize: '11px', color: '#9ca3af', textDecoration: 'line-through', marginLeft: '5px' }}>
+                  Rp150.500
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {oneTapDest}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }}>
+                  {oneTapAddr}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="pressable"
+                aria-label={`OneTap book to ${oneTapDest}`}
+                onClick={() =>
+                  requireLocationBeforeCarUse(() => {
+                    setBookDest(oneTapDest);
+                    setBookingStep('VEHICLE');
+                    setSheetSnap('full');
+                  })
+                }
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '9999px',
+                  border: 'none',
+                  background: '#0072de',
+                  color: '#ffffff',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                  boxShadow: '0 4px 12px rgba(0, 114, 222, 0.3)',
+                }}
+              >
+                <ArrowRight size={19} strokeWidth={2.5} />
+              </button>
+            </div>
+
+            <div style={{ borderTop: '1.5px dashed var(--color-border)', paddingTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="gf-pickup-up-circle" style={{ width: '18px', height: '18px' }}>
+                <ArrowUp size={11} strokeWidth={3} />
+              </span>
+              <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                Pickup: {bookOrigin || 'Current GPS Location'}
+              </span>
+            </div>
+          </div>
+
+          {/* GoCar Reference Screen 1: Recent Destination List Rows (Clock icon + Title + Ellipsis Subtitle + Bookmark) */}
+          {recentPlacesList.length > 0 && (
+            <div style={{ borderRadius: 'var(--radius-card)', border: '1px solid var(--color-divider)', background: 'var(--color-bg-elevated)', padding: '0 12px' }}>
+              {recentPlacesList.slice(0, 3).map((place, i) => {
+                const isSaved = savedPlaces.some((sp) => sp.name === place.name);
+                return (
+                  <ListRow
+                    key={`${place.name}-${i}`}
+                    icon={<Clock size={18} />}
+                    title={place.name}
+                    subtitle={place.address}
+                    trailing={
+                      <button
+                        type="button"
+                        aria-label={isSaved ? 'Remove bookmark' : 'Bookmark place'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSavePlace(place);
+                        }}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          color: isSaved ? '#0072de' : 'var(--color-text-muted)',
+                          cursor: 'pointer',
+                          padding: '6px',
+                        }}
+                      >
+                        <Bookmark size={16} />
+                      </button>
+                    }
+                    onClick={() =>
+                      requireLocationBeforeCarUse(() => {
+                        setBookDest(place.name);
+                        setDestCoords({ lat: place.lat, lon: place.lon });
+                        setBookingStep('VEHICLE');
+                        setSheetSnap('full');
+                      })
+                    }
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {/* Hero Action Cards for Primary Workflows */}
+          <div className="gf-hero-action-grid">
+            <button
+              id="hero-book-ride-card"
+              type="button"
+              className="gf-hero-action-card pressable"
+              onClick={() =>
+                requireLocationBeforeCarUse(() => {
+                  setVehicleFilter('ALL');
+                  setScheduleMode('NOW');
+                  setBookingStep('ROUTE');
+                  setSheetSnap('full');
+                })
+              }
+              style={{ borderLeft: '4px solid #0072de' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="gf-circle-icon is-green" style={{ width: '40px', height: '40px' }}>
+                  <Car size={22} />
+                </div>
+                <ChevronRight size={18} style={{ color: '#0072de' }} />
+              </div>
+              <div>
+                <div className="type-title" style={{ fontSize: '16px', fontWeight: 800 }}>Book a Ride</div>
+                <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                  Request operational car
+                </div>
+              </div>
+            </button>
+
+            <button
+              id="hero-fleet-schedule-card"
+              type="button"
+              className="gf-hero-action-card pressable"
+              onClick={() => {
+                setBookingStep('SCHEDULE_VIEW');
+                setSheetSnap('full');
+              }}
+              style={{ borderLeft: '4px solid #0a0a0a' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="gf-circle-icon" style={{ width: '40px', height: '40px', background: 'var(--color-bg-subtle)' }}>
+                  <Calendar size={22} />
+                </div>
+                <ChevronRight size={18} style={{ color: 'var(--color-text-secondary)' }} />
+              </div>
+              <div>
+                <div className="type-title" style={{ fontSize: '16px', fontWeight: 800 }}>Fleet Schedule</div>
+                <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                  Live slots & cars
+                </div>
+              </div>
+            </button>
+          </div>
+
+          {/* Quick Collapse to Map Toggle */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '-4px 0' }}>
+            <span className="type-caption" style={{ color: 'var(--color-text-secondary)', fontWeight: 700 }}>
+              Operational Quick Access
+            </span>
+            <button
+              type="button"
+              className="gf-btn gf-btn-ghost"
+              style={{ minHeight: '30px', padding: '0 8px', fontSize: '12px' }}
+              onClick={() => setSheetSnap(sheetSnap === 'peek' ? 'half' : 'peek')}
+            >
+              <Navigation size={13} /> {sheetSnap === 'peek' ? 'Expand Menu' : 'View Full Map'}
+            </button>
+          </div>
+
+          {/* Service Shortcuts (4 columns, 56px tiles, 12px labels) */}
           <div className="gf-shortcut-grid">
             {shortcuts.map((sc) => (
               <button key={sc.id} id={sc.id} type="button" className="gf-shortcut-btn pressable" onClick={sc.action}>
@@ -7500,38 +7821,12 @@ export function App() {
             ))}
           </div>
 
-          {/* Horizontal Scroll Chips for User's Real Recent Destinations */}
-          {recentDestinationChips.length > 0 && (
-            <div>
-              <div className="type-caption" style={{ fontWeight: 700, marginBottom: '8px' }}>
-                Recent destinations
-              </div>
-              <div className="gf-hscroll">
-                {recentDestinationChips.map((dest) => (
-                  <Chip
-                    key={dest}
-                    icon={<MapPin size={14} style={{ color: 'var(--color-green)' }} />}
-                    onClick={() =>
-                      requireLocationBeforeCarUse(() => {
-                        setBookDest(dest);
-                        setBookingStep('ROUTE');
-                        setSheetSnap('full');
-                      })
-                    }
-                  >
-                    {dest}
-                  </Chip>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Live System Overview Carousel (16:9 cards + dot pagination) */}
+          {/* Live System Overview Carousel */}
           <div>
             <div className="gf-promo-card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <StatusBadge label={activeOverview.tag} tone="green" />
-                <Car size={28} style={{ color: 'var(--color-green)', opacity: 0.7 }} />
+                <StatusBadge label={activeOverview.tag} tone="blue" />
+                <Car size={28} style={{ color: '#0072de', opacity: 0.85 }} />
               </div>
               <div>
                 <div className="type-section">{activeOverview.title}</div>
@@ -7553,7 +7848,7 @@ export function App() {
                     padding: 0,
                     border: 'none',
                     borderRadius: '9999px',
-                    background: carouselIdx === idx ? 'var(--color-green)' : 'var(--color-border)',
+                    background: carouselIdx === idx ? '#0072de' : 'var(--color-border)',
                     cursor: 'pointer',
                     transition: 'width 200ms ease',
                   }}
@@ -7566,7 +7861,7 @@ export function App() {
     }
 
     // -------------------------------------------------------------------------
-    // BOOKING FLOW STEP 1: WHERE TO? (ROUTE — Real OpenStreetMap Search & Pin)
+    // BOOKING FLOW STEP 1: WHERE TO? (Screens 2, 3 & 4 of GoCar Reference PDF)
     // -------------------------------------------------------------------------
     if (bookingStep === 'ROUTE') {
       const activeText = (activeRouteField === 'pickup' ? bookOrigin : bookDest).trim();
@@ -7577,20 +7872,59 @@ export function App() {
         ? savedPlaces
         : recentPlacesList;
 
+      const pickupSpots: Array<{ letter: 'A' | 'B' | 'C'; title: string; subtitle: string; walk: string }> = [
+        {
+          letter: 'A',
+          title: `Lobby Main Entrance • ${bookOrigin || 'Pickup Point'}`,
+          subtitle: 'Nearest drop-off & chauffeur staging bay • Recommended',
+          walk: '1 min walk',
+        },
+        {
+          letter: 'B',
+          title: `North Gate / Security Post • ${bookOrigin || 'Pickup Point'}`,
+          subtitle: 'Fast main road access towards Sudirman / Gatot Subroto',
+          walk: '2 min walk',
+        },
+        {
+          letter: 'C',
+          title: `VIP Basement / East Wing • ${bookOrigin || 'Pickup Point'}`,
+          subtitle: 'Covered weather-protected pickup zone',
+          walk: '3 min walk',
+        },
+      ];
+
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {/* GoCar Reference Screen 2: Top Bar with Close (X) + Title + Use GPS */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-            <h1 className="type-title">Where to?</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button
+                type="button"
+                className="gf-icon-btn-48 pressable"
+                onClick={() => {
+                  setBookingStep('HOME');
+                  setSheetSnap('half');
+                }}
+                aria-label="Close route search"
+                style={{ width: '36px', height: '36px' }}
+              >
+                <X size={18} />
+              </button>
+              <h1 className="type-title" style={{ fontSize: '20px' }}>
+                {routeTab === 'PICKUP' ? 'Confirm pickup spot' : 'Where to today?'}
+              </h1>
+            </div>
             <button
               type="button"
               className="gf-btn gf-btn-ghost"
-              style={{ minHeight: '36px', padding: '0 10px' }}
+              style={{ minHeight: '34px', padding: '0 10px', fontSize: '12.5px', color: '#0072de', fontWeight: 700 }}
               onClick={handleUseCurrentGpsForField}
             >
               <Navigation size={14} /> Use GPS
             </button>
           </div>
 
+          {/* GoCar Reference Screen 2 & 3: Route Input Card (20px radius, #F9FAFB fill, Up-arrow Pickup + Target Ring-dot Dest) */}
           <RouteFields
             pickup={bookOrigin}
             destination={bookDest}
@@ -7603,10 +7937,52 @@ export function App() {
               if (!val.trim()) setDestCoords(null);
             }}
             activeField={activeRouteField}
-            onFocusField={setActiveRouteField}
-            pickupPlaceholder="Search pickup address or pin on map"
-            destinationPlaceholder="Where to? Search any address"
+            onFocusField={(field) => {
+              setActiveRouteField(field);
+              if (routeTab === 'PICKUP') setRouteTab('RECENT');
+            }}
+            pickupPlaceholder="Your current pickup location"
+            destinationPlaceholder="Search for a destination"
           />
+
+          {/* GoCar Reference Screen 2: Outlined Action Pills ("Select via map" & "Pickup spot A/B/C") */}
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className={`gf-action-pill-outlined pressable ${routeTab === 'PIN' ? 'is-active' : ''}`}
+              onClick={() => {
+                setRouteTab(routeTab === 'PIN' ? 'RECENT' : 'PIN');
+                setSheetSnap(routeTab === 'PIN' ? 'full' : 'peek');
+              }}
+            >
+              <MapPin size={15} style={{ color: routeTab === 'PIN' ? '#ffffff' : '#0072de' }} />
+              Select via map
+            </button>
+
+            <button
+              type="button"
+              className={`gf-action-pill-outlined pressable ${routeTab === 'PICKUP' ? 'is-active' : ''}`}
+              onClick={() => {
+                setRouteTab(routeTab === 'PICKUP' ? 'RECENT' : 'PICKUP');
+                setSheetSnap('full');
+              }}
+            >
+              <Navigation size={15} style={{ color: routeTab === 'PICKUP' ? '#ffffff' : '#0a0a0a' }} />
+              Pickup spot ({selectedPickupSpot})
+            </button>
+
+            <button
+              type="button"
+              className={`gf-action-pill-outlined pressable ${routeTab === 'SAVED' ? 'is-active' : ''}`}
+              onClick={() => {
+                setRouteTab(routeTab === 'SAVED' ? 'RECENT' : 'SAVED');
+                setSheetSnap('full');
+              }}
+            >
+              <Bookmark size={15} style={{ color: routeTab === 'SAVED' ? '#ffffff' : '#0072de' }} />
+              Saved places
+            </button>
+          </div>
 
           {/* Live Calculated Route ETA, Ride Time & Distance Banner */}
           {bookOrigin.trim() && bookDest.trim() && (
@@ -7614,8 +7990,8 @@ export function App() {
               style={{
                 padding: '10px 14px',
                 borderRadius: 'var(--radius-control)',
-                background: 'var(--color-green-tint)',
-                border: '1px solid var(--color-green)',
+                background: '#ebf5ff',
+                border: '1px solid #93c5fd',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
@@ -7624,104 +8000,152 @@ export function App() {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Navigation size={16} style={{ color: 'var(--color-green-text)' }} />
-                <span className="type-body" style={{ fontWeight: 700, color: 'var(--color-green-text)' }}>
+                <Navigation size={16} style={{ color: '#005bb5' }} />
+                <span className="type-body" style={{ fontWeight: 700, color: '#005bb5' }}>
                   {calculatingRoute
                     ? 'Calculating route path & ETA...'
                     : `${currentMetrics.distanceKm} km • ~${currentMetrics.durationMin} min ride`}
                 </span>
               </div>
-              <StatusBadge label={`ETA ${currentMetrics.etaText}`} tone="green" />
+              <StatusBadge label={`ETA ${currentMetrics.etaText}`} tone="blue" />
             </div>
           )}
 
           {/* Instant Quick-Pick Corporate Destinations */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <div
-              className="type-caption"
-              style={{
-                fontWeight: 700,
-                color: 'var(--color-text-muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-                fontSize: '11px',
-              }}
-            >
-              Quick Destinations
+          {routeTab !== 'PICKUP' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div
+                className="type-caption"
+                style={{
+                  fontWeight: 700,
+                  color: 'var(--color-text-muted)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                  fontSize: '11px',
+                }}
+              >
+                Quick Corporate Locations
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '8px',
+                  overflowX: 'auto',
+                  paddingBottom: '4px',
+                  scrollbarWidth: 'none',
+                }}
+              >
+                {QUICK_CORPORATE_POIS.map((poi) => (
+                  <button
+                    key={poi.name}
+                    type="button"
+                    className="pressable"
+                    onClick={() => {
+                      if (activeRouteField === 'pickup') {
+                        setBookOrigin(poi.name);
+                        setOriginCoords({ lat: poi.lat, lon: poi.lon });
+                        setActiveRouteField('destination');
+                      } else {
+                        setBookDest(poi.name);
+                        setDestCoords({ lat: poi.lat, lon: poi.lon });
+                      }
+                    }}
+                    style={{
+                      flexShrink: 0,
+                      whiteSpace: 'nowrap',
+                      cursor: 'pointer',
+                      fontSize: '12.5px',
+                      fontWeight: 600,
+                      borderRadius: 'var(--radius-pill)',
+                      padding: '6px 14px',
+                      background: 'var(--color-bg-subtle)',
+                      border: '1px solid var(--color-border)',
+                      color: 'var(--color-text-primary)',
+                    }}
+                  >
+                    {poi.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div
-              style={{
-                display: 'flex',
-                gap: '8px',
-                overflowX: 'auto',
-                paddingBottom: '4px',
-                scrollbarWidth: 'none',
-              }}
-            >
-              {QUICK_CORPORATE_POIS.map((poi) => (
+          )}
+
+          {/* GoCar Reference Screen 4: Pickup Point Confirmation (Lettered Spots A, B, C) */}
+          {routeTab === 'PICKUP' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <div>
+                  <div className="type-section" style={{ fontSize: '16px', fontWeight: 800 }}>
+                    Confirm pickup point
+                  </div>
+                  <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+                    Select a lettered gate or lobby spot for faster chauffeur rendezvous
+                  </div>
+                </div>
                 <button
-                  key={poi.name}
                   type="button"
                   className="pressable"
                   onClick={() => {
-                    if (activeRouteField === 'pickup') {
-                      setBookOrigin(poi.name);
-                      setOriginCoords({ lat: poi.lat, lon: poi.lon });
-                      setActiveRouteField('destination');
-                    } else {
-                      setBookDest(poi.name);
-                      setDestCoords({ lat: poi.lat, lon: poi.lon });
-                    }
+                    setRouteTab('RECENT');
+                    setActiveRouteField('pickup');
                   }}
                   style={{
-                    flexShrink: 0,
-                    whiteSpace: 'nowrap',
+                    padding: '5px 12px',
+                    borderRadius: '9999px',
+                    background: '#ebf5ff',
+                    color: '#005bb5',
+                    border: 'none',
+                    fontSize: '12px',
+                    fontWeight: 800,
                     cursor: 'pointer',
-                    fontSize: '12.5px',
-                    fontWeight: 600,
-                    borderRadius: 'var(--radius-pill)',
-                    padding: '6px 14px',
-                    background: 'var(--color-bg-subtle)',
-                    border: '1px solid var(--color-border)',
-                    color: 'var(--color-text-primary)',
                   }}
                 >
-                  {poi.label}
+                  Edit
                 </button>
-              ))}
+              </div>
+
+              {pickupSpots.map((spot) => {
+                const isSelected = selectedPickupSpot === spot.letter;
+                return (
+                  <button
+                    key={spot.letter}
+                    type="button"
+                    className={`gf-pickup-spot-row pressable ${isSelected ? 'is-selected' : ''}`}
+                    onClick={() => {
+                      setSelectedPickupSpot(spot.letter);
+                      const baseOrigin = (bookOrigin || 'Samsung Office Jakarta').replace(/\s*\(Spot [ABC]\)$/i, '');
+                      setBookOrigin(`${baseOrigin} (Spot ${spot.letter})`);
+                    }}
+                  >
+                    <span className={`gf-pickup-letter-circle ${isSelected ? 'is-selected' : ''}`}>
+                      {spot.letter}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                        {spot.title}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                        {spot.subtitle} • {spot.walk}
+                      </div>
+                    </div>
+                    <span className={`gf-radio-circle ${isSelected ? 'is-checked' : ''}`} />
+                  </button>
+                );
+              })}
             </div>
-          </div>
-
-          <Segmented
-            ariaLabel="Destination source"
-            value={routeTab}
-            onChange={(val) => {
-              setRouteTab(val);
-              if (val === 'PIN') {
-                setSheetSnap('peek');
-              } else {
-                setSheetSnap('full');
-              }
-            }}
-            options={[
-              { value: 'RECENT', label: 'Recent' },
-              { value: 'SAVED', label: 'Saved' },
-              { value: 'PIN', label: 'Pin on map' },
-            ]}
-          />
-
-          {routeTab === 'PIN' ? (
+          ) : routeTab === 'PIN' ? (
             <div style={{ padding: '12px 0' }}>
               <div className="type-body" style={{ fontWeight: 700 }}>Drag OpenStreetMap to set location</div>
               <p className="type-caption" style={{ marginTop: '4px' }}>
                 Pan the map or use arrow keys to place the center pin for your {activeRouteField === 'pickup' ? 'pickup point' : 'destination'}.
               </p>
-              <div className="type-body" style={{ marginTop: '10px', fontWeight: 600, color: 'var(--color-green-text)' }}>
+              <div className="type-body" style={{ marginTop: '10px', fontWeight: 700, color: '#0072de' }}>
                 {(activeRouteField === 'pickup' ? bookOrigin : bookDest) || 'Pan map to resolve street address...'}
               </div>
             </div>
           ) : geoLoading ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            /* GoCar Reference Screen 3: Shimmer Skeleton Loading Rows */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <Skeleton height={64} />
               <Skeleton height={64} />
               <Skeleton height={64} />
@@ -7730,53 +8154,90 @@ export function App() {
             <EmptyState
               message={
                 activeText.length >= 2
-                  ? 'No matching OpenStreetMap addresses found. You can still continue with your typed address or switch to Pin on map.'
+                  ? 'No matching OpenStreetMap addresses found. You can still continue with your typed address or tap Select via map.'
                   : routeTab === 'SAVED'
                   ? 'No saved places yet. Search any address above and tap the bookmark icon to save it.'
-                  : 'Type at least 2 characters above to search live OpenStreetMap addresses, or tap Pin on map.'
+                  : 'Type at least 2 characters above to search live OpenStreetMap addresses, or tap Select via map.'
               }
             />
           ) : (
+            /* GoCar Reference Screen 3: Live Search Results with Distance, Highlighted Query & Sub-location Band */
             <div>
               {listToDisplay.map((p, idx) => {
                 const isSaved = savedPlaces.some((sp) => sp.name === p.name && sp.address === p.address);
+                const approxKm = originCoords
+                  ? Math.max(0.4, Math.hypot((p.lat - originCoords.lat) * 111, (p.lon - originCoords.lon) * 111)).toFixed(1)
+                  : (1.8 + idx * 1.4).toFixed(1);
+
                 return (
-                  <ListRow
-                    key={`${p.name}-${idx}`}
-                    tall
-                    icon={routeTab === 'SAVED' ? <Bookmark size={18} /> : <MapPin size={18} />}
-                    title={p.name}
-                    subtitle={p.address}
-                    trailing={
-                      <button
-                        type="button"
-                        aria-label={isSaved ? 'Remove from saved places' : 'Save place'}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleSavePlace(p);
-                        }}
-                        style={{
-                          border: 'none',
-                          background: 'transparent',
-                          color: isSaved ? 'var(--color-green)' : 'var(--color-text-muted)',
-                          cursor: 'pointer',
-                          padding: '6px',
+                  <React.Fragment key={`${p.name}-${idx}`}>
+                    <ListRow
+                      tall
+                      icon={
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}>
+                          {routeTab === 'SAVED' ? <Bookmark size={16} /> : <MapPin size={16} />}
+                          <span style={{ fontSize: '9.5px', fontWeight: 700, color: 'var(--color-text-muted)' }}>
+                            {approxKm}km
+                          </span>
+                        </div>
+                      }
+                      title={showingLiveSearch ? highlightQueryMatch(p.name, activeText) : p.name}
+                      subtitle={p.address}
+                      trailing={
+                        <button
+                          type="button"
+                          aria-label={isSaved ? 'Remove from saved places' : 'Save place'}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSavePlace(p);
+                          }}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            color: isSaved ? '#0072de' : 'var(--color-text-muted)',
+                            cursor: 'pointer',
+                            padding: '6px',
+                          }}
+                        >
+                          <Bookmark size={16} />
+                        </button>
+                      }
+                      onClick={() => {
+                        if (activeRouteField === 'pickup') {
+                          setBookOrigin(p.name);
+                          setOriginCoords({ lat: p.lat, lon: p.lon });
+                          setActiveRouteField('destination');
+                        } else {
+                          setBookDest(p.name);
+                          setDestCoords({ lat: p.lat, lon: p.lon });
+                        }
+                      }}
+                    />
+                    {idx === 0 && showingLiveSearch && (
+                      <div
+                        className="gf-sublocation-band pressable"
+                        onClick={() => {
+                          const gateName = `${p.name} (Main Lobby Gate)`;
+                          if (activeRouteField === 'pickup') {
+                            setBookOrigin(gateName);
+                            setOriginCoords({ lat: p.lat, lon: p.lon });
+                            setActiveRouteField('destination');
+                          } else {
+                            setBookDest(gateName);
+                            setDestCoords({ lat: p.lat, lon: p.lon });
+                          }
                         }}
                       >
-                        <Bookmark size={16} />
-                      </button>
-                    }
-                    onClick={() => {
-                      if (activeRouteField === 'pickup') {
-                        setBookOrigin(p.name);
-                        setOriginCoords({ lat: p.lat, lon: p.lon });
-                        setActiveRouteField('destination');
-                      } else {
-                        setBookDest(p.name);
-                        setDestCoords({ lat: p.lat, lon: p.lon });
-                      }
-                    }}
-                  />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <Navigation size={13} style={{ color: '#0072de' }} />
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                            Main Lobby / Drop-Off Entrance
+                          </span>
+                        </div>
+                        <ChevronRight size={15} style={{ color: 'var(--color-text-muted)' }} />
+                      </div>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </div>
@@ -7786,7 +8247,7 @@ export function App() {
     }
 
     // -------------------------------------------------------------------------
-    // BOOKING FLOW STEP 2: PICK YOUR RIDE (VEHICLE)
+    // BOOKING FLOW STEP 2: PICK YOUR RIDE (Screens 5 & 6 of GoCar Reference PDF)
     // -------------------------------------------------------------------------
     if (bookingStep === 'VEHICLE') {
       const activeDrivers = (liveAvailability?.drivers?.length ? liveAvailability.drivers : drivers).filter(
@@ -7794,25 +8255,90 @@ export function App() {
       );
 
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {feedbackBanner}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-            <h1 className="type-title">Pick your ride</h1>
-            {vehicleFilter !== 'ALL' && (
-              <Chip active onClick={() => setVehicleFilter('ALL')}>
-                {vehicleFilter} ✕
-              </Chip>
-            )}
+
+          {/* GoCar Reference Screen 5: Floating Top Route Pill + Corporate Banner */}
+          <div
+            style={{
+              borderRadius: '18px',
+              background: 'linear-gradient(135deg, #0a0a0a 0%, #0f172a 65%, #0072de 100%)',
+              color: '#ffffff',
+              padding: '12px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              boxShadow: '0 8px 20px rgba(10, 10, 10, 0.14)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                <span className="gf-pickup-up-circle" style={{ width: '18px', height: '18px' }}>
+                  <ArrowUp size={11} strokeWidth={3} />
+                </span>
+                <span style={{ fontSize: '12.5px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {bookOrigin || 'Pickup'}
+                </span>
+                <span style={{ opacity: 0.6 }}>→</span>
+                <span style={{ fontSize: '12.5px', fontWeight: 800, color: '#93c5fd', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {bookDest || 'Destination'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBookingStep('ROUTE')}
+                style={{
+                  border: '1px solid rgba(255,255,255,0.28)',
+                  background: 'rgba(255,255,255,0.12)',
+                  color: '#ffffff',
+                  borderRadius: '9999px',
+                  padding: '3px 10px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                Edit
+              </button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11.5px', color: 'rgba(255,255,255,0.86)' }}>
+              <span>✓ Samsung Corporate Fleet • 0 IDR Covered</span>
+              <span style={{ fontWeight: 800 }}>{currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min</span>
+            </div>
+          </div>
+
+          {/* GoCar Reference Screen 6: Service Category Underline Tabs */}
+          <div className="gf-underline-tabs" role="tablist" aria-label="Vehicle category tabs">
+            {[
+              { id: 'ALL', label: 'All Fleet' },
+              { id: 'Electric', label: 'Electric EV ⚡' },
+              { id: 'MPV', label: 'Executive & MPV' },
+            ].map((tab) => {
+              const active = vehicleFilter === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className={`gf-underline-tab ${active ? 'is-active' : ''}`}
+                  onClick={() => setVehicleFilter(tab.id)}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
           </div>
 
           {/* Mandatory Request Schedule & Hours of Booking */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Clock size={16} style={{ color: 'var(--color-primary)' }} />
+                <Clock size={16} style={{ color: '#0072de' }} />
                 <span style={{ fontSize: '13px', fontWeight: 800 }}>Schedule & Hours of Booking</span>
               </div>
-              <span className="type-caption" style={{ fontWeight: 600, color: 'var(--color-text-subtle)' }}>
+              <span className="type-caption" style={{ fontWeight: 700, color: '#0072de' }}>
                 Mandatory
               </span>
             </div>
@@ -7993,9 +8519,9 @@ export function App() {
               }
 
               return (
-                <div style={{ padding: '8px 10px', borderRadius: '8px', background: '#f0fdf4', border: '1px solid #bbf7d0', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <CheckCircle2 size={15} style={{ color: '#16a34a', flexShrink: 0 }} />
-                  <span style={{ fontSize: '11.5px', color: '#166534', fontWeight: 600 }}>
+                <div style={{ padding: '8px 10px', borderRadius: '8px', background: '#ebf5ff', border: '1px solid #bfdbfe', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <CheckCircle2 size={15} style={{ color: '#0072de', flexShrink: 0 }} />
+                  <span style={{ fontSize: '11.5px', color: '#005bb5', fontWeight: 600 }}>
                     ✓ Standard Advance Booking ({Math.floor(diffMin / 60)}h {diffMin % 60}m before departure • Compliant with 2h advance booking rule)
                   </span>
                 </div>
@@ -8003,7 +8529,7 @@ export function App() {
             })()}
           </div>
 
-          {/* Horizontal Option Rows (80-88px) — Never a grid or table */}
+          {/* GoCar Reference Screens 5 & 6: Vehicle Option Cards (Selected card has #EBF5FF tint & #0072DE border) */}
           {loadingData ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <Skeleton height={84} />
@@ -8023,15 +8549,14 @@ export function App() {
             />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {filteredVehicles.map((v) => {
+              {filteredVehicles.map((v, vIdx) => {
                 const isAvail = v.isAvailable !== false && v.status === 'Available';
                 const isSelected = Number(selectedVehicle?.id) === v.id;
                 const isEv = v.energy_type === 'Electric';
                 const pct = isEv ? Number(v.battery_percent ?? 100) : 85;
+                const waitRange = isAvail ? `${3 + (vIdx % 3)}-${6 + (vIdx % 3)} min` : 'Busy';
                 const availText = isAvail
-                  ? scheduleMode === 'NOW'
-                    ? 'Available now'
-                    : `Available at ${new Date(bookStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                  ? `Available • ${v.registration_plate} • Chauffeur included`
                   : v.status !== 'Available'
                   ? `${v.status}${v.standby_reason ? ` • ${v.standby_reason}` : ''}`
                   : v.conflictReason || 'Booked for this slot';
@@ -8046,20 +8571,47 @@ export function App() {
                     leading={<VehicleArt carType={v.car_type} energyType={v.energy_type} size={64} />}
                     title={`${v.make} ${v.model}`}
                     badge={
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                        <span className="type-caption">• {v.seats} seats</span>
-                        <StatusBadge label={isEv ? 'EV' : 'Gasoline'} tone={isEv ? 'blue' : 'neutral'} />
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
+                        <span
+                          style={{
+                            padding: '1px 7px',
+                            borderRadius: '9999px',
+                            background: isSelected ? '#0072de' : 'var(--color-bg-subtle)',
+                            color: isSelected ? '#ffffff' : 'var(--color-text-secondary)',
+                            fontSize: '10.5px',
+                            fontWeight: 700,
+                          }}
+                        >
+                          {waitRange}
+                        </span>
+                        <span className="type-caption">• 👤 {v.seats}</span>
+                        <span
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 800,
+                            fontStyle: 'italic',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            background: isEv ? '#0072de' : '#0a0a0a',
+                            color: '#ffffff',
+                          }}
+                        >
+                          {isEv ? 'ECO EV' : 'FAST DISPATCH'}
+                        </span>
                       </span>
                     }
                     subtitle={availText}
                     rightMetric={
-                      <div style={{ width: '52px' }}>
-                        <div className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '2px' }}>
-                          {isEv ? <BatteryCharging size={12} /> : <Fuel size={12} />}
-                          {isEv ? `${pct}%` : 'Full'}
+                      <div style={{ textAlign: 'right', minWidth: '68px' }}>
+                        <div style={{ fontSize: '13.5px', fontWeight: 800, color: isSelected ? '#0072de' : 'var(--color-text-primary)' }}>
+                          0 IDR
                         </div>
-                        <div style={{ height: '4px', width: '100%', background: 'var(--color-bg-subtle)', borderRadius: '9999px', marginTop: '4px', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: isAvail ? 'var(--color-green)' : 'var(--color-border)' }} />
+                        <div style={{ fontSize: '10.5px', color: '#9ca3af', textDecoration: 'line-through' }}>
+                          Rp{isEv ? '148.000' : '139.500'}
+                        </div>
+                        <div className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '2px', marginTop: '2px', fontSize: '10.5px' }}>
+                          {isEv ? <BatteryCharging size={11} /> : <Fuel size={11} />}
+                          {isEv ? `${pct}%` : 'Full'}
                         </div>
                       </div>
                     }
@@ -8076,7 +8628,7 @@ export function App() {
                 <div className="type-body" style={{ fontWeight: 700 }}>Driver provided</div>
                 <div className="type-caption">Company driver assigned & schedule locked</div>
               </div>
-              <StatusBadge label="Included" tone="green" />
+              <StatusBadge label="Included" tone="blue" />
             </div>
 
             <div>
@@ -8136,13 +8688,15 @@ export function App() {
           {feedbackBanner}
           <h1 className="type-title">Almost there</h1>
 
-          {/* Compact route card with Edit link */}
+          {/* Compact route card with Edit link (GoCar Reference Up-Arrow & Target Ring-Dot) */}
           <div style={{ padding: '14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
             <div style={{ display: 'flex', gap: '10px', minWidth: 0 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '5px 0', gap: '4px' }}>
-                <span className="gf-dot-green" />
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '3px 0', gap: '4px' }}>
+                <span className="gf-pickup-up-circle" style={{ width: '18px', height: '18px' }}>
+                  <ArrowUp size={11} strokeWidth={3} />
+                </span>
                 <span style={{ width: 0, height: '14px', borderLeft: '2px dotted var(--color-border)' }} />
-                <span className="gf-square-red" />
+                <span className="gf-dest-ring-dot" style={{ width: '16px', height: '16px' }} />
               </div>
               <div style={{ minWidth: 0 }}>
                 <div className="type-body" style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bookOrigin}</div>

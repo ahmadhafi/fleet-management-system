@@ -1,5 +1,5 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { ArrowUp, X } from 'lucide-react';
 
 interface RouteFieldsProps {
   pickup: string;
@@ -24,11 +24,13 @@ export const RouteFields: React.FC<RouteFieldsProps> = ({
 }) => {
   return (
     <div className="gf-route-box">
-      {/* Green dot + vertical dotted line + red square */}
+      {/* Samsung Blue pickup up-arrow circle + vertical dotted line + Black/White destination ring-dot */}
       <div className="gf-route-track" aria-hidden="true">
-        <span className="gf-dot-green" />
+        <span className="gf-pickup-up-circle">
+          <ArrowUp size={13} strokeWidth={3} />
+        </span>
         <span className="gf-route-dotted" />
-        <span className="gf-square-red" />
+        <span className="gf-dest-ring-dot" />
       </div>
 
       <div className="gf-route-inputs">

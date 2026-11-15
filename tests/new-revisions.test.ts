@@ -1272,6 +1272,55 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(adminDecision.body.isFinal).toBe(true);
       });
     });
+
+    describe('GoCar UI/UX Reference in Samsung Blue & White and Black & White Palette', () => {
+      it('implements GoCar Reference UI components in Samsung Blue (#0072de) & Black (#0a0a0a) with zero green hex codes in user UI', () => {
+        const fs = require('fs');
+        const path = require('path');
+
+        const tokensCss = fs.readFileSync(path.join(process.cwd(), 'src/styles/tokens.css'), 'utf8');
+        const appCss = fs.readFileSync(path.join(process.cwd(), 'src/styles/app.css'), 'utf8');
+        const appTsx = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
+        const routeFieldsTsx = fs.readFileSync(path.join(process.cwd(), 'src/components/RouteFields.tsx'), 'utf8');
+        const mapViewTsx = fs.readFileSync(path.join(process.cwd(), 'src/components/MapView.tsx'), 'utf8');
+
+        // Verify Samsung Blue & Black tokens
+        expect(tokensCss).toContain('--color-primary: #0072de');
+        expect(tokensCss).toContain('--color-status-green-bg: #ebf5ff');
+        expect(tokensCss).toContain('--color-status-green-fg: #005bb5');
+
+        // Verify GoCar Reference classes exist in app.css
+        expect(appCss).toContain('.gf-gocar-hero');
+        expect(appCss).toContain('.gf-gocar-onetap-card');
+        expect(appCss).toContain('.gf-pickup-up-circle');
+        expect(appCss).toContain('.gf-dest-ring-dot');
+        expect(appCss).toContain('.gf-action-pill-outlined');
+        expect(appCss).toContain('.gf-pickup-spot-row');
+        expect(appCss).toContain('.gf-gocar-book-cta');
+        expect(appCss).toContain('.gf-sublocation-band');
+
+        // Verify RouteFields uses Pickup Up-Circle & Destination Ring-Dot
+        expect(routeFieldsTsx).toContain('gf-pickup-up-circle');
+        expect(routeFieldsTsx).toContain('gf-dest-ring-dot');
+
+        // Verify zero green hex codes in App.tsx, RouteFields.tsx, MapView.tsx, tokens.css, app.css
+        const forbiddenGreenRegex = /#0aa211|#09ba11|#0cb417|#059669|#10b981|#16a34a|#065f46|#166534|#f0fdf4|#dcfce7|#ecfdf5|#bbf7d0/i;
+        expect(forbiddenGreenRegex.test(appTsx)).toBe(false);
+        expect(forbiddenGreenRegex.test(routeFieldsTsx)).toBe(false);
+        expect(forbiddenGreenRegex.test(mapViewTsx)).toBe(false);
+        expect(forbiddenGreenRegex.test(tokensCss)).toBe(false);
+        expect(forbiddenGreenRegex.test(appCss)).toBe(false);
+
+        // Verify all key booking flow IDs remain intact
+        expect(appTsx).toContain('id="home-where-to-btn"');
+        expect(appTsx).toContain('id="route-continue-btn"');
+        expect(appTsx).toContain('id="vehicle-continue-btn"');
+        expect(appTsx).toContain('id="submit-booking-btn"');
+        expect(appTsx).toContain('id="schedule-start"');
+        expect(appTsx).toContain('id="schedule-end"');
+        expect(appTsx).toContain('id="urgent-reason-input"');
+      });
+    });
   });
 });
 

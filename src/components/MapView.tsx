@@ -542,7 +542,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
       const isEv = v.energy_type === 'Electric';
       const isInTrip = v.status === 'IN_TRIP';
-      const mainColor = isEv ? '#059669' : '#0072de';
+      const mainColor = isEv ? '#0072de' : '#0a0a0a';
 
       const avatarKey = resolveCarAvatarKey(v.model, v.make, v.energy_type);
       const carFrontSvg = getCarFrontAvatarSvg(avatarKey, isInTrip);
@@ -553,8 +553,8 @@ export const MapView: React.FC<MapViewProps> = ({
         className: 'gf-leaflet-marker',
         html: `
           <div class="gf-fleet-marker-wrap ${isInTrip ? 'is-driving' : ''}" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
-            <div style="background:#ffffff;color:#0f172a;padding:2px 8px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.24);margin-bottom:2px;border:1.5px solid ${isFollowing ? '#059669' : mainColor};display:flex;align-items:center;gap:4px;">
-              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${isInTrip || isFollowing ? '#258cfb' : '#10b981'};"></span>
+            <div style="background:#ffffff;color:#0f172a;padding:2px 8px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.24);margin-bottom:2px;border:1.5px solid ${isFollowing ? '#0072de' : mainColor};display:flex;align-items:center;gap:4px;">
+              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${isInTrip || isFollowing ? '#258cfb' : '#0072de'};"></span>
               <span>${escapeHtml(v.registration_plate)}</span>
               <span style="color:#64748b;font-weight:600;font-size:10px;">• ${escapeHtml(v.driver_name?.split(' ')[0] || 'Driver')}</span>
               <span style="font-size:10px;">${isEv ? '⚡' : '⛽'}</span>
@@ -568,7 +568,7 @@ export const MapView: React.FC<MapViewProps> = ({
                   DRIVING
                 </div>
               ` : isFollowing ? `
-                <div style="position:absolute;top:-4px;right:-4px;background:#059669;color:#ffffff;border-radius:9999px;padding:1px 5px;font-size:8px;font-weight:900;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(5,150,105,0.5);border:1px solid #ffffff;">
+                <div style="position:absolute;top:-4px;right:-4px;background:#0072de;color:#ffffff;border-radius:9999px;padding:1px 5px;font-size:8px;font-weight:900;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(0,114,222,0.5);border:1px solid #ffffff;">
                   GPS LIVE
                 </div>
               ` : ''}
@@ -590,8 +590,8 @@ export const MapView: React.FC<MapViewProps> = ({
 
       const contactButtons = v.driver_phone ? `
         <div style="display:flex;gap:8px;margin-top:8px;">
-          <a href="${formatWhatsAppUrl(v.driver_phone)}" target="_blank" rel="noreferrer" style="flex:1;background:#25d366;color:#ffffff;text-decoration:none;padding:6px 10px;border-radius:8px;font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 2px 5px rgba(37,211,102,0.3);">
-            <span>WhatsApp</span>
+          <a href="${formatWhatsAppUrl(v.driver_phone)}" target="_blank" rel="noreferrer" style="flex:1;background:#0a0a0a;color:#ffffff;text-decoration:none;padding:6px 10px;border-radius:8px;font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 2px 5px rgba(10,10,10,0.25);">
+            <span>Chat Driver</span>
           </a>
           <a href="${formatPhoneCallUrl(v.driver_phone)}" style="flex:1;background:#0072de;color:#ffffff;text-decoration:none;padding:6px 10px;border-radius:8px;font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 2px 5px rgba(0,114,222,0.3);">
             <span>Call Driver</span>
@@ -667,7 +667,7 @@ export const MapView: React.FC<MapViewProps> = ({
               <div style="font-size:11px;color:#94a3b8;">${escapeHtml(v.car_type)}</div>
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
-              <span style="font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:9999px;background:${isEv ? '#ecfdf5' : '#e0edff'};color:${isEv ? '#059669' : '#005bb5'};">
+              <span style="font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:9999px;background:${isEv ? '#ebf5ff' : '#f1f5f9'};color:${isEv ? '#0072de' : '#0f172a'};">
                 ${isEv ? `⚡ EV ${v.battery_percent ?? 100}%` : '⛽ Gasoline'}
               </span>
               <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:9999px;background:${isInTrip ? '#fef3c7' : '#f1f5f9'};color:${isInTrip ? '#b45309' : '#475569'};">
@@ -680,7 +680,7 @@ export const MapView: React.FC<MapViewProps> = ({
           <div style="display:flex;align-items:center;gap:10px;background:#f8fafc;padding:8px 10px;border-radius:10px;border:1px solid #e2e8f0;margin-bottom:8px;">
             <div style="position:relative;width:44px;height:44px;border-radius:50%;overflow:hidden;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,0.15);border:2px solid #ffffff;">
               <img src="${driverPhoto}" alt="${escapeHtml(v.driver_name || 'Driver')}" style="width:100%;height:100%;object-fit:cover;display:block;" />
-              <span style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:${isInTrip ? '#258cfb' : '#10b981'};border-radius:50%;border:2px solid #ffffff;"></span>
+              <span style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:${isInTrip ? '#258cfb' : '#0072de'};border-radius:50%;border:2px solid #ffffff;"></span>
             </div>
             <div style="flex:1;min-width:0;">
               <div style="font-size:10px;text-transform:uppercase;font-weight:800;color:#64748b;letter-spacing:0.04em;">Assigned Driver</div>
@@ -744,10 +744,13 @@ export const MapView: React.FC<MapViewProps> = ({
         className: 'gf-leaflet-marker',
         html: `
           <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);">
-            <div style="background:#0072de;color:#ffffff;padding:3px 10px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 2px 8px rgba(0,114,222,0.35);margin-bottom:3px;">
-              Pickup
+            <div style="background:#ffffff;color:#0a0a0a;padding:4px 10px;border-radius:10px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.22);margin-bottom:4px;border:1.5px solid #0072de;display:flex;align-items:center;gap:4px;">
+              <span style="color:#0072de;">Pickup</span>
+              <span style="color:#64748b;font-weight:600;">• Nearest spot</span>
             </div>
-            <div style="width:18px;height:18px;border-radius:9999px;background:#0072de;outline:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,114,222,0.35);"></div>
+            <div style="width:24px;height:24px;border-radius:9999px;background:#0072de;color:#ffffff;outline:3px solid #ffffff;box-shadow:0 3px 10px rgba(0,114,222,0.45);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;line-height:1;">
+              ↑
+            </div>
           </div>
         `,
         iconSize: [0, 0],
@@ -761,10 +764,12 @@ export const MapView: React.FC<MapViewProps> = ({
         className: 'gf-leaflet-marker',
         html: `
           <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);">
-            <div style="background:#111827;color:#ffffff;padding:3px 10px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3);margin-bottom:3px;border:1.5px solid #258cfb;">
+            <div style="background:#0a0a0a;color:#ffffff;padding:4px 11px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.32);margin-bottom:4px;border:1.5px solid #ffffff;">
               ${metrics.etaText ? `ETA ${escapeHtml(metrics.etaText)} • ${metrics.durationMin} min` : 'Destination'}
             </div>
-            <div style="width:18px;height:18px;border-radius:6px;background:#0072de;outline:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,114,222,0.35);"></div>
+            <div style="width:22px;height:22px;border-radius:9999px;background:#0a0a0a;outline:3px solid #ffffff;box-shadow:0 3px 10px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;">
+              <span style="width:7px;height:7px;border-radius:9999px;background:#ffffff;display:block;"></span>
+            </div>
           </div>
         `,
         iconSize: [0, 0],

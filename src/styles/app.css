@@ -968,28 +968,34 @@ textarea {
   border-bottom-color: var(--color-green);
 }
 
-/* Where to? Search Pill on Home — Friendly, Elevated & Clear */
+/* Where to? Search Pill on Home — GoCar Reference Style in Samsung Blue & White */
 .gf-search-pill {
   width: 100%;
-  min-height: 58px;
-  height: 58px;
-  border: 1.5px solid var(--color-border);
+  min-height: 54px;
+  height: 54px;
+  border: 1.5px solid #e2e8f0;
   border-radius: var(--radius-pill);
-  background: var(--color-bg-surface);
-  box-shadow: var(--shadow-card);
-  padding: 0 var(--space-4);
+  background: #f9fafb;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  padding: 0 18px;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: 12px;
   cursor: pointer;
   text-align: left;
   color: var(--color-text-primary);
   transition: all var(--dur-fast) var(--ease-standard);
 }
 
+:root[data-theme='dark'] .gf-search-pill {
+  background: var(--color-bg-subtle);
+  border-color: var(--color-border);
+}
+
 .gf-search-pill:hover {
-  border-color: var(--color-green);
-  box-shadow: 0 4px 18px rgba(0, 114, 222, 0.12);
+  border-color: var(--color-samsung-blue);
+  background: var(--color-bg-surface);
+  box-shadow: 0 4px 18px rgba(0, 114, 222, 0.14);
   transform: translateY(-1px);
 }
 
@@ -997,49 +1003,90 @@ textarea {
   width: 10px;
   height: 10px;
   border-radius: var(--radius-pill);
-  background: var(--color-green);
+  background: var(--color-samsung-blue);
   flex-shrink: 0;
-  box-shadow: 0 0 0 3px var(--color-green-ring);
+  box-shadow: 0 0 0 3px var(--color-samsung-blue-ring);
 }
 
 .gf-square-red {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  background: var(--color-status-red);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 3.5px solid #0a0a0a;
   flex-shrink: 0;
 }
 
-/* Stacked RouteFields — Elevated Connected Address Card */
+/* GoCar Pickup Blue Up-Arrow Circle & Destination Ring-Dot */
+.gf-pickup-up-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-samsung-blue);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0, 114, 222, 0.35);
+}
+
+.gf-dest-ring-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #0a0a0a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 5px rgba(10, 10, 10, 0.22);
+}
+
+.gf-dest-ring-dot::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+/* Stacked RouteFields — GoCar 20dp Radius Connected Input Card */
 .gf-route-box {
-  background: var(--color-bg-surface);
-  border: 1.5px solid var(--color-divider);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-card);
+  background: #f9fafb;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 20px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
   padding: 6px var(--space-4);
   display: flex;
   gap: var(--space-3);
-  transition: border-color var(--dur-fast) ease;
+  transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+
+:root[data-theme='dark'] .gf-route-box {
+  background: var(--color-bg-subtle);
+  border-color: var(--color-border);
 }
 
 .gf-route-box:focus-within {
-  border-color: var(--color-green);
-  box-shadow: 0 4px 16px rgba(0, 114, 222, 0.1);
+  background: var(--color-bg-surface);
+  border-color: var(--color-samsung-blue);
+  box-shadow: 0 6px 20px rgba(0, 114, 222, 0.12);
 }
 
 .gf-route-track {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 18px 0;
+  padding: 15px 0;
   gap: 4px;
 }
 
 .gf-route-dotted {
   width: 0;
   flex: 1;
-  min-height: 22px;
-  border-left: 2px dotted var(--color-border);
+  min-height: 20px;
+  border-left: 2px dotted #94a3b8;
 }
 
 .gf-route-inputs {
@@ -1067,7 +1114,7 @@ textarea {
   color: var(--color-text-primary);
   font-size: var(--text-body-size);
   font-weight: 600;
-  min-height: 48px;
+  min-height: 46px;
   padding: 6px 0;
   outline: none;
 }
@@ -1075,6 +1122,207 @@ textarea {
 .gf-route-input::placeholder {
   color: var(--color-text-muted);
   font-weight: 500;
+}
+
+/* GoCar Home Hero Banner (Samsung Blue & Black/White Style) */
+.gf-gocar-hero {
+  position: relative;
+  border-radius: 22px;
+  background: linear-gradient(145deg, #0a0f1d 0%, #003c8f 52%, #0072de 100%);
+  color: #ffffff;
+  padding: 18px 18px 22px;
+  overflow: hidden;
+  box-shadow: 0 10px 28px rgba(0, 82, 180, 0.25);
+}
+
+.gf-gocar-hero-art {
+  position: absolute;
+  right: -12px;
+  top: -10px;
+  opacity: 0.16;
+  pointer-events: none;
+}
+
+.gf-gocar-promo-banner {
+  margin-top: 14px;
+  background: rgba(255, 255, 255, 0.13);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 16px;
+  padding: 11px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #ffffff;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background-color 150ms ease, transform 150ms ease;
+}
+
+.gf-gocar-promo-banner:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+/* GoCar OneTap Quick Book Card (Page 3 & Page 10 Spec) */
+.gf-gocar-onetap-card {
+  width: 100%;
+  border-radius: 16px;
+  border: 1.5px solid #cbd5e1;
+  background: var(--color-bg-surface);
+  padding: 14px 16px;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 150ms ease;
+}
+
+.gf-gocar-onetap-card:hover {
+  border-color: var(--color-samsung-blue);
+  box-shadow: 0 6px 20px rgba(0, 114, 222, 0.14);
+  transform: translateY(-1px);
+}
+
+/* Outlined Action Pills under Route Card (Page 4 Spec: 36-40dp, outlined white) */
+.gf-action-pill-outlined {
+  appearance: none;
+  min-height: 38px;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid #cbd5e1;
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: all 140ms ease;
+}
+
+.gf-action-pill-outlined:hover {
+  border-color: var(--color-samsung-blue);
+  color: var(--color-samsung-blue);
+  background: var(--color-samsung-blue-tint);
+}
+
+/* Sub-location Entrance Band in Search Results (Page 5 Spec) */
+.gf-sublocation-band {
+  width: 100%;
+  background: var(--color-bg-subtle);
+  border: none;
+  border-bottom: 1px solid var(--color-divider);
+  padding: 9px 14px 9px 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.gf-sublocation-band:hover {
+  background: var(--color-samsung-blue-tint);
+  color: var(--color-samsung-blue);
+}
+
+/* Lettered Pickup Spot Confirmation Rows (Page 6 Spec) */
+.gf-pickup-spot-row {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1.5px solid var(--color-divider);
+  background: var(--color-bg-surface);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 150ms ease;
+}
+
+.gf-pickup-spot-row.is-selected {
+  background: #dbeafe;
+  border-color: var(--color-samsung-blue);
+  border-left: 4px solid var(--color-samsung-blue);
+}
+
+:root[data-theme='dark'] .gf-pickup-spot-row.is-selected {
+  background: rgba(37, 140, 251, 0.22);
+}
+
+.gf-pickup-letter-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #475569;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.gf-pickup-spot-row.is-selected .gf-pickup-letter-circle {
+  background: var(--color-samsung-blue);
+  box-shadow: 0 2px 8px rgba(0, 114, 222, 0.35);
+}
+
+/* Primary Pill Book CTA with Trailing Circular Arrow (Page 7 & Page 10 Spec: 52dp full pill) */
+.gf-gocar-book-cta {
+  width: 100%;
+  min-height: 52px;
+  height: 52px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: var(--color-samsung-blue);
+  color: #ffffff;
+  padding: 0 18px 0 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 15.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 114, 222, 0.32);
+  transition: all 150ms ease;
+}
+
+.gf-gocar-book-cta:hover:not(:disabled) {
+  background: var(--color-samsung-blue-hover);
+  box-shadow: 0 8px 24px rgba(0, 114, 222, 0.4);
+  transform: translateY(-1px);
+}
+
+.gf-gocar-book-cta:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.gf-gocar-book-arrow {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: var(--color-samsung-blue);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 /* Hero Action Cards for Primary Features (Book Ride & Schedule) */
@@ -1104,12 +1352,12 @@ textarea {
 }
 
 .gf-hero-action-card.is-primary {
-  background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+  background: linear-gradient(135deg, #ffffff 0%, #ebf5ff 100%);
   border-color: rgba(0, 114, 222, 0.35);
 }
 
 :root[data-theme='dark'] .gf-hero-action-card.is-primary {
-  background: linear-gradient(135deg, #18221c 0%, #102316 100%);
+  background: linear-gradient(135deg, #141e30 0%, #0f172a 100%);
   border-color: rgba(0, 114, 222, 0.4);
 }
 
@@ -1266,18 +1514,18 @@ textarea {
   padding: 0 2px;
 }
 
-/* OptionRow (Vehicle list 88-92px high) */
+/* OptionRow (GoCar Service Card Spec: 84-88dp tall, 16dp radius, 4dp left bar when selected) */
 .gf-option-row {
   width: 100%;
-  min-height: 88px;
-  padding: 14px 18px;
-  border-radius: var(--radius-card);
+  min-height: 86px;
+  padding: 13px 16px;
+  border-radius: 16px;
   border: 1.5px solid var(--color-divider);
   background: var(--color-bg-surface);
   box-shadow: var(--shadow-card);
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: 14px;
   cursor: pointer;
   text-align: left;
   transition: all var(--dur-fast) ease;
@@ -1289,9 +1537,14 @@ textarea {
 }
 
 .gf-option-row.is-selected {
-  background: var(--color-green-tint);
-  border-color: var(--color-green);
+  background: #ebf5ff;
+  border-color: var(--color-samsung-blue);
+  border-left: 4px solid var(--color-samsung-blue);
   box-shadow: 0 4px 18px rgba(0, 114, 222, 0.14);
+}
+
+:root[data-theme='dark'] .gf-option-row.is-selected {
+  background: rgba(37, 140, 251, 0.18);
 }
 
 .gf-option-row.is-disabled {
@@ -1313,8 +1566,8 @@ textarea {
 }
 
 .gf-radio-circle.is-checked {
-  border-color: var(--color-green);
-  background: var(--color-green);
+  border-color: var(--color-samsung-blue);
+  background: var(--color-samsung-blue);
   color: #ffffff;
   box-shadow: 0 2px 6px rgba(0, 114, 222, 0.4);
 }
@@ -1404,7 +1657,7 @@ textarea {
   width: 84px;
   height: 84px;
   border-radius: var(--radius-pill);
-  border: 2px solid var(--color-green);
+  border: 2px solid var(--color-samsung-blue);
   background: rgba(0, 114, 222, 0.14);
   animation: gfRadarPulse var(--dur-pulse) ease-out infinite;
   pointer-events: none;
@@ -1418,21 +1671,26 @@ textarea {
   animation-delay: 1.33s;
 }
 
-/* Skeleton Loader (flat pulse without gradients) */
-@keyframes gfPulse {
-  0%,
-  100% {
-    opacity: 1;
+/* Skeleton Loader (Page 9 Spec: #E4E4E4 on white with 1.2s left-to-right highlight sweep) */
+@keyframes gfShimmerSweep {
+  0% {
+    background-position: -200% 0;
   }
-  50% {
-    opacity: 0.45;
+  100% {
+    background-position: 200% 0;
   }
 }
 
 .gf-skeleton {
-  background: var(--color-bg-subtle);
-  animation: gfPulse 1.3s ease-in-out infinite;
+  background: linear-gradient(90deg, #e4e4e4 25%, #f4f6fa 50%, #e4e4e4 75%);
+  background-size: 200% 100%;
+  animation: gfShimmerSweep 1.2s ease-in-out infinite;
   border-radius: var(--radius-control);
+}
+
+:root[data-theme='dark'] .gf-skeleton {
+  background: linear-gradient(90deg, #1c2432 25%, #263143 50%, #1c2432 75%);
+  background-size: 200% 100%;
 }
 
 /* Inputs & Modals */
