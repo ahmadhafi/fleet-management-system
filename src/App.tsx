@@ -8310,11 +8310,11 @@ export function App() {
 
           {/* GoCar Reference Screen 6: Service Category Underline Tabs */}
           <div className="gf-underline-tabs" role="tablist" aria-label="Vehicle category tabs">
-            {[
+            {([
               { id: 'ALL', label: 'All Fleet' },
               { id: 'Electric', label: 'Electric EV ⚡' },
               { id: 'MPV', label: 'Executive & MPV' },
-            ].map((tab) => {
+            ] as Array<{ id: 'ALL' | 'Electric' | 'MPV'; label: string }>).map((tab) => {
               const active = vehicleFilter === tab.id;
               return (
                 <button
