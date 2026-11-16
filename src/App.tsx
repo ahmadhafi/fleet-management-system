@@ -90,6 +90,7 @@ const FALLBACK_GROUPS = [
   { id: 10, name: 'PE G', code: 'PE_G' },
   { id: 11, name: 'ME G', code: 'ME_G' },
   { id: 12, name: 'PRODUCTION CONTROL G', code: 'PROD_CONTROL_G' },
+  { id: 13, name: 'Driver G', code: 'DRIVER_G' },
 ];
 
 const QUICK_CORPORATE_POIS = [
@@ -231,8 +232,12 @@ export function App() {
   const [dataError, setDataError] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
 
-  // Official Company Groups (12 Groups)
+  // Official Company Groups (13 Groups)
   const [groupsList, setGroupsList] = useState<Array<{ id: number; name: string; code?: string; is_active?: number }>>(FALLBACK_GROUPS);
+  const driverGroupId = useMemo(
+    () => groupsList.find((g) => ['DRV', 'DRIVER', 'DRIVER_G'].includes(String(g.code || '').toUpperCase()) || /driver/i.test(g.name))?.id || groupsList[0]?.id || 1,
+    [groupsList]
+  );
 
   // Theme preference (Light / Dark / System via tokens)
   const [themePref, setThemePref] = useState<'system' | 'light' | 'dark'>(() => {
@@ -445,7 +450,7 @@ export function App() {
   const [newDriverForm, setNewDriverForm] = useState({
     user_id: '',
     full_name: '',
-    department_id: 1,
+    department_id: 13,
     licence_number: '',
     licence_class: 'A',
     licence_expiry: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
@@ -518,6 +523,10 @@ export function App() {
         if (Array.isArray(res.groups) && res.groups.length > 0) {
           setGroupsList(res.groups);
           setRegDeptId(res.groups[0].id);
+          const drvGrp = res.groups.find((g: any) => ['DRV', 'DRIVER', 'DRIVER_G'].includes(String(g.code || '').toUpperCase()) || /driver/i.test(g.name));
+          if (drvGrp) {
+            setNewDriverForm((prev) => (!prev.user_id && !prev.full_name ? { ...prev, department_id: drvGrp.id } : prev));
+          }
         }
       })
       .catch(() => {});
@@ -551,6 +560,10 @@ export function App() {
       setUserPins(pinRes.pins || []);
       if (Array.isArray(deptRes.departments) && deptRes.departments.length > 0) {
         setGroupsList(deptRes.departments);
+        const drvGrp = deptRes.departments.find((g: any) => ['DRV', 'DRIVER', 'DRIVER_G'].includes(String(g.code || '').toUpperCase()) || /driver/i.test(g.name));
+        if (drvGrp) {
+          setNewDriverForm((prev) => (!prev.user_id && !prev.full_name ? { ...prev, department_id: drvGrp.id } : prev));
+        }
       }
       setIsOffline(false);
 
@@ -1745,7 +1758,7 @@ export function App() {
         body: JSON.stringify({
           user_id: newDriverForm.user_id ? Number(newDriverForm.user_id) : null,
           full_name: newDriverForm.full_name.trim(),
-          department_id: Number(newDriverForm.department_id) || 1,
+          department_id: Number(newDriverForm.department_id) || driverGroupId,
           licence_number: newDriverForm.licence_number.trim(),
           licence_class: newDriverForm.licence_class.trim() || 'A',
           licence_expiry: newDriverForm.licence_expiry,
@@ -1757,7 +1770,7 @@ export function App() {
       setNewDriverForm({
         user_id: '',
         full_name: '',
-        department_id: groupsList[0]?.id || 1,
+        department_id: driverGroupId,
         licence_number: '',
         licence_class: 'A',
         licence_expiry: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
@@ -2147,7 +2160,21 @@ export function App() {
                 <label className="type-caption" htmlFor="reg-role" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
                   Account Type
                 </label>
-                <select id="reg-role" className="gf-select" value={regRole} onChange={(e) => setRegRole(e.target.value as 'EMP' | 'DRV')}>
+                <select
+                  id="reg-role"
+                  className="gf-select"
+                  value={regRole}
+                  onChange={(e) => {
+                    const nextRole = e.target.value as 'EMP' | 'DRV';
+                    setRegRole(nextRole);
+                    const defaultEmpGroup = groupsList[0]?.id || 1;
+                    if (nextRole === 'DRV' && regDeptId === defaultEmpGroup && driverGroupId !== defaultEmpGroup) {
+                      setRegDeptId(driverGroupId);
+                    } else if (nextRole === 'EMP' && regDeptId === driverGroupId && defaultEmpGroup !== driverGroupId) {
+                      setRegDeptId(defaultEmpGroup);
+                    }
+                  }}
+                >
                   <option value="EMP">User / Employee (Book & Reserve Cars)</option>
                   <option value="DRV">Company Driver (Receive Dispatch Orders)</option>
                 </select>
@@ -3121,7 +3148,7 @@ export function App() {
                         </div>
                         <div>• <strong>Vehicle License Plates & Specs:</strong> All plate numbers ({vehicles.map(v => v.registration_plate).slice(0, 5).join(', ')}{vehicles.length > 5 ? '...' : ''}), models, VINs remain fully intact.</div>
                         <div>• <strong>Driver Names & Phone Numbers:</strong> All driver profiles, contact phones, licenses, and photos remain fully intact.</div>
-                        <div>• <strong>User Accounts & 12 Company Groups:</strong> All logins and department structures remain fully intact.</div>
+                        <div>• <strong>User Accounts & 13 Company Groups:</strong> All logins and department structures remain fully intact.</div>
                         <div style={{ color: '#b91c1c', fontWeight: 700, marginTop: '4px' }}>
                           🗑️ ERASED ONLY:
                         </div>
@@ -3155,7 +3182,7 @@ export function App() {
                         2. Complete Clean Factory Reset (Clean Production Slate)
                       </div>
                       <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                        Wipes all test vehicles, test drivers, test trips, bookings, expenses, and non-admin users. Returns system to clean production slate (12 official Groups and Admin account) so you can register real cars and drivers from scratch.
+                        Wipes all test vehicles, test drivers, test trips, bookings, expenses, and non-admin users. Returns system to clean production slate (13 official Groups and Admin account) so you can register real cars and drivers from scratch.
                       </div>
                     </div>
                   </label>
@@ -4296,7 +4323,17 @@ export function App() {
                     className="gf-select"
                     aria-label="User role"
                     value={newUserForm.role}
-                    onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
+                    onChange={(e) => {
+                      const nextRole = e.target.value;
+                      const defaultEmpGroup = groupsList[0]?.id || 1;
+                      let nextDeptId = newUserForm.department_id;
+                      if (nextRole === 'DRV' && newUserForm.department_id === defaultEmpGroup && driverGroupId !== defaultEmpGroup) {
+                        nextDeptId = driverGroupId;
+                      } else if (nextRole !== 'DRV' && newUserForm.department_id === driverGroupId && defaultEmpGroup !== driverGroupId) {
+                        nextDeptId = defaultEmpGroup;
+                      }
+                      setNewUserForm({ ...newUserForm, role: nextRole, department_id: nextDeptId });
+                    }}
                   >
                     <option value="EMP">EMP (Employee)</option>
                     <option value="DRV">DRV (Driver Account)</option>
@@ -4838,7 +4875,7 @@ export function App() {
                                   className="gf-select"
                                   style={{ minHeight: '36px', padding: '0 8px' }}
                                   aria-label={`Driver group for ${d.full_name}`}
-                                  value={d.department_id || groupsList[0]?.id || 1}
+                                  value={d.department_id || driverGroupId}
                                   onChange={async (e) => {
                                     await apiRequest(`/api/drivers/${d.id}`, {
                                       method: 'PATCH',
@@ -4886,7 +4923,7 @@ export function App() {
                                       setNewDriverForm({
                                         user_id: d.user_id ? String(d.user_id) : '',
                                         full_name: d.full_name,
-                                        department_id: d.department_id || groupsList[0]?.id || 1,
+                                        department_id: d.department_id || driverGroupId,
                                         licence_number: d.licence_number || '',
                                         licence_class: d.licence_class || 'A',
                                         licence_expiry: d.licence_expiry || new Date().toISOString().slice(0, 10),

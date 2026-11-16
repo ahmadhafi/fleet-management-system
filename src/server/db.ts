@@ -551,7 +551,22 @@ export const COMPANY_GROUPS: ReadonlyArray<readonly [string, string]> = [
   ['PE G', 'PE'],
   ['ME G', 'ME'],
   ['PRODUCTION CONTROL G', 'PCTRL'],
+  ['Driver G', 'DRV'],
 ];
+
+export function findDriverGroupId(db: AppDatabase): number | null {
+  const row = db
+    .prepare(
+      `SELECT id FROM departments
+       WHERE is_active = 1
+         AND (LOWER(TRIM(name)) IN ('driver g', 'driver', 'driver group')
+              OR UPPER(TRIM(code)) IN ('DRV', 'DRIVER', 'DRIVER_G'))
+       ORDER BY id ASC
+       LIMIT 1`
+    )
+    .get() as { id: number } | undefined;
+  return row ? row.id : null;
+}
 
 function seedDatabaseIfEmpty(db: AppDatabase) {
   const deptCount = (db.prepare('SELECT COUNT(*) as count FROM departments').get() as { count: number }).count;
@@ -559,6 +574,19 @@ function seedDatabaseIfEmpty(db: AppDatabase) {
     const insertDept = db.prepare('INSERT INTO departments (name, code) VALUES (?, ?)');
     for (const [name, code] of COMPANY_GROUPS) {
       insertDept.run(name, code);
+    }
+  } else {
+    // Idempotent upgrade for existing production databases created with the original 12 groups
+    const existingDriverGroup = db
+      .prepare(
+        `SELECT id FROM departments
+         WHERE LOWER(TRIM(name)) IN ('driver g', 'driver', 'driver group')
+            OR UPPER(TRIM(code)) IN ('DRV', 'DRIVER', 'DRIVER_G')
+         LIMIT 1`
+      )
+      .get() as { id: number } | undefined;
+    if (!existingDriverGroup) {
+      db.prepare('INSERT OR IGNORE INTO departments (name, code, is_active) VALUES (?, ?, 1)').run('Driver G', 'DRV');
     }
   }
 
@@ -598,12 +626,14 @@ export function seedDemoFixtures(db: AppDatabase) {
     VALUES (?, ?, ?, ?, ?, ?, 'APPROVED', datetime('now'), 1)
   `);
 
+  const driverDeptId = findDriverGroupId(db) ?? 13;
+
   insertUser.run('Rina (Fleet Manager)', 'fleetmgr', hashPassword('Fleet@123'), 'FM', 0, 1);
   insertUser.run('Hendra (Head of HWS)', 'hws_head', hashPassword('Hws@123'), 'HWS', 1, 1);
-  insertUser.run('Budi Santoso', 'drv_budi', hashPassword('Driver@123'), 'DRV', 0, 2);
-  insertUser.run('Andi Wijaya', 'drv_andi', hashPassword('Driver@123'), 'DRV', 0, 2);
-  insertUser.run('Citra Lestari', 'drv_citra', hashPassword('Driver@123'), 'DRV', 0, 2);
-  insertUser.run('Deni Pratama', 'drv_deni', hashPassword('Driver@123'), 'DRV', 0, 2);
+  insertUser.run('Budi Santoso', 'drv_budi', hashPassword('Driver@123'), 'DRV', 0, driverDeptId);
+  insertUser.run('Andi Wijaya', 'drv_andi', hashPassword('Driver@123'), 'DRV', 0, driverDeptId);
+  insertUser.run('Citra Lestari', 'drv_citra', hashPassword('Driver@123'), 'DRV', 0, driverDeptId);
+  insertUser.run('Deni Pratama', 'drv_deni', hashPassword('Driver@123'), 'DRV', 0, driverDeptId);
   insertUser.run('Nadia (Ops Dept Admin)', 'dept_admin', hashPassword('Dept@123'), 'EMP', 1, 2);
   insertUser.run('Alex (Engineering)', 'emp_alex', hashPassword('Emp@123'), 'EMP', 0, 3);
   insertUser.run('Sara (Sales)', 'emp_sara', hashPassword('Emp@123'), 'EMP', 0, 6);

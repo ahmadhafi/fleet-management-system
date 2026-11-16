@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import express, { type Request, type Response } from 'express';
-import { getDb, hashPassword, verifyPassword, runInTransaction, type AppDatabase } from './db.ts';
+import { getDb, hashPassword, verifyPassword, runInTransaction, findDriverGroupId, type AppDatabase } from './db.ts';
 import { createSessionToken, isPrivilegedRole, requireAuth, requireRoles } from './auth.ts';
 import { recordAudit } from './audit.ts';
 import { ensureVapidKeys, notifyAdmins, notifyRole, sendUserNotification } from './push.ts';
@@ -1161,6 +1161,9 @@ export function createApp() {
       const foundDept = db.prepare('SELECT id FROM departments WHERE name LIKE ?').get(`%${group_name}%`) as { id: number } | undefined;
       if (foundDept) department_id = foundDept.id;
     }
+    if (!department_id && role === 'DRV') {
+      department_id = findDriverGroupId(db) ?? 1;
+    }
     if (!department_id) department_id = 1;
 
     if (!nickname || !group_username || !password || !role) {
@@ -1688,9 +1691,13 @@ export function createApp() {
     let resolvedUserId = req.body?.user_id ? Number(req.body.user_id) : null;
     if (!resolvedUserId && resolvedName) {
       const username = `drv_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const fallbackDeptId =
+        departmentId !== undefined && Number(departmentId) > 0
+          ? Number(departmentId)
+          : (findDriverGroupId(db) ?? 1);
       const u = db.prepare(
-        "INSERT INTO users (nickname, group_username, password_hash, role, department_id, approval_status, is_active) VALUES (?, ?, ?, 'DRV', 1, 'APPROVED', 1)"
-      ).run(resolvedName, username, hashPassword('Driver@123'));
+        "INSERT INTO users (nickname, group_username, password_hash, role, department_id, approval_status, is_active) VALUES (?, ?, ?, 'DRV', ?, 'APPROVED', 1)"
+      ).run(resolvedName, username, hashPassword('Driver@123'), fallbackDeptId);
       resolvedUserId = Number(u.lastInsertRowid);
     }
 
@@ -4955,7 +4962,7 @@ export function createApp() {
         mode,
         message:
           mode === 'FACTORY_RESET'
-            ? 'Complete factory reset successful. The system has been returned to a clean production slate with 12 company groups and your Administrator account ready for real fleet registration.'
+            ? 'Complete factory reset successful. The system has been returned to a clean production slate with 13 company groups and your Administrator account ready for real fleet registration.'
             : 'Operational test data wiped successfully. Vehicles and drivers remain intact with updated starting odometers.',
       });
     } catch (err: any) {

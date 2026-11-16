@@ -468,7 +468,7 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
       const finalDrvCount = db.prepare('SELECT COUNT(*) as c FROM driver_profiles').get() as { c: number };
       expect(finalDrvCount.c).toBe(0);
       const finalDeptCount = db.prepare('SELECT COUNT(*) as c FROM departments').get() as { c: number };
-      expect(finalDeptCount.c).toBe(12);
+      expect(finalDeptCount.c).toBe(13);
     });
 
     it('provides Samsung-style simple yet elegant fleet car app icon with blue and white accents (no green)', async () => {
@@ -1553,9 +1553,92 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(conflictRes.status).toBe(409);
       });
     });
+
+    describe('13th Official Group (Driver G) & Existing DB Auto-Migration', () => {
+      it('seeds 13 official groups including Driver G, upgrades an existing 12-group SQLite DB idempotently, and defaults DRV accounts to Driver G', async () => {
+        const fs = await import('node:fs');
+        const os = await import('node:os');
+        const path = await import('node:path');
+        const { createDatabaseEngine } = await import('../src/server/sqlite-compat.ts');
+        const { COMPANY_GROUPS } = await import('../src/server/db.ts');
+
+        expect(COMPANY_GROUPS).toHaveLength(13);
+        expect(COMPANY_GROUPS[12]).toEqual(['Driver G', 'DRV']);
+
+        // 1. Public groups returns 13 official groups with Driver G last
+        const pubRes = await request(app).get('/api/public/groups');
+        expect(pubRes.status).toBe(200);
+        expect(pubRes.body.groups).toHaveLength(13);
+        const drvGroup = pubRes.body.groups.find((g: any) => g.code === 'DRV');
+        expect(drvGroup).toBeDefined();
+        expect(drvGroup.name).toBe('Driver G');
+
+        // 2. Creating a DRV user or Driver Profile without explicit department_id defaults to Driver G
+        const drvUserRes = await request(app)
+          .post('/api/users')
+          .set('Authorization', `Bearer ${currentAdminToken}`)
+          .send({
+            nickname: 'Tono Driver',
+            group_username: 'drv_tono_auto',
+            password: 'Password123',
+            role: 'DRV',
+          });
+        expect(drvUserRes.status).toBe(201);
+        expect(drvUserRes.body.user.department_id).toBe(drvGroup.id);
+
+        const drvProfileRes = await request(app)
+          .post('/api/drivers')
+          .set('Authorization', `Bearer ${currentAdminToken}`)
+          .send({
+            full_name: 'Surya Auto Group',
+            licence_number: 'SIM-A-DRV-888',
+            licence_class: 'A',
+            licence_expiry: '2029-12-31',
+          });
+        expect(drvProfileRes.status).toBe(201);
+        expect(drvProfileRes.body.driver.department_id).toBe(drvGroup.id);
+        expect(drvProfileRes.body.driver.department_name).toBe('Driver G');
+
+        // 3. Simulate an existing 12-group production SQLite DB (missing Driver G) and reopen via getDb(tmpPath)
+        const tmpDbPath = path.join(os.tmpdir(), `gf-driver-group-mig-${Date.now()}.sqlite`);
+        try {
+          const legacyDb = createDatabaseEngine(tmpDbPath);
+          legacyDb.exec(`
+            CREATE TABLE departments (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL UNIQUE,
+              code TEXT NOT NULL UNIQUE,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+          `);
+          const ins = legacyDb.prepare('INSERT INTO departments (name, code) VALUES (?, ?)');
+          for (const [name, code] of COMPANY_GROUPS.slice(0, 12)) {
+            ins.run(name, code);
+          }
+          expect((legacyDb.prepare('SELECT COUNT(*) as c FROM departments').get() as { c: number }).c).toBe(12);
+          legacyDb.close();
+
+          const upgradedFirst = getDb(tmpDbPath);
+          const rowsAfterUpgrade = upgradedFirst.prepare('SELECT id, name, code FROM departments ORDER BY id ASC').all() as Array<{ id: number; name: string; code: string }>;
+          expect(rowsAfterUpgrade).toHaveLength(13);
+          expect(rowsAfterUpgrade[12].name).toBe('Driver G');
+          expect(rowsAfterUpgrade[12].code).toBe('DRV');
+          upgradedFirst.close();
+
+          // Reopening a second time remains idempotent (still 13 rows, no duplicate error)
+          const upgradedSecond = getDb(tmpDbPath);
+          const rowsSecondOpen = upgradedSecond.prepare('SELECT id, name, code FROM departments ORDER BY id ASC').all() as Array<{ id: number; name: string; code: string }>;
+          expect(rowsSecondOpen).toHaveLength(13);
+          upgradedSecond.close();
+        } finally {
+          for (const suffix of ['', '-wal', '-shm']) {
+            try {
+              fs.rmSync(`${tmpDbPath}${suffix}`, { force: true });
+            } catch {}
+          }
+        }
+      });
+    });
   });
 });
-
-
-
-

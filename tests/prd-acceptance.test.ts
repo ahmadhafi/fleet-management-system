@@ -111,13 +111,14 @@ describe('Internal Company Fleet Management System — Full PRD & Revision Accep
   // ==========================================================================
   // 2. DEPARTMENTS & USERS (TC-ORG-01..03)
   // ==========================================================================
-  it('TC-ORG-01, TC-ORG-02 & TC-ORG-03: maintains 12 official Groups, deactivates users without deleting history, and refuses deactivated login', async () => {
+  it('TC-ORG-01, TC-ORG-02 & TC-ORG-03: maintains 13 official Groups, deactivates users without deleting history, and refuses deactivated login', async () => {
     const adminToken = await loginAs('admin', 'Admin@123');
     const deptRes = await request(app).get('/api/departments').set('Authorization', `Bearer ${adminToken}`);
     expect(deptRes.status).toBe(200);
-    expect(deptRes.body.departments).toHaveLength(12);
+    expect(deptRes.body.departments).toHaveLength(13);
     expect(deptRes.body.departments[0].name).toBe('Innovation G');
     expect(deptRes.body.departments[11].name).toBe('PRODUCTION CONTROL G');
+    expect(deptRes.body.departments[12].name).toBe('Driver G');
 
     // Deactivate user #9 (emp_alex) who has historical completed trips
     const deactRes = await request(app)
@@ -591,15 +592,15 @@ describe('Internal Company Fleet Management System — Full PRD & Revision Accep
   });
 
   // ==========================================================================
-  // 10. PRODUCTION BOOTSTRAP (ZERO DUMMY DATA, 12 GROUPS, FULL E2E WORKFLOW)
+  // 10. PRODUCTION BOOTSTRAP (ZERO DUMMY DATA, 13 GROUPS, FULL E2E WORKFLOW)
   // ==========================================================================
-  it('TC-PROD-01: initializes clean production database with 0 dummy records, 12 official Groups, and 1 initial Admin, and runs full vehicle/registration/booking/cancel/approve workflow', async () => {
+  it('TC-PROD-01: initializes clean production database with 0 dummy records, 13 official Groups, and 1 initial Admin, and runs full vehicle/registration/booking/cancel/approve workflow', async () => {
     resetDbForTesting(':memory:', false);
 
-    // Public groups endpoint returns the 12 official Groups
+    // Public groups endpoint returns the 13 official Groups
     const pubGroups = await request(app).get('/api/public/groups');
     expect(pubGroups.status).toBe(200);
-    expect(pubGroups.body.groups).toHaveLength(12);
+    expect(pubGroups.body.groups).toHaveLength(13);
     expect(pubGroups.body.groups.map((g: any) => g.name)).toEqual([
       'Innovation G',
       'Management Support G',
@@ -613,6 +614,7 @@ describe('Internal Company Fleet Management System — Full PRD & Revision Accep
       'PE G',
       'ME G',
       'PRODUCTION CONTROL G',
+      'Driver G',
     ]);
 
     // Initial Admin logs in
