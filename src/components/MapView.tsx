@@ -997,18 +997,7 @@ export const MapView: React.FC<MapViewProps> = ({
       <div ref={mapContainerRef} style={{ width: '100%', height: '100%', zIndex: 1 }} />
 
       {/* Floating 3-Layer Map Switcher (Streets, Satellite, Terrain) */}
-      <div
-        className="gf-map-layer-switcher"
-        style={{
-          position: 'absolute',
-          top: 'calc(74px + var(--safe-top))',
-          left: showBackButton ? 'calc(var(--space-4) + 54px)' : 'var(--space-4)',
-          zIndex: 455,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-        }}
-      >
+      <div className={`gf-map-layer-switcher ${showBackButton ? 'has-back-btn' : ''}`}>
         <div className="gf-map-layer-pill-group">
           <button
             type="button"
@@ -1041,35 +1030,10 @@ export const MapView: React.FC<MapViewProps> = ({
       </div>
 
       {/* Top-Right Metrics / Badges / Locate Me GPS Button */}
-      <div
-        className="gf-map-overlay-actions"
-        style={{
-          position: 'absolute',
-          top: 'calc(74px + var(--safe-top))',
-          right: 'var(--space-4)',
-          zIndex: 455,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-end',
-          gap: '8px',
-        }}
-      >
-        {showRoute && effDest && !pinMode && (
-          <div
-            style={{
-              background: 'var(--color-bg-surface)',
-              color: 'var(--color-text-primary)',
-              padding: '8px 14px',
-              borderRadius: 'var(--radius-pill)',
-              boxShadow: 'var(--shadow-floating)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontSize: 'var(--text-caption-size)',
-              fontWeight: 700,
-            }}
-          >
-            <Navigation2 size={14} style={{ color: 'var(--color-green)' }} />
+      <div className="gf-map-overlay-actions">
+        {showRoute && effDest && !pinMode && !driverActive && (
+          <div className="gf-map-metrics-pill">
+            <Navigation2 size={13} style={{ color: 'var(--color-green)' }} />
             <span>
               {metrics.distanceKm} km • ~{metrics.durationMin} min ride{metrics.etaText ? ` • ETA ${metrics.etaText}` : ''}
             </span>
@@ -1077,59 +1041,21 @@ export const MapView: React.FC<MapViewProps> = ({
         )}
 
         {driverActive && driverName && (
-          <div
-            style={{
-              background: 'var(--color-bg-surface)',
-              color: 'var(--color-text-primary)',
-              padding: '8px 14px',
-              borderRadius: 'var(--radius-pill)',
-              boxShadow: 'var(--shadow-floating)',
-              fontSize: 'var(--text-caption-size)',
-              fontWeight: 700,
-            }}
-          >
+          <div className="gf-map-driver-pill">
             Driver assigned • {driverName}
           </div>
         )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {fleetPositions && fleetPositions.length > 0 && (
-            <div
-              style={{
-                background: 'var(--color-bg-surface)',
-                color: 'var(--color-text-primary)',
-                padding: '6px 12px',
-                borderRadius: 'var(--radius-pill)',
-                boxShadow: 'var(--shadow-floating)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontSize: 'var(--text-caption-size)',
-                fontWeight: 700,
-              }}
-              title="Operational vehicles on live map"
-            >
+          {!driverActive && !showRoute && fleetPositions && fleetPositions.length > 0 && (
+            <div className="gf-map-fleet-pill" title="Operational vehicles on live map">
               <span className="gf-dot-green" />
               <span>{fleetPositions.length} Cars Live</span>
             </div>
           )}
 
-          {userPins.length > 0 && (
-            <div
-              style={{
-                background: 'var(--color-bg-surface)',
-                color: 'var(--color-text-primary)',
-                padding: '6px 12px',
-                borderRadius: 'var(--radius-pill)',
-                boxShadow: 'var(--shadow-floating)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontSize: 'var(--text-caption-size)',
-                fontWeight: 700,
-              }}
-              title="Active users sharing their live pinpoint on the map"
-            >
+          {!driverActive && !showRoute && userPins.length > 0 && (
+            <div className="gf-map-users-pill" title="Active users sharing their live pinpoint on the map">
               <Users size={13} />
               <span>{userPins.length} Users</span>
             </div>
@@ -1139,22 +1065,7 @@ export const MapView: React.FC<MapViewProps> = ({
             <button
               id="map-locate-me-btn"
               type="button"
-              className="pressable"
-              style={{
-                width: '50px',
-                height: '50px',
-                minWidth: '50px',
-                minHeight: '50px',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'var(--color-bg-surface)',
-                color: myCoords ? 'var(--color-green)' : 'var(--color-text-primary)',
-                boxShadow: 'var(--shadow-floating)',
-                border: '1px solid var(--color-divider)',
-                cursor: 'pointer',
-              }}
+              className={`pressable ${myCoords ? 'is-located' : ''}`}
               onClick={() => {
                 onLocateMe();
                 if (myCoords && mapInstanceRef.current) {
@@ -1164,7 +1075,7 @@ export const MapView: React.FC<MapViewProps> = ({
               aria-label="Detect and center on my GPS location"
               title={locatingUser ? 'Detecting GPS location...' : 'Detect & center on my location'}
             >
-              <LocateFixed size={22} />
+              <LocateFixed size={20} />
             </button>
           )}
         </div>
@@ -1261,17 +1172,16 @@ export const MapView: React.FC<MapViewProps> = ({
         </div>
       )}
 
-      {/* Top-Left Circular White Back Button */}
+      {/* Top-Left Circular Back Button */}
       {showBackButton && onBack && (
         <button
           id="map-back-btn"
           type="button"
           className="gf-map-back-btn pressable"
-          style={{ zIndex: 460, top: 'calc(74px + var(--safe-top))' }}
           onClick={onBack}
           aria-label="Go back"
         >
-          <ArrowLeft size={20} />
+          <ArrowLeft size={18} />
         </button>
       )}
 

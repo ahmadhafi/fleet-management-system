@@ -129,14 +129,14 @@ textarea {
 
 .gf-map-back-btn {
   position: absolute;
-  top: calc(var(--space-4) + var(--safe-top));
-  left: var(--space-4);
-  z-index: var(--z-map-overlay);
-  width: 46px;
-  height: 46px;
-  min-width: 46px;
-  min-height: 46px;
-  border-radius: var(--radius-pill);
+  top: calc(72px + var(--safe-top));
+  left: 14px;
+  z-index: 460;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 50%;
   background: var(--color-bg-surface);
   color: var(--color-text-primary);
   border: 1px solid var(--color-divider);
@@ -149,7 +149,7 @@ textarea {
 }
 
 .gf-map-back-btn:hover {
-  transform: scale(1.05);
+  transform: scale(1.06);
 }
 
 .gf-map-offline-pill {
@@ -404,17 +404,29 @@ textarea {
   right: 0;
   height: 64px;
   z-index: 500;
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--color-bg-surface, #ffffff);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid var(--color-border);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid var(--color-divider);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
   gap: 16px;
   user-select: none;
+}
+
+:root[data-theme='dark'] .gf-embedded-topbar {
+  background: rgba(20, 26, 36, 0.95);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .gf-embedded-topbar {
+    background: rgba(20, 26, 36, 0.95);
+    border-bottom: 1px solid var(--color-divider);
+  }
 }
 
 .gf-topbar-left {
@@ -441,7 +453,6 @@ textarea {
   transform: scale(1.06);
 }
 
-
 .gf-topbar-brand-meta {
   display: flex;
   flex-direction: column;
@@ -450,7 +461,7 @@ textarea {
 .gf-topbar-title {
   font-size: 16.5px;
   font-weight: 800;
-  color: var(--color-text-primary);
+  color: var(--color-text-primary) !important;
   letter-spacing: -0.2px;
   line-height: 1.15;
 }
@@ -557,8 +568,13 @@ textarea {
     display: flex !important;
   }
   .gf-embedded-topbar {
+    height: 56px;
     padding: 0 10px;
     gap: 8px;
+  }
+  .gf-ride-layout {
+    margin-top: 56px !important;
+    height: calc(100dvh - 56px) !important;
   }
   .gf-topbar-dept {
     display: none;
@@ -583,22 +599,23 @@ textarea {
   }
   #topbar-profile-btn {
     padding: 6px 9px !important;
+    min-width: 34px !important;
     height: 34px !important;
   }
   #topbar-profile-btn span {
-    max-width: 70px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: none !important;
+  }
+  .gf-sheet-top-controls {
+    display: none !important;
+  }
+  .gf-floating-expand-card {
+    display: none !important;
   }
 }
 
 @media (max-width: 380px) {
-  #topbar-profile-btn span {
-    display: none;
-  }
   .gf-topbar-title {
-    font-size: 14px;
+    font-size: 13.5px;
   }
 }
 
@@ -2065,6 +2082,21 @@ iframe.goog-te-banner-frame {
 /* ============================================================================
    FLOATING MAP CONTROLS & RESPONSIVE POSITIONING
    ============================================================================ */
+.gf-map-layer-switcher {
+  position: absolute;
+  top: calc(74px + var(--safe-top));
+  left: 16px;
+  z-index: 455;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: left 0.18s ease, top 0.18s ease;
+}
+
+.gf-map-layer-switcher.has-back-btn {
+  left: 68px;
+}
+
 .gf-map-layer-pill-group {
   background: var(--color-bg-surface);
   border-radius: var(--radius-pill);
@@ -2103,10 +2135,76 @@ iframe.goog-te-banner-frame {
   box-shadow: 0 2px 8px rgba(0, 114, 222, 0.4);
 }
 
-@media (max-width: 639px) {
-  .gf-map-layer-switcher {
-    top: calc(68px + var(--safe-top)) !important;
+.gf-map-overlay-actions {
+  position: absolute;
+  top: calc(74px + var(--safe-top));
+  right: 16px;
+  z-index: 455;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+#map-locate-me-btn {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-floating);
+  border: 1px solid var(--color-divider);
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+#map-locate-me-btn:hover {
+  transform: scale(1.05);
+}
+
+#map-locate-me-btn.is-located {
+  color: var(--color-samsung-blue);
+}
+
+.gf-map-metrics-pill,
+.gf-map-driver-pill,
+.gf-map-fleet-pill,
+.gf-map-users-pill {
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-floating);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-caption-size);
+  font-weight: 700;
+  border: 1px solid var(--color-divider);
+}
+
+@media (max-width: 767px) {
+  .gf-map-back-btn {
+    top: calc(64px + var(--safe-top)) !important;
     left: 10px !important;
+    width: 38px !important;
+    height: 38px !important;
+    min-width: 38px !important;
+    min-height: 38px !important;
+  }
+
+  .gf-map-layer-switcher {
+    top: calc(64px + var(--safe-top)) !important;
+    left: 10px !important;
+  }
+
+  .gf-map-layer-switcher.has-back-btn {
+    left: 54px !important;
   }
 
   .gf-map-layer-btn {
@@ -2116,15 +2214,27 @@ iframe.goog-te-banner-frame {
   }
 
   .gf-map-overlay-actions {
-    top: calc(112px + var(--safe-top)) !important;
+    top: calc(64px + var(--safe-top)) !important;
     right: 10px !important;
     gap: 6px !important;
   }
 
   #map-locate-me-btn {
-    width: 44px !important;
-    height: 44px !important;
-    min-width: 44px !important;
-    min-height: 44px !important;
+    width: 38px !important;
+    height: 38px !important;
+    min-width: 38px !important;
+    min-height: 38px !important;
+  }
+
+  /* Keep map completely clean & uncluttered on mobile screens */
+  .gf-map-driver-pill,
+  .gf-map-users-pill,
+  .gf-map-fleet-pill {
+    display: none !important;
+  }
+
+  .gf-map-metrics-pill {
+    font-size: 11px !important;
+    padding: 4px 8px !important;
   }
 }

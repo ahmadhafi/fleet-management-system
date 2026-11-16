@@ -1996,6 +1996,35 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(cssContent).toContain('height: calc(100dvh - 64px);');
         expect(cssContent).toContain('margin-top: 64px;');
       });
+
+      it('verifies mobile UI decluttering, back-button separation, topbar dark contrast, and redundant card removal', async () => {
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const cssContent = fs.readFileSync(path.resolve(__dirname, '../src/styles/app.css'), 'utf-8');
+        const bottomSheetContent = fs.readFileSync(path.resolve(__dirname, '../src/components/BottomSheet.tsx'), 'utf-8');
+        const mapViewContent = fs.readFileSync(path.resolve(__dirname, '../src/components/MapView.tsx'), 'utf-8');
+
+        // 1. Back button non-collision with layer switcher
+        expect(cssContent).toContain('.gf-map-layer-switcher.has-back-btn');
+        expect(cssContent).toContain('left: 54px !important;');
+        expect(mapViewContent).toContain("className={`gf-map-layer-switcher ${showBackButton ? 'has-back-btn' : ''}`}");
+
+        // 2. Guaranteed topbar contrast in dark mode
+        expect(cssContent).toContain(":root[data-theme='dark'] .gf-embedded-topbar");
+        expect(cssContent).toContain('background: rgba(20, 26, 36, 0.95);');
+        expect(cssContent).toContain('color: var(--color-text-primary) !important;');
+
+        // 3. Redundant controls hidden on mobile viewports (< 768px)
+        expect(cssContent).toContain('.gf-sheet-top-controls {');
+        expect(cssContent).toContain('.gf-floating-expand-card {');
+        expect(cssContent).toContain('.gf-map-driver-pill,');
+        expect(cssContent).toContain('.gf-map-users-pill,');
+        expect(cssContent).toContain('.gf-map-fleet-pill {');
+
+        // 4. Peek state does not trigger redundant floating expand card
+        expect(bottomSheetContent).toContain('const isCollapsed = isManualCollapsed;');
+        expect(bottomSheetContent).not.toContain('const isCollapsed = isManualCollapsed || snap === \'peek\';');
+      });
     });
   });
 });

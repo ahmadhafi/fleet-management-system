@@ -44,7 +44,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
-  const isCollapsed = isManualCollapsed || snap === 'peek';
+  const isCollapsed = isManualCollapsed;
 
   const handleExpand = () => {
     setIsManualCollapsed(false);
