@@ -27,7 +27,18 @@ export async function apiRequest<T = any>(path: string, options: RequestInit = {
     headers,
   });
 
-  const data = await res.json().catch(() => ({}));
+  const rawText = await res.text().catch(() => '');
+  let data: any = {};
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      const trimmed = rawText.trim();
+      if (trimmed && !trimmed.startsWith('<')) {
+        data = { error: trimmed.slice(0, 300) };
+      }
+    }
+  }
   if (!res.ok) {
     throw new Error(data.error || `Request failed with status ${res.status}`);
   }

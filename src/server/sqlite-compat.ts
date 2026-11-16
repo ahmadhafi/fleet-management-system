@@ -18,10 +18,27 @@ export interface SqliteDatabaseEngine {
   close(): void;
 }
 
+export function normalizeSqliteParam(val: unknown): any {
+  if (val === undefined || val === null) return null;
+  if (typeof val === 'number') {
+    return Number.isFinite(val) ? val : null;
+  }
+  if (typeof val === 'boolean') {
+    return val ? 1 : 0;
+  }
+  return val;
+}
+
+function normalizeParamList(params: any[]): any[] {
+  const flat = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
+  return flat.map(normalizeSqliteParam);
+}
+
 let NativeDatabaseSync: any = null;
 if (!process.env.FORCE_SQLJS) {
   try {
-    const req = createRequire(import.meta.url || __filename);
+    const baseRef = typeof __filename === 'string' && __filename ? __filename : import.meta.url;
+    const req = createRequire(baseRef);
     const sqliteMod = req('node:sqlite');
     if (sqliteMod && sqliteMod.DatabaseSync) {
       NativeDatabaseSync = sqliteMod.DatabaseSync;
@@ -32,16 +49,60 @@ if (!process.env.FORCE_SQLJS) {
 }
 
 let sqlJsModule: any = null;
+let sqlEnginePromise: Promise<void> | null = null;
+
+export function isSqlEngineReady(): boolean {
+  return Boolean((NativeDatabaseSync && !process.env.FORCE_SQLJS) || sqlJsModule);
+}
 
 export async function ensureSqlEngineLoaded(): Promise<void> {
-  if (NativeDatabaseSync || sqlJsModule) return;
-  // @ts-expect-error sql-wasm-inline.js does not ship a .d.ts file
-  const initSqlJs = (await import('sql.js/dist/sql-wasm-inline.js')).default;
-  sqlJsModule = await initSqlJs();
+  if (isSqlEngineReady()) return;
+  if (!sqlEnginePromise) {
+    sqlEnginePromise = (async () => {
+      // @ts-expect-error sql-wasm-inline.js does not ship a .d.ts file
+      const initSqlJs = (await import('sql.js/dist/sql-wasm-inline.js')).default;
+      sqlJsModule = await initSqlJs();
+    })().catch((err) => {
+      sqlEnginePromise = null;
+      throw err;
+    });
+  }
+  return sqlEnginePromise;
 }
 
 export function setPreloadedSqlJs(SQL: any): void {
   sqlJsModule = SQL;
+}
+
+class NativeDatabaseAdapter implements SqliteDatabaseEngine {
+  private db: any;
+
+  constructor(filePath: string) {
+    this.db = new NativeDatabaseSync(filePath);
+  }
+
+  exec(sql: string): void {
+    this.db.exec(sql);
+  }
+
+  prepare(sql: string): PreparedStatement {
+    const stmt = this.db.prepare(sql);
+    return {
+      run(...params: any[]): RunResult {
+        return stmt.run(...normalizeParamList(params));
+      },
+      get(...params: any[]): any {
+        return stmt.get(...normalizeParamList(params));
+      },
+      all(...params: any[]): any[] {
+        return stmt.all(...normalizeParamList(params));
+      },
+    };
+  }
+
+  close(): void {
+    this.db.close();
+  }
 }
 
 class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
@@ -64,10 +125,17 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
 
   private persistToDisk(): void {
     if (this.filePath === ':memory:' || this.inTransaction) return;
+    const tmpPath = `${this.filePath}.${process.pid}.tmp`;
     try {
       const data = this.db.export();
-      fs.writeFileSync(this.filePath, Buffer.from(data));
+      fs.writeFileSync(tmpPath, Buffer.from(data));
+      fs.renameSync(tmpPath, this.filePath);
     } catch (err) {
+      try {
+        if (fs.existsSync(tmpPath)) fs.rmSync(tmpPath, { force: true });
+      } catch {
+        // ignore cleanup error
+      }
       console.error('[SQL.js Persist] Error saving database file:', err);
     }
   }
@@ -77,12 +145,11 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
     if (upper.startsWith('PRAGMA JOURNAL_MODE') || upper.startsWith('PRAGMA WAL_CHECKPOINT')) {
       return;
     }
-    if (upper.startsWith('BEGIN')) {
-      this.inTransaction = true;
-    }
     try {
       this.db.run(sql);
-      if (upper.startsWith('COMMIT') || upper.startsWith('ROLLBACK')) {
+      if (upper.startsWith('BEGIN')) {
+        this.inTransaction = true;
+      } else if (upper.startsWith('COMMIT') || upper.startsWith('ROLLBACK')) {
         this.inTransaction = false;
         this.persistToDisk();
       } else if (!this.inTransaction) {
@@ -100,16 +167,9 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
     const db = this.db;
     const self = this;
 
-    const normalizeParams = (params: any[]): any[] => {
-      if (params.length === 1 && Array.isArray(params[0])) {
-        return params[0];
-      }
-      return params.map((p) => (p === undefined ? null : p));
-    };
-
     return {
       run(...params: any[]): RunResult {
-        const bound = normalizeParams(params);
+        const bound = normalizeParamList(params);
         db.run(sql, bound);
         const changes = db.getRowsModified();
         const res = db.exec('SELECT last_insert_rowid() AS id');
@@ -118,7 +178,7 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
         return { lastInsertRowid: Number(lastInsertRowid), changes };
       },
       get(...params: any[]): any {
-        const bound = normalizeParams(params);
+        const bound = normalizeParamList(params);
         const stmt = db.prepare(sql);
         try {
           if (bound.length > 0) stmt.bind(bound);
@@ -131,7 +191,7 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
         }
       },
       all(...params: any[]): any[] {
-        const bound = normalizeParams(params);
+        const bound = normalizeParamList(params);
         const stmt = db.prepare(sql);
         const rows: any[] = [];
         try {
@@ -155,8 +215,8 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
 }
 
 export function createDatabaseEngine(resolvedPath: string): SqliteDatabaseEngine {
-  if (NativeDatabaseSync) {
-    return new NativeDatabaseSync(resolvedPath);
+  if (NativeDatabaseSync && !process.env.FORCE_SQLJS) {
+    return new NativeDatabaseAdapter(resolvedPath);
   }
   return new SqlJsDatabaseAdapter(resolvedPath);
 }

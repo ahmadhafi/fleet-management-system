@@ -41,8 +41,10 @@ export function verifySignedToken(rawToken: string): { sessionId: string; userId
   const [sessionId, userIdStr, sig] = parts;
   const payload = `${sessionId}.${userIdStr}`;
   const expectedSig = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('hex');
-  if (sig.length !== expectedSig.length) return null;
-  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) return null;
+  const sigBuf = Buffer.from(sig, 'utf8');
+  const expectedBuf = Buffer.from(expectedSig, 'utf8');
+  if (sigBuf.length !== expectedBuf.length) return null;
+  if (!crypto.timingSafeEqual(sigBuf, expectedBuf)) return null;
   const userId = Number(userIdStr);
   if (!Number.isInteger(userId) || userId <= 0) return null;
   return { sessionId, userId };
@@ -60,7 +62,15 @@ export function extractToken(req: Request): string | null {
       .map((c) => c.trim())
       .find((c) => c.startsWith('fms_session='));
     if (match) {
-      return decodeURIComponent(match.split('=')[1]);
+      const eqIdx = match.indexOf('=');
+      if (eqIdx !== -1) {
+        const rawCookieVal = match.slice(eqIdx + 1);
+        try {
+          return decodeURIComponent(rawCookieVal);
+        } catch {
+          return rawCookieVal;
+        }
+      }
     }
   }
   if (req.query && typeof req.query.token === 'string' && req.query.token.trim()) {

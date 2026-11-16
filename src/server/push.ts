@@ -6,31 +6,36 @@ let vapidInitialized = false;
 let publicVapidKey = '';
 
 export function ensureVapidKeys(db: AppDatabase): { publicKey: string; privateKey: string } {
-  const pubRow = db.prepare("SELECT value FROM system_settings WHERE key = 'vapid_public_key'").get() as { value: string } | undefined;
-  const privRow = db.prepare("SELECT value FROM system_settings WHERE key = 'vapid_private_key'").get() as { value: string } | undefined;
+  try {
+    const pubRow = db.prepare("SELECT value FROM system_settings WHERE key = 'vapid_public_key'").get() as { value: string } | undefined;
+    const privRow = db.prepare("SELECT value FROM system_settings WHERE key = 'vapid_private_key'").get() as { value: string } | undefined;
 
-  let publicKey = process.env.VAPID_PUBLIC_KEY || pubRow?.value;
-  let privateKey = process.env.VAPID_PRIVATE_KEY || privRow?.value;
+    let publicKey = process.env.VAPID_PUBLIC_KEY || pubRow?.value;
+    let privateKey = process.env.VAPID_PRIVATE_KEY || privRow?.value;
 
-  if (!publicKey || !privateKey) {
-    const generated = webpush.generateVAPIDKeys();
-    publicKey = generated.publicKey;
-    privateKey = generated.privateKey;
-    db.prepare("INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES ('vapid_public_key', ?, datetime('now'))").run(publicKey);
-    db.prepare("INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES ('vapid_private_key', ?, datetime('now'))").run(privateKey);
-  }
-
-  if (!vapidInitialized || publicVapidKey !== publicKey) {
-    try {
-      webpush.setVapidDetails('mailto:fleet-ops@company.internal', publicKey, privateKey);
-      vapidInitialized = true;
-      publicVapidKey = publicKey;
-    } catch {
-      // ignore in test environments if invalid key
+    if (!publicKey || !privateKey) {
+      const generated = webpush.generateVAPIDKeys();
+      publicKey = generated.publicKey;
+      privateKey = generated.privateKey;
+      db.prepare("INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES ('vapid_public_key', ?, datetime('now'))").run(publicKey);
+      db.prepare("INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES ('vapid_private_key', ?, datetime('now'))").run(privateKey);
     }
-  }
 
-  return { publicKey, privateKey };
+    if (!vapidInitialized || publicVapidKey !== publicKey) {
+      try {
+        webpush.setVapidDetails('mailto:fleet-ops@company.internal', publicKey, privateKey);
+        vapidInitialized = true;
+        publicVapidKey = publicKey;
+      } catch {
+        // ignore in test environments if invalid key
+      }
+    }
+
+    return { publicKey, privateKey };
+  } catch (err) {
+    console.warn('[GalaxyFleet Push] VAPID key initialization skipped:', (err as Error).message);
+    return { publicKey: '', privateKey: '' };
+  }
 }
 
 /**

@@ -1,9 +1,52 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createDatabaseEngine, type SqliteDatabaseEngine } from './sqlite-compat.ts';
 
 export type AppDatabase = SqliteDatabaseEngine;
+
+export function resolveAppRoot(): string {
+  if (process.env.APP_ROOT && fs.existsSync(process.env.APP_ROOT)) {
+    return path.resolve(process.env.APP_ROOT);
+  }
+  let moduleDir = '';
+  try {
+    if (typeof __dirname === 'string' && __dirname) {
+      moduleDir = __dirname;
+    } else if (typeof import.meta !== 'undefined' && import.meta.url) {
+      moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    }
+  } catch {
+    // ignore resolution error
+  }
+  const candidates: string[] = [];
+  if (moduleDir) {
+    const base = path.basename(moduleDir);
+    if (base === 'dist-server') {
+      candidates.push(path.resolve(moduleDir, '..'));
+    } else if (base === 'server' && path.basename(path.dirname(moduleDir)) === 'src') {
+      candidates.push(path.resolve(moduleDir, '..', '..'));
+    }
+    candidates.push(
+      path.resolve(moduleDir, '..'),
+      path.resolve(moduleDir, '..', '..'),
+      moduleDir
+    );
+  }
+  candidates.push(process.cwd());
+
+  for (const dir of candidates) {
+    if (
+      fs.existsSync(path.join(dir, 'app.js')) ||
+      fs.existsSync(path.join(dir, 'package.json')) ||
+      fs.existsSync(path.join(dir, 'dist'))
+    ) {
+      return dir;
+    }
+  }
+  return process.cwd();
+}
 
 export function hashPassword(password: string, salt = crypto.randomBytes(16).toString('hex')): string {
   const derived = crypto.scryptSync(password, salt, 64).toString('hex');
@@ -11,10 +54,16 @@ export function hashPassword(password: string, salt = crypto.randomBytes(16).toS
 }
 
 export function verifyPassword(password: string, storedHash: string): boolean {
-  const [salt, key] = storedHash.split(':');
-  if (!salt || !key) return false;
-  const derived = crypto.scryptSync(password, salt, 64).toString('hex');
-  return crypto.timingSafeEqual(Buffer.from(key, 'hex'), Buffer.from(derived, 'hex'));
+  try {
+    const [salt, key] = String(storedHash || '').split(':');
+    if (!salt || !key) return false;
+    const derived = crypto.scryptSync(password, salt, 64);
+    const keyBuf = Buffer.from(key, 'hex');
+    if (keyBuf.length !== derived.length) return false;
+    return crypto.timingSafeEqual(keyBuf, derived);
+  } catch {
+    return false;
+  }
 }
 
 export function runInTransaction<T>(db: AppDatabase, fn: () => T): T {
@@ -41,7 +90,7 @@ export function getDb(customPath?: string): AppDatabase {
   const resolvedPath =
     customPath ||
     process.env.DB_PATH ||
-    path.join(process.cwd(), 'data', 'fleet-management-v2.db');
+    path.join(resolveAppRoot(), 'data', 'fleet-management-v2.db');
 
   if (resolvedPath !== ':memory:') {
     const dir = path.dirname(resolvedPath);
@@ -51,23 +100,53 @@ export function getDb(customPath?: string): AppDatabase {
   }
 
   const db = createDatabaseEngine(resolvedPath);
+  let walEnabled = false;
   if (resolvedPath !== ':memory:') {
     try {
       db.exec('PRAGMA journal_mode = WAL;');
       db.exec('PRAGMA synchronous = NORMAL;');
+      walEnabled = true;
     } catch {
-      // ignore if engine does not use WAL
+      try {
+        db.exec('PRAGMA journal_mode = DELETE;');
+        db.exec('PRAGMA synchronous = FULL;');
+      } catch {
+        // ignore if engine does not use journal PRAGMAs
+      }
     }
   }
   try {
     db.exec('PRAGMA foreign_keys = ON;');
-    db.exec('PRAGMA busy_timeout = 5000;');
+    db.exec('PRAGMA busy_timeout = 10000;');
   } catch {
     // ignore pragma warnings
   }
 
-  initializeSchema(db);
-  seedDatabaseIfEmpty(db);
+  try {
+    initializeSchema(db);
+    seedDatabaseIfEmpty(db);
+  } catch (initErr) {
+    if (walEnabled && resolvedPath !== ':memory:') {
+      // Some shared hosting filesystems (NFS/CageFS) allow WAL pragma but fail on -shm mmap during writes
+      console.warn('[GalaxyFleet DB] Retrying initialization with journal_mode = DELETE:', (initErr as Error).message);
+      try {
+        db.exec('PRAGMA journal_mode = DELETE;');
+        db.exec('PRAGMA synchronous = FULL;');
+        initializeSchema(db);
+        seedDatabaseIfEmpty(db);
+      } catch (retryErr) {
+        try {
+          db.close();
+        } catch {}
+        throw retryErr;
+      }
+    } else {
+      try {
+        db.close();
+      } catch {}
+      throw initErr;
+    }
+  }
 
   if (!customPath) {
     dbInstance = db;
@@ -603,11 +682,13 @@ function seedDatabaseIfEmpty(db: AppDatabase) {
     const adminUsername = (process.env.ADMIN_USERNAME || 'admin').trim();
     const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@123';
     const adminNickname = (process.env.ADMIN_NICKNAME || 'System Admin').trim();
+    const firstDept = db.prepare('SELECT id FROM departments WHERE is_active = 1 ORDER BY id ASC LIMIT 1').get() as { id: number } | undefined;
+    const adminDeptId = firstDept?.id ?? 1;
 
     db.prepare(`
       INSERT INTO users (nickname, group_username, password_hash, role, is_department_admin, department_id, approval_status, approved_at, is_active)
-      VALUES (?, ?, ?, 'ADM', 1, 1, 'APPROVED', datetime('now'), 1)
-    `).run(adminNickname, adminUsername, hashPassword(adminPassword));
+      VALUES (?, ?, ?, 'ADM', 1, ?, 'APPROVED', datetime('now'), 1)
+    `).run(adminNickname, adminUsername, hashPassword(adminPassword), adminDeptId);
   }
 
   if (process.env.AUTO_SEED_DEMO === 'true' || process.env.SEED_DEMO_DATA === 'true') {
@@ -615,138 +696,184 @@ function seedDatabaseIfEmpty(db: AppDatabase) {
   }
 }
 
-export const seedTestFixturesForVitest = seedDemoFixtures;
+export const seedTestFixturesForVitest = (db: AppDatabase) => seedDemoFixtures(db, { force: true });
 
-export function seedDemoFixtures(db: AppDatabase) {
-  const userCount = (db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }).count;
-  if (userCount > 1) return;
+export function seedDemoFixtures(db: AppDatabase, options?: { force?: boolean }) {
+  if (!options?.force) {
+    const suppressed = db
+      .prepare("SELECT value FROM system_settings WHERE key = 'demo_seed_suppressed'")
+      .get() as { value: string } | undefined;
+    if (suppressed?.value === '1') return;
 
-  const insertUser = db.prepare(`
-    INSERT INTO users (nickname, group_username, password_hash, role, is_department_admin, department_id, approval_status, approved_at, is_active)
-    VALUES (?, ?, ?, ?, ?, ?, 'APPROVED', datetime('now'), 1)
-  `);
-
-  const driverDeptId = findDriverGroupId(db) ?? 13;
-
-  insertUser.run('Rina (Fleet Manager)', 'fleetmgr', hashPassword('Fleet@123'), 'FM', 0, 1);
-  insertUser.run('Hendra (Head of HWS)', 'hws_head', hashPassword('Hws@123'), 'HWS', 1, 1);
-  insertUser.run('Budi Santoso', 'drv_budi', hashPassword('Driver@123'), 'DRV', 0, driverDeptId);
-  insertUser.run('Andi Wijaya', 'drv_andi', hashPassword('Driver@123'), 'DRV', 0, driverDeptId);
-  insertUser.run('Citra Lestari', 'drv_citra', hashPassword('Driver@123'), 'DRV', 0, driverDeptId);
-  insertUser.run('Deni Pratama', 'drv_deni', hashPassword('Driver@123'), 'DRV', 0, driverDeptId);
-  insertUser.run('Nadia (Ops Dept Admin)', 'dept_admin', hashPassword('Dept@123'), 'EMP', 1, 2);
-  insertUser.run('Alex (Engineering)', 'emp_alex', hashPassword('Emp@123'), 'EMP', 0, 3);
-  insertUser.run('Sara (Sales)', 'emp_sara', hashPassword('Emp@123'), 'EMP', 0, 6);
-
-  const makeDriverSvg = (initial: string, bg: string, cap: string, skin: string) =>
-    'data:image/svg+xml;utf8,' +
-    encodeURIComponent(
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="${bg}"/><path d="M20 94 C20 74 34 68 50 68 C66 68 80 74 80 94 Z" fill="#0f172a"/><polygon points="50,68 44,78 50,88 56,78" fill="#ffffff"/><polygon points="50,78 47,94 53,94" fill="#0072de"/><rect x="44" y="54" width="12" height="16" rx="4" fill="${skin}"/><ellipse cx="50" cy="46" rx="16" ry="18" fill="${skin}"/><circle cx="44" cy="46" r="2" fill="#0f172a"/><circle cx="56" cy="46" r="2" fill="#0f172a"/><path d="M46 54 Q50 58 54 54" stroke="#0f172a" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M30 36 C30 24 70 24 70 36 Z" fill="${cap}"/><rect x="28" y="34" width="44" height="4" rx="2" fill="#facc15"/><path d="M26 38 C32 40 68 40 74 38 Z" fill="#0f172a"/><circle cx="50" cy="30" r="5" fill="#facc15"/><text x="50" y="33" font-size="6" font-family="sans-serif" font-weight="bold" fill="#0f172a" text-anchor="middle">${initial}</text></svg>`
-    );
-
-  const insertDriver = db.prepare(`
-    INSERT INTO driver_profiles (user_id, full_name, licence_number, licence_class, licence_expiry, contact_number, availability_status, photo_url)
-    VALUES (?, ?, ?, ?, ?, ?, 'Active', ?)
-  `);
-  insertDriver.run(4, 'Budi Santoso', 'SIM-A-90811234', 'A', '2028-06-30', '+62-811-2233-4401', makeDriverSvg('B', '#0072de', '#005bb5', '#f6d1b1'));
-  insertDriver.run(5, 'Andi Wijaya', 'SIM-A-90815678', 'A', '2027-11-15', '+62-811-2233-4402', makeDriverSvg('A', '#059669', '#047857', '#e5b894'));
-  insertDriver.run(6, 'Citra Lestari', 'SIM-A-90819012', 'A', '2028-03-20', '+62-811-2233-4403', makeDriverSvg('C', '#4f46e5', '#3730a3', '#fcd34d'));
-  insertDriver.run(7, 'Deni Pratama', 'SIM-B1-90813456', 'B1', '2027-09-10', '+62-811-2233-4404', makeDriverSvg('D', '#d97706', '#b45309', '#f6c39a'));
-
-  const insertVehicle = db.prepare(`
-    INSERT INTO vehicles (registration_plate, make, model, car_type, year, vin, energy_type, seats, current_odometer, battery_percent, status, last_parking_spot)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Available', ?)
-  `);
-  insertVehicle.run('B 1001 FMS', 'Toyota', 'Camry 2.5 V', 'Executive Sedan', 2024, 'MHF11CAMRY0001001', 'Gasoline', 4, 34200, null, 'Basement B1 - Slot A01');
-  insertVehicle.run('B 1002 FMS', 'Toyota', 'Kijang Innova Zenix', 'MPV 7-Seater', 2025, 'MHF11ZENIX0001002', 'Gasoline', 7, 28510, null, 'Basement B1 - Slot A02');
-  insertVehicle.run('B 1003 FMS', 'Honda', 'CR-V 1.5 Turbo', 'SUV', 2024, 'MHR11CRV000001003', 'Gasoline', 5, 41890, null, 'Basement B1 - Slot A03');
-  insertVehicle.run('B 1004 FMS', 'Mitsubishi', 'Xpander Ultimate', 'MPV 7-Seater', 2025, 'MMB11XPAND0001004', 'Gasoline', 7, 19340, null, 'Basement B1 - Slot A04');
-  insertVehicle.run('B 1005 FMS', 'Hyundai', 'Stargazer Prime', 'MPV 7-Seater', 2025, 'KMH11STARG0001005', 'Gasoline', 7, 24100, null, 'Basement B1 - Slot A05');
-  insertVehicle.run('B 2001 EV', 'Hyundai', 'Ioniq 5 Signature', 'Electric SUV', 2025, 'KMH11IONIQ0002001', 'Electric', 5, 15620, 88, 'Basement B1 - EV Charger 01');
-  insertVehicle.run('B 2002 EV', 'BYD', 'Atto 3 Extended', 'Electric SUV', 2025, 'LC011ATTO30002002', 'Electric', 5, 11400, 92, 'Basement B1 - EV Charger 02');
-  insertVehicle.run('B 2003 EV', 'Tesla', 'Model Y Long Range', 'Electric Crossover', 2025, '5YJ11MODLY0002003', 'Electric', 5, 22780, 79, 'Basement B1 - EV Charger 03');
-
-  // Assign fixed default drivers across vehicles
-  db.prepare('UPDATE vehicles SET default_driver_id = 1 WHERE id = 1').run();
-  db.prepare('UPDATE vehicles SET default_driver_id = 2 WHERE id = 2').run();
-  db.prepare('UPDATE vehicles SET default_driver_id = 3 WHERE id = 3').run();
-  db.prepare('UPDATE vehicles SET default_driver_id = 4 WHERE id = 4').run();
-  db.prepare('UPDATE vehicles SET default_driver_id = 1 WHERE id = 5').run();
-  db.prepare('UPDATE vehicles SET default_driver_id = 2 WHERE id = 6').run();
-  db.prepare('UPDATE vehicles SET default_driver_id = 3 WHERE id = 7').run();
-  db.prepare('UPDATE vehicles SET default_driver_id = 4 WHERE id = 8').run();
-
-  const now = new Date();
-  const fmt = (d: Date) => d.toISOString();
-  const daysAgo = (days: number, hoursOffset = 0) => {
-    if (days === 0) {
-      return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), Math.max(0, 10 + hoursOffset), 0, 0));
-    }
-    return new Date(now.getTime() - days * 86400000 + hoursOffset * 3600000);
-  };
-
-  const insertCompletedTrip = db.prepare(`
-    INSERT INTO trip_requests (requester_id, department_id, vehicle_id, preferred_driver_id, purpose, origin, destination, start_time, end_time, passenger_count, notes, status, start_odometer, end_odometer, distance_km, actual_start_time, actual_end_time, parking_return_note, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const insertBooking = db.prepare(`
-    INSERT INTO bookings (trip_request_id, vehicle_id, booked_by, purpose, start_time, end_time, buffer_minutes, status, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, 15, 'COMPLETED', ?)
-  `);
-  const insertAssignment = db.prepare(`
-    INSERT INTO assignments (trip_request_id, booking_id, vehicle_id, driver_profile_id, assigned_by, reason, effective_start, effective_end, is_current, acknowledged_at, created_at)
-    VALUES (?, ?, ?, ?, 1, 'Approved dispatch', ?, ?, 1, ?, ?)
-  `);
-  const insertDecision = db.prepare(`
-    INSERT INTO approval_decisions (trip_request_id, decider_id, decider_role, decision, reason, created_at)
-    VALUES (?, 1, 'ADM', 'APPROVED', 'Approved and dispatched', ?)
-  `);
-
-  const sampleTrips = [
-    { reqUser: 9, dept: 3, veh: 1, drv: 1, purpose: 'Client Infrastructure Audit', origin: 'HQ Tower', dest: 'Data Center Cibitung', start: daysAgo(0, -5), end: daysAgo(0, -2), pax: 3, sOdo: 34115, eOdo: 34200 },
-    { reqUser: 10, dept: 6, veh: 6, drv: 2, purpose: 'Enterprise Sales Pitch', origin: 'HQ Tower', dest: 'SCBD District 8', start: daysAgo(0, -4), end: daysAgo(0, -2), pax: 2, sOdo: 15582, eOdo: 15620 },
-    { reqUser: 8, dept: 2, veh: 2, drv: 3, purpose: 'Regional Warehouse Inspection', origin: 'HQ Tower', dest: 'Tangerang Logistics Hub', start: daysAgo(2, -6), end: daysAgo(2, -2), pax: 5, sOdo: 28390, eOdo: 28510 },
-    { reqUser: 9, dept: 3, veh: 7, drv: 4, purpose: 'Vendor Hardware Acceptance', origin: 'HQ Tower', dest: 'Kemayoran Tech Park', start: daysAgo(3, -5), end: daysAgo(3, -3), pax: 2, sOdo: 11345, eOdo: 11400 },
-    { reqUser: 10, dept: 6, veh: 3, drv: 1, purpose: 'Key Account Executive Visit', origin: 'HQ Tower', dest: 'BSD Green Office Park', start: daysAgo(12, -6), end: daysAgo(12, -2), pax: 4, sOdo: 41795, eOdo: 41890 },
-    { reqUser: 8, dept: 2, veh: 8, drv: 2, purpose: 'Airport VIP Transfer', origin: 'HQ Tower', dest: 'Soekarno-Hatta Terminal 3', start: daysAgo(15, -5), end: daysAgo(15, -2), pax: 3, sOdo: 22710, eOdo: 22780 },
-  ];
-
-  for (const t of sampleTrips) {
-    const dist = t.eOdo - t.sOdo;
-    const res = insertCompletedTrip.run(
-      t.reqUser, t.dept, t.veh, t.drv, t.purpose, t.origin, t.dest,
-      fmt(t.start), fmt(t.end), t.pax, 'Completed without issue',
-      t.sOdo, t.eOdo, dist, fmt(t.start), fmt(t.end), 'Basement B1', fmt(t.start)
-    );
-    const reqId = Number(res.lastInsertRowid);
-    insertDecision.run(reqId, fmt(t.start));
-    const bRes = insertBooking.run(reqId, t.veh, t.reqUser, t.purpose, fmt(t.start), fmt(t.end), fmt(t.start));
-    insertAssignment.run(reqId, Number(bRes.lastInsertRowid), t.veh, t.drv, fmt(t.start), fmt(t.end), fmt(t.start), fmt(t.start));
+    const seeded = db
+      .prepare("SELECT value FROM system_settings WHERE key = 'initial_demo_seeded'")
+      .get() as { value: string } | undefined;
+    if (seeded?.value === '1') return;
   }
 
-  db.prepare(`
-    INSERT INTO fuel_records (vehicle_id, trip_request_id, recorded_by, date_time, litres, cost, odometer_km, station)
-    VALUES
-      (1, 1, 4, ?, 42.5, 58.20, 34200, 'Shell MT Haryono'),
-      (2, 3, 6, ?, 48.0, 64.80, 28510, 'Pertamina Kuningan'),
-      (3, 5, 4, ?, 39.0, 53.40, 41890, 'Shell BSD')
-  `).run(fmt(daysAgo(0, -2)), fmt(daysAgo(2, -2)), fmt(daysAgo(12, -2)));
+  const userCount = (db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }).count;
+  const vehicleCount = (db.prepare('SELECT COUNT(*) as count FROM vehicles').get() as { count: number }).count;
+  const driverCount = (db.prepare('SELECT COUNT(*) as count FROM driver_profiles').get() as { count: number }).count;
+  const tripCount = (db.prepare('SELECT COUNT(*) as count FROM trip_requests').get() as { count: number }).count;
+  if (userCount > 1 || vehicleCount > 0 || driverCount > 0 || tripCount > 0) return;
 
-  db.prepare(`
-    INSERT INTO ev_charging_records (vehicle_id, trip_request_id, recorded_by, date_time, kwh_added, cost, battery_start_pct, battery_end_pct, odometer_km, station)
-    VALUES
-      (6, 2, 5, ?, 38.4, 14.50, 34, 88, 15620, 'SPKLU Ultra Fast SCBD'),
-      (7, 4, 7, ?, 31.0, 11.80, 41, 92, 11400, 'HQ Basement EV Charger 02'),
-      (8, 6, 5, ?, 44.2, 16.90, 22, 79, 22780, 'SPKLU Airport T3')
-  `).run(fmt(daysAgo(0, -1)), fmt(daysAgo(3, -2)), fmt(daysAgo(15, -1)));
+  const adminRow = db.prepare("SELECT id FROM users WHERE role = 'ADM' ORDER BY id ASC LIMIT 1").get() as { id: number } | undefined;
+  if (!adminRow) return;
+  const adminId = adminRow.id;
 
-  const insertGps = db.prepare(`
-    INSERT INTO location_reports (driver_profile_id, driver_user_id, vehicle_id, assignment_id, latitude, longitude, accuracy_meters, capture_time, server_receipt_time, permission_state, phone_state)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'GRANTED', 'FOREGROUND')
-  `);
-  const recentTime = new Date(now.getTime() - 6 * 60000).toISOString();
-  const staleTime = new Date(now.getTime() - 48 * 60000).toISOString();
-  insertGps.run(1, 4, 1, 1, -6.2249, 106.8096, 11.4, recentTime, recentTime);
-  insertGps.run(2, 5, 6, 2, -6.2275, 106.8085, 8.2, recentTime, recentTime);
-  insertGps.run(3, 6, 2, 3, -6.1783, 106.6319, 18.0, staleTime, staleTime);
+  const activeDepts = db.prepare('SELECT id, code FROM departments WHERE is_active = 1 ORDER BY id ASC').all() as Array<{ id: number; code: string }>;
+  const fallbackDeptId = activeDepts[0]?.id ?? 1;
+  const deptByCode = (code: string) => activeDepts.find((d) => d.code.toUpperCase() === code)?.id ?? fallbackDeptId;
+
+  const innovDeptId = deptByCode('INNOV');
+  const msupDeptId = deptByCode('MSUP');
+  const uehsDeptId = deptByCode('UEHS');
+  const smdpDeptId = deptByCode('SMDP');
+  const driverDeptId = findDriverGroupId(db) ?? fallbackDeptId;
+
+  runInTransaction(db, () => {
+    const insertUser = db.prepare(`
+      INSERT INTO users (nickname, group_username, password_hash, role, is_department_admin, department_id, approval_status, approved_at, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, 'APPROVED', datetime('now'), 1)
+    `);
+
+    insertUser.run('Rina (Fleet Manager)', 'fleetmgr', hashPassword('Fleet@123'), 'FM', 0, innovDeptId);
+    insertUser.run('Hendra (Head of HWS)', 'hws_head', hashPassword('Hws@123'), 'HWS', 1, innovDeptId);
+    const drvBudiUserId = Number(insertUser.run('Budi Santoso', 'drv_budi', hashPassword('Driver@123'), 'DRV', 0, driverDeptId).lastInsertRowid);
+    const drvAndiUserId = Number(insertUser.run('Andi Wijaya', 'drv_andi', hashPassword('Driver@123'), 'DRV', 0, driverDeptId).lastInsertRowid);
+    const drvCitraUserId = Number(insertUser.run('Citra Lestari', 'drv_citra', hashPassword('Driver@123'), 'DRV', 0, driverDeptId).lastInsertRowid);
+    const drvDeniUserId = Number(insertUser.run('Deni Pratama', 'drv_deni', hashPassword('Driver@123'), 'DRV', 0, driverDeptId).lastInsertRowid);
+    const deptAdminId = Number(insertUser.run('Nadia (Ops Dept Admin)', 'dept_admin', hashPassword('Dept@123'), 'EMP', 1, msupDeptId).lastInsertRowid);
+    const empAlexId = Number(insertUser.run('Alex (Engineering)', 'emp_alex', hashPassword('Emp@123'), 'EMP', 0, uehsDeptId).lastInsertRowid);
+    const empSaraId = Number(insertUser.run('Sara (Sales)', 'emp_sara', hashPassword('Emp@123'), 'EMP', 0, smdpDeptId).lastInsertRowid);
+
+    const makeDriverSvg = (initial: string, bg: string, cap: string, skin: string) =>
+      'data:image/svg+xml;utf8,' +
+      encodeURIComponent(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="${bg}"/><path d="M20 94 C20 74 34 68 50 68 C66 68 80 74 80 94 Z" fill="#0f172a"/><polygon points="50,68 44,78 50,88 56,78" fill="#ffffff"/><polygon points="50,78 47,94 53,94" fill="#0072de"/><rect x="44" y="54" width="12" height="16" rx="4" fill="${skin}"/><ellipse cx="50" cy="46" rx="16" ry="18" fill="${skin}"/><circle cx="44" cy="46" r="2" fill="#0f172a"/><circle cx="56" cy="46" r="2" fill="#0f172a"/><path d="M46 54 Q50 58 54 54" stroke="#0f172a" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M30 36 C30 24 70 24 70 36 Z" fill="${cap}"/><rect x="28" y="34" width="44" height="4" rx="2" fill="#facc15"/><path d="M26 38 C32 40 68 40 74 38 Z" fill="#0f172a"/><circle cx="50" cy="30" r="5" fill="#facc15"/><text x="50" y="33" font-size="6" font-family="sans-serif" font-weight="bold" fill="#0f172a" text-anchor="middle">${initial}</text></svg>`
+      );
+
+    const insertDriver = db.prepare(`
+      INSERT INTO driver_profiles (user_id, full_name, licence_number, licence_class, licence_expiry, contact_number, availability_status, photo_url)
+      VALUES (?, ?, ?, ?, ?, ?, 'Active', ?)
+    `);
+    const drvBudiProfId = Number(insertDriver.run(drvBudiUserId, 'Budi Santoso', 'SIM-A-90811234', 'A', '2028-06-30', '+62-811-2233-4401', makeDriverSvg('B', '#0072de', '#005bb5', '#f6d1b1')).lastInsertRowid);
+    const drvAndiProfId = Number(insertDriver.run(drvAndiUserId, 'Andi Wijaya', 'SIM-A-90815678', 'A', '2027-11-15', '+62-811-2233-4402', makeDriverSvg('A', '#059669', '#047857', '#e5b894')).lastInsertRowid);
+    const drvCitraProfId = Number(insertDriver.run(drvCitraUserId, 'Citra Lestari', 'SIM-A-90819012', 'A', '2028-03-20', '+62-811-2233-4403', makeDriverSvg('C', '#4f46e5', '#3730a3', '#fcd34d')).lastInsertRowid);
+    const drvDeniProfId = Number(insertDriver.run(drvDeniUserId, 'Deni Pratama', 'SIM-B1-90813456', 'B1', '2027-09-10', '+62-811-2233-4404', makeDriverSvg('D', '#d97706', '#b45309', '#f6c39a')).lastInsertRowid);
+
+    const insertVehicle = db.prepare(`
+      INSERT INTO vehicles (registration_plate, make, model, car_type, year, vin, energy_type, seats, current_odometer, battery_percent, status, last_parking_spot)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Available', ?)
+    `);
+    const veh1Id = Number(insertVehicle.run('B 1001 FMS', 'Toyota', 'Camry 2.5 V', 'Executive Sedan', 2024, 'MHF11CAMRY0001001', 'Gasoline', 4, 34200, null, 'Basement B1 - Slot A01').lastInsertRowid);
+    const veh2Id = Number(insertVehicle.run('B 1002 FMS', 'Toyota', 'Kijang Innova Zenix', 'MPV 7-Seater', 2025, 'MHF11ZENIX0001002', 'Gasoline', 7, 28510, null, 'Basement B1 - Slot A02').lastInsertRowid);
+    const veh3Id = Number(insertVehicle.run('B 1003 FMS', 'Honda', 'CR-V 1.5 Turbo', 'SUV', 2024, 'MHR11CRV000001003', 'Gasoline', 5, 41890, null, 'Basement B1 - Slot A03').lastInsertRowid);
+    const veh4Id = Number(insertVehicle.run('B 1004 FMS', 'Mitsubishi', 'Xpander Ultimate', 'MPV 7-Seater', 2025, 'MMB11XPAND0001004', 'Gasoline', 7, 19340, null, 'Basement B1 - Slot A04').lastInsertRowid);
+    const veh5Id = Number(insertVehicle.run('B 1005 FMS', 'Hyundai', 'Stargazer Prime', 'MPV 7-Seater', 2025, 'KMH11STARG0001005', 'Gasoline', 7, 24100, null, 'Basement B1 - Slot A05').lastInsertRowid);
+    const veh6Id = Number(insertVehicle.run('B 2001 EV', 'Hyundai', 'Ioniq 5 Signature', 'Electric SUV', 2025, 'KMH11IONIQ0002001', 'Electric', 5, 15620, 88, 'Basement B1 - EV Charger 01').lastInsertRowid);
+    const veh7Id = Number(insertVehicle.run('B 2002 EV', 'BYD', 'Atto 3 Extended', 'Electric SUV', 2025, 'LC011ATTO30002002', 'Electric', 5, 11400, 92, 'Basement B1 - EV Charger 02').lastInsertRowid);
+    const veh8Id = Number(insertVehicle.run('B 2003 EV', 'Tesla', 'Model Y Long Range', 'Electric Crossover', 2025, '5YJ11MODLY0002003', 'Electric', 5, 22780, 79, 'Basement B1 - EV Charger 03').lastInsertRowid);
+
+    // Assign fixed default drivers across vehicles
+    const assignDefaultDrv = db.prepare('UPDATE vehicles SET default_driver_id = ? WHERE id = ?');
+    assignDefaultDrv.run(drvBudiProfId, veh1Id);
+    assignDefaultDrv.run(drvAndiProfId, veh2Id);
+    assignDefaultDrv.run(drvCitraProfId, veh3Id);
+    assignDefaultDrv.run(drvDeniProfId, veh4Id);
+    assignDefaultDrv.run(drvBudiProfId, veh5Id);
+    assignDefaultDrv.run(drvAndiProfId, veh6Id);
+    assignDefaultDrv.run(drvCitraProfId, veh7Id);
+    assignDefaultDrv.run(drvDeniProfId, veh8Id);
+
+    const now = new Date();
+    const fmt = (d: Date) => d.toISOString();
+    const daysAgo = (days: number, hoursOffset = 0) => {
+      if (days === 0) {
+        return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), Math.max(0, 10 + hoursOffset), 0, 0));
+      }
+      return new Date(now.getTime() - days * 86400000 + hoursOffset * 3600000);
+    };
+
+    const insertCompletedTrip = db.prepare(`
+      INSERT INTO trip_requests (requester_id, department_id, vehicle_id, preferred_driver_id, purpose, origin, destination, start_time, end_time, passenger_count, notes, status, start_odometer, end_odometer, distance_km, actual_start_time, actual_end_time, parking_return_note, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertBooking = db.prepare(`
+      INSERT INTO bookings (trip_request_id, vehicle_id, booked_by, purpose, start_time, end_time, buffer_minutes, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 15, 'COMPLETED', ?)
+    `);
+    const insertAssignment = db.prepare(`
+      INSERT INTO assignments (trip_request_id, booking_id, vehicle_id, driver_profile_id, assigned_by, reason, effective_start, effective_end, is_current, acknowledged_at, created_at)
+      VALUES (?, ?, ?, ?, ?, 'Approved dispatch', ?, ?, 1, ?, ?)
+    `);
+    const insertDecision = db.prepare(`
+      INSERT INTO approval_decisions (trip_request_id, decider_id, decider_role, decision, reason, created_at)
+      VALUES (?, ?, 'ADM', 'APPROVED', 'Approved and dispatched', ?)
+    `);
+
+    const sampleTrips = [
+      { reqUser: empAlexId, dept: uehsDeptId, veh: veh1Id, drv: drvBudiProfId, purpose: 'Client Infrastructure Audit', origin: 'HQ Tower', dest: 'Data Center Cibitung', start: daysAgo(0, -5), end: daysAgo(0, -2), pax: 3, sOdo: 34115, eOdo: 34200 },
+      { reqUser: empSaraId, dept: smdpDeptId, veh: veh6Id, drv: drvAndiProfId, purpose: 'Enterprise Sales Pitch', origin: 'HQ Tower', dest: 'SCBD District 8', start: daysAgo(0, -4), end: daysAgo(0, -2), pax: 2, sOdo: 15582, eOdo: 15620 },
+      { reqUser: deptAdminId, dept: msupDeptId, veh: veh2Id, drv: drvCitraProfId, purpose: 'Regional Warehouse Inspection', origin: 'HQ Tower', dest: 'Tangerang Logistics Hub', start: daysAgo(2, -6), end: daysAgo(2, -2), pax: 5, sOdo: 28390, eOdo: 28510 },
+      { reqUser: empAlexId, dept: uehsDeptId, veh: veh7Id, drv: drvDeniProfId, purpose: 'Vendor Hardware Acceptance', origin: 'HQ Tower', dest: 'Kemayoran Tech Park', start: daysAgo(3, -5), end: daysAgo(3, -3), pax: 2, sOdo: 11345, eOdo: 11400 },
+      { reqUser: empSaraId, dept: smdpDeptId, veh: veh3Id, drv: drvBudiProfId, purpose: 'Key Account Executive Visit', origin: 'HQ Tower', dest: 'BSD Green Office Park', start: daysAgo(12, -6), end: daysAgo(12, -2), pax: 4, sOdo: 41795, eOdo: 41890 },
+      { reqUser: deptAdminId, dept: msupDeptId, veh: veh8Id, drv: drvAndiProfId, purpose: 'Airport VIP Transfer', origin: 'HQ Tower', dest: 'Soekarno-Hatta Terminal 3', start: daysAgo(15, -5), end: daysAgo(15, -2), pax: 3, sOdo: 22710, eOdo: 22780 },
+    ];
+
+    const tripIds: number[] = [];
+    const asnIds: number[] = [];
+
+    for (const t of sampleTrips) {
+      const dist = t.eOdo - t.sOdo;
+      const res = insertCompletedTrip.run(
+        t.reqUser, t.dept, t.veh, t.drv, t.purpose, t.origin, t.dest,
+        fmt(t.start), fmt(t.end), t.pax, 'Completed without issue',
+        t.sOdo, t.eOdo, dist, fmt(t.start), fmt(t.end), 'Basement B1', fmt(t.start)
+      );
+      const reqId = Number(res.lastInsertRowid);
+      tripIds.push(reqId);
+      insertDecision.run(reqId, adminId, fmt(t.start));
+      const bRes = insertBooking.run(reqId, t.veh, t.reqUser, t.purpose, fmt(t.start), fmt(t.end), fmt(t.start));
+      const aRes = insertAssignment.run(reqId, Number(bRes.lastInsertRowid), t.veh, t.drv, adminId, fmt(t.start), fmt(t.end), fmt(t.start), fmt(t.start));
+      asnIds.push(Number(aRes.lastInsertRowid));
+    }
+
+    db.prepare(`
+      INSERT INTO fuel_records (vehicle_id, trip_request_id, recorded_by, date_time, litres, cost, odometer_km, station)
+      VALUES
+        (?, ?, ?, ?, 42.5, 58.20, 34200, 'Shell MT Haryono'),
+        (?, ?, ?, ?, 48.0, 64.80, 28510, 'Pertamina Kuningan'),
+        (?, ?, ?, ?, 39.0, 53.40, 41890, 'Shell BSD')
+    `).run(
+      veh1Id, tripIds[0], drvBudiUserId, fmt(daysAgo(0, -2)),
+      veh2Id, tripIds[2], drvCitraUserId, fmt(daysAgo(2, -2)),
+      veh3Id, tripIds[4], drvBudiUserId, fmt(daysAgo(12, -2))
+    );
+
+    db.prepare(`
+      INSERT INTO ev_charging_records (vehicle_id, trip_request_id, recorded_by, date_time, kwh_added, cost, battery_start_pct, battery_end_pct, odometer_km, station)
+      VALUES
+        (?, ?, ?, ?, 38.4, 14.50, 34, 88, 15620, 'SPKLU Ultra Fast SCBD'),
+        (?, ?, ?, ?, 31.0, 11.80, 41, 92, 11400, 'HQ Basement EV Charger 02'),
+        (?, ?, ?, ?, 44.2, 16.90, 22, 79, 22780, 'SPKLU Airport T3')
+    `).run(
+      veh6Id, tripIds[1], drvAndiUserId, fmt(daysAgo(0, -1)),
+      veh7Id, tripIds[3], drvDeniUserId, fmt(daysAgo(3, -2)),
+      veh8Id, tripIds[5], drvAndiUserId, fmt(daysAgo(15, -1))
+    );
+
+    const insertGps = db.prepare(`
+      INSERT INTO location_reports (driver_profile_id, driver_user_id, vehicle_id, assignment_id, latitude, longitude, accuracy_meters, capture_time, server_receipt_time, permission_state, phone_state)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'GRANTED', 'FOREGROUND')
+    `);
+    const recentTime = new Date(now.getTime() - 6 * 60000).toISOString();
+    const staleTime = new Date(now.getTime() - 48 * 60000).toISOString();
+    insertGps.run(drvBudiProfId, drvBudiUserId, veh1Id, asnIds[0], -6.2249, 106.8096, 11.4, recentTime, recentTime);
+    insertGps.run(drvAndiProfId, drvAndiUserId, veh6Id, asnIds[1], -6.2275, 106.8085, 8.2, recentTime, recentTime);
+    insertGps.run(drvCitraProfId, drvCitraUserId, veh2Id, asnIds[2], -6.1783, 106.6319, 18.0, staleTime, staleTime);
+
+    db.prepare("INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES ('initial_demo_seeded', '1', datetime('now'))").run();
+    db.prepare("INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES ('demo_seed_suppressed', '0', datetime('now'))").run();
+  });
 }

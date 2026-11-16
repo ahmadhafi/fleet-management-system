@@ -1640,5 +1640,202 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         }
       });
     });
+
+    describe('Production Error Resilience & Post-Reset Persistence (No 500 HTML Pages)', () => {
+      it('handles FACTORY_RESET cleanly (including self-referenced documents) and stays clean across restart with AUTO_SEED_DEMO=true', async () => {
+        const fs = await import('node:fs');
+        const os = await import('node:os');
+        const path = await import('node:path');
+        const { seedDemoFixtures, hashPassword } = await import('../src/server/db.ts');
+
+        const tmpDbPath = path.join(os.tmpdir(), `gf-factory-restart-${Date.now()}.sqlite`);
+        const prevAutoSeed = process.env.AUTO_SEED_DEMO;
+
+        try {
+          process.env.AUTO_SEED_DEMO = 'true';
+
+          // 1. Fresh DB with AUTO_SEED_DEMO=true seeds cleanly and boots admin + demo vehicles
+          const db1 = getDb(tmpDbPath);
+          expect((db1.prepare('SELECT COUNT(*) as c FROM vehicles').get() as { c: number }).c).toBe(8);
+          expect((db1.prepare('SELECT COUNT(*) as c FROM driver_profiles').get() as { c: number }).c).toBe(4);
+          db1.close();
+
+          // 2. Simulate FACTORY_RESET via API on a fresh :memory: DB containing versioned documents (self-FK replaced_by_id)
+          const resetApp = createApp();
+          resetDbForTesting(':memory:');
+          const memDb = getDb();
+          const adm = memDb.prepare("SELECT id FROM users WHERE role = 'ADM' LIMIT 1").get() as { id: number };
+          const doc1 = memDb
+            .prepare(
+              `INSERT INTO documents (entity_type, entity_id, doc_type, file_name, mime_type, size_bytes, content_base64, uploaded_by)
+               VALUES ('VEHICLE', 1, 'Registration', 'v1.pdf', 'application/pdf', 10, 'dGVzdA==', ?)`
+            )
+            .run(adm.id);
+          const doc2 = memDb
+            .prepare(
+              `INSERT INTO documents (entity_type, entity_id, doc_type, file_name, mime_type, size_bytes, content_base64, version_number, uploaded_by)
+               VALUES ('VEHICLE', 1, 'Registration', 'v2.pdf', 'application/pdf', 10, 'dGVzdA==', 2, ?)`
+            )
+            .run(adm.id);
+          memDb.prepare('UPDATE documents SET replaced_by_id = ? WHERE id = ?').run(Number(doc2.lastInsertRowid), Number(doc1.lastInsertRowid));
+
+          const admLogin = await request(resetApp)
+            .post('/api/auth/login')
+            .send({ group_username: 'admin', password: 'Admin@123' });
+          expect(admLogin.status).toBe(200);
+
+          const factoryRes = await request(resetApp)
+            .post('/api/admin/system/reset-data')
+            .set('Authorization', `Bearer ${admLogin.body.token}`)
+            .send({ mode: 'FACTORY_RESET', confirmation_code: 'RESET' });
+          expect(factoryRes.status).toBe(200);
+          expect(factoryRes.body.success).toBe(true);
+
+          const suppressedRow = memDb
+            .prepare("SELECT value FROM system_settings WHERE key = 'demo_seed_suppressed'")
+            .get() as { value: string } | undefined;
+          expect(suppressedRow?.value).toBe('1');
+
+          // Calling seedDemoFixtures without { force: true } after reset must NO-OP cleanly without throwing FK errors
+          expect(() => seedDemoFixtures(memDb)).not.toThrow();
+          expect((memDb.prepare('SELECT COUNT(*) as c FROM vehicles').get() as { c: number }).c).toBe(0);
+
+          // 3. Simulate restarting Node server against persistent disk DB where sqlite_sequence is > 20 and demo_seed_suppressed=1
+          const db2 = getDb(tmpDbPath);
+          db2.exec(`
+            DROP TRIGGER IF EXISTS prevent_approval_decision_delete;
+            DROP TRIGGER IF EXISTS prevent_approval_decision_update;
+            DROP TRIGGER IF EXISTS prevent_assignment_delete;
+          `);
+          db2.prepare('DELETE FROM trip_events').run();
+          db2.prepare('DELETE FROM location_reports').run();
+          db2.prepare('DELETE FROM assignments').run();
+          db2.prepare('DELETE FROM booking_history').run();
+          db2.prepare('DELETE FROM approval_decisions').run();
+          db2.prepare('DELETE FROM bookings').run();
+          db2.prepare('DELETE FROM fuel_records').run();
+          db2.prepare('DELETE FROM ev_charging_records').run();
+          db2.prepare('DELETE FROM maintenance_records').run();
+          db2.prepare('DELETE FROM expenses').run();
+          db2.prepare('DELETE FROM trip_requests').run();
+          db2.prepare('UPDATE vehicles SET default_driver_id = NULL').run();
+          db2.prepare('DELETE FROM vehicles').run();
+          db2.prepare('DELETE FROM driver_profiles').run();
+          db2.prepare("DELETE FROM users WHERE role != 'ADM'").run();
+          db2.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES ('demo_seed_suppressed', '1')").run();
+          // Bump users sequence beyond hardcoded legacy IDs (to prove bumped sequences never crash forced seeding either)
+          const bumpedUser = db2
+            .prepare(
+              `INSERT INTO users (nickname, group_username, password_hash, role, is_department_admin, department_id, approval_status, is_active)
+               VALUES ('Temp', 'tmp_bump', ?, 'EMP', 0, 1, 'APPROVED', 1)`
+            )
+            .run(hashPassword('Temp@123'));
+          db2.prepare('DELETE FROM users WHERE id = ?').run(Number(bumpedUser.lastInsertRowid));
+          db2.close();
+
+          // Reopen with AUTO_SEED_DEMO=true: must boot without FK crash and remain cleanly reset
+          const dbAfterRestart = getDb(tmpDbPath);
+          expect((dbAfterRestart.prepare('SELECT COUNT(*) as c FROM vehicles').get() as { c: number }).c).toBe(0);
+          expect((dbAfterRestart.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number }).c).toBe(1);
+
+          // Even forced re-seed with bumped autoincrement sequences must succeed cleanly using dynamic IDs
+          expect(() => seedDemoFixtures(dbAfterRestart, { force: true })).not.toThrow();
+          expect((dbAfterRestart.prepare('SELECT COUNT(*) as c FROM vehicles').get() as { c: number }).c).toBe(8);
+          expect((dbAfterRestart.prepare('SELECT COUNT(*) as c FROM driver_profiles').get() as { c: number }).c).toBe(4);
+          expect((dbAfterRestart.prepare('SELECT COUNT(*) as c FROM trip_requests').get() as { c: number }).c).toBe(6);
+          dbAfterRestart.close();
+        } finally {
+          if (prevAutoSeed === undefined) {
+            delete process.env.AUTO_SEED_DEMO;
+          } else {
+            process.env.AUTO_SEED_DEMO = prevAutoSeed;
+          }
+          for (const suffix of ['', '-wal', '-shm']) {
+            try {
+              fs.rmSync(`${tmpDbPath}${suffix}`, { force: true });
+            } catch {}
+          }
+        }
+      });
+
+      it('returns structured JSON (never HTML 500) on malformed JSON, multi-byte UTF-8 tokens, corrupt cookies, and internal route errors under NODE_ENV=production', async () => {
+        const { verifyPassword } = await import('../src/server/db.ts');
+        const { verifySignedToken } = await import('../src/server/auth.ts');
+        resetDbForTesting(':memory:');
+        const prodApp = createApp();
+        const prevNodeEnv = process.env.NODE_ENV;
+
+        try {
+          process.env.NODE_ENV = 'production';
+
+          // 1. Multi-byte UTF-8 token (64 UTF-16 code units = 128 UTF-8 bytes) that previously threw RangeError in timingSafeEqual
+          const multiByteSig = '😀'.repeat(32);
+          expect(multiByteSig.length).toBe(64);
+          expect(verifySignedToken(`sess123.1.${multiByteSig}`)).toBeNull();
+          const tokenRes = await request(prodApp)
+            .get(`/api/auth/me?token=${encodeURIComponent(`sess123.1.${multiByteSig}`)}`);
+          expect(tokenRes.status).toBe(401);
+          expect(tokenRes.headers['content-type']).toContain('application/json');
+          expect(tokenRes.body.error).toBeDefined();
+
+          // 2. Malformed URL-encoded cookie header must return 401 JSON (never URIError 500)
+          const cookieRes = await request(prodApp)
+            .get('/api/auth/me')
+            .set('Cookie', 'fms_session=%E0%A4%A; other=1');
+          expect(cookieRes.status).toBe(401);
+          expect(cookieRes.headers['content-type']).toContain('application/json');
+
+          // 3. Malformed JSON request payload must return 400 JSON (never HTML 500)
+          const badJsonRes = await request(prodApp)
+            .post('/api/auth/login')
+            .set('Content-Type', 'application/json')
+            .send('{"group_username": "admin",');
+          expect(badJsonRes.status).toBe(400);
+          expect(badJsonRes.headers['content-type']).toContain('application/json');
+          expect(badJsonRes.body.code).toBe('INVALID_JSON');
+
+          // 4. Malformed stored password hash must return false cleanly
+          expect(verifyPassword('Admin@123', 'corrupt-hash-without-colon')).toBe(false);
+          expect(verifyPassword('Admin@123', 'salt:zzzz_non_hex')).toBe(false);
+
+          // 5. Internal unexpected DB error inside an API route must return structured JSON 500 (never HTML)
+          const db = getDb();
+          const origPrepare = db.prepare.bind(db);
+          (db as any).prepare = () => {
+            throw new Error('Simulated production SQLite I/O fault');
+          };
+          try {
+            const errRes = await request(prodApp).get('/api/public/groups');
+            expect(errRes.status).toBe(500);
+            expect(errRes.headers['content-type']).toContain('application/json');
+            expect(errRes.body.error).toContain('Simulated production SQLite I/O fault');
+          } finally {
+            (db as any).prepare = origPrepare;
+          }
+
+          // 6. Analytics and executive PDF handle anomalous non-ISO timestamps gracefully
+          const adminLogin = await request(prodApp)
+            .post('/api/auth/login')
+            .send({ group_username: 'admin', password: 'Admin@123' });
+          expect(adminLogin.status).toBe(200);
+
+          db.prepare(
+            `INSERT INTO trip_requests (requester_id, department_id, vehicle_id, purpose, origin, destination, start_time, end_time, status, actual_start_time, actual_end_time)
+             VALUES (1, 1, 1, 'Edge Date Audit', 'HQ', 'Site', 'invalid-date', 'invalid-date', 'COMPLETED', 'not-iso', '')`
+          ).run();
+
+          const analyticsRes = await request(prodApp)
+            .get('/api/analytics/usage')
+            .set('Authorization', `Bearer ${adminLogin.body.token}`);
+          expect(analyticsRes.status).toBe(200);
+        } finally {
+          if (prevNodeEnv === undefined) {
+            delete process.env.NODE_ENV;
+          } else {
+            process.env.NODE_ENV = prevNodeEnv;
+          }
+        }
+      });
+    });
   });
 });

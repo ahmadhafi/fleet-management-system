@@ -1,25 +1,35 @@
 import { createApp } from './app.ts';
 import { checkpointDb, flushAndCloseDb } from './db.ts';
-import { ensureSqlEngineLoaded } from './sqlite-compat.ts';
+import { ensureSqlEngineLoaded, isSqlEngineReady } from './sqlite-compat.ts';
 
 const rawPort = process.env.PORT;
 const isSocketPort = Boolean(rawPort && Number.isNaN(Number(rawPort)));
 const PORT: number | string = isSocketPort ? (rawPort as string) : Number(rawPort || 3000);
-const HOST = process.env.HOST || '0.0.0.0';
+const HOST = process.env.HOST;
 const app = createApp();
 
-let server: ReturnType<typeof app.listen>;
-
-ensureSqlEngineLoaded().then(() => {
-  const onListen = () => {
-    console.log(`[GalaxyFleet] Production Server online at ${isSocketPort ? PORT : `http://${HOST}:${PORT}`} (PID: ${process.pid})`);
-    console.log(`[GalaxyFleet] Environment: ${process.env.NODE_ENV || 'development'}`);
-  };
-  server = isSocketPort ? app.listen(PORT, onListen) : app.listen(PORT as number, HOST, onListen);
+// Warm SQL engine immediately (no-op for native node:sqlite; fast WASM init on Node 18/20).
+// Requests to /api/* automatically await this promise if they arrive before init completes.
+ensureSqlEngineLoaded().catch((err) => {
+  console.error('[GalaxyFleet FATAL] Failed to initialize SQLite engine:', err);
+  process.exit(1);
 });
+
+const onListen = () => {
+  console.log(`[GalaxyFleet] Production Server online at ${isSocketPort ? PORT : `http://${HOST || '0.0.0.0'}:${PORT}`} (PID: ${process.pid})`);
+  console.log(`[GalaxyFleet] Environment: ${process.env.NODE_ENV || 'development'}`);
+};
+
+// Bind synchronously so cPanel Phusion Passenger / lsnode intercepts listen() immediately on require('./dist-server/index.cjs')
+const server: ReturnType<typeof app.listen> = isSocketPort
+  ? app.listen(PORT, onListen)
+  : HOST
+  ? app.listen(PORT as number, HOST, onListen)
+  : app.listen(PORT as number, onListen);
 
 // Periodic WAL checkpointing every 10 minutes to maintain optimal WAL size & concurrency
 const walTimer = setInterval(() => {
+  if (!isSqlEngineReady()) return;
   try {
     checkpointDb();
   } catch (err) {

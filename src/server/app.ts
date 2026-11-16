@@ -1,8 +1,9 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import express, { type Request, type Response } from 'express';
-import { getDb, hashPassword, verifyPassword, runInTransaction, findDriverGroupId, type AppDatabase } from './db.ts';
+import express, { type NextFunction, type Request, type Response } from 'express';
+import { getDb, hashPassword, verifyPassword, runInTransaction, findDriverGroupId, resolveAppRoot, type AppDatabase } from './db.ts';
+import { ensureSqlEngineLoaded, isSqlEngineReady } from './sqlite-compat.ts';
 import { createSessionToken, isPrivilegedRole, requireAuth, requireRoles } from './auth.ts';
 import { recordAudit } from './audit.ts';
 import { ensureVapidKeys, notifyAdmins, notifyRole, sendUserNotification } from './push.ts';
@@ -151,6 +152,15 @@ export function createApp() {
       uptime_sec: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
     });
+  });
+
+  // Ensure async WASM SQL engine is ready before any /api database route runs (no-op when native node:sqlite is active)
+  app.use('/api', (req: Request, _res: Response, next: NextFunction) => {
+    if (req.path === '/health' || req.path === '/healthz' || isSqlEngineReady()) {
+      next();
+      return;
+    }
+    ensureSqlEngineLoaded().then(() => next(), (err) => next(err));
   });
 
   // Deep Readiness Probe (Verifies Database Engine, Connection Pool & Memory)
@@ -4386,6 +4396,7 @@ export function createApp() {
 
     const getIsoWeekKey = (dateStr: string) => {
       const d = new Date(dateStr);
+      if (Number.isNaN(d.getTime())) return 'Unknown';
       const dayNum = d.getUTCDay() || 7;
       d.setUTCDate(d.getUTCDate() + 4 - dayNum);
       const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
@@ -4410,10 +4421,11 @@ export function createApp() {
       const byMonth: Record<string, { trips: number; distanceKm: number }> = {};
 
       for (const t of vTrips) {
-        const refTime = t.actual_end_time || t.end_time;
-        const dKey = refTime.slice(0, 10);
-        const mKey = refTime.slice(0, 7);
-        const wKey = getIsoWeekKey(refTime);
+        const refTime = String(t.actual_end_time || t.end_time || t.start_time || '');
+        const dKey = refTime.length >= 10 ? refTime.slice(0, 10) : 'Unknown';
+        const mKey = refTime.length >= 7 ? refTime.slice(0, 7) : 'Unknown';
+        const wKey = refTime ? getIsoWeekKey(refTime) : 'Unknown';
+        const refMs = refTime ? new Date(refTime).getTime() : NaN;
         const dist = t.distance_km ?? Math.max(0, (t.end_odometer ?? 0) - (t.start_odometer ?? 0));
 
         totalTrips += 1;
@@ -4423,7 +4435,7 @@ export function createApp() {
           dayTrips += 1;
           dayKm += dist;
         }
-        if (new Date(refTime).getTime() >= weekAgoMs) {
+        if (Number.isFinite(refMs) && refMs >= weekAgoMs) {
           weekTrips += 1;
           weekKm += dist;
         }
@@ -4578,9 +4590,10 @@ export function createApp() {
       let totalKm = 0;
 
       for (const t of dTrips) {
-        const refTime = t.actual_end_time || t.end_time;
-        const dKey = refTime.slice(0, 10);
-        const mKey = refTime.slice(0, 7);
+        const refTime = String(t.actual_end_time || t.end_time || t.start_time || '');
+        const dKey = refTime.length >= 10 ? refTime.slice(0, 10) : 'Unknown';
+        const mKey = refTime.length >= 7 ? refTime.slice(0, 7) : 'Unknown';
+        const refMs = refTime ? new Date(refTime).getTime() : NaN;
         const dist = t.distance_km ?? Math.max(0, (t.end_odometer ?? 0) - (t.start_odometer ?? 0));
 
         totalTrips += 1;
@@ -4589,7 +4602,7 @@ export function createApp() {
           dayTrips += 1;
           dayKm += dist;
         }
-        if (new Date(refTime).getTime() >= weekAgoMs) {
+        if (Number.isFinite(refMs) && refMs >= weekAgoMs) {
           weekTrips += 1;
           weekKm += dist;
         }
@@ -4612,11 +4625,11 @@ export function createApp() {
 
     // Elapsed Trip Duration Calculation (Hours & Minutes count)
     const tripsWithDuration = completedTrips.map((t: any) => {
-      const s = t.actual_start_time || t.start_time;
-      const e = t.actual_end_time || t.end_time;
-      const sMs = new Date(s).getTime();
-      const eMs = new Date(e).getTime();
-      const durationMin = Math.max(1, Math.round((eMs - sMs) / 60000));
+      const s = t.actual_start_time || t.start_time || '';
+      const e = t.actual_end_time || t.end_time || '';
+      const sMs = s ? new Date(s).getTime() : NaN;
+      const eMs = e ? new Date(e).getTime() : NaN;
+      const durationMin = Number.isFinite(sMs) && Number.isFinite(eMs) ? Math.max(1, Math.round((eMs - sMs) / 60000)) : 1;
       const hours = Math.floor(durationMin / 60);
       const mins = durationMin % 60;
       return {
@@ -4919,6 +4932,7 @@ export function createApp() {
           db.prepare('DELETE FROM maintenance_records').run();
           db.prepare('DELETE FROM trip_requests').run();
           db.prepare('DELETE FROM notifications').run();
+          db.prepare('UPDATE documents SET replaced_by_id = NULL').run();
           db.prepare('DELETE FROM documents').run();
           db.prepare('UPDATE vehicles SET default_driver_id = NULL').run();
           db.prepare('DELETE FROM vehicles').run();
@@ -4928,6 +4942,9 @@ export function createApp() {
           db.prepare('DELETE FROM sessions WHERE user_id != ?').run(req.user!.id);
           db.prepare('UPDATE users SET approved_by = NULL').run();
           db.prepare("DELETE FROM users WHERE role != 'ADM'").run();
+          db.prepare(
+            "INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES ('demo_seed_suppressed', '1', datetime('now'))"
+          ).run();
 
           recordAudit(db, req.user, 'ADMIN_FACTORY_RESET', 'SYSTEM', 0, null, {
             mode: 'FACTORY_RESET',
@@ -5001,9 +5018,9 @@ export function createApp() {
 
     let totalDurationMinutes = 0;
     completedTrips.forEach((t) => {
-      const s = new Date(t.actual_start_time || t.start_time).getTime();
-      const e = new Date(t.actual_end_time || t.end_time).getTime();
-      const durationMin = Math.max(1, Math.round((e - s) / 60000));
+      const s = new Date(t.actual_start_time || t.start_time || '').getTime();
+      const e = new Date(t.actual_end_time || t.end_time || '').getTime();
+      const durationMin = Number.isFinite(s) && Number.isFinite(e) ? Math.max(1, Math.round((e - s) / 60000)) : 1;
       totalDurationMinutes += durationMin;
     });
 
@@ -5637,16 +5654,29 @@ export function createApp() {
   });
 
   // Serve built static frontend assets if dist/ exists (for local prod & preview)
-  const distDir = path.join(process.cwd(), 'dist');
+  const appRoot = resolveAppRoot();
+  const candidateDistDir = path.join(appRoot, 'dist');
+  const distDir = fs.existsSync(candidateDistDir) ? candidateDistDir : path.join(process.cwd(), 'dist');
   if (fs.existsSync(distDir)) {
-    app.use(express.static(distDir));
-    app.get(/^(?!\/api).*/, (_req: Request, res: Response) => {
-      res.sendFile(path.join(distDir, 'index.html'));
+    app.use(express.static(distDir, {
+      setHeaders(res, filePath) {
+        if (filePath.endsWith('index.html') || filePath.endsWith('sw.js')) {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+      },
+    }));
+    app.get(/^(?!\/api).*/, (_req: Request, res: Response, next: NextFunction) => {
+      res.sendFile(path.join(distDir, 'index.html'), (err) => {
+        if (err && !res.headersSent) {
+          next(err);
+        }
+      });
     });
   }
 
   // Periodic background check for 5-min reminders and 20-min auto-cancellations
   const alertTimer = setInterval(() => {
+    if (!isSqlEngineReady()) return;
     try {
       checkTripAlertsAndAutoCancellations(getDb());
     } catch {}
@@ -5654,6 +5684,64 @@ export function createApp() {
   if (typeof alertTimer.unref === 'function') {
     alertTimer.unref();
   }
+
+  // Global API JSON error handler: guarantees every /api error returns structured JSON (never Express default HTML 500)
+  app.use('/api', (err: any, req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+
+    const status =
+      typeof err?.status === 'number' && err.status >= 400 && err.status < 600
+        ? err.status
+        : typeof err?.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 600
+        ? err.statusCode
+        : 500;
+
+    console.error(`[GalaxyFleet API Error] ${req.method} ${req.originalUrl} -> ${status}:`, err);
+
+    if (err?.type === 'entity.too.large' || status === 413) {
+      res.status(413).json({
+        error: 'Uploaded payload exceeds the 12MB server limit. Please resize or compress your image/document.',
+        code: 'PAYLOAD_TOO_LARGE',
+      });
+      return;
+    }
+
+    if (err?.type === 'entity.parse.failed' || (err instanceof SyntaxError && status === 400)) {
+      res.status(400).json({
+        error: 'Invalid JSON request payload.',
+        code: 'INVALID_JSON',
+      });
+      return;
+    }
+
+    const message =
+      typeof err?.message === 'string' && err.message.trim()
+        ? err.message
+        : 'Internal server error';
+
+    res.status(status).json({
+      error: message,
+      ...(typeof err?.code === 'string' && err.code ? { code: err.code } : {}),
+    });
+  });
+
+  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    const status =
+      typeof err?.status === 'number' && err.status >= 400 && err.status < 600
+        ? err.status
+        : typeof err?.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 600
+        ? err.statusCode
+        : 500;
+    console.error(`[GalaxyFleet HTTP Error] ${req.method} ${req.originalUrl} -> ${status}:`, err);
+    res.status(status).type('text/plain').send(status >= 500 ? 'Internal Server Error' : (err?.message || 'Request Error'));
+  });
 
   return app;
 }
