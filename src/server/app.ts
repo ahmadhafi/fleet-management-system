@@ -178,13 +178,15 @@ export function createApp() {
     }
   });
 
-  // Normalize API route prefix for Vercel serverless function invocations
-  app.use((req, _res, next) => {
-    if (!req.url.startsWith('/api') && !req.url.startsWith('/assets') && !req.url.startsWith('/icons') && !req.url.startsWith('/sw.js') && !req.url.startsWith('/manifest')) {
-      req.url = `/api${req.url.startsWith('/') ? '' : '/'}${req.url}`;
-    }
-    next();
-  });
+  // Normalize API route prefix only for Vercel serverless function invocations
+  if (process.env.VERCEL) {
+    app.use((req, _res, next) => {
+      if (!req.url.startsWith('/api') && !req.url.startsWith('/assets') && !req.url.startsWith('/icons') && !req.url.startsWith('/sw.js') && !req.url.startsWith('/manifest')) {
+        req.url = `/api${req.url.startsWith('/') ? '' : '/'}${req.url}`;
+      }
+      next();
+    });
+  }
 
   // Anti-Brute Force and Credential Stuffing Defense
   interface AuthAttempt {

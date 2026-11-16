@@ -12,6 +12,7 @@
     "build": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit && vite build",
     "start": "tsx src/server/index.ts",
     "db:init": "tsx scripts/init-db.ts",
+    "db:seed": "tsx scripts/seed-demo.ts",
     "test": "vitest run",
     "lint": "oxlint"
   },

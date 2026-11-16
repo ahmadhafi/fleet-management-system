@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for fleet-management-system-i-awbw on 2026-11-15T00:00:08Z
+# fly.toml app configuration file generated for fleet-management-system-i-awbw
 #
 # See https://docs.fly.io/reference/configuration for information about how to use this file.
 #
@@ -7,16 +7,22 @@ app = 'fleet-management-system-i-awbw'
 primary_region = 'ams'
 
 [build]
+
+[env]
+  PORT = '8080'
+  AUTO_SEED_DEMO = 'true'
+  NODE_ENV = 'production'
+
 [http_service]
   internal_port = 8080
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ['app']
 
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 256
+  memory_mb = 512

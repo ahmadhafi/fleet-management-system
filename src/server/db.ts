@@ -571,9 +571,15 @@ function seedDatabaseIfEmpty(db: AppDatabase) {
       VALUES (?, ?, ?, 'ADM', 1, 1, 'APPROVED', datetime('now'), 1)
     `).run(adminNickname, adminUsername, hashPassword(adminPassword));
   }
+
+  if (process.env.AUTO_SEED_DEMO === 'true' || process.env.SEED_DEMO_DATA === 'true') {
+    seedDemoFixtures(db);
+  }
 }
 
-function seedTestFixturesForVitest(db: AppDatabase) {
+export const seedTestFixturesForVitest = seedDemoFixtures;
+
+export function seedDemoFixtures(db: AppDatabase) {
   const userCount = (db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }).count;
   if (userCount > 1) return;
 

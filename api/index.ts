@@ -1,11 +1,11 @@
 import type { Request, Response } from 'express';
 import { createApp } from '../src/server/app.ts';
-import { ensureCloudSync, getBlobToken, persistDatabaseToCloudImmediate } from '../src/server/cloud-sync.ts';
+import { ensureCloudSync, getBlobToken, isBlobSyncSuspended, persistDatabaseToCloudImmediate } from '../src/server/cloud-sync.ts';
 
 const app = createApp();
 
 export default async function handler(req: Request, res: Response) {
-  const hasBlobToken = Boolean(getBlobToken());
+  const hasBlobToken = Boolean(getBlobToken()) && !isBlobSyncSuspended();
   const isMutation = ['POST', 'PATCH', 'PUT', 'DELETE'].includes((req.method || '').toUpperCase());
 
   if (hasBlobToken) {

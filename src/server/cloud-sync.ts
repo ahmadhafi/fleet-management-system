@@ -20,15 +20,46 @@ let lastSyncedUploadedAt: string | null = null;
 let lastCheckTimeMs = 0;
 let preferredAccessMode: 'public' | 'private' = 'public';
 let activeSyncOperation: Promise<void> | null = null;
+let blobSyncSuspended = false;
+
+export function isBlobSyncSuspended(): boolean {
+  return blobSyncSuspended;
+}
+
+export function resetBlobSyncSuspension(): void {
+  blobSyncSuspended = false;
+}
+
+function handleBlobError(err: unknown, context: string): void {
+  const msg = ((err as Error)?.message || String(err)).toLowerCase();
+  if (
+    msg.includes('usage') ||
+    msg.includes('limit') ||
+    msg.includes('paused') ||
+    msg.includes('suspend') ||
+    msg.includes('403') ||
+    msg.includes('payment') ||
+    msg.includes('forbidden')
+  ) {
+    if (!blobSyncSuspended) {
+      blobSyncSuspended = true;
+      console.warn(`[Vercel Blob Sync] Detected Vercel Blob store limit or suspension during ${context}: ${(err as Error)?.message}. Bypassing cloud sync to preserve fast local operations.`);
+    }
+  } else {
+    console.warn(`[Vercel Blob Sync] ${context} notice:`, (err as Error)?.message);
+  }
+}
 
 async function findBlobMeta(token: string): Promise<{ downloadUrl: string; uploadedAt: Date } | null> {
+  if (blobSyncSuspended) return null;
   try {
     const meta = await head(DB_FILENAME, { token });
     if (meta && meta.downloadUrl) {
       return { downloadUrl: meta.downloadUrl, uploadedAt: new Date(meta.uploadedAt) };
     }
-  } catch {
-    // Fallback to list in case pathname prefixing differs
+  } catch (err) {
+    handleBlobError(err, 'head metadata lookup');
+    if (blobSyncSuspended) return null;
   }
   try {
     const listed = await list({ prefix: DB_FILENAME, limit: 5, token });
@@ -36,15 +67,15 @@ async function findBlobMeta(token: string): Promise<{ downloadUrl: string; uploa
     if (match && match.downloadUrl) {
       return { downloadUrl: match.downloadUrl, uploadedAt: new Date(match.uploadedAt) };
     }
-  } catch {
-    // ignore list errors
+  } catch (err) {
+    handleBlobError(err, 'list fallback lookup');
   }
   return null;
 }
 
 export async function ensureCloudSync(forceCheck = false): Promise<void> {
   const token = getBlobToken();
-  if (!token) return;
+  if (!token || blobSyncSuspended) return;
 
   const now = Date.now();
   // Avoid hammering head() on burst parallel GET requests within 800ms if already synced once
@@ -116,13 +147,14 @@ export async function ensureCloudSync(forceCheck = false): Promise<void> {
 
 export async function persistDatabaseToCloudImmediate(): Promise<void> {
   const token = getBlobToken();
-  if (!token) return;
+  if (!token || blobSyncSuspended) return;
 
   if (activeSyncOperation) {
     await activeSyncOperation;
   }
 
   const runPersist = async () => {
+    if (blobSyncSuspended) return;
     const targetPath = getResolvedDbPath();
     // Ensure db exists and WAL is flushed to main file
     getDb();
@@ -143,6 +175,9 @@ export async function persistDatabaseToCloudImmediate(): Promise<void> {
           token,
         });
       } catch (firstErr) {
+        handleBlobError(firstErr, 'persist database initial mode');
+        if (blobSyncSuspended) return;
+
         // If user created a Private store instead of Public (or vice versa), automatically switch access mode
         const fallbackMode = preferredAccessMode === 'public' ? 'private' : 'public';
         result = await put(DB_FILENAME, buffer, {
@@ -165,7 +200,7 @@ export async function persistDatabaseToCloudImmediate(): Promise<void> {
       lastCheckTimeMs = Date.now();
       console.log(`[Vercel Blob Sync] Persisted database (${buffer.length} bytes) to Vercel Blob`);
     } catch (err) {
-      console.error('[Vercel Blob Sync] Error persisting database to Vercel Blob:', (err as Error).message);
+      handleBlobError(err, 'persist database fallback');
     }
   };
 
