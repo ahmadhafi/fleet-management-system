@@ -2064,6 +2064,67 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         // 5. Dictionary completeness
         expect(Object.keys(DICTIONARY).length).toBeGreaterThan(50);
       });
+
+      it('verifies cross-platform notification handler resolves ServiceWorkerRegistration and handles Illegal constructor safely', async () => {
+        const { triggerSystemNotification } = await import('../src/utils/notification.ts');
+
+        // In test / SSR / Node environment where window is undefined or Notification not granted
+        const res = await triggerSystemNotification('Test Alert', { body: 'Testing cross-platform safety' });
+        expect(typeof res).toBe('boolean');
+
+        // Test with simulated Android Chrome ServiceWorkerRegistration
+        const origWindowDesc = Object.getOwnPropertyDescriptor(globalThis, 'window');
+        const origNavDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+
+        try {
+          let swNotificationShown = false;
+          let swTitle = '';
+
+          Object.defineProperty(globalThis, 'window', {
+            value: {
+              Notification: class MockNotification {
+                constructor() {
+                  throw new TypeError("Failed to construct 'Notification': Illegal constructor. Use ServiceWorkerRegistration.showNotification() instead.");
+                }
+                static permission = 'granted';
+              },
+            },
+            configurable: true,
+            writable: true,
+          });
+
+          Object.defineProperty(globalThis, 'navigator', {
+            value: {
+              serviceWorker: {
+                getRegistration: async () => ({
+                  showNotification: async (title: string) => {
+                    swNotificationShown = true;
+                    swTitle = title;
+                  },
+                }),
+              },
+            },
+            configurable: true,
+            writable: true,
+          });
+
+          const handled = await triggerSystemNotification('Booking Approved!', { body: 'Driver dispatched' });
+          expect(handled).toBe(true);
+          expect(swNotificationShown).toBe(true);
+          expect(swTitle).toBe('Booking Approved!');
+        } finally {
+          if (origWindowDesc) {
+            Object.defineProperty(globalThis, 'window', origWindowDesc);
+          } else {
+            delete (globalThis as any).window;
+          }
+          if (origNavDesc) {
+            Object.defineProperty(globalThis, 'navigator', origNavDesc);
+          } else {
+            delete (globalThis as any).navigator;
+          }
+        }
+      });
     });
   });
 });

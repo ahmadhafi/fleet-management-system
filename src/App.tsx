@@ -64,6 +64,7 @@ import { SamsungBusLogo } from './components/SamsungBusLogo';
 import { RouteFields } from './components/RouteFields';
 import { VehicleArt } from './components/VehicleArt';
 import { getDriverAvatarDataUri } from './components/CarAvatarArt';
+import { triggerSystemNotification } from './utils/notification';
 import {
   Chip,
   StatusBadge,
@@ -965,12 +966,9 @@ export function App() {
           }),
         });
 
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('GalaxyFleet PWA Push Active', {
-            body: 'You will now receive instant booking, reminder, and dispatch notifications.',
-            icon: '/icons/icon.svg',
-          });
-        }
+        await triggerSystemNotification('GalaxyFleet PWA Push Active', {
+          body: 'You will now receive instant booking, reminder, and dispatch notifications.',
+        });
 
         setStatusBanner({
           type: 'success',
@@ -1276,12 +1274,8 @@ export function App() {
             // Immediately sync trips and bookings when an alert arrives
             apiRequest('/api/trips').then((r) => { if (r.trips) setTrips(r.trips); }).catch(() => {});
             apiRequest('/api/bookings').then((r) => { if (r.bookings) setBookings(r.bookings); }).catch(() => {});
-            if ('Notification' in window && Notification.permission === 'granted') {
-              for (const item of newItems) {
-                try {
-                  new Notification(item.title, { body: item.body, icon: '/icons/icon.svg' });
-                } catch {}
-              }
+            for (const item of newItems) {
+              triggerSystemNotification(item.title, { body: item.body });
             }
           }
           return list;
@@ -1343,14 +1337,9 @@ export function App() {
 
                 if (payload.type === 'TRIP_APPROVED') {
                   playNotificationChime();
-                  if ('Notification' in window && Notification.permission === 'granted') {
-                    try {
-                      new Notification('Booking Approved & Dispatched!', {
-                        body: `Driver ${trip.assigned_driver_name || 'Assigned'} has been dispatched with ${trip.make} ${trip.model} (${trip.registration_plate || 'Company Fleet'}).`,
-                        icon: '/icons/icon.svg',
-                      });
-                    } catch {}
-                  }
+                  triggerSystemNotification('Booking Approved & Dispatched!', {
+                    body: `Driver ${trip.assigned_driver_name || 'Assigned'} has been dispatched with ${trip.make} ${trip.model} (${trip.registration_plate || 'Company Fleet'}).`,
+                  });
                   setStatusBanner({
                     type: 'success',
                     text: `Booking Approved! Driver ${trip.assigned_driver_name || 'Assigned'} has been dispatched with ${trip.make} ${trip.model} (${trip.registration_plate || 'Company Fleet'}).`,
@@ -1391,11 +1380,7 @@ export function App() {
                   return [notif, ...prev];
                 });
                 playNotificationChime();
-                if ('Notification' in window && Notification.permission === 'granted') {
-                  try {
-                    new Notification(notif.title, { body: notif.body, icon: '/icons/icon.svg' });
-                  } catch {}
-                }
+                triggerSystemNotification(notif.title, { body: notif.body });
                 apiRequest('/api/trips').then((r) => { if (r.trips) setTrips(r.trips); }).catch(() => {});
                 apiRequest('/api/bookings').then((r) => { if (r.bookings) setBookings(r.bookings); }).catch(() => {});
               }
