@@ -43,12 +43,37 @@ function setGoogTransCookie(lang: SupportedLang) {
   }
 }
 
+function clearGoogTransCookie() {
+  try {
+    const exp = 'Thu, 01 Jan 1970 00:00:00 GMT';
+    document.cookie = `googtrans=; expires=${exp}; path=/; SameSite=Lax`;
+    const host = window.location.hostname;
+    if (host) {
+      document.cookie = `googtrans=; expires=${exp}; path=/; domain=${host}; SameSite=Lax`;
+      const parts = host.split('.');
+      if (parts.length >= 2) {
+        const rootDomain = `.${parts.slice(-2).join('.')}`;
+        document.cookie = `googtrans=; expires=${exp}; path=/; domain=${rootDomain}; SameSite=Lax`;
+      }
+    }
+  } catch {
+    // ignore cookie errors
+  }
+}
+
 function triggerGoogleTranslateCombo(lang: SupportedLang): boolean {
   const combo = document.querySelector('select.goog-te-combo') as HTMLSelectElement | null;
   if (!combo) return false;
   combo.value = lang;
   combo.dispatchEvent(new Event('change', { bubbles: true }));
   combo.dispatchEvent(new Event('input', { bubbles: true }));
+  if (typeof (combo as any).onchange === 'function') {
+    try {
+      (combo as any).onchange();
+    } catch {
+      // ignore handler error
+    }
+  }
   return true;
 }
 
@@ -80,7 +105,13 @@ export const LanguageSwitcher: React.FC<{ compact?: boolean; darkGlass?: boolean
     } catch {
       // ignore
     }
-    setGoogTransCookie(nextLang);
+
+    if (nextLang === 'en') {
+      clearGoogTransCookie();
+      setGoogTransCookie('en');
+    } else {
+      setGoogTransCookie(nextLang);
+    }
     document.documentElement.lang = nextLang;
 
     const triggered = triggerGoogleTranslateCombo(nextLang);
@@ -166,7 +197,14 @@ export const LanguageSwitcher: React.FC<{ compact?: boolean; darkGlass?: boolean
               transition: 'all 140ms ease',
             }}
           >
-            {compact ? item.short : `${item.short} ${item.label}`}
+            {compact ? (
+              item.short
+            ) : (
+              <>
+                <span>{item.short}</span>
+                <span className="gf-lang-label-full"> {item.label}</span>
+              </>
+            )}
           </button>
         );
       })}

@@ -1917,5 +1917,85 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         }
       });
     });
+
+    describe('Bug Fixes: High-Definition Satellite/Terrain Maps, Google Translate CSP & Multi-Device Responsive UI', () => {
+      it('configures CSP to permit Google Translate scripts, styles, frames, fonts, and connects alongside Google Maps tiles', async () => {
+        const res = await request(app).get('/api/health');
+        expect(res.status).toBe(200);
+
+        const csp = res.headers['content-security-policy'];
+        expect(csp).toBeDefined();
+
+        // 1. Google Translate element script, evaluation, and gstatic origins
+        expect(csp).toContain('https://translate.google.com');
+        expect(csp).toContain('https://translate.googleapis.com');
+        expect(csp).toContain('https://translate-pa.googleapis.com');
+        expect(csp).toContain('https://www.gstatic.com');
+        expect(csp).toContain("'unsafe-eval'");
+
+        // 2. Styles and fonts
+        expect(csp).toContain('https://fonts.googleapis.com');
+        expect(csp).toContain('font-src');
+        expect(csp).toContain('https://fonts.gstatic.com');
+
+        // 3. Iframe and connect
+        expect(csp).toContain('frame-src');
+        expect(csp).toContain('https://translate.google.com https://translate.googleapis.com');
+        expect(csp).toContain('connect-src');
+        expect(csp).toContain('https://translate.googleapis.com');
+
+        // 4. Tiles img-src permissions (Google tiles, Carto, Esri, OSM)
+        expect(csp).toContain('https://*.google.com');
+        expect(csp).toContain('https://*.basemaps.cartocdn.com');
+        expect(csp).toContain('https://server.arcgisonline.com');
+      });
+
+      it('validates Google Hybrid Satellite and Topographic Terrain map layers with automatic failover URLs', async () => {
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const mapViewContent = fs.readFileSync(path.resolve(__dirname, '../src/components/MapView.tsx'), 'utf-8');
+
+        // Satellite layer configuration
+        expect(mapViewContent).toContain("name: 'Satellite'");
+        expect(mapViewContent).toContain("'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'");
+        expect(mapViewContent).toContain('maxZoom: 21');
+        expect(mapViewContent).toContain("subdomains: ['0', '1', '2', '3']");
+
+        // Terrain layer configuration
+        expect(mapViewContent).toContain("name: 'Terrain'");
+        expect(mapViewContent).toContain("'https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}'");
+        expect(mapViewContent).toContain('maxZoom: 20');
+
+        // Automatic failover URLs
+        expect(mapViewContent).toContain("SATELLITE_FALLBACK_TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'");
+        expect(mapViewContent).toContain("TERRAIN_FALLBACK_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'");
+        expect(mapViewContent).toContain("OSM_FALLBACK_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'");
+      });
+
+      it('verifies responsive layout CSS eliminating navigation deadzones, preventing translation offset, and styling map controls', async () => {
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const cssContent = fs.readFileSync(path.resolve(__dirname, '../src/styles/app.css'), 'utf-8');
+
+        // 1. Navigation breakpoint harmonization at 768px (eliminates 640px-820px deadzone)
+        expect(cssContent).toContain('@media (max-width: 767px)');
+        expect(cssContent).toContain('@media (min-width: 768px) and (max-width: 1023px)');
+        expect(cssContent).toContain('@media (min-width: 1024px)');
+
+        // 2. Google Translate body offset and banner suppression
+        expect(cssContent).toContain('top: 0 !important;');
+        expect(cssContent).toContain('.goog-te-banner-frame');
+        expect(cssContent).toContain('display: none !important;');
+
+        // 3. Map overlay responsive classes
+        expect(cssContent).toContain('.gf-map-layer-pill-group');
+        expect(cssContent).toContain('.gf-map-layer-btn');
+        expect(cssContent).toContain('.gf-map-overlay-actions');
+
+        // 4. Ride layout calculated height without 64px overflow
+        expect(cssContent).toContain('height: calc(100dvh - 64px);');
+        expect(cssContent).toContain('margin-top: 64px;');
+      });
+    });
   });
 });

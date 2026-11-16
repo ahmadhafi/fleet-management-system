@@ -246,7 +246,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         onSwitchToAdmin={onSwitchToAdmin}
       />
 
-      <div className="gf-ride-layout" style={{ paddingTop: '64px' }}>
+      <div className="gf-ride-layout">
         {/* Full-bleed Map Canvas */}
         {mapStage}
 

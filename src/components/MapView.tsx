@@ -74,6 +74,8 @@ const DEFAULT_CENTER: [number, number] = [-6.19834, 106.88873];
 export type MapLayerKey = 'streets' | 'satellite' | 'terrain';
 
 export const OSM_FALLBACK_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+export const SATELLITE_FALLBACK_TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+export const TERRAIN_FALLBACK_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 export const MAP_LAYERS: Record<MapLayerKey, { name: string; url: string; options: L.TileLayerOptions }> = {
   streets: {
@@ -92,27 +94,28 @@ export const MAP_LAYERS: Record<MapLayerKey, { name: string; url: string; option
   },
   satellite: {
     name: 'Satellite',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    url: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
     options: {
-      maxZoom: 19,
+      maxZoom: 21,
+      subdomains: ['0', '1', '2', '3'],
       updateWhenZooming: false,
       updateWhenIdle: true,
       keepBuffer: 4,
       crossOrigin: true,
-      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+      attribution: 'Map &copy; Google Maps &mdash; Satellite Hybrid',
     },
   },
   terrain: {
     name: 'Terrain',
-    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    url: 'https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
     options: {
-      maxZoom: 17,
-      subdomains: ['a', 'b', 'c'],
+      maxZoom: 20,
+      subdomains: ['0', '1', '2', '3'],
       updateWhenZooming: false,
       updateWhenIdle: true,
       keepBuffer: 4,
       crossOrigin: true,
-      attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
+      attribution: 'Map &copy; Google Maps &mdash; Topographic Terrain',
     },
   },
 };
@@ -346,10 +349,12 @@ export const MapView: React.FC<MapViewProps> = ({
     });
     layer.on('tileerror', () => {
       tileErrorCount += 1;
-      if (layerKey === 'streets' && !didFailover && tileErrorCount >= 3 && baseTileLayerRef.current === layer) {
+      if (!didFailover && tileErrorCount >= 3 && baseTileLayerRef.current === layer) {
         didFailover = true;
         map.removeLayer(layer);
-        const fallbackLayer = L.tileLayer(OSM_FALLBACK_TILE_URL, {
+
+        let fallbackUrl = OSM_FALLBACK_TILE_URL;
+        let fallbackOptions: L.TileLayerOptions = {
           maxZoom: 19,
           subdomains: ['a', 'b', 'c'],
           updateWhenZooming: false,
@@ -358,7 +363,33 @@ export const MapView: React.FC<MapViewProps> = ({
           crossOrigin: true,
           attribution:
             '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
-        });
+        };
+
+        if (layerKey === 'satellite') {
+          fallbackUrl = SATELLITE_FALLBACK_TILE_URL;
+          fallbackOptions = {
+            maxZoom: 19,
+            updateWhenZooming: false,
+            updateWhenIdle: true,
+            keepBuffer: 4,
+            crossOrigin: true,
+            attribution: 'Tiles &copy; Esri &mdash; World Imagery',
+          };
+        } else if (layerKey === 'terrain') {
+          fallbackUrl = TERRAIN_FALLBACK_TILE_URL;
+          fallbackOptions = {
+            maxZoom: 19,
+            subdomains: ['a', 'b', 'c'],
+            updateWhenZooming: false,
+            updateWhenIdle: true,
+            keepBuffer: 4,
+            crossOrigin: true,
+            attribution:
+              '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
+          };
+        }
+
+        const fallbackLayer = L.tileLayer(fallbackUrl, fallbackOptions);
         fallbackLayer.on('load', () => {
           if (tileLoadSafetyTimerRef.current) {
             window.clearTimeout(tileLoadSafetyTimerRef.current);
@@ -967,6 +998,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
       {/* Floating 3-Layer Map Switcher (Streets, Satellite, Terrain) */}
       <div
+        className="gf-map-layer-switcher"
         style={{
           position: 'absolute',
           top: 'calc(74px + var(--safe-top))',
@@ -977,92 +1009,40 @@ export const MapView: React.FC<MapViewProps> = ({
           gap: '4px',
         }}
       >
-        <div
-          style={{
-            background: 'var(--color-bg-surface)',
-            borderRadius: 'var(--radius-pill)',
-            boxShadow: 'var(--shadow-floating)',
-            padding: '3px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '3px',
-            border: '1px solid var(--color-divider)',
-          }}
-        >
+        <div className="gf-map-layer-pill-group">
           <button
             type="button"
-            className="pressable"
+            className={`pressable gf-map-layer-btn ${activeLayer === 'streets' ? 'active' : ''}`}
             onClick={() => setActiveLayer('streets')}
-            style={{
-              border: 'none',
-              cursor: 'pointer',
-              padding: '6px 12px',
-              borderRadius: 'var(--radius-pill)',
-              fontSize: '12px',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              background: activeLayer === 'streets' ? '#0072de' : 'transparent',
-              color: activeLayer === 'streets' ? '#ffffff' : 'var(--color-text-secondary)',
-              transition: 'all 140ms ease',
-            }}
             title="Standard street map layer"
           >
             <MapIcon size={13} />
-            <span>Streets</span>
+            <span className="gf-map-layer-btn-label">Streets</span>
           </button>
           <button
             type="button"
-            className="pressable"
+            className={`pressable gf-map-layer-btn ${activeLayer === 'satellite' ? 'active' : ''}`}
             onClick={() => setActiveLayer('satellite')}
-            style={{
-              border: 'none',
-              cursor: 'pointer',
-              padding: '6px 12px',
-              borderRadius: 'var(--radius-pill)',
-              fontSize: '12px',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              background: activeLayer === 'satellite' ? '#0072de' : 'transparent',
-              color: activeLayer === 'satellite' ? '#ffffff' : 'var(--color-text-secondary)',
-              transition: 'all 140ms ease',
-            }}
             title="High-resolution aerial satellite imagery"
           >
             <Layers size={13} />
-            <span>Satellite</span>
+            <span className="gf-map-layer-btn-label">Satellite</span>
           </button>
           <button
             type="button"
-            className="pressable"
+            className={`pressable gf-map-layer-btn ${activeLayer === 'terrain' ? 'active' : ''}`}
             onClick={() => setActiveLayer('terrain')}
-            style={{
-              border: 'none',
-              cursor: 'pointer',
-              padding: '6px 12px',
-              borderRadius: 'var(--radius-pill)',
-              fontSize: '12px',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              background: activeLayer === 'terrain' ? '#0072de' : 'transparent',
-              color: activeLayer === 'terrain' ? '#ffffff' : 'var(--color-text-secondary)',
-              transition: 'all 140ms ease',
-            }}
             title="Topographic elevation terrain layer"
           >
             <Mountain size={13} />
-            <span>Terrain</span>
+            <span className="gf-map-layer-btn-label">Terrain</span>
           </button>
         </div>
       </div>
 
       {/* Top-Right Metrics / Badges / Locate Me GPS Button */}
       <div
+        className="gf-map-overlay-actions"
         style={{
           position: 'absolute',
           top: 'calc(74px + var(--safe-top))',
