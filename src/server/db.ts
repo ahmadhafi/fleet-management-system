@@ -38,11 +38,10 @@ let dbInstance: AppDatabase | null = null;
 export function getDb(customPath?: string): AppDatabase {
   if (dbInstance && !customPath) return dbInstance;
 
-  const isVercel = Boolean(process.env.VERCEL);
   const resolvedPath =
     customPath ||
     process.env.DB_PATH ||
-    (isVercel ? '/tmp/fleet-management-v2.db' : path.join(process.cwd(), 'data', 'fleet-management-v2.db'));
+    path.join(process.cwd(), 'data', 'fleet-management-v2.db');
 
   if (resolvedPath !== ':memory:') {
     const dir = path.dirname(resolvedPath);
@@ -53,13 +52,8 @@ export function getDb(customPath?: string): AppDatabase {
 
   const db = new DatabaseSync(resolvedPath);
   if (resolvedPath !== ':memory:') {
-    if (isVercel) {
-      db.exec('PRAGMA journal_mode = DELETE;');
-      db.exec('PRAGMA synchronous = FULL;');
-    } else {
-      db.exec('PRAGMA journal_mode = WAL;');
-      db.exec('PRAGMA synchronous = NORMAL;');
-    }
+    db.exec('PRAGMA journal_mode = WAL;');
+    db.exec('PRAGMA synchronous = NORMAL;');
   }
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec('PRAGMA busy_timeout = 5000;');
