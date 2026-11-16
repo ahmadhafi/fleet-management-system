@@ -2025,6 +2025,45 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(bottomSheetContent).toContain('const isCollapsed = isManualCollapsed;');
         expect(bottomSheetContent).not.toContain('const isCollapsed = isManualCollapsed || snap === \'peek\';');
       });
+
+      it('verifies enterprise native i18n dictionary, instant phrase translation, and DOM translation engine', async () => {
+        const { t, SUPPORTED_LANGUAGES, DICTIONARY } = await import('../src/utils/i18n.ts');
+
+        // 1. Supported languages include en, id, ko
+        expect(SUPPORTED_LANGUAGES.map((l: any) => l.code)).toEqual(['en', 'id', 'ko']);
+
+        // 2. Accurate Indonesian translations
+        expect(t('Home', 'id')).toBe('Beranda');
+        expect(t('Activity', 'id')).toBe('Aktivitas');
+        expect(t('Inbox', 'id')).toBe('Kotak Masuk');
+        expect(t('Profile', 'id')).toBe('Profil');
+        expect(t('Dispatch', 'id')).toBe('Disposisi');
+        expect(t('Admin', 'id')).toBe('Admin');
+        expect(t('Streets', 'id')).toBe('Jalan');
+        expect(t('Satellite', 'id')).toBe('Satelit');
+        expect(t('Terrain', 'id')).toBe('Topografi');
+        expect(t('Book a Ride', 'id')).toBe('Pesan Kendaraan');
+        expect(t('Confirm Booking', 'id')).toBe('Konfirmasi Pemesanan');
+        expect(t('PENDING', 'id')).toBe('Menunggu Persetujuan');
+        expect(t('APPROVED', 'id')).toBe('Disetujui');
+        expect(t('Full Day Reservation', 'id')).toBe('Reservasi Seharian Penuh');
+        expect(t('Drop & Pick Up Later', 'id')).toBe('Antar & Jemput Nanti');
+        expect(t('Sign Out', 'id')).toBe('Keluar');
+
+        // 3. Accurate Korean translations
+        expect(t('Home', 'ko')).toBe('홈');
+        expect(t('Streets', 'ko')).toBe('일반지도');
+        expect(t('Satellite', 'ko')).toBe('위성');
+        expect(t('Terrain', 'ko')).toBe('지형');
+        expect(t('Sign Out', 'ko')).toBe('로그아웃');
+
+        // 4. English default preservation
+        expect(t('Home', 'en')).toBe('Home');
+        expect(t('Streets', 'en')).toBe('Streets');
+
+        // 5. Dictionary completeness
+        expect(Object.keys(DICTIONARY).length).toBeGreaterThan(50);
+      });
     });
   });
 });

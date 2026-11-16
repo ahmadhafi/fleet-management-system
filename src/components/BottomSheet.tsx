@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Car, Minimize2 } from 'lucide-react';
+import { useAppLanguage } from '../utils/i18n';
 
 export type SnapPoint = 'peek' | 'half' | 'full';
 
@@ -34,6 +35,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   desktopNav,
   ariaLabel = 'Booking sheet',
 }) => {
+  const { t } = useAppLanguage();
   const [dragHeightPx, setDragHeightPx] = useState<number | null>(null);
   const [isManualCollapsed, setIsManualCollapsed] = useState(false);
   const startYRef = useRef<number>(0);
@@ -189,15 +191,15 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
           id="gf-floating-expand-btn"
           className="gf-floating-expand-card pressable"
           onClick={handleExpand}
-          title="Expand booking and operational container"
-          aria-label="Expand booking and operational container"
+          title={t('Expand booking and operational container')}
+          aria-label={t('Expand booking and operational container')}
         >
           <div className="gf-circle-icon is-green" style={{ width: '36px', height: '36px' }}>
             <Car size={20} />
           </div>
           <div style={{ textAlign: 'left' }}>
-            <div style={{ fontWeight: 800, fontSize: '13.5px', lineHeight: 1.2 }}>Open Fleet & Booking</div>
-            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>Click to view forms & schedule</div>
+            <div style={{ fontWeight: 800, fontSize: '13.5px', lineHeight: 1.2 }}>{t('Open Fleet & Booking')}</div>
+            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>{t('Click to view forms & schedule')}</div>
           </div>
           <ChevronRight size={18} style={{ color: 'var(--color-green)' }} />
         </button>
@@ -215,7 +217,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-green)' }} />
             <span className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-secondary)' }}>
-              Operations & Booking
+              {t('Operations & Booking')}
             </span>
           </div>
           <button
@@ -223,12 +225,12 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
             id="gf-container-collapse-btn"
             className="gf-btn gf-btn-secondary gf-btn-sm pressable"
             onClick={handleCollapse}
-            title="Collapse container to view full map"
-            aria-label="Collapse container to view full map"
+            title={t('Collapse container to view full map')}
+            aria-label={t('Collapse container to view full map')}
             style={{ minHeight: '30px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
           >
             <Minimize2 size={13} />
-            <span>Collapse to Map</span>
+            <span>{t('Collapse to Map')}</span>
             <ChevronLeft size={14} />
           </button>
         </div>

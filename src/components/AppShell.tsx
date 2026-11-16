@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { SamsungBusLogo } from './SamsungBusLogo';
+import { useAppLanguage } from '../utils/i18n';
 
 
 export type NavSection = 'HOME' | 'ACTIVITY' | 'INBOX' | 'PROFILE' | 'DRIVER' | 'ADMIN';
@@ -77,6 +78,8 @@ export const EmbeddedTopNav: React.FC<EmbeddedTopNavProps> = ({
         ...(isPrivileged ? [{ id: 'ADMIN' as const, label: 'Admin', icon: <ShieldCheck size={17} /> }] : []),
       ];
 
+  const { t } = useAppLanguage();
+
   const handleSelectTab = (id: NavSection) => {
     if (id === 'DRIVER' && onSwitchToDriverDispatch) {
       onSwitchToDriverDispatch();
@@ -118,7 +121,7 @@ export const EmbeddedTopNav: React.FC<EmbeddedTopNavProps> = ({
               aria-current={active ? 'page' : undefined}
             >
               {item.icon}
-              <span>{item.label}</span>
+              <span>{t(item.label)}</span>
               {item.badge !== undefined && item.badge > 0 && (
                 <span className="gf-nav-badge">{item.badge}</span>
               )}
@@ -140,10 +143,10 @@ export const EmbeddedTopNav: React.FC<EmbeddedTopNavProps> = ({
             className="gf-btn gf-btn-secondary pressable"
             onClick={onOpenProfile}
             style={{ fontSize: '13px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', height: '36px' }}
-            title="My Profile & Change Password"
+            title={t('My Profile & Change Password')}
           >
             <User size={15} color="#0072de" />
-            <span style={{ fontWeight: 700 }}>{userNickname || 'Profile'}</span>
+            <span style={{ fontWeight: 700 }}>{userNickname || t('Profile')}</span>
           </button>
         )}
 
@@ -158,11 +161,11 @@ export const EmbeddedTopNav: React.FC<EmbeddedTopNavProps> = ({
           id="topbar-signout-btn"
           className="gf-topbar-signout-btn pressable"
           onClick={onSignOut}
-          aria-label="Sign out"
-          title="Sign out of account"
+          aria-label={t('Sign Out')}
+          title={t('Sign Out')}
         >
           <LogOut size={16} />
-          <span className="gf-topbar-btn-text">Sign Out</span>
+          <span className="gf-topbar-btn-text">{t('Sign Out')}</span>
         </button>
       </div>
     </header>
@@ -212,6 +215,8 @@ export const AppShell: React.FC<AppShellProps> = ({
   onSwitchToDriverDispatch,
   onSwitchToAdmin,
 }) => {
+  const { t } = useAppLanguage();
+
   const navItems: NavItem[] = isDriverOnly
     ? [
         { id: 'DRIVER', label: 'Dispatch', icon: <Navigation size={22} />, badge: pendingDispatchCount },
@@ -220,7 +225,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         { id: 'PROFILE', label: 'Profile', icon: <User size={22} /> },
       ]
     : [
-        { id: 'HOME', label: 'Home', icon: <Home size={22} /> },
+        { id: 'HOME', label: 'Home', icon: <Home size={22} />, },
         { id: 'ACTIVITY', label: 'Activity', icon: <Clock size={22} /> },
         { id: 'INBOX', label: 'Inbox', icon: <Inbox size={22} />, badge: unreadInboxCount },
         { id: 'PROFILE', label: 'Profile', icon: <User size={22} /> },
@@ -268,7 +273,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                   aria-current={active ? 'page' : undefined}
                 >
                   {item.icon}
-                  <span>{item.label}</span>
+                  <span>{t(item.label)}</span>
                   {item.badge !== undefined && item.badge > 0 && <span className="gf-nav-badge">{item.badge}</span>}
                 </button>
               );
@@ -307,6 +312,8 @@ export const DesktopHeaderNav: React.FC<DesktopHeaderNavProps> = ({
   onSwitchToDriverDispatch,
   onSwitchToAdmin,
 }) => {
+  const { t } = useAppLanguage();
+
   const items: NavItem[] = isDriverOnly
     ? [
         { id: 'DRIVER', label: 'Dispatch', icon: <Navigation size={18} /> },
@@ -354,11 +361,11 @@ export const DesktopHeaderNav: React.FC<DesktopHeaderNavProps> = ({
               className="gf-btn gf-btn-secondary pressable"
               style={{ minHeight: '34px', padding: '0 10px', fontSize: '13px', color: 'var(--color-status-red-fg)', borderRadius: 'var(--radius-control)' }}
               onClick={onSignOut}
-              aria-label="Sign out"
-              title="Sign out"
+              aria-label={t('Sign Out')}
+              title={t('Sign Out')}
             >
               <LogOut size={15} />
-              <span>Sign Out</span>
+              <span>{t('Sign Out')}</span>
             </button>
           )}
         </div>
@@ -384,7 +391,7 @@ export const DesktopHeaderNav: React.FC<DesktopHeaderNavProps> = ({
               aria-current={active ? 'page' : undefined}
             >
               {item.icon}
-              <span>{item.label}</span>
+              <span>{t(item.label)}</span>
               {item.badge !== undefined && item.badge > 0 && <span className="gf-nav-badge">{item.badge}</span>}
             </button>
           );
@@ -422,6 +429,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
   children,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+  const { t } = useAppLanguage();
 
   const navButtons = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -437,7 +445,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
         }}
       >
         <Map size={18} />
-        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>Fleet Live Map</span>
+        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>{t('Fleet Live Map')}</span>
         <span className="gf-dot-green" title="Live GPS & Pool tracking" />
       </button>
 
@@ -453,7 +461,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
         }}
       >
         <FileCheck size={18} />
-        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>Approvals & Dispatch</span>
+        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>{t('Approvals & Dispatch')}</span>
         {pendingCount > 0 && (
           <span className="gf-badge gf-badge-amber" style={{ fontSize: '12px', padding: '2px 8px' }}>
             {pendingCount}
@@ -473,7 +481,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
         }}
       >
         <Car size={18} />
-        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>Fleet, Drivers & Energy</span>
+        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>{t('Fleet, Drivers & Energy')}</span>
       </button>
 
       {/* 4. Usage Analytics & Reports */}
@@ -488,7 +496,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
         }}
       >
         <BarChart3 size={18} />
-        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>Analytics & Reports (IDR)</span>
+        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>{t('Analytics & Reports (IDR)')}</span>
       </button>
 
       {/* 5. Dedicated Audit Trail Module */}
@@ -503,7 +511,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
         }}
       >
         <ScrollText size={18} />
-        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>Audit Trail</span>
+        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>{t('Audit Trail')}</span>
       </button>
 
       <div style={{ borderTop: '1px solid var(--color-divider)', margin: '8px 0' }} />
@@ -515,7 +523,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
         style={{ justifyContent: 'flex-start', gap: '10px', fontSize: '14px', padding: '10px 14px' }}
         onClick={onSignOut}
       >
-        <LogOut size={18} /> <span>Sign Out</span>
+        <LogOut size={18} /> <span>{t('Sign Out')}</span>
       </button>
     </div>
   );
@@ -534,7 +542,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
             className="type-caption pressable"
             onClick={onOpenProfile}
             style={{ fontSize: '12.5px', color: 'var(--color-text-secondary)', cursor: onOpenProfile ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '5px' }}
-            title="My Profile & Change Password"
+            title={t('My Profile & Change Password')}
           >
             <User size={14} color="#0072de" />
             <span>Admin Console • {userNickname} ({userRole})</span>
@@ -556,10 +564,10 @@ export const AdminShell: React.FC<AdminShellProps> = ({
             </button>
             <div>
               <div className="type-section" style={{ fontSize: '18px', fontWeight: 800 }}>
-                GalaxyFleet Admin Console
+                {t('GalaxyFleet Admin Console')}
               </div>
               <div className="type-caption" style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-                {vehicleCount} Operational Vehicles • {groupCount} Groups • Currency: IDR (Rp)
+                {vehicleCount} {t('Operational Vehicles')} • {groupCount} {t('Groups')} • {t('Currency: IDR (Rp)')}
               </div>
             </div>
           </div>
@@ -575,10 +583,10 @@ export const AdminShell: React.FC<AdminShellProps> = ({
                 className="gf-btn gf-btn-secondary pressable"
                 onClick={onOpenProfile}
                 style={{ fontSize: '13.5px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                title="My Account Profile & Change Password"
+                title={t('My Account Profile & Change Password')}
               >
                 <User size={16} />
-                <span>Profile</span>
+                <span>{t('Profile')}</span>
               </button>
             )}
             <button
@@ -588,7 +596,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
               onClick={onSignOut}
               style={{ fontSize: '13.5px', padding: '8px 14px' }}
             >
-              <LogOut size={16} /> Sign Out
+              <LogOut size={16} /> {t('Sign Out')}
             </button>
           </div>
         </header>

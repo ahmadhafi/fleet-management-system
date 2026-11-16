@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import { ArrowLeft, Crosshair, LocateFixed, Navigation2, Users, WifiOff, Layers, Map as MapIcon, Mountain } from 'lucide-react';
 import { apiRequest } from '../api';
 import { resolveCarAvatarKey, getCarFrontAvatarSvg, getDriverAvatarDataUri } from './CarAvatarArt';
+import { useAppLanguage } from '../utils/i18n';
 
 export interface GeoPlace {
   name: string;
@@ -251,6 +252,7 @@ export const MapView: React.FC<MapViewProps> = ({
   focusedVehicleId,
   onSelectVehicle,
 }) => {
+  const { t } = useAppLanguage();
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const baseTileLayerRef = useRef<L.TileLayer | null>(null);
@@ -1003,28 +1005,28 @@ export const MapView: React.FC<MapViewProps> = ({
             type="button"
             className={`pressable gf-map-layer-btn ${activeLayer === 'streets' ? 'active' : ''}`}
             onClick={() => setActiveLayer('streets')}
-            title="Standard street map layer"
+            title={t('Streets')}
           >
             <MapIcon size={13} />
-            <span className="gf-map-layer-btn-label">Streets</span>
+            <span className="gf-map-layer-btn-label">{t('Streets')}</span>
           </button>
           <button
             type="button"
             className={`pressable gf-map-layer-btn ${activeLayer === 'satellite' ? 'active' : ''}`}
             onClick={() => setActiveLayer('satellite')}
-            title="High-resolution aerial satellite imagery"
+            title={t('Satellite')}
           >
             <Layers size={13} />
-            <span className="gf-map-layer-btn-label">Satellite</span>
+            <span className="gf-map-layer-btn-label">{t('Satellite')}</span>
           </button>
           <button
             type="button"
             className={`pressable gf-map-layer-btn ${activeLayer === 'terrain' ? 'active' : ''}`}
             onClick={() => setActiveLayer('terrain')}
-            title="Topographic elevation terrain layer"
+            title={t('Terrain')}
           >
             <Mountain size={13} />
-            <span className="gf-map-layer-btn-label">Terrain</span>
+            <span className="gf-map-layer-btn-label">{t('Terrain')}</span>
           </button>
         </div>
       </div>
@@ -1035,14 +1037,14 @@ export const MapView: React.FC<MapViewProps> = ({
           <div className="gf-map-metrics-pill">
             <Navigation2 size={13} style={{ color: 'var(--color-green)' }} />
             <span>
-              {metrics.distanceKm} km • ~{metrics.durationMin} min ride{metrics.etaText ? ` • ETA ${metrics.etaText}` : ''}
+              {metrics.distanceKm} km • ~{metrics.durationMin} {t('min ride')}{metrics.etaText ? ` • ETA ${metrics.etaText}` : ''}
             </span>
           </div>
         )}
 
         {driverActive && driverName && (
           <div className="gf-map-driver-pill">
-            Driver assigned • {driverName}
+            {t('Driver assigned')} • {driverName}
           </div>
         )}
 
@@ -1050,14 +1052,14 @@ export const MapView: React.FC<MapViewProps> = ({
           {!driverActive && !showRoute && fleetPositions && fleetPositions.length > 0 && (
             <div className="gf-map-fleet-pill" title="Operational vehicles on live map">
               <span className="gf-dot-green" />
-              <span>{fleetPositions.length} Cars Live</span>
+              <span>{fleetPositions.length} {t('Cars Live')}</span>
             </div>
           )}
 
           {!driverActive && !showRoute && userPins.length > 0 && (
             <div className="gf-map-users-pill" title="Active users sharing their live pinpoint on the map">
               <Users size={13} />
-              <span>{userPins.length} Users</span>
+              <span>{userPins.length} {t('Users')}</span>
             </div>
           )}
 
@@ -1072,8 +1074,8 @@ export const MapView: React.FC<MapViewProps> = ({
                   mapInstanceRef.current.setView([myCoords.lat, myCoords.lon], 16, { animate: true });
                 }
               }}
-              aria-label="Detect and center on my GPS location"
-              title={locatingUser ? 'Detecting GPS location...' : 'Detect & center on my location'}
+              aria-label={t('Detect & center on my location')}
+              title={locatingUser ? t('Detecting GPS location...') : t('Detect & center on my location')}
             >
               <LocateFixed size={20} />
             </button>
@@ -1179,7 +1181,7 @@ export const MapView: React.FC<MapViewProps> = ({
           type="button"
           className="gf-map-back-btn pressable"
           onClick={onBack}
-          aria-label="Go back"
+          aria-label={t('Go back')}
         >
           <ArrowLeft size={18} />
         </button>
