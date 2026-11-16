@@ -647,6 +647,36 @@ export function findDriverGroupId(db: AppDatabase): number | null {
   return row ? row.id : null;
 }
 
+export function ensureDriverGroup(db: AppDatabase): number {
+  const activeId = findDriverGroupId(db);
+  if (activeId) return activeId;
+
+  const existingAnyState = db
+    .prepare(
+      `SELECT id, is_active FROM departments
+       WHERE LOWER(TRIM(name)) IN ('driver g', 'driver', 'driver group')
+          OR UPPER(TRIM(code)) IN ('DRV', 'DRIVER', 'DRIVER_G')
+       ORDER BY id ASC
+       LIMIT 1`
+    )
+    .get() as { id: number; is_active: number } | undefined;
+
+  if (existingAnyState) {
+    if (existingAnyState.is_active !== 1) {
+      db.prepare('UPDATE departments SET is_active = 1 WHERE id = ?').run(existingAnyState.id);
+    }
+    return existingAnyState.id;
+  }
+
+  try {
+    const res = db.prepare('INSERT INTO departments (name, code, is_active) VALUES (?, ?, 1)').run('Driver G', 'DRV');
+    return Number(res.lastInsertRowid) || findDriverGroupId(db) || 1;
+  } catch {
+    db.prepare('INSERT OR IGNORE INTO departments (name, code, is_active) VALUES (?, ?, 1)').run('Driver G', 'DRV');
+    return findDriverGroupId(db) ?? 1;
+  }
+}
+
 function seedDatabaseIfEmpty(db: AppDatabase) {
   const deptCount = (db.prepare('SELECT COUNT(*) as count FROM departments').get() as { count: number }).count;
   if (deptCount === 0) {
@@ -655,18 +685,8 @@ function seedDatabaseIfEmpty(db: AppDatabase) {
       insertDept.run(name, code);
     }
   } else {
-    // Idempotent upgrade for existing production databases created with the original 12 groups
-    const existingDriverGroup = db
-      .prepare(
-        `SELECT id FROM departments
-         WHERE LOWER(TRIM(name)) IN ('driver g', 'driver', 'driver group')
-            OR UPPER(TRIM(code)) IN ('DRV', 'DRIVER', 'DRIVER_G')
-         LIMIT 1`
-      )
-      .get() as { id: number } | undefined;
-    if (!existingDriverGroup) {
-      db.prepare('INSERT OR IGNORE INTO departments (name, code, is_active) VALUES (?, ?, 1)').run('Driver G', 'DRV');
-    }
+    // Idempotent upgrade for existing production databases created with the original 12 groups (or deactivated Driver G)
+    ensureDriverGroup(db);
   }
 
   const insertSetting = db.prepare('INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)');

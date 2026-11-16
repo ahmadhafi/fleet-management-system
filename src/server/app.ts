@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { getDb, hashPassword, verifyPassword, runInTransaction, findDriverGroupId, resolveAppRoot, type AppDatabase } from './db.ts';
+import { getDb, hashPassword, verifyPassword, runInTransaction, findDriverGroupId, ensureDriverGroup, resolveAppRoot, type AppDatabase } from './db.ts';
 import { ensureSqlEngineLoaded, isSqlEngineReady } from './sqlite-compat.ts';
 import { createSessionToken, isPrivilegedRole, requireAuth, requireRoles } from './auth.ts';
 import { recordAudit } from './audit.ts';
@@ -511,11 +511,11 @@ export function createApp() {
     res.json({ user });
   });
 
-  // User Profile: Update current account details (nickname, contact_number, photo_url)
+  // User Profile: Update current account details (nickname, contact_number, photo_url; ADM can also adjust department_id)
   app.patch('/api/user/profile', requireAuth, (req: Request, res: Response) => {
     const db = getDb();
     const userId = req.user!.id;
-    const { nickname, contact_number, photo_url } = req.body ?? {};
+    const { nickname, contact_number, photo_url, department_id } = req.body ?? {};
 
     if (nickname !== undefined) {
       if (typeof nickname !== 'string' || nickname.trim().length < 2) {
@@ -524,22 +524,37 @@ export function createApp() {
       }
     }
 
+    let validDeptId: number | undefined;
+    if (req.user!.role === 'ADM' && department_id !== undefined && department_id !== null && department_id !== '') {
+      const parsedDeptId = Number(department_id);
+      const deptRow = Number.isInteger(parsedDeptId)
+        ? (db.prepare('SELECT id, is_active FROM departments WHERE id = ?').get(parsedDeptId) as { id: number; is_active: number } | undefined)
+        : undefined;
+      if (!deptRow || deptRow.is_active === 0) {
+        res.status(400).json({ error: 'Selected group is invalid or inactive' });
+        return;
+      }
+      validDeptId = parsedDeptId;
+    }
+
     const trimmedNickname = nickname !== undefined ? String(nickname).trim() : undefined;
     const trimmedContact = contact_number !== undefined ? String(contact_number).trim() : undefined;
     const cleanPhoto = photo_url !== undefined ? (photo_url ? String(photo_url) : null) : undefined;
 
     // Update users table
-    if (trimmedNickname !== undefined || trimmedContact !== undefined || cleanPhoto !== undefined) {
+    if (trimmedNickname !== undefined || trimmedContact !== undefined || cleanPhoto !== undefined || validDeptId !== undefined) {
       db.prepare(`
         UPDATE users
         SET nickname = COALESCE(?, nickname),
             contact_number = COALESCE(?, contact_number),
-            photo_url = COALESCE(?, photo_url)
+            photo_url = COALESCE(?, photo_url),
+            department_id = COALESCE(?, department_id)
         WHERE id = ?
       `).run(
         trimmedNickname ?? null,
         trimmedContact ?? null,
         cleanPhoto ?? null,
+        validDeptId ?? null,
         userId
       );
     }
@@ -565,6 +580,7 @@ export function createApp() {
       nickname: trimmedNickname,
       hasContact: Boolean(trimmedContact),
       hasPhoto: Boolean(cleanPhoto),
+      ...(validDeptId !== undefined ? { department_id: validDeptId } : {}),
     });
 
     const updatedUser = db.prepare(`
@@ -623,7 +639,9 @@ export function createApp() {
   // Public active groups list for registration dropdown
   app.get('/api/public/groups', (_req: Request, res: Response) => {
     const db = getDb();
+    ensureDriverGroup(db);
     const groups = db.prepare('SELECT id, name, code, is_active FROM departments WHERE is_active = 1 ORDER BY id ASC').all();
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.json({ groups });
   });
 
@@ -1091,7 +1109,9 @@ export function createApp() {
 
   app.get('/api/departments', requireAuth, (_req: Request, res: Response) => {
     const db = getDb();
+    ensureDriverGroup(db);
     const departments = db.prepare('SELECT * FROM departments ORDER BY id ASC').all();
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.json({ departments });
   });
 
@@ -4942,6 +4962,7 @@ export function createApp() {
           db.prepare('DELETE FROM sessions WHERE user_id != ?').run(req.user!.id);
           db.prepare('UPDATE users SET approved_by = NULL').run();
           db.prepare("DELETE FROM users WHERE role != 'ADM'").run();
+          ensureDriverGroup(db);
           db.prepare(
             "INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES ('demo_seed_suppressed', '1', datetime('now'))"
           ).run();
@@ -5661,11 +5682,14 @@ export function createApp() {
     app.use(express.static(distDir, {
       setHeaders(res, filePath) {
         if (filePath.endsWith('index.html') || filePath.endsWith('sw.js')) {
-          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
         }
       },
     }));
     app.get(/^(?!\/api).*/, (_req: Request, res: Response, next: NextFunction) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
       res.sendFile(path.join(distDir, 'index.html'), (err) => {
         if (err && !res.headersSent) {
           next(err);

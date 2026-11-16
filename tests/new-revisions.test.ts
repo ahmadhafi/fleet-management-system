@@ -1639,6 +1639,86 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
           }
         }
       });
+
+      it('auto-reactivates Driver G if deactivated, sends no-store cache headers, and allows ADM profile group change while blocking EMP', async () => {
+        const db = getDb();
+        const drvRow = db.prepare("SELECT id FROM departments WHERE code = 'DRV'").get() as { id: number };
+        expect(drvRow).toBeDefined();
+
+        // Simulate a DB state where Driver G was deactivated (is_active = 0)
+        db.prepare('UPDATE departments SET is_active = 0 WHERE id = ?').run(drvRow.id);
+
+        const pubRes = await request(app).get('/api/public/groups');
+        expect(pubRes.status).toBe(200);
+        expect(String(pubRes.headers['cache-control'] || '')).toContain('no-store');
+        const restoredPublic = pubRes.body.groups.find((g: any) => g.id === drvRow.id);
+        expect(restoredPublic).toBeDefined();
+        expect(restoredPublic.is_active).toBe(1);
+        expect(restoredPublic.name).toBe('Driver G');
+
+        // Also verify /api/departments ensures active Driver G and disables caching
+        db.prepare('UPDATE departments SET is_active = 0 WHERE id = ?').run(drvRow.id);
+        const deptRes = await request(app)
+          .get('/api/departments')
+          .set('Authorization', `Bearer ${currentAdminToken}`);
+        expect(deptRes.status).toBe(200);
+        expect(String(deptRes.headers['cache-control'] || '')).toContain('no-store');
+        const restoredDept = deptRes.body.departments.find((g: any) => g.id === drvRow.id);
+        expect(restoredDept?.is_active).toBe(1);
+
+        // Non-ADM (EMP) sending department_id in PATCH /api/user/profile must have it ignored
+        const empMeBefore = await request(app)
+          .get('/api/auth/me')
+          .set('Authorization', `Bearer ${currentEmpToken}`);
+        const empDeptBefore = empMeBefore.body.user.department_id;
+
+        const empPatch = await request(app)
+          .patch('/api/user/profile')
+          .set('Authorization', `Bearer ${currentEmpToken}`)
+          .send({
+            nickname: empMeBefore.body.user.nickname,
+            department_id: drvRow.id,
+          });
+        expect(empPatch.status).toBe(200);
+        expect(empPatch.body.user.department_id).toBe(empDeptBefore);
+
+        // ADM can update their own assigned group via PATCH /api/user/profile
+        const admPatch = await request(app)
+          .patch('/api/user/profile')
+          .set('Authorization', `Bearer ${currentAdminToken}`)
+          .send({ department_id: drvRow.id });
+        expect(admPatch.status).toBe(200);
+        expect(admPatch.body.user.department_id).toBe(drvRow.id);
+        expect(admPatch.body.user.department_name).toBe('Driver G');
+
+        // Restore ADM back to Group #1
+        const admRestore = await request(app)
+          .patch('/api/user/profile')
+          .set('Authorization', `Bearer ${currentAdminToken}`)
+          .send({ department_id: 1 });
+        expect(admRestore.status).toBe(200);
+        expect(admRestore.body.user.department_id).toBe(1);
+
+        // Verify Driver G deleted or missing before FACTORY_RESET gets recreated cleanly
+        const tempApp = createApp();
+        resetDbForTesting(':memory:');
+        const memDb = getDb();
+        const memLogin = await request(tempApp)
+          .post('/api/auth/login')
+          .send({ group_username: 'admin', password: 'Admin@123' });
+        expect(memLogin.status).toBe(200);
+
+        memDb.prepare("UPDATE departments SET is_active = 0 WHERE code = 'DRV'").run();
+        const factoryResetRes = await request(tempApp)
+          .post('/api/admin/system/reset-data')
+          .set('Authorization', `Bearer ${memLogin.body.token}`)
+          .send({ mode: 'FACTORY_RESET', confirmation_code: 'RESET' });
+        expect(factoryResetRes.status).toBe(200);
+
+        const afterResetDrv = memDb.prepare("SELECT is_active, name FROM departments WHERE code = 'DRV'").get() as { is_active: number; name: string };
+        expect(afterResetDrv.is_active).toBe(1);
+        expect(afterResetDrv.name).toBe('Driver G');
+      });
     });
 
     describe('Production Error Resilience & Post-Reset Persistence (No 500 HTML Pages)', () => {

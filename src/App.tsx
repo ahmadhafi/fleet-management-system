@@ -90,7 +90,7 @@ const FALLBACK_GROUPS = [
   { id: 10, name: 'PE G', code: 'PE_G' },
   { id: 11, name: 'ME G', code: 'ME_G' },
   { id: 12, name: 'PRODUCTION CONTROL G', code: 'PROD_CONTROL_G' },
-  { id: 13, name: 'Driver G', code: 'DRIVER_G' },
+  { id: 13, name: 'Driver G', code: 'DRV' },
 ];
 
 const QUICK_CORPORATE_POIS = [
@@ -234,10 +234,11 @@ export function App() {
 
   // Official Company Groups (13 Groups)
   const [groupsList, setGroupsList] = useState<Array<{ id: number; name: string; code?: string; is_active?: number }>>(FALLBACK_GROUPS);
-  const driverGroupId = useMemo(
-    () => groupsList.find((g) => ['DRV', 'DRIVER', 'DRIVER_G'].includes(String(g.code || '').toUpperCase()) || /driver/i.test(g.name))?.id || groupsList[0]?.id || 1,
-    [groupsList]
-  );
+  const activeGroups = useMemo(() => groupsList.filter((g) => g.is_active !== 0), [groupsList]);
+  const driverGroupId = useMemo(() => {
+    const pool = activeGroups.length > 0 ? activeGroups : groupsList;
+    return pool.find((g) => ['DRV', 'DRIVER', 'DRIVER_G'].includes(String(g.code || '').toUpperCase()) || /driver/i.test(g.name))?.id || pool[0]?.id || 1;
+  }, [activeGroups, groupsList]);
 
   // Theme preference (Light / Dark / System via tokens)
   const [themePref, setThemePref] = useState<'system' | 'light' | 'dark'>(() => {
@@ -300,6 +301,7 @@ export function App() {
   const [profileNickname, setProfileNickname] = useState<string>('');
   const [profileContactNumber, setProfileContactNumber] = useState<string>('');
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [profileDepartmentId, setProfileDepartmentId] = useState<number>(1);
   const [profileTab, setProfileTab] = useState<'DETAILS' | 'PASSWORD'>('DETAILS');
   const [currentPassword, setCurrentPassword] = useState<string>('');
   const [newPassword, setNewPassword] = useState<string>('');
@@ -428,6 +430,7 @@ export function App() {
   const [dispatchDriverId, setDispatchDriverId] = useState<string>('');
   const [dispatchDecisionReason, setDispatchDecisionReason] = useState('');
   const [pendingRoleSelections, setPendingRoleSelections] = useState<Record<number, string>>({});
+  const [pendingGroupSelections, setPendingGroupSelections] = useState<Record<number, number>>({});
   const [userFilterTab, setUserFilterTab] = useState<'ALL' | 'PENDING' | 'DRIVERS' | 'INACTIVE'>('ALL');
   const [userSearchQuery, setUserSearchQuery] = useState<string>('');
 
@@ -522,7 +525,7 @@ export function App() {
       .then((res) => {
         if (Array.isArray(res.groups) && res.groups.length > 0) {
           setGroupsList(res.groups);
-          setRegDeptId(res.groups[0].id);
+          setRegDeptId((prev) => (res.groups.some((g: any) => g.id === prev) ? prev : res.groups[0].id));
           const drvGrp = res.groups.find((g: any) => ['DRV', 'DRIVER', 'DRIVER_G'].includes(String(g.code || '').toUpperCase()) || /driver/i.test(g.name));
           if (drvGrp) {
             setNewDriverForm((prev) => (!prev.user_id && !prev.full_name ? { ...prev, department_id: drvGrp.id } : prev));
@@ -987,6 +990,7 @@ export function App() {
       setProfileNickname(user.nickname || '');
       setProfileContactNumber(user.contact_number || '');
       setProfilePhotoUrl(user.photo_url || null);
+      setProfileDepartmentId(user.department_id || activeGroups[0]?.id || groupsList[0]?.id || 1);
     }
     setCurrentPassword('');
     setNewPassword('');
@@ -1029,6 +1033,7 @@ export function App() {
           nickname: profileNickname.trim(),
           contact_number: profileContactNumber.trim(),
           photo_url: profilePhotoUrl,
+          ...(user?.role === 'ADM' && profileDepartmentId ? { department_id: Number(profileDepartmentId) } : {}),
         }),
       });
       if (res.user) {
@@ -1549,13 +1554,14 @@ export function App() {
     }
   };
 
-  const handleApproveUser = async (targetUserId: number, approve: boolean, selectedRole: string) => {
+  const handleApproveUser = async (targetUserId: number, approve: boolean, selectedRole: string, selectedDepartmentId?: number) => {
     try {
       await apiRequest(`/api/users/${targetUserId}`, {
         method: 'PATCH',
         body: JSON.stringify({
           approval_status: approve ? 'APPROVED' : 'REJECTED',
           role: selectedRole,
+          ...(selectedDepartmentId ? { department_id: Number(selectedDepartmentId) } : {}),
           rejection_reason: approve ? null : 'Declined by Administrator',
         }),
       });
@@ -1803,7 +1809,7 @@ export function App() {
         group_username: '',
         password: '',
         role: 'EMP',
-        department_id: groupsList[0]?.id || 1,
+        department_id: activeGroups[0]?.id || groupsList[0]?.id || 1,
       });
       setStatusBanner({ type: 'success', text: 'Approved user account created.' });
       await loadAllData(user);
@@ -2117,7 +2123,7 @@ export function App() {
                   Group
                 </label>
                 <select id="reg-dept" className="gf-select notranslate" translate="no" value={regDeptId} onChange={(e) => setRegDeptId(Number(e.target.value))}>
-                  {groupsList.map((g) => (
+                  {(activeGroups.length > 0 ? activeGroups : groupsList).map((g) => (
                     <option key={g.id} value={g.id} className="notranslate" translate="no">
                       {g.name}
                     </option>
@@ -2167,8 +2173,9 @@ export function App() {
                   onChange={(e) => {
                     const nextRole = e.target.value as 'EMP' | 'DRV';
                     setRegRole(nextRole);
-                    const defaultEmpGroup = groupsList[0]?.id || 1;
-                    if (nextRole === 'DRV' && regDeptId === defaultEmpGroup && driverGroupId !== defaultEmpGroup) {
+                    const pool = activeGroups.length > 0 ? activeGroups : groupsList;
+                    const defaultEmpGroup = pool.find((g) => g.id !== driverGroupId)?.id || pool[0]?.id || 1;
+                    if (nextRole === 'DRV' && driverGroupId) {
                       setRegDeptId(driverGroupId);
                     } else if (nextRole === 'EMP' && regDeptId === driverGroupId && defaultEmpGroup !== driverGroupId) {
                       setRegDeptId(defaultEmpGroup);
@@ -3475,7 +3482,29 @@ export function App() {
                   </div>
                   <div>
                     <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Assigned Group</label>
-                    <input type="text" className="gf-input" disabled value={user.department_name || `Group #${user.department_id}`} />
+                    {user.role === 'ADM' ? (
+                      <select
+                        className="gf-select notranslate"
+                        translate="no"
+                        aria-label="Assigned Group"
+                        value={profileDepartmentId}
+                        onChange={(e) => setProfileDepartmentId(Number(e.target.value))}
+                      >
+                        {(activeGroups.length > 0 ? activeGroups : groupsList).map((g) => (
+                          <option key={g.id} value={g.id} className="notranslate" translate="no">
+                            {g.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        className="gf-input notranslate"
+                        translate="no"
+                        disabled
+                        value={user.department_name || `Group #${user.department_id}`}
+                      />
+                    )}
                   </div>
                 </div>
 
@@ -4135,17 +4164,43 @@ export function App() {
                       <tbody>
                         {pendingUsers.map((u) => {
                           const roleVal = pendingRoleSelections[u.id] || u.role || 'EMP';
+                          const groupVal = pendingGroupSelections[u.id] ?? u.department_id;
                           return (
                             <tr key={u.id}>
                               <td style={{ fontWeight: 700 }}>{u.nickname}</td>
                               <td className="mono">@{u.group_username}</td>
-                              <td>{u.department_name}</td>
+                              <td>
+                                <select
+                                  className="gf-select notranslate"
+                                  translate="no"
+                                  aria-label={`Assign group for ${u.nickname}`}
+                                  style={{ minHeight: '38px', padding: '0 10px' }}
+                                  value={groupVal}
+                                  onChange={(e) =>
+                                    setPendingGroupSelections({ ...pendingGroupSelections, [u.id]: Number(e.target.value) })
+                                  }
+                                >
+                                  {(activeGroups.length > 0 ? activeGroups : groupsList).map((g) => (
+                                    <option key={g.id} value={g.id} className="notranslate" translate="no">
+                                      {g.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
                               <td>
                                 <select
                                   className="gf-select"
                                   style={{ minHeight: '38px', padding: '0 10px' }}
                                   value={roleVal}
-                                  onChange={(e) => setPendingRoleSelections({ ...pendingRoleSelections, [u.id]: e.target.value })}
+                                  onChange={(e) => {
+                                    const nextRole = e.target.value;
+                                    setPendingRoleSelections({ ...pendingRoleSelections, [u.id]: nextRole });
+                                    if (nextRole === 'DRV' && driverGroupId) {
+                                      setPendingGroupSelections({ ...pendingGroupSelections, [u.id]: driverGroupId });
+                                    } else if (nextRole !== 'DRV' && groupVal === driverGroupId && u.department_id !== driverGroupId) {
+                                      setPendingGroupSelections({ ...pendingGroupSelections, [u.id]: u.department_id });
+                                    }
+                                  }}
                                 >
                                   <option value="EMP">EMP (Employee)</option>
                                   <option value="DRV">DRV (Driver)</option>
@@ -4156,10 +4211,10 @@ export function App() {
                               </td>
                               <td>
                                 <div style={{ display: 'flex', gap: '8px' }}>
-                                  <button type="button" className="gf-btn gf-btn-primary" onClick={() => handleApproveUser(u.id, true, roleVal)}>
+                                  <button type="button" className="gf-btn gf-btn-primary" onClick={() => handleApproveUser(u.id, true, roleVal, groupVal)}>
                                     Approve
                                   </button>
-                                  <button type="button" className="gf-btn gf-btn-outline-danger" onClick={() => handleApproveUser(u.id, false, roleVal)}>
+                                  <button type="button" className="gf-btn gf-btn-outline-danger" onClick={() => handleApproveUser(u.id, false, roleVal, groupVal)}>
                                     Reject
                                   </button>
                                 </div>
@@ -4310,13 +4365,14 @@ export function App() {
                     onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
                   />
                   <select
-                    className="gf-select"
+                    className="gf-select notranslate"
+                    translate="no"
                     aria-label="User group"
                     value={newUserForm.department_id}
                     onChange={(e) => setNewUserForm({ ...newUserForm, department_id: Number(e.target.value) })}
                   >
-                    {groupsList.map((g) => (
-                      <option key={g.id} value={g.id}>{g.name}</option>
+                    {activeGroups.map((g) => (
+                      <option key={g.id} value={g.id} className="notranslate" translate="no">{g.name}</option>
                     ))}
                   </select>
                   <select
@@ -4325,9 +4381,9 @@ export function App() {
                     value={newUserForm.role}
                     onChange={(e) => {
                       const nextRole = e.target.value;
-                      const defaultEmpGroup = groupsList[0]?.id || 1;
+                      const defaultEmpGroup = activeGroups[0]?.id || groupsList[0]?.id || 1;
                       let nextDeptId = newUserForm.department_id;
-                      if (nextRole === 'DRV' && newUserForm.department_id === defaultEmpGroup && driverGroupId !== defaultEmpGroup) {
+                      if (nextRole === 'DRV' && driverGroupId) {
                         nextDeptId = driverGroupId;
                       } else if (nextRole !== 'DRV' && newUserForm.department_id === driverGroupId && defaultEmpGroup !== driverGroupId) {
                         nextDeptId = defaultEmpGroup;
@@ -4408,14 +4464,15 @@ export function App() {
                               </td>
                               <td>
                                 <select
-                                  className="gf-select"
+                                  className="gf-select notranslate"
+                                  translate="no"
                                   style={{ minHeight: '36px', padding: '0 8px' }}
                                   aria-label={`Group for ${u.nickname}`}
                                   value={u.department_id}
                                   onChange={(e) => handleUpdateUserRoleOrGroup(u.id, { department_id: Number(e.target.value) })}
                                 >
-                                  {groupsList.map((g) => (
-                                    <option key={g.id} value={g.id}>
+                                  {activeGroups.map((g) => (
+                                    <option key={g.id} value={g.id} className="notranslate" translate="no">
                                       {g.name}
                                     </option>
                                   ))}
@@ -4449,7 +4506,7 @@ export function App() {
                                       type="button"
                                       className="gf-btn gf-btn-primary"
                                       style={{ minHeight: '34px', padding: '0 10px' }}
-                                      onClick={() => handleApproveUser(u.id, true, u.role)}
+                                      onClick={() => handleApproveUser(u.id, true, u.role, u.department_id)}
                                     >
                                       Approve
                                     </button>
@@ -4699,13 +4756,14 @@ export function App() {
                         ))}
                     </select>
                     <select
-                      className="gf-select"
+                      className="gf-select notranslate"
+                      translate="no"
                       aria-label="Driver Group"
                       value={newDriverForm.department_id}
                       onChange={(e) => setNewDriverForm({ ...newDriverForm, department_id: Number(e.target.value) })}
                     >
-                      {groupsList.map((g) => (
-                        <option key={g.id} value={g.id}>
+                      {activeGroups.map((g) => (
+                        <option key={g.id} value={g.id} className="notranslate" translate="no">
                           Group: {g.name}
                         </option>
                       ))}
@@ -4872,7 +4930,8 @@ export function App() {
                               <td className="mono">{d.group_username ? `@${d.group_username}` : '—'}</td>
                               <td>
                                 <select
-                                  className="gf-select"
+                                  className="gf-select notranslate"
+                                  translate="no"
                                   style={{ minHeight: '36px', padding: '0 8px' }}
                                   aria-label={`Driver group for ${d.full_name}`}
                                   value={d.department_id || driverGroupId}
@@ -4885,8 +4944,8 @@ export function App() {
                                     await loadAllData(user);
                                   }}
                                 >
-                                  {groupsList.map((g) => (
-                                    <option key={g.id} value={g.id}>
+                                  {activeGroups.map((g) => (
+                                    <option key={g.id} value={g.id} className="notranslate" translate="no">
                                       {g.name}
                                     </option>
                                   ))}
@@ -4980,15 +5039,37 @@ export function App() {
                           <th>Group Name</th>
                           <th>Code</th>
                           <th>Status</th>
+                          <th>Action</th>
                         </tr>
                       </thead>
                       <tbody>
                         {groupsList.map((g) => (
                           <tr key={g.id}>
                             <td className="mono">#{g.id}</td>
-                            <td style={{ fontWeight: 700 }}>{g.name}</td>
-                            <td className="mono">{g.code || '—'}</td>
+                            <td style={{ fontWeight: 700 }} className="notranslate" translate="no">{g.name}</td>
+                            <td className="mono notranslate" translate="no">{g.code || '—'}</td>
                             <td><StatusBadge label={g.is_active === 0 ? 'Inactive' : 'Active'} tone={g.is_active === 0 ? 'neutral' : 'green'} /></td>
+                            <td>
+                              {g.is_active === 0 ? (
+                                <button
+                                  type="button"
+                                  className="gf-btn gf-btn-primary"
+                                  style={{ minHeight: '30px', padding: '0 10px', fontSize: '12px' }}
+                                  onClick={async () => {
+                                    await apiRequest(`/api/departments/${g.id}`, {
+                                      method: 'PATCH',
+                                      body: JSON.stringify({ is_active: 1 }),
+                                    });
+                                    setStatusBanner({ type: 'success', text: `Group "${g.name}" activated.` });
+                                    await loadAllData(user);
+                                  }}
+                                >
+                                  Activate
+                                </button>
+                              ) : (
+                                <span className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>Official / Active</span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -7095,7 +7176,12 @@ export function App() {
               </div>
               <div style={{ minWidth: 0 }}>
                 <h1 className="type-title">{user.nickname}</h1>
-                <div className="type-caption">@{user.group_username} • {user.department_name || `Group #${user.department_id}`}</div>
+                <div className="type-caption">
+                  @{user.group_username} •{' '}
+                  <span className="notranslate" translate="no">
+                    {user.department_name || `Group #${user.department_id}`}
+                  </span>
+                </div>
                 {user.contact_number && (
                   <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
                     📞 {user.contact_number}
