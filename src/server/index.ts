@@ -1,14 +1,21 @@
 import { createApp } from './app.ts';
 import { checkpointDb, flushAndCloseDb } from './db.ts';
+import { ensureSqlEngineLoaded } from './sqlite-compat.ts';
 
-const PORT = Number(process.env.PORT || 3000);
+const rawPort = process.env.PORT;
+const isSocketPort = Boolean(rawPort && Number.isNaN(Number(rawPort)));
+const PORT: number | string = isSocketPort ? (rawPort as string) : Number(rawPort || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 const app = createApp();
 
-const server = app.listen(PORT, HOST, () => {
-  console.log(`[GalaxyFleet] Production Server online at http://${HOST}:${PORT} (PID: ${process.pid})`);
-  console.log(`[GalaxyFleet] Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`[GalaxyFleet] SQLite WAL Mode: Enabled (PRAGMA synchronous = NORMAL)`);
+let server: ReturnType<typeof app.listen>;
+
+ensureSqlEngineLoaded().then(() => {
+  const onListen = () => {
+    console.log(`[GalaxyFleet] Production Server online at ${isSocketPort ? PORT : `http://${HOST}:${PORT}`} (PID: ${process.pid})`);
+    console.log(`[GalaxyFleet] Environment: ${process.env.NODE_ENV || 'development'}`);
+  };
+  server = isSocketPort ? app.listen(PORT, onListen) : app.listen(PORT as number, HOST, onListen);
 });
 
 // Periodic WAL checkpointing every 10 minutes to maintain optimal WAL size & concurrency
@@ -27,6 +34,12 @@ function gracefulShutdown(signal: string) {
   if (isShuttingDown) return;
   isShuttingDown = true;
   console.log(`\n[GalaxyFleet] Received ${signal}. Initiating graceful connection draining...`);
+
+  if (!server) {
+    flushAndCloseDb();
+    process.exit(0);
+    return;
+  }
 
   // Stop accepting new HTTP connections
   server.close((err) => {

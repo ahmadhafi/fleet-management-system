@@ -1,0 +1,20 @@
+{
+  "name": "GalaxyFleet — Company Fleet & Dispatch",
+  "short_name": "GalaxyFleet",
+  "description": "Internal Company Fleet Management, Vehicle Reservation, Driver Dispatch & Periodic GPS Reporting PWA",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#0072de",
+  "categories": ["business", "productivity", "navigation"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

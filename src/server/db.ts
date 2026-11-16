@@ -1,9 +1,9 @@
-import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createDatabaseEngine, type SqliteDatabaseEngine } from './sqlite-compat.ts';
 
-export type AppDatabase = DatabaseSync;
+export type AppDatabase = SqliteDatabaseEngine;
 
 export function hashPassword(password: string, salt = crypto.randomBytes(16).toString('hex')): string {
   const derived = crypto.scryptSync(password, salt, 64).toString('hex');
@@ -50,13 +50,21 @@ export function getDb(customPath?: string): AppDatabase {
     }
   }
 
-  const db = new DatabaseSync(resolvedPath);
+  const db = createDatabaseEngine(resolvedPath);
   if (resolvedPath !== ':memory:') {
-    db.exec('PRAGMA journal_mode = WAL;');
-    db.exec('PRAGMA synchronous = NORMAL;');
+    try {
+      db.exec('PRAGMA journal_mode = WAL;');
+      db.exec('PRAGMA synchronous = NORMAL;');
+    } catch {
+      // ignore if engine does not use WAL
+    }
   }
-  db.exec('PRAGMA foreign_keys = ON;');
-  db.exec('PRAGMA busy_timeout = 5000;');
+  try {
+    db.exec('PRAGMA foreign_keys = ON;');
+    db.exec('PRAGMA busy_timeout = 5000;');
+  } catch {
+    // ignore pragma warnings
+  }
 
   initializeSchema(db);
   seedDatabaseIfEmpty(db);
