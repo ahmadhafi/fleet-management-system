@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowUp, X } from 'lucide-react';
+import { ArrowUp, Plus, X } from 'lucide-react';
 
 interface RouteFieldsProps {
   pickup: string;
@@ -10,6 +10,8 @@ interface RouteFieldsProps {
   onFocusField: (f: 'pickup' | 'destination') => void;
   pickupPlaceholder?: string;
   destinationPlaceholder?: string;
+  onAddStop?: () => void;
+  multiStopToast?: string | null;
 }
 
 export const RouteFields: React.FC<RouteFieldsProps> = ({
@@ -21,9 +23,16 @@ export const RouteFields: React.FC<RouteFieldsProps> = ({
   onFocusField,
   pickupPlaceholder = 'Current pickup point',
   destinationPlaceholder = 'Where to?',
+  onAddStop,
+  multiStopToast,
 }) => {
   return (
-    <div className="gf-route-box">
+    <div className="gf-route-box" style={{ position: 'relative' }}>
+      {multiStopToast && (
+        <div className="gf-multi-stop-toast" role="alert">
+          {multiStopToast}
+        </div>
+      )}
       {/* Samsung Blue pickup up-arrow circle + vertical dotted line + Black/White destination ring-dot */}
       <div className="gf-route-track" aria-hidden="true">
         <span className="gf-pickup-up-circle">
@@ -82,26 +91,43 @@ export const RouteFields: React.FC<RouteFieldsProps> = ({
             onChange={(e) => onDestinationChange(e.target.value)}
             autoFocus
           />
-          {destination && (
-            <button
-              type="button"
-              aria-label="Clear destination"
-              onClick={() => onDestinationChange('')}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--color-text-muted)',
-                minWidth: '36px',
-                minHeight: '36px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-              }}
-            >
-              <X size={16} />
-            </button>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            {destination && (
+              <button
+                type="button"
+                aria-label="Clear destination"
+                onClick={() => onDestinationChange('')}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--color-text-muted)',
+                  minWidth: '32px',
+                  minHeight: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                }}
+              >
+                <X size={16} />
+              </button>
+            )}
+            {onAddStop && (
+              <button
+                id="route-add-stop-btn"
+                type="button"
+                className="gf-add-stop-btn pressable"
+                onClick={onAddStop}
+                aria-label="Tambah tujuan"
+                title="Tambah tujuan perjalanan"
+              >
+                <span className="gf-add-stop-icon-circle">
+                  <Plus size={10} strokeWidth={3} />
+                </span>
+                <span>Tambah</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

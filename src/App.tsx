@@ -65,6 +65,7 @@ import { RouteFields } from './components/RouteFields';
 import { VehicleArt } from './components/VehicleArt';
 import { getDriverAvatarDataUri } from './components/CarAvatarArt';
 import { triggerSystemNotification } from './utils/notification';
+import { GojekWheelPicker, type DateOption } from './components/GojekWheelPicker';
 import {
   Chip,
   StatusBadge,
@@ -363,6 +364,7 @@ export function App() {
   const [scheduleMode, setScheduleMode] = useState<'NOW' | 'SCHEDULE'>('NOW');
   const [showSchedulePicker, setShowSchedulePicker] = useState<boolean>(false);
   const [schedulePickerTab, setSchedulePickerTab] = useState<'TODAY' | 'TOMORROW' | 'DATE'>('TODAY');
+  const [multiStopToast, setMultiStopToast] = useState<string | null>(null);
   const [vehicleFilter, setVehicleFilter] = useState<'ALL' | 'Electric' | 'MPV'>('ALL');
   const [activityTab, setActivityTab] = useState<'ONGOING' | 'HISTORY'>('ONGOING');
   const [summaryPicker, setSummaryPicker] = useState<'PURPOSE' | 'PAX' | 'NOTES' | 'CHARGE' | null>(null);
@@ -1445,6 +1447,115 @@ export function App() {
 
   const handleUseCurrentGpsForField = () => {
     detectAndReportUserLocation(true);
+  };
+
+  const handleAddStop = () => {
+    if (scheduleMode === 'SCHEDULE') {
+      setMultiStopToast('Cuma bisa jadwalin ke 1 tujuan');
+      setTimeout(() => {
+        setMultiStopToast((prev) => (prev === 'Cuma bisa jadwalin ke 1 tujuan' ? null : prev));
+      }, 2500);
+    } else {
+      setStatusBanner({
+        type: 'info',
+        text: 'Multi-tujuan aktif: Masukkan titik singgah pada rute perjalanan.',
+      });
+    }
+  };
+
+  const dateList: DateOption[] = useMemo(() => {
+    const dates: DateOption[] = [];
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    dates.push({ id: 'TODAY', label: 'Hari ini', dateObj: today });
+    dates.push({ id: 'TOMORROW', label: 'Besok', dateObj: tomorrow });
+
+    for (let i = 2; i < 14; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() + i);
+      const dayNum = d.getDate();
+      const weekday = d.toLocaleDateString('id-ID', { weekday: 'short' });
+      const id = d.toISOString().slice(0, 10);
+      dates.push({
+        id,
+        label: `${dayNum} ${weekday}`,
+        dateObj: d,
+      });
+    }
+    return dates;
+  }, []);
+
+  const all5MinSlots = useMemo(() => {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const slots: string[] = [];
+    for (let h = 0; h < 24; h++) {
+      for (let m = 0; m < 60; m += 5) {
+        const h1 = pad(h);
+        const m1 = pad(m);
+        const endM = (m + 5) % 60;
+        const endH = m + 5 >= 60 ? (h + 1) % 24 : h;
+        slots.push(`${h1}:${m1} - ${pad(endH)}:${pad(endM)}`);
+      }
+    }
+    return slots;
+  }, []);
+
+  const selectedDateId = useMemo(() => {
+    if (schedulePickerTab === 'TODAY') return 'TODAY';
+    if (schedulePickerTab === 'TOMORROW') return 'TOMORROW';
+    const d = new Date(bookStart);
+    if (Number.isNaN(d.getTime())) return 'TODAY';
+    const today = new Date();
+    if (d.toDateString() === today.toDateString()) return 'TODAY';
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    if (d.toDateString() === tomorrow.toDateString()) return 'TOMORROW';
+    return d.toISOString().slice(0, 10);
+  }, [bookStart, schedulePickerTab]);
+
+  const selectedTimeSlot = useMemo(() => {
+    return getSlotWindow(bookStart);
+  }, [bookStart]);
+
+  const handleSelectSlot = (slotStr: string) => {
+    const [startPart] = slotStr.split(' - ');
+    const [hStr, mStr] = startPart.split(':');
+    const h = parseInt(hStr, 10);
+    const m = parseInt(mStr, 10);
+    const d = new Date(bookStart);
+    if (Number.isNaN(d.getTime())) return;
+    d.setHours(h, m, 0, 0);
+    const sIso = toLocalDateTimeInput(d);
+    setBookStart(sIso);
+    const eMs = d.getTime() + bookDurationHours * 3600000;
+    setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+    if (bookReservationType === 'DROP_AND_PICKUP') {
+      setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
+    }
+  };
+
+  const handleSelectDate = (dateOpt: DateOption) => {
+    const curD = new Date(bookStart);
+    const targetD = new Date(dateOpt.dateObj);
+    if (!Number.isNaN(curD.getTime())) {
+      targetD.setHours(curD.getHours(), curD.getMinutes(), 0, 0);
+    }
+    const sIso = toLocalDateTimeInput(targetD);
+    setBookStart(sIso);
+    const eMs = targetD.getTime() + bookDurationHours * 3600000;
+    setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+    if (bookReservationType === 'DROP_AND_PICKUP') {
+      setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
+    }
+    if (dateOpt.id === 'TODAY') {
+      setSchedulePickerTab('TODAY');
+    } else if (dateOpt.id === 'TOMORROW') {
+      setSchedulePickerTab('TOMORROW');
+    } else {
+      setSchedulePickerTab('DATE');
+    }
   };
 
   const handleCreateTripBooking = async () => {
@@ -8233,6 +8344,8 @@ export function App() {
             }}
             pickupPlaceholder="Your current pickup location"
             destinationPlaceholder="Search for a destination"
+            onAddStop={handleAddStop}
+            multiStopToast={multiStopToast}
           />
 
           {/* GoCar Reference Screen 2: Outlined Action Pills ("Select via map" & "Pickup spot A/B/C") */}
@@ -8778,17 +8891,21 @@ export function App() {
                           className={`gf-gojek-tab-chip pressable ${active ? 'is-active' : ''}`}
                           onClick={() => {
                             setSchedulePickerTab(tab.id);
+                            const curD = new Date(bookStart);
+                            const curH = !Number.isNaN(curD.getTime()) ? curD.getHours() : 8;
+                            const curM = !Number.isNaN(curD.getTime()) ? curD.getMinutes() : 0;
                             const target = new Date();
                             if (tab.id === 'TOMORROW') {
                               target.setDate(target.getDate() + 1);
-                              target.setHours(8, 0, 0, 0);
+                              target.setHours(curH, curM, 0, 0);
                             } else if (tab.id === 'TODAY') {
-                              const minLead = Date.now() + 2 * 3600000;
-                              target.setTime(minLead);
+                              target.setHours(curH, curM, 0, 0);
+                            } else {
+                              target.setTime(!Number.isNaN(curD.getTime()) ? curD.getTime() : Date.now() + 2 * 3600000);
                             }
                             const sIso = toLocalDateTimeInput(target);
                             setBookStart(sIso);
-                            const eMs = new Date(sIso).getTime() + bookDurationHours * 3600000;
+                            const eMs = target.getTime() + bookDurationHours * 3600000;
                             setBookEnd(toLocalDateTimeInput(new Date(eMs)));
                             if (bookReservationType === 'DROP_AND_PICKUP') {
                               setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
@@ -8814,59 +8931,17 @@ export function App() {
                     </span>
                   </div>
 
-                  {/* 4. 5-Minute Slot Quick Selector Wheel */}
+                  {/* 4. Gojek Authentic Drum Wheel Picker (3 Visible Rows, Selection Lens, Dual Wheel on "Pilih tanggal") */}
                   <div>
-                    <div className="type-caption" style={{ fontWeight: 700, marginBottom: '6px', color: 'var(--color-text-secondary)' }}>
-                      Pilih Jendela Waktu Penjemputan (Interval 5 Menit)
-                    </div>
-                    <div className="gf-gojek-wheel-box">
-                      {(() => {
-                        const slots = [];
-                        const baseD = new Date(bookStart);
-                        const startH = schedulePickerTab === 'TODAY' ? Math.max(new Date().getHours(), 6) : 6;
-                        for (let h = startH; h <= 21; h++) {
-                          for (let m = 0; m < 60; m += 30) {
-                            const slotD = new Date(baseD);
-                            slotD.setHours(h, m, 0, 0);
-                            const pad = (n: number) => String(n).padStart(2, '0');
-                            const h1 = pad(h);
-                            const m1 = pad(m);
-                            const endSlot = new Date(slotD.getTime() + 5 * 60000);
-                            const h2 = pad(endSlot.getHours());
-                            const m2 = pad(endSlot.getMinutes());
-                            const label = `${h1}:${m1} - ${h2}:${m2}`;
-                            const isSel = Math.abs(slotD.getTime() - new Date(bookStart).getTime()) < 15 * 60000;
-                            const diffMin = Math.round((slotD.getTime() - Date.now()) / 60000);
-                            const isUrgent = diffMin >= 0 && diffMin < 120;
-                            slots.push(
-                              <button
-                                key={`${h}-${m}`}
-                                type="button"
-                                className={`gf-gojek-wheel-row pressable ${isSel ? 'is-selected' : ''}`}
-                                onClick={() => {
-                                  const sIso = toLocalDateTimeInput(slotD);
-                                  setBookStart(sIso);
-                                  const eMs = slotD.getTime() + bookDurationHours * 3600000;
-                                  setBookEnd(toLocalDateTimeInput(new Date(eMs)));
-                                  if (bookReservationType === 'DROP_AND_PICKUP') {
-                                    setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
-                                  }
-                                }}
-                              >
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  <Clock size={14} style={{ color: isSel ? '#0072de' : 'var(--color-text-muted)' }} />
-                                  <span>{label}</span>
-                                </span>
-                                <span style={{ fontSize: '11px', fontWeight: 700 }}>
-                                  {isUrgent ? '🚨 Mendesak (< 2j)' : isSel ? '✓ Dipilih' : 'Standar'}
-                                </span>
-                              </button>
-                            );
-                          }
-                        }
-                        return slots;
-                      })()}
-                    </div>
+                    <GojekWheelPicker
+                      mode={schedulePickerTab}
+                      timeSlots={all5MinSlots}
+                      selectedTimeSlot={selectedTimeSlot}
+                      onSelectTimeSlot={handleSelectSlot}
+                      dateList={dateList}
+                      selectedDateId={selectedDateId}
+                      onSelectDate={handleSelectDate}
+                    />
                   </div>
 
                   {/* 5. Reservation Mode & Preset Shortcuts */}
