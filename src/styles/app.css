@@ -2238,3 +2238,240 @@ iframe.goog-te-banner-frame {
     padding: 4px 8px !important;
   }
 }
+
+/* -------------------------------------------------------------------------
+   Gojek-Style Clean Booking & Schedule Time Flow (Samsung Blue & Slate)
+   Based on Gojek GoCar UI/UX Reference: Priority Strip, 3-Tab Wheel Picker & Clean State
+   ------------------------------------------------------------------------- */
+.gf-gojek-priority-strip {
+  width: 100%;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #0072de 0%, #005bb5 100%);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  box-shadow: 0 2px 8px rgba(0, 114, 222, 0.25);
+}
+
+.gf-gojek-tab-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.gf-gojek-tab-chip {
+  padding: 6px 16px;
+  min-height: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 600;
+  border: 1.5px solid var(--color-divider);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 150ms ease;
+  white-space: nowrap;
+}
+
+.gf-gojek-tab-chip.is-active {
+  background: #ebf5ff;
+  border-color: #0072de;
+  color: #005bb5;
+  font-weight: 800;
+}
+
+:root[data-theme='dark'] .gf-gojek-tab-chip.is-active {
+  background: rgba(37, 140, 251, 0.2);
+  border-color: #258cfb;
+  color: #93c5fd;
+}
+
+.gf-gojek-estimate-card {
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gf-gojek-estimate-caption {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gf-gojek-estimate-value {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--color-text-primary);
+}
+
+.gf-gojek-wheel-box {
+  background: var(--color-bg-surface);
+  border: 1.5px solid var(--color-border);
+  border-radius: 14px;
+  padding: 8px;
+  max-height: 190px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  scrollbar-width: thin;
+}
+
+.gf-gojek-wheel-row {
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  transition: all 120ms ease;
+  background: transparent;
+  text-align: left;
+  width: 100%;
+}
+
+.gf-gojek-wheel-row:hover {
+  background: var(--color-bg-hover);
+}
+
+.gf-gojek-wheel-row.is-selected {
+  background: #ebf5ff;
+  border-color: #0072de;
+  color: #005bb5;
+  font-weight: 800;
+}
+
+:root[data-theme='dark'] .gf-gojek-wheel-row.is-selected {
+  background: rgba(37, 140, 251, 0.2);
+  border-color: #258cfb;
+  color: #93c5fd;
+}
+
+.gf-gojek-footer-pair {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+}
+
+.gf-gojek-btn-cancel {
+  flex: 1;
+  min-height: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 14.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.gf-gojek-btn-cancel:hover {
+  background: var(--color-bg-subtle);
+  border-color: var(--color-text-secondary);
+}
+
+.gf-gojek-btn-commit {
+  flex: 1.25;
+  min-height: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: var(--color-samsung-blue);
+  color: #ffffff;
+  font-size: 14.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 114, 222, 0.3);
+  transition: all 150ms ease;
+}
+
+.gf-gojek-btn-commit:hover {
+  background: var(--color-samsung-blue-hover);
+  box-shadow: 0 6px 18px rgba(0, 114, 222, 0.4);
+}
+
+.gf-schedule-circle-btn {
+  width: 52px;
+  height: 52px;
+  min-width: 52px;
+  min-height: 52px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  transition: all 150ms ease;
+  box-shadow: var(--shadow-card);
+}
+
+.gf-schedule-circle-btn:hover {
+  border-color: var(--color-samsung-blue);
+  color: var(--color-samsung-blue);
+  transform: scale(1.03);
+}
+
+.gf-schedule-circle-btn.is-active {
+  background: var(--color-samsung-blue);
+  border-color: var(--color-samsung-blue);
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(0, 114, 222, 0.35);
+}
+
+.gf-schedule-active-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #60a5fa;
+  border: 2px solid #ffffff;
+}
+
+.gf-active-schedule-banner {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #ebf5ff;
+  border: 1.5px solid #bfdbfe;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  box-shadow: 0 2px 8px rgba(0, 114, 222, 0.08);
+}
+
+:root[data-theme='dark'] .gf-active-schedule-banner {
+  background: rgba(37, 140, 251, 0.15);
+  border-color: rgba(37, 140, 251, 0.35);
+}
+

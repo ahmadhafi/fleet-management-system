@@ -164,6 +164,48 @@ function formatReservationModeLabel(reservationType?: string | null, returnPicku
   return null;
 }
 
+function getSlotWindow(dateOrIso: string | Date): string {
+  try {
+    const d = typeof dateOrIso === 'string' ? new Date(dateOrIso) : dateOrIso;
+    if (Number.isNaN(d.getTime())) return '08:00 - 08:05';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const h1 = pad(d.getHours());
+    const m1 = pad(d.getMinutes());
+    const end = new Date(d.getTime() + 5 * 60000);
+    const h2 = pad(end.getHours());
+    const m2 = pad(end.getMinutes());
+    return `${h1}:${m1} - ${h2}:${m2}`;
+  } catch {
+    return '08:00 - 08:05';
+  }
+}
+
+function getScheduleSlotBrief(isoOrDateStr: string): string {
+  try {
+    const d = new Date(isoOrDateStr);
+    if (Number.isNaN(d.getTime())) return 'Jadwal khusus';
+    const dayName = d.toLocaleDateString('id-ID', { weekday: 'short' });
+    const dateNum = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+    const slot = getSlotWindow(d);
+    return `${dayName}, ${dateNum} at ${slot}`;
+  } catch {
+    return 'Jadwal khusus';
+  }
+}
+
+function getScheduleSlotDisplay(isoOrDateStr: string): string {
+  try {
+    const d = new Date(isoOrDateStr);
+    if (Number.isNaN(d.getTime())) return 'Jadwal khusus';
+    const dayName = d.toLocaleDateString('id-ID', { weekday: 'long' });
+    const dateNum = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    const slot = getSlotWindow(d);
+    return `${dayName}, ${dateNum} • ${slot}`;
+  } catch {
+    return 'Jadwal khusus';
+  }
+}
+
 function formatPassengersDisplay(passengersJson?: string | null, passengerNickname?: string | null): string {
   if (passengersJson) {
     try {
@@ -319,6 +361,8 @@ export function App() {
   const [selectedPickupSpot, setSelectedPickupSpot] = useState<'A' | 'B' | 'C'>('A');
   const [activeRouteField, setActiveRouteField] = useState<'pickup' | 'destination'>('destination');
   const [scheduleMode, setScheduleMode] = useState<'NOW' | 'SCHEDULE'>('NOW');
+  const [showSchedulePicker, setShowSchedulePicker] = useState<boolean>(false);
+  const [schedulePickerTab, setSchedulePickerTab] = useState<'TODAY' | 'TOMORROW' | 'DATE'>('TODAY');
   const [vehicleFilter, setVehicleFilter] = useState<'ALL' | 'Electric' | 'MPV'>('ALL');
   const [activityTab, setActivityTab] = useState<'ONGOING' | 'HISTORY'>('ONGOING');
   const [summaryPicker, setSummaryPicker] = useState<'PURPOSE' | 'PAX' | 'NOTES' | 'CHARGE' | null>(null);
@@ -5767,6 +5811,10 @@ export function App() {
       bookingStep === 'IN_TRIP');
 
   const handleMapBack = () => {
+    if (showSchedulePicker) {
+      setShowSchedulePicker(false);
+      return;
+    }
     if (isDriverOnly || navSection === 'DRIVER') {
       setNavSection('DRIVER');
       setSheetSnap('full');
@@ -5873,20 +5921,15 @@ export function App() {
         <StickyActionBar>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%' }}>
             <button
+              id="schedule-circle-btn"
               type="button"
-              className="gf-icon-btn-48 pressable"
-              style={{ width: '52px', height: '52px', minWidth: '52px', minHeight: '52px', border: '1.5px solid #cbd5e1', color: '#0a0a0a' }}
-              title="Schedule & Hours of Booking"
-              aria-label="Schedule & Hours of Booking"
-              onClick={() => {
-                const el = document.getElementById('schedule-start');
-                if (el) {
-                  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                  el.focus();
-                }
-              }}
+              className={`gf-schedule-circle-btn pressable ${scheduleMode === 'SCHEDULE' ? 'is-active' : ''}`}
+              title={scheduleMode === 'SCHEDULE' ? 'Ubah Jadwal Perjalanan' : 'Atur Jadwal Perjalanan'}
+              aria-label="Atur Jadwal Perjalanan"
+              onClick={() => setShowSchedulePicker(true)}
             >
-              <Calendar size={20} />
+              <Calendar size={22} />
+              {scheduleMode === 'SCHEDULE' && <span className="gf-schedule-active-dot" />}
             </button>
             <button
               id="vehicle-continue-btn"
@@ -5900,15 +5943,14 @@ export function App() {
             >
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0 }}>
                 <span style={{ fontSize: '15px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  Book {selectedVehicle.make} {selectedVehicle.model}
+                  {scheduleMode === 'SCHEDULE'
+                    ? `Jadwalin ${selectedVehicle.make} ${selectedVehicle.model}`
+                    : `Pesan ${selectedVehicle.make} ${selectedVehicle.model}`}
                 </span>
                 <span style={{ fontSize: '11.5px', fontWeight: 600, opacity: 0.9 }}>
-                  {bookReservationType === 'FULL_DAY'
-                    ? 'Full Day Reserve'
-                    : bookReservationType === 'DROP_AND_PICKUP'
-                    ? 'Drop & Pick Up'
-                    : `${bookDurationHours}h Slot`}{' '}
-                  • ETA {currentMetrics.etaText}
+                  {scheduleMode === 'SCHEDULE'
+                    ? getScheduleSlotBrief(bookStart)
+                    : `Siap Berangkat • ETA ${currentMetrics.etaText}`}
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
@@ -5917,7 +5959,9 @@ export function App() {
                     ? 'Full Day'
                     : bookReservationType === 'DROP_AND_PICKUP'
                     ? 'Drop & Pick Up'
-                    : 'Work Fleet'}
+                    : scheduleMode === 'SCHEDULE'
+                    ? 'Terjadwal'
+                    : 'Langsung'}
                 </span>
                 <span className="gf-gocar-book-arrow">
                   <ArrowRight size={17} strokeWidth={2.75} />
@@ -8617,419 +8661,539 @@ export function App() {
             })}
           </div>
 
-          {/* Mandatory Request Schedule, Reservation Mode & Hours of Booking */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Clock size={16} style={{ color: '#0072de' }} />
-                <span style={{ fontSize: '13px', fontWeight: 800 }}>Reservation Mode & Schedule</span>
+          {/* Active Schedule Banner (Gojek Scheduled Mode) or Instant Dispatch Pill */}
+          {scheduleMode === 'SCHEDULE' ? (
+            <div className="gf-active-schedule-banner">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#0072de', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Calendar size={18} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#005bb5', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Jadwal Terpilih • Prioritas
+                  </div>
+                  <div style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {getScheduleSlotDisplay(bookStart)}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    {bookReservationType === 'FULL_DAY' ? 'Full Day (Seharian)' : bookReservationType === 'DROP_AND_PICKUP' ? 'Drop & Pick Up' : 'Standard Trip'} • {bookDurationHours} jam
+                  </div>
+                </div>
               </div>
-              <span className="type-caption" style={{ fontWeight: 700, color: '#0072de' }}>
-                Mandatory
-              </span>
+              <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-secondary"
+                  style={{ minHeight: '32px', height: '32px', padding: '0 10px', fontSize: '11.5px', fontWeight: 700 }}
+                  onClick={() => setShowSchedulePicker(true)}
+                >
+                  Ubah
+                </button>
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-ghost"
+                  style={{ minHeight: '32px', height: '32px', padding: '0 8px', fontSize: '11px', color: '#dc2626', fontWeight: 600 }}
+                  title="Hapus Jadwal dan kembali ke Pesan Langsung"
+                  onClick={() => {
+                    setScheduleMode('NOW');
+                    const now = Date.now();
+                    setBookStart(toLocalDateTimeInput(new Date(now + 2 * 3600000)));
+                    setBookEnd(toLocalDateTimeInput(new Date(now + 4 * 3600000)));
+                    setStatusBanner({
+                      type: 'info',
+                      text: 'Jadwal dibatalkan. Kembali ke mode pesan langsung.',
+                    });
+                  }}
+                >
+                  <X size={14} /> Hapus
+                </button>
+              </div>
             </div>
-
-            {/* Reservation Mode Selector: Standard Trip | Drop & Pick Up | Full Day */}
-            <div>
-              <div className="type-caption" style={{ fontWeight: 700, marginBottom: '6px' }}>
-                Trip Type
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '14px', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)', fontSize: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-text-secondary)' }}>
+                <Clock size={16} style={{ color: '#0072de' }} />
+                <span><strong>Pesan Sekarang</strong> • Siap jalan segera atau tap tombol jadwal untuk reservasi</span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px' }} role="group" aria-label="Reservation mode">
-                {([
-                  { id: 'ONE_WAY', label: 'Standard Trip', sub: 'Point-to-point' },
-                  { id: 'DROP_AND_PICKUP', label: 'Drop & Pick Up', sub: 'Drop & pick-up after event' },
-                  { id: 'FULL_DAY', label: 'Full Day', sub: 'Whole work day' },
-                ] as Array<{ id: 'ONE_WAY' | 'DROP_AND_PICKUP' | 'FULL_DAY'; label: string; sub: string }>).map((mode) => {
-                  const selected = bookReservationType === mode.id;
-                  return (
+              <button
+                type="button"
+                className="gf-btn gf-btn-secondary gf-btn-sm"
+                style={{ padding: '0 10px', height: '30px', fontSize: '11.5px', fontWeight: 700 }}
+                onClick={() => setShowSchedulePicker(true)}
+              >
+                Atur Jadwal
+              </button>
+            </div>
+          )}
+
+          {/* Dedicated Gojek-Style Schedule Picker Sheet ("Kapan mau berangkat?") */}
+          {showSchedulePicker && (
+            <div className="gf-modal-backdrop" onClick={() => setShowSchedulePicker(false)}>
+              <div
+                className="gf-modal-card"
+                style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', maxWidth: '520px' }}
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Kapan mau berangkat?"
+              >
+                {/* 1. Gojek Priority Strip Banner */}
+                <div className="gf-gojek-priority-strip">
+                  <ShieldCheck size={14} />
+                  <span>Gak perlu cemas, booking-mu jadi prioritas</span>
+                </div>
+
+                {/* Modal Body */}
+                <div style={{ padding: '16px 20px 20px', display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: 'calc(88dvh - 50px)', overflowY: 'auto' }}>
+                  {/* Top Header */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
+                      Kapan mau berangkat?
+                    </h2>
                     <button
-                      key={mode.id}
-                      id={`reservation-mode-${mode.id.toLowerCase()}`}
                       type="button"
-                      className="pressable"
-                      onClick={() => {
-                        setBookReservationType(mode.id);
-                        setScheduleMode('SCHEDULE');
-                        if (mode.id === 'DROP_AND_PICKUP') {
-                          const baseStartMs = bookStart && !Number.isNaN(new Date(bookStart).getTime())
-                            ? new Date(bookStart).getTime()
-                            : Date.now() + 2 * 3600000;
-                          if (!bookStart) setBookStart(toLocalDateTimeInput(new Date(baseStartMs)));
-                          const existingRpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
-                          const targetRpMs = !Number.isNaN(existingRpMs) && existingRpMs > baseStartMs
-                            ? existingRpMs
-                            : baseStartMs + 3 * 3600000;
-                          setBookReturnPickupTime(toLocalDateTimeInput(new Date(targetRpMs)));
-                          const curEndMs = bookEnd && !Number.isNaN(new Date(bookEnd).getTime()) ? new Date(bookEnd).getTime() : 0;
-                          const minEndMs = targetRpMs + 3600000;
-                          if (curEndMs < targetRpMs) {
-                            setBookEnd(toLocalDateTimeInput(new Date(minEndMs)));
-                            setBookDurationHours(Math.max(1, Math.round((minEndMs - baseStartMs) / 3600000)));
+                      className="gf-icon-btn-48 pressable"
+                      style={{ width: '32px', height: '32px', minWidth: '32px', minHeight: '32px' }}
+                      onClick={() => setShowSchedulePicker(false)}
+                      aria-label="Tutup"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  {/* 2. 3-Tab Chips: Hari ini / Besok / Pilih tanggal */}
+                  <div className="gf-gojek-tab-group" role="tablist">
+                    {([
+                      { id: 'TODAY', label: 'Hari ini' },
+                      { id: 'TOMORROW', label: 'Besok' },
+                      { id: 'DATE', label: 'Pilih tanggal', icon: <Calendar size={14} /> },
+                    ] as Array<{ id: 'TODAY' | 'TOMORROW' | 'DATE'; label: string; icon?: React.ReactNode }>).map((tab) => {
+                      const active = schedulePickerTab === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={active}
+                          className={`gf-gojek-tab-chip pressable ${active ? 'is-active' : ''}`}
+                          onClick={() => {
+                            setSchedulePickerTab(tab.id);
+                            const target = new Date();
+                            if (tab.id === 'TOMORROW') {
+                              target.setDate(target.getDate() + 1);
+                              target.setHours(8, 0, 0, 0);
+                            } else if (tab.id === 'TODAY') {
+                              const minLead = Date.now() + 2 * 3600000;
+                              target.setTime(minLead);
+                            }
+                            const sIso = toLocalDateTimeInput(target);
+                            setBookStart(sIso);
+                            const eMs = new Date(sIso).getTime() + bookDurationHours * 3600000;
+                            setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+                            if (bookReservationType === 'DROP_AND_PICKUP') {
+                              setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
+                            }
+                          }}
+                        >
+                          {tab.icon}
+                          <span>{tab.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* 3. Gojek Estimate Card */}
+                  <div className="gf-gojek-estimate-card">
+                    <span className="gf-gojek-estimate-caption">Estimasi waktu jemput</span>
+                    <span className="gf-gojek-estimate-value">
+                      {schedulePickerTab === 'TODAY'
+                        ? `Hari ini | ${getSlotWindow(bookStart)}`
+                        : schedulePickerTab === 'TOMORROW'
+                        ? `Besok | ${getSlotWindow(bookStart)}`
+                        : `${new Date(bookStart).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })} | ${getSlotWindow(bookStart)}`}
+                    </span>
+                  </div>
+
+                  {/* 4. 5-Minute Slot Quick Selector Wheel */}
+                  <div>
+                    <div className="type-caption" style={{ fontWeight: 700, marginBottom: '6px', color: 'var(--color-text-secondary)' }}>
+                      Pilih Jendela Waktu Penjemputan (Interval 5 Menit)
+                    </div>
+                    <div className="gf-gojek-wheel-box">
+                      {(() => {
+                        const slots = [];
+                        const baseD = new Date(bookStart);
+                        const startH = schedulePickerTab === 'TODAY' ? Math.max(new Date().getHours(), 6) : 6;
+                        for (let h = startH; h <= 21; h++) {
+                          for (let m = 0; m < 60; m += 30) {
+                            const slotD = new Date(baseD);
+                            slotD.setHours(h, m, 0, 0);
+                            const pad = (n: number) => String(n).padStart(2, '0');
+                            const h1 = pad(h);
+                            const m1 = pad(m);
+                            const endSlot = new Date(slotD.getTime() + 5 * 60000);
+                            const h2 = pad(endSlot.getHours());
+                            const m2 = pad(endSlot.getMinutes());
+                            const label = `${h1}:${m1} - ${h2}:${m2}`;
+                            const isSel = Math.abs(slotD.getTime() - new Date(bookStart).getTime()) < 15 * 60000;
+                            const diffMin = Math.round((slotD.getTime() - Date.now()) / 60000);
+                            const isUrgent = diffMin >= 0 && diffMin < 120;
+                            slots.push(
+                              <button
+                                key={`${h}-${m}`}
+                                type="button"
+                                className={`gf-gojek-wheel-row pressable ${isSel ? 'is-selected' : ''}`}
+                                onClick={() => {
+                                  const sIso = toLocalDateTimeInput(slotD);
+                                  setBookStart(sIso);
+                                  const eMs = slotD.getTime() + bookDurationHours * 3600000;
+                                  setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+                                  if (bookReservationType === 'DROP_AND_PICKUP') {
+                                    setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
+                                  }
+                                }}
+                              >
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <Clock size={14} style={{ color: isSel ? '#0072de' : 'var(--color-text-muted)' }} />
+                                  <span>{label}</span>
+                                </span>
+                                <span style={{ fontSize: '11px', fontWeight: 700 }}>
+                                  {isUrgent ? '🚨 Mendesak (< 2j)' : isSel ? '✓ Dipilih' : 'Standar'}
+                                </span>
+                              </button>
+                            );
                           }
-                        } else if (mode.id === 'FULL_DAY') {
-                          const nowMs = Date.now();
-                          const minLeadMs = nowMs + 2 * 3600000;
-                          const todayStart = new Date();
-                          todayStart.setHours(8, 0, 0, 0);
-                          const todayEnd = new Date();
-                          todayEnd.setHours(20, 0, 0, 0);
-                          let sMs = Math.max(todayStart.getTime(), minLeadMs);
-                          let eMs = todayEnd.getTime();
-                          if (eMs - sMs < 2 * 3600000) {
-                            const tomStart = new Date();
-                            tomStart.setDate(tomStart.getDate() + 1);
-                            tomStart.setHours(8, 0, 0, 0);
-                            const tomEnd = new Date(tomStart);
-                            tomEnd.setHours(20, 0, 0, 0);
-                            sMs = tomStart.getTime();
-                            eMs = tomEnd.getTime();
-                          }
-                          setBookStart(toLocalDateTimeInput(new Date(sMs)));
-                          setBookEnd(toLocalDateTimeInput(new Date(eMs)));
-                          setBookDurationHours(Math.max(1, Math.round((eMs - sMs) / 3600000)));
                         }
-                      }}
-                      style={{
-                        padding: '8px 6px',
-                        borderRadius: '10px',
-                        border: selected ? '1.5px solid #0072de' : '1px solid var(--color-border)',
-                        background: selected ? '#ebf5ff' : 'var(--color-surface)',
-                        color: selected ? '#005bb5' : 'var(--color-text-primary)',
-                        textAlign: 'center',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '2px',
+                        return slots;
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* 5. Reservation Mode & Preset Shortcuts */}
+                  <div>
+                    <div className="type-caption" style={{ fontWeight: 700, marginBottom: '6px' }}>
+                      Tipe Reservasi Perjalanan
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px' }} role="group" aria-label="Reservation mode">
+                      {([
+                        { id: 'ONE_WAY', label: 'Standard Trip', sub: 'Point-to-point' },
+                        { id: 'DROP_AND_PICKUP', label: 'Drop & Pick Up', sub: 'Drop & jemput nanti' },
+                        { id: 'FULL_DAY', label: 'Full Day', sub: 'Seharian kerja' },
+                      ] as Array<{ id: 'ONE_WAY' | 'DROP_AND_PICKUP' | 'FULL_DAY'; label: string; sub: string }>).map((mode) => {
+                        const selected = bookReservationType === mode.id;
+                        return (
+                          <button
+                            key={mode.id}
+                            id={`reservation-mode-${mode.id.toLowerCase()}`}
+                            type="button"
+                            className="pressable"
+                            onClick={() => {
+                              setBookReservationType(mode.id);
+                              if (mode.id === 'DROP_AND_PICKUP') {
+                                const baseStartMs = bookStart && !Number.isNaN(new Date(bookStart).getTime())
+                                  ? new Date(bookStart).getTime()
+                                  : Date.now() + 2 * 3600000;
+                                if (!bookStart) setBookStart(toLocalDateTimeInput(new Date(baseStartMs)));
+                                const existingRpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
+                                const targetRpMs = !Number.isNaN(existingRpMs) && existingRpMs > baseStartMs
+                                  ? existingRpMs
+                                  : baseStartMs + 3 * 3600000;
+                                setBookReturnPickupTime(toLocalDateTimeInput(new Date(targetRpMs)));
+                                const curEndMs = bookEnd && !Number.isNaN(new Date(bookEnd).getTime()) ? new Date(bookEnd).getTime() : 0;
+                                const minEndMs = targetRpMs + 3600000;
+                                if (curEndMs < targetRpMs) {
+                                  setBookEnd(toLocalDateTimeInput(new Date(minEndMs)));
+                                  setBookDurationHours(Math.max(1, Math.round((minEndMs - baseStartMs) / 3600000)));
+                                }
+                              } else if (mode.id === 'FULL_DAY') {
+                                const nowMs = Date.now();
+                                const minLeadMs = nowMs + 2 * 3600000;
+                                const todayStart = new Date();
+                                todayStart.setHours(8, 0, 0, 0);
+                                const todayEnd = new Date();
+                                todayEnd.setHours(20, 0, 0, 0);
+                                let sMs = Math.max(todayStart.getTime(), minLeadMs);
+                                let eMs = todayEnd.getTime();
+                                if (eMs - sMs < 2 * 3600000) {
+                                  const tomStart = new Date();
+                                  tomStart.setDate(tomStart.getDate() + 1);
+                                  tomStart.setHours(8, 0, 0, 0);
+                                  const tomEnd = new Date(tomStart);
+                                  tomEnd.setHours(20, 0, 0, 0);
+                                  sMs = tomStart.getTime();
+                                  eMs = tomEnd.getTime();
+                                }
+                                setBookStart(toLocalDateTimeInput(new Date(sMs)));
+                                setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+                                setBookDurationHours(Math.max(1, Math.round((eMs - sMs) / 3600000)));
+                              }
+                            }}
+                            style={{
+                              padding: '8px 6px',
+                              borderRadius: '10px',
+                              border: selected ? '1.5px solid #0072de' : '1px solid var(--color-border)',
+                              background: selected ? '#ebf5ff' : 'var(--color-surface)',
+                              color: selected ? '#005bb5' : 'var(--color-text-primary)',
+                              textAlign: 'center',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px',
+                            }}
+                          >
+                            <span style={{ fontSize: '11.5px', fontWeight: 800, lineHeight: 1.2 }}>{mode.label}</span>
+                            <span style={{ fontSize: '9.5px', opacity: 0.78, lineHeight: 1.15 }}>{mode.sub}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Quick Presets (Today Full Day, Tomorrow Full Day, etc.) */}
+                  <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
+                    <Chip
+                      active={false}
+                      onClick={() => {
+                        const now = Date.now();
+                        const hrs = bookReservationType === 'FULL_DAY' ? Math.max(8, bookDurationHours) : bookDurationHours;
+                        const sMs = now + 2 * 3600000;
+                        const eMs = sMs + hrs * 3600000;
+                        setBookStart(toLocalDateTimeInput(new Date(sMs)));
+                        setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+                        if (bookReservationType === 'DROP_AND_PICKUP') {
+                          setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
+                        }
                       }}
                     >
-                      <span style={{ fontSize: '11.5px', fontWeight: 800, lineHeight: 1.2 }}>{mode.label}</span>
-                      <span style={{ fontSize: '9.5px', opacity: 0.78, lineHeight: 1.15 }}>{mode.sub}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              {bookReservationType === 'DROP_AND_PICKUP' && (
-                <div style={{ marginTop: '6px', padding: '8px 10px', borderRadius: '8px', background: '#ebf5ff', border: '1px solid #bfdbfe', fontSize: '11.5px', color: '#005bb5', fontWeight: 600 }}>
-                  Driver drops passenger(s) at destination and returns to pick up at your chosen Post-Event Pick-Up time. Car stays reserved until final return.
-                </div>
-              )}
-              {bookReservationType === 'FULL_DAY' && (
-                <div style={{ marginTop: '6px', padding: '8px 10px', borderRadius: '8px', background: '#ebf5ff', border: '1px solid #bfdbfe', fontSize: '11.5px', color: '#005bb5', fontWeight: 600 }}>
-                  Full Day Reservation keeps the vehicle and chauffeur dedicated for your entire work schedule.
-                </div>
-              )}
-            </div>
-
-            {/* Quick departure & full-day presets */}
-            <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
-              <Chip
-                active={false}
-                onClick={() => {
-                  const now = Date.now();
-                  const hrs = bookReservationType === 'FULL_DAY' ? Math.max(8, bookDurationHours) : bookDurationHours;
-                  const sMs = now + 2 * 3600000;
-                  const eMs = sMs + hrs * 3600000;
-                  setScheduleMode('SCHEDULE');
-                  setBookStart(toLocalDateTimeInput(new Date(sMs)));
-                  setBookEnd(toLocalDateTimeInput(new Date(eMs)));
-                  if (bookReservationType === 'DROP_AND_PICKUP') {
-                    setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
-                  }
-                }}
-              >
-                In 2h (Standard)
-              </Chip>
-              <Chip
-                active={false}
-                onClick={() => {
-                  const now = Date.now();
-                  const hrs = bookReservationType === 'FULL_DAY' ? Math.max(8, bookDurationHours) : bookDurationHours;
-                  const sMs = now + 4 * 3600000;
-                  const eMs = sMs + hrs * 3600000;
-                  setScheduleMode('SCHEDULE');
-                  setBookStart(toLocalDateTimeInput(new Date(sMs)));
-                  setBookEnd(toLocalDateTimeInput(new Date(eMs)));
-                  if (bookReservationType === 'DROP_AND_PICKUP') {
-                    setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
-                  }
-                }}
-              >
-                In 4h
-              </Chip>
-              <Chip
-                active={false}
-                onClick={() => {
-                  const start = new Date();
-                  const minLeadMs = Date.now() + 2 * 3600000;
-                  const todayEnd = new Date();
-                  todayEnd.setHours(20, 0, 0, 0);
-                  if (todayEnd.getTime() - minLeadMs < 2 * 3600000) {
-                    todayEnd.setHours(23, 0, 0, 0);
-                  }
-                  const sMs = Math.max(start.setHours(8, 0, 0, 0), minLeadMs);
-                  const eMs = Math.max(todayEnd.getTime(), sMs + 2 * 3600000);
-                  setScheduleMode('SCHEDULE');
-                  setBookReservationType('FULL_DAY');
-                  setBookStart(toLocalDateTimeInput(new Date(sMs)));
-                  setBookEnd(toLocalDateTimeInput(new Date(eMs)));
-                  setBookDurationHours(Math.max(1, Math.round((eMs - sMs) / 3600000)));
-                }}
-              >
-                Today Full Day
-              </Chip>
-              <Chip
-                active={false}
-                onClick={() => {
-                  const tomorrow = new Date();
-                  tomorrow.setDate(tomorrow.getDate() + 1);
-                  tomorrow.setHours(8, 0, 0, 0);
-                  const tomEnd = new Date(tomorrow);
-                  tomEnd.setHours(20, 0, 0, 0);
-                  setScheduleMode('SCHEDULE');
-                  setBookReservationType('FULL_DAY');
-                  setBookStart(toLocalDateTimeInput(tomorrow));
-                  setBookEnd(toLocalDateTimeInput(tomEnd));
-                  setBookDurationHours(12);
-                }}
-              >
-                Tomorrow Full Day
-              </Chip>
-              <Chip
-                active={false}
-                onClick={() => {
-                  const tomorrow = new Date();
-                  tomorrow.setDate(tomorrow.getDate() + 1);
-                  tomorrow.setHours(8, 0, 0, 0);
-                  const hrs = bookReservationType === 'FULL_DAY' ? 12 : bookDurationHours;
-                  const sMs = tomorrow.getTime();
-                  const eMs = sMs + hrs * 3600000;
-                  setScheduleMode('SCHEDULE');
-                  setBookStart(toLocalDateTimeInput(tomorrow));
-                  setBookEnd(toLocalDateTimeInput(new Date(eMs)));
-                  if (bookReservationType === 'DROP_AND_PICKUP') {
-                    setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
-                  }
-                }}
-              >
-                Tomorrow 08:00
-              </Chip>
-              <Chip
-                active={false}
-                onClick={() => {
-                  const sMs = Date.now() + 15 * 60000;
-                  const eMs = sMs + bookDurationHours * 3600000;
-                  setScheduleMode('SCHEDULE');
-                  setBookStart(toLocalDateTimeInput(new Date(sMs)));
-                  setBookEnd(toLocalDateTimeInput(new Date(eMs)));
-                  if (bookReservationType === 'DROP_AND_PICKUP') {
-                    setBookReturnPickupTime(toLocalDateTimeInput(new Date(sMs + Math.max(1, bookDurationHours - 1) * 3600000)));
-                  }
-                }}
-              >
-                🚨 Urgent (&lt; 2h)
-              </Chip>
-            </div>
-
-            {/* Departure, Optional Post-Event Pick-Up & Return Datetime Inputs */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
-              <div>
-                <label className="type-caption" htmlFor="schedule-start" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  {bookReservationType === 'DROP_AND_PICKUP' ? 'Drop-Off Departure *' : 'Departure Date & Time *'}
-                </label>
-                <input
-                  id="schedule-start"
-                  type="datetime-local"
-                  className="gf-input"
-                  required
-                  value={bookStart}
-                  onChange={(e) => {
-                    setScheduleMode('SCHEDULE');
-                    setBookStart(e.target.value);
-                    if (e.target.value) {
-                      const newStartMs = new Date(e.target.value).getTime();
-                      if (!Number.isNaN(newStartMs)) {
-                        const newEndMs = newStartMs + bookDurationHours * 3600000;
-                        setBookEnd(toLocalDateTimeInput(new Date(newEndMs)));
+                      In 2h (Standard)
+                    </Chip>
+                    <Chip
+                      active={false}
+                      onClick={() => {
+                        const now = Date.now();
+                        const hrs = bookReservationType === 'FULL_DAY' ? Math.max(8, bookDurationHours) : bookDurationHours;
+                        const sMs = now + 4 * 3600000;
+                        const eMs = sMs + hrs * 3600000;
+                        setBookStart(toLocalDateTimeInput(new Date(sMs)));
+                        setBookEnd(toLocalDateTimeInput(new Date(eMs)));
                         if (bookReservationType === 'DROP_AND_PICKUP') {
-                          const curRpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
-                          if (Number.isNaN(curRpMs) || curRpMs <= newStartMs) {
-                            setBookReturnPickupTime(toLocalDateTimeInput(new Date(Math.max(newStartMs + 3600000, newEndMs - 1800000))));
-                          }
+                          setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
                         }
-                      }
-                    }
-                  }}
-                />
-              </div>
-
-              {bookReservationType === 'DROP_AND_PICKUP' && (
-                <div>
-                  <label className="type-caption" htmlFor="schedule-return-pickup" style={{ fontWeight: 700, display: 'block', marginBottom: '4px', color: '#005bb5' }}>
-                    Post-Event Pick-Up Time *
-                  </label>
-                  <input
-                    id="schedule-return-pickup"
-                    type="datetime-local"
-                    className="gf-input"
-                    required
-                    value={bookReturnPickupTime}
-                    onChange={(e) => {
-                      setScheduleMode('SCHEDULE');
-                      setBookReturnPickupTime(e.target.value);
-                      if (e.target.value) {
-                        const rpMs = new Date(e.target.value).getTime();
-                        const curEndMs = bookEnd ? new Date(bookEnd).getTime() : 0;
-                        const sMs = bookStart ? new Date(bookStart).getTime() : 0;
-                        if (!Number.isNaN(rpMs) && curEndMs < rpMs) {
-                          const nextEndMs = rpMs + 3600000;
-                          setBookEnd(toLocalDateTimeInput(new Date(nextEndMs)));
-                          if (!Number.isNaN(sMs) && sMs > 0) {
-                            setBookDurationHours(Math.max(1, Math.round((nextEndMs - sMs) / 3600000)));
-                          }
+                      }}
+                    >
+                      In 4h
+                    </Chip>
+                    <Chip
+                      active={false}
+                      onClick={() => {
+                        const start = new Date();
+                        const minLeadMs = Date.now() + 2 * 3600000;
+                        const todayEnd = new Date();
+                        todayEnd.setHours(20, 0, 0, 0);
+                        if (todayEnd.getTime() - minLeadMs < 2 * 3600000) {
+                          todayEnd.setHours(23, 0, 0, 0);
                         }
-                      }
-                    }}
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="type-caption" htmlFor="schedule-end" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  {bookReservationType === 'DROP_AND_PICKUP'
-                    ? 'Final Return to Pool *'
-                    : bookReservationType === 'FULL_DAY'
-                    ? 'Full Day End Date & Time *'
-                    : 'Return Date & Time *'}
-                </label>
-                <input
-                  id="schedule-end"
-                  type="datetime-local"
-                  className="gf-input"
-                  required
-                  value={bookEnd}
-                  onChange={(e) => {
-                    setScheduleMode('SCHEDULE');
-                    setBookEnd(e.target.value);
-                    if (e.target.value && bookStart) {
-                      const diffHrs = Math.max(1, Math.round((new Date(e.target.value).getTime() - new Date(bookStart).getTime()) / 3600000));
-                      setBookDurationHours(diffHrs);
-                    }
-                  }}
-                />
-              </div>
-            </div>
-
-            {bookReservationType === 'DROP_AND_PICKUP' && (() => {
-              const sMs = new Date(bookStart).getTime();
-              const eMs = new Date(bookEnd).getTime();
-              const rpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
-              if (Number.isNaN(rpMs) || rpMs <= sMs || (!Number.isNaN(eMs) && eMs < rpMs)) {
-                return (
-                  <div style={{ padding: '8px 10px', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fecaca', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
-                    <span style={{ fontSize: '11.5px', color: '#991b1b', fontWeight: 600 }}>
-                      Post-Event Pick-Up time must be after Drop-Off departure and at or before Final Return.
-                    </span>
-                  </div>
-                );
-              }
-              return null;
-            })()}
-
-            {/* Quick Duration Buttons (Hours of Booking) */}
-            <div>
-              <div className="type-caption" style={{ fontWeight: 700, marginBottom: '4px' }}>
-                Booking Duration (Hours)
-              </div>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {[1, 2, 3, 4, 8, 12, 24].map((hrs) => (
-                  <Chip
-                    key={hrs}
-                    active={bookDurationHours === hrs}
-                    onClick={() => {
-                      setScheduleMode('SCHEDULE');
-                      setBookDurationHours(hrs);
-                      if (hrs >= 12 && bookReservationType === 'ONE_WAY') {
+                        const sMs = Math.max(start.setHours(8, 0, 0, 0), minLeadMs);
+                        const eMs = Math.max(todayEnd.getTime(), sMs + 2 * 3600000);
                         setBookReservationType('FULL_DAY');
-                      }
-                      if (bookStart) {
-                        const startMs = new Date(bookStart).getTime();
-                        if (!Number.isNaN(startMs)) {
-                          const nextEndMs = startMs + hrs * 3600000;
-                          setBookEnd(toLocalDateTimeInput(new Date(nextEndMs)));
-                          if (bookReservationType === 'DROP_AND_PICKUP') {
-                            const rpMs = startMs + Math.max(1, hrs - 1) * 3600000;
-                            setBookReturnPickupTime(toLocalDateTimeInput(new Date(rpMs)));
-                          }
-                        }
-                      }
-                    }}
-                  >
-                    {hrs === 12 ? 'Work Day (12h)' : hrs === 24 ? 'Full Day (24h)' : `${hrs} Hour${hrs > 1 ? 's' : ''}`}
-                  </Chip>
-                ))}
-              </div>
-            </div>
-
-            {/* 2-Hour Advance Booking Policy Live Status */}
-            {(() => {
-              const startMs = new Date(bookStart).getTime();
-              const nowMs = Date.now();
-              const diffMin = Math.round((startMs - nowMs) / 60000);
-              const isPast = diffMin < 0;
-              const isUrgent = diffMin >= 0 && diffMin < 120;
-
-              if (isPast) {
-                return (
-                  <div style={{ padding: '8px 10px', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fecaca', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
-                    <span style={{ fontSize: '11.5px', color: '#991b1b', fontWeight: 600 }}>
-                      Departure time cannot be in the past. Please select an upcoming time.
-                    </span>
+                        setBookStart(toLocalDateTimeInput(new Date(sMs)));
+                        setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+                        setBookDurationHours(Math.max(1, Math.round((eMs - sMs) / 3600000)));
+                      }}
+                    >
+                      Today Full Day
+                    </Chip>
+                    <Chip
+                      active={false}
+                      onClick={() => {
+                        const tomorrow = new Date();
+                        tomorrow.setDate(tomorrow.getDate() + 1);
+                        tomorrow.setHours(8, 0, 0, 0);
+                        const tomEnd = new Date(tomorrow);
+                        tomEnd.setHours(20, 0, 0, 0);
+                        setBookReservationType('FULL_DAY');
+                        setBookStart(toLocalDateTimeInput(tomorrow));
+                        setBookEnd(toLocalDateTimeInput(tomEnd));
+                        setBookDurationHours(12);
+                      }}
+                    >
+                      Tomorrow Full Day
+                    </Chip>
                   </div>
-                );
-              }
 
-              if (isUrgent) {
-                return (
-                  <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#fef2f2', border: '1.5px solid #f87171', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                      <AlertTriangle size={16} style={{ color: '#dc2626', flexShrink: 0 }} />
-                      <span style={{ fontSize: '12px', fontWeight: 800, color: '#991b1b', textTransform: 'uppercase' }}>
-                        🚨 Urgent Request (&lt; 2h Advance) • Fleet PIC Approval Required
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '11.5px', color: '#7f1d1d' }}>
-                      Company rule requires booking at least 2 hours before departure. This trip departs in <strong>{diffMin} minutes</strong> and requires mandatory justification and additional authorization from the Fleet Operation PIC.
-                    </div>
+                  {/* 6. Form Datetime Inputs */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
                     <div>
-                      <label className="type-caption" htmlFor="urgent-reason-input" style={{ fontWeight: 700, display: 'block', color: '#991b1b', marginBottom: '2px' }}>
-                        Urgent Justification *
+                      <label className="type-caption" htmlFor="schedule-start" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                        {bookReservationType === 'DROP_AND_PICKUP' ? 'Drop-Off Departure *' : 'Departure Date & Time *'}
                       </label>
                       <input
-                        id="urgent-reason-input"
-                        type="text"
+                        id="schedule-start"
+                        type="datetime-local"
                         className="gf-input"
                         required
-                        placeholder="State urgent business reason (e.g. Emergency client site issue, urgent VIP transport)..."
-                        value={bookUrgentReason}
-                        onChange={(e) => setBookUrgentReason(e.target.value)}
+                        value={bookStart}
+                        onChange={(e) => {
+                          setBookStart(e.target.value);
+                          if (e.target.value) {
+                            const newStartMs = new Date(e.target.value).getTime();
+                            if (!Number.isNaN(newStartMs)) {
+                              const newEndMs = newStartMs + bookDurationHours * 3600000;
+                              setBookEnd(toLocalDateTimeInput(new Date(newEndMs)));
+                              if (bookReservationType === 'DROP_AND_PICKUP') {
+                                const curRpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
+                                if (Number.isNaN(curRpMs) || curRpMs <= newStartMs) {
+                                  setBookReturnPickupTime(toLocalDateTimeInput(new Date(Math.max(newStartMs + 3600000, newEndMs - 1800000))));
+                                }
+                              }
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+
+                    {bookReservationType === 'DROP_AND_PICKUP' && (
+                      <div>
+                        <label className="type-caption" htmlFor="schedule-return-pickup" style={{ fontWeight: 700, display: 'block', marginBottom: '4px', color: '#005bb5' }}>
+                          Post-Event Pick-Up Time *
+                        </label>
+                        <input
+                          id="schedule-return-pickup"
+                          type="datetime-local"
+                          className="gf-input"
+                          required
+                          value={bookReturnPickupTime}
+                          onChange={(e) => {
+                            setBookReturnPickupTime(e.target.value);
+                            if (e.target.value) {
+                              const rpMs = new Date(e.target.value).getTime();
+                              const curEndMs = bookEnd ? new Date(bookEnd).getTime() : 0;
+                              const sMs = bookStart ? new Date(bookStart).getTime() : 0;
+                              if (!Number.isNaN(rpMs) && curEndMs < rpMs) {
+                                const nextEndMs = rpMs + 3600000;
+                                setBookEnd(toLocalDateTimeInput(new Date(nextEndMs)));
+                                if (!Number.isNaN(sMs) && sMs > 0) {
+                                  setBookDurationHours(Math.max(1, Math.round((nextEndMs - sMs) / 3600000)));
+                                }
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="type-caption" htmlFor="schedule-end" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                        {bookReservationType === 'DROP_AND_PICKUP'
+                          ? 'Final Return to Pool *'
+                          : bookReservationType === 'FULL_DAY'
+                          ? 'Full Day End Date & Time *'
+                          : 'Return Date & Time *'}
+                      </label>
+                      <input
+                        id="schedule-end"
+                        type="datetime-local"
+                        className="gf-input"
+                        required
+                        value={bookEnd}
+                        onChange={(e) => {
+                          setBookEnd(e.target.value);
+                          if (e.target.value && bookStart) {
+                            const diffHrs = Math.max(1, Math.round((new Date(e.target.value).getTime() - new Date(bookStart).getTime()) / 3600000));
+                            setBookDurationHours(diffHrs);
+                          }
+                        }}
                       />
                     </div>
                   </div>
-                );
-              }
 
-              return (
-                <div style={{ padding: '8px 10px', borderRadius: '8px', background: '#ebf5ff', border: '1px solid #bfdbfe', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <CheckCircle2 size={15} style={{ color: '#0072de', flexShrink: 0 }} />
-                  <span style={{ fontSize: '11.5px', color: '#005bb5', fontWeight: 600 }}>
-                    ✓ Standard Advance Booking ({Math.floor(diffMin / 60)}h {diffMin % 60}m before departure • Compliant with 2h advance booking rule)
-                  </span>
+                  {/* 7. 2-Hour Advance Booking Policy Feedback */}
+                  {(() => {
+                    const startMs = new Date(bookStart).getTime();
+                    const nowMs = Date.now();
+                    const diffMin = Math.round((startMs - nowMs) / 60000);
+                    const isPast = diffMin < 0;
+                    const isUrgent = diffMin >= 0 && diffMin < 120;
+
+                    if (isPast) {
+                      return (
+                        <div style={{ padding: '8px 10px', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fecaca', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
+                          <span style={{ fontSize: '11.5px', color: '#991b1b', fontWeight: 600 }}>
+                            Waktu keberangkatan tidak boleh di masa lalu. Silakan pilih waktu mendatang.
+                          </span>
+                        </div>
+                      );
+                    }
+
+                    if (isUrgent) {
+                      return (
+                        <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#fef2f2', border: '1.5px solid #f87171', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <AlertTriangle size={16} style={{ color: '#dc2626', flexShrink: 0 }} />
+                            <span style={{ fontSize: '12px', fontWeight: 800, color: '#991b1b', textTransform: 'uppercase' }}>
+                              🚨 Permintaan Mendesak (&lt; 2 Jam) • Wajib Persetujuan PIC Fleet
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '11.5px', color: '#7f1d1d' }}>
+                            Aturan perusahaan mewajibkan booking minimal 2 jam sebelumnya. Trip ini berangkat dalam <strong>{diffMin} menit</strong> dan memerlukan justifikasi mendesak.
+                          </div>
+                          <div>
+                            <label className="type-caption" htmlFor="urgent-reason-input" style={{ fontWeight: 700, display: 'block', color: '#991b1b', marginBottom: '2px' }}>
+                              Alasan Mendesak *
+                            </label>
+                            <input
+                              id="urgent-reason-input"
+                              type="text"
+                              className="gf-input"
+                              required
+                              placeholder="Tulis alasan urgensi (misal: darurat site klien, transport VIP mendadak)..."
+                              value={bookUrgentReason}
+                              onChange={(e) => setBookUrgentReason(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div style={{ padding: '8px 10px', borderRadius: '8px', background: '#ebf5ff', border: '1px solid #bfdbfe', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <CheckCircle2 size={15} style={{ color: '#0072de', flexShrink: 0 }} />
+                        <span style={{ fontSize: '11.5px', color: '#005bb5', fontWeight: 600 }}>
+                          ✓ Reservasi Standar ({Math.floor(diffMin / 60)}j {diffMin % 60}m sebelum keberangkatan • Sesuai kebijakan min. 2 jam)
+                        </span>
+                      </div>
+                    );
+                  })()}
+
+                  {/* 8. Gojek Footer Button Pair */}
+                  <div className="gf-gojek-footer-pair" style={{ marginTop: '4px' }}>
+                    <button
+                      type="button"
+                      className="gf-gojek-btn-cancel pressable"
+                      onClick={() => setShowSchedulePicker(false)}
+                    >
+                      Gak jadi
+                    </button>
+                    <button
+                      type="button"
+                      className="gf-gojek-btn-commit pressable"
+                      onClick={() => {
+                        setScheduleMode('SCHEDULE');
+                        setShowSchedulePicker(false);
+                        setStatusBanner({
+                          type: 'success',
+                          text: `Jadwal berhasil diatur: ${getScheduleSlotBrief(bookStart)}`,
+                        });
+                      }}
+                    >
+                      Set jadwal
+                    </button>
+                  </div>
                 </div>
-              );
-            })()}
-          </div>
+              </div>
+            </div>
+          )}
 
           {/* GoCar Reference Screens 5 & 6: Vehicle Option Cards (Selected card has #EBF5FF tint & #0072DE border) */}
           {loadingData ? (
