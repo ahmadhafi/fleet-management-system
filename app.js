@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const compiledServer = path.join(__dirname, 'dist-server', 'index.js');
+// Default to auto-seeding demo fixtures on cPanel startup if not set
+process.env.AUTO_SEED_DEMO = process.env.AUTO_SEED_DEMO || 'true';
 
 if (fs.existsSync(compiledServer)) {
   await import('./dist-server/index.js');
