@@ -1,11 +1,29 @@
-node_modules/
+# Dependencies (no trailing slash so CloudLinux node_modules symlink is ignored)
+node_modules
+npm-debug.log*
+/.npm
+/.cache
+
+# Local runtime & database files
 data/*.db
-data/*.db-shm
-data/*.db-wal
+data/*.db-*
+data/*.sqlite
+data/*.sqlite*
+
+# cPanel, Phusion Passenger & AutoSSL runtime files
+/tmp
+/.htaccess
+/.well-known
+error_log
+passenger.*
+*.pid
+*.log
+*.zip
+
+# Environment & local tools
 .env
 .env.*
 !.env.example
 .vercel/
 coverage/
-*.log
-*.zip
+.DS_Store

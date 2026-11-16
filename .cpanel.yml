@@ -1,6 +1,6 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=$(pwd)
+    - export DEPLOYPATH=$PWD
     - /bin/mkdir -p $DEPLOYPATH/tmp
     - /bin/touch $DEPLOYPATH/tmp/restart.txt
