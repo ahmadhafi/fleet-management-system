@@ -22,7 +22,6 @@ import {
   Bookmark,
   Briefcase,
   StickyNote,
-  CreditCard,
   Phone,
   MessageSquare,
   Share2,
@@ -144,6 +143,23 @@ function getTimeGreeting(): string {
 export function formatIdr(amount: number | string | undefined | null): string {
   const num = Number(amount || 0);
   return `Rp ${Math.round(num).toLocaleString('id-ID')}`;
+}
+
+function toLocalDateTimeInput(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatReservationModeLabel(reservationType?: string | null, returnPickupTime?: string | null): string | null {
+  const mode = String(reservationType || 'ONE_WAY').toUpperCase();
+  if (mode === 'FULL_DAY') return 'Full Day';
+  if (mode === 'DROP_AND_PICKUP') {
+    const rp = returnPickupTime
+      ? ` • Pick-Up ${new Date(returnPickupTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+      : '';
+    return `Drop & Pick Up${rp}`;
+  }
+  return null;
 }
 
 function formatPassengersDisplay(passengersJson?: string | null, passengerNickname?: string | null): string {
@@ -355,8 +371,8 @@ export function App() {
   const [auditEvents, setAuditEvents] = useState<any[]>([]);
 
   // Booking Form State
-  const defaultStart = new Date(Date.now() + 2 * 3600000).toISOString().slice(0, 16);
-  const defaultEnd = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 16);
+  const defaultStart = toLocalDateTimeInput(new Date(Date.now() + 2 * 3600000));
+  const defaultEnd = toLocalDateTimeInput(new Date(Date.now() + 4 * 3600000));
   const [bookPurpose, setBookPurpose] = useState('');
   const [bookPassengerNickname, setBookPassengerNickname] = useState('');
   const [bookPassengers, setBookPassengers] = useState<Array<{ id: number; nickname: string }>>([
@@ -366,6 +382,10 @@ export function App() {
   const [bookDest, setBookDest] = useState('');
   const [bookStart, setBookStart] = useState(defaultStart);
   const [bookEnd, setBookEnd] = useState(defaultEnd);
+  const [bookReservationType, setBookReservationType] = useState<'ONE_WAY' | 'DROP_AND_PICKUP' | 'FULL_DAY'>('ONE_WAY');
+  const [bookReturnPickupTime, setBookReturnPickupTime] = useState<string>(() =>
+    toLocalDateTimeInput(new Date(Date.now() + 5 * 3600000))
+  );
   const [bookVehicleId, setBookVehicleId] = useState<number>(0);
   const [bookDriverId, setBookDriverId] = useState<string>('');
   const [bookPax, setBookPax] = useState<number>(1);
@@ -614,7 +634,7 @@ export function App() {
       .finally(() => setLoadingAuth(false));
   }, [loadAllData]);
 
-  // Live MapTiler / Nominatim address search when typing in RouteFields
+  // Live MapTiler / Nominatim / Photon / Indonesian POI address search when typing in RouteFields
   useEffect(() => {
     if (bookingStep !== 'ROUTE' || routeTab === 'PIN') return;
     const queryText = (activeRouteField === 'pickup' ? bookOrigin : bookDest).trim();
@@ -623,10 +643,12 @@ export function App() {
       setGeoLoading(false);
       return;
     }
+    let cancelled = false;
     setGeoLoading(true);
     const timer = window.setTimeout(async () => {
       try {
         const res = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(queryText)}`);
+        if (cancelled) return;
         const items: GeoPlace[] = res.results || [];
         setGeoResults(items);
         // Automatically resolve coordinates for typed addresses so route path & ETA calculate immediately
@@ -638,12 +660,15 @@ export function App() {
           }
         }
       } catch {
-        setGeoResults([]);
+        if (!cancelled) setGeoResults([]);
       } finally {
-        setGeoLoading(false);
+        if (!cancelled) setGeoLoading(false);
       }
     }, 150);
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [bookingStep, routeTab, activeRouteField, bookOrigin, bookDest]);
 
   // Calculate real road route path, distance (km), ride time (min), and arrival ETA whenever pickup & destination are set
@@ -711,8 +736,8 @@ export function App() {
   // Live availability check when schedule dates change
   useEffect(() => {
     if (!user || !bookStart || !bookEnd) return;
-    const sDate = scheduleMode === 'NOW' ? new Date(Date.now() + 5 * 60000) : new Date(bookStart);
-    const eDate = scheduleMode === 'NOW' ? new Date(Date.now() + 125 * 60000) : new Date(bookEnd);
+    const sDate = new Date(bookStart);
+    const eDate = new Date(bookEnd);
     if (Number.isNaN(sDate.getTime()) || Number.isNaN(eDate.getTime()) || eDate <= sDate) return;
     apiRequest(`/api/availability?start_time=${encodeURIComponent(sDate.toISOString())}&end_time=${encodeURIComponent(eDate.toISOString())}`)
       .then((res) => setLiveAvailability(res))
@@ -1404,6 +1429,25 @@ export function App() {
       setStatusBanner({ type: 'danger', text: 'Return time must be after departure time.' });
       return;
     }
+
+    let returnPickupIso: string | null = null;
+    if (bookReservationType === 'DROP_AND_PICKUP') {
+      const rpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
+      if (!bookReturnPickupTime || Number.isNaN(rpMs)) {
+        setStatusBanner({ type: 'danger', text: 'Please select a post-event pick-up time for Drop & Pick Up bookings.' });
+        return;
+      }
+      if (rpMs <= startMs) {
+        setStatusBanner({ type: 'danger', text: 'Post-event pick-up time must be after departure time.' });
+        return;
+      }
+      if (endMs < rpMs) {
+        setStatusBanner({ type: 'danger', text: 'Final return time must be at or after the post-event pick-up time.' });
+        return;
+      }
+      returnPickupIso = new Date(rpMs).toISOString();
+    }
+
     const leadTimeMin = Math.round((startMs - nowMs) / 60000);
     const isUrgent = leadTimeMin < 120;
     const effectivePurpose = bookPurpose.trim() || 'Company Business Trip';
@@ -1438,6 +1482,8 @@ export function App() {
           destination: bookDest.trim(),
           start_time: startIso,
           end_time: endIso,
+          reservation_type: bookReservationType,
+          return_pickup_time: returnPickupIso,
           passenger_count: Math.max(1, cleanPassengers.length || Number(bookPax)),
           passenger_nickname: formattedPaxNickname,
           passengers: cleanPassengers,
@@ -1452,6 +1498,7 @@ export function App() {
       setBookPax(1);
       setBookNotes('');
       setBookUrgentReason('');
+      setBookReservationType('ONE_WAY');
       setFocusedTripId(created.tripId);
       setBookingStep('WAITING');
       setSheetSnap('half');
@@ -2238,12 +2285,22 @@ export function App() {
               </button>
             </div>
             <div style={{ padding: '12px', borderRadius: 'var(--radius-control)', background: 'var(--color-bg-subtle)', marginBottom: '14px' }}>
-              <div className="type-body" style={{ fontWeight: 700 }}>{dispatchModalTrip.purpose}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <div className="type-body" style={{ fontWeight: 700 }}>{dispatchModalTrip.purpose}</div>
+                {formatReservationModeLabel(dispatchModalTrip.reservation_type, dispatchModalTrip.return_pickup_time) && (
+                  <StatusBadge label={formatReservationModeLabel(dispatchModalTrip.reservation_type, dispatchModalTrip.return_pickup_time)!} tone="blue" />
+                )}
+              </div>
               <div className="type-caption">{dispatchModalTrip.origin} → {dispatchModalTrip.destination}</div>
               <div className="type-caption">{dispatchModalTrip.requester_name} ({dispatchModalTrip.department_name})</div>
               {dispatchModalTrip.start_time && dispatchModalTrip.end_time && (
                 <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
                   🕒 Schedule: {new Date(dispatchModalTrip.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → {new Date(dispatchModalTrip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              )}
+              {dispatchModalTrip.reservation_type === 'DROP_AND_PICKUP' && dispatchModalTrip.return_pickup_time && (
+                <div className="type-caption" style={{ marginTop: '3px', color: '#005bb5', fontWeight: 700 }}>
+                  🔁 Post-Event Pick-Up: {new Date(dispatchModalTrip.return_pickup_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </div>
               )}
             </div>
@@ -4112,11 +4169,16 @@ export function App() {
                         {trips.map((t) => (
                           <tr key={t.id}>
                             <td>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                                 <span style={{ fontWeight: 700 }}>#{t.id} — {t.purpose}</span>
                                 {t.is_urgent === 1 && (
                                   <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', whiteSpace: 'nowrap' }}>
                                     🚨 URGENT (&lt; 2h)
+                                  </span>
+                                )}
+                                {formatReservationModeLabel(t.reservation_type, t.return_pickup_time) && (
+                                  <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #bfdbfe', whiteSpace: 'nowrap' }}>
+                                    {formatReservationModeLabel(t.reservation_type, t.return_pickup_time)}
                                   </span>
                                 )}
                               </div>
@@ -4134,6 +4196,11 @@ export function App() {
                             <td className="mono type-caption">
                               <div>{new Date(t.start_time).toLocaleString()}</div>
                               <div>{new Date(t.end_time).toLocaleTimeString()}</div>
+                              {t.reservation_type === 'DROP_AND_PICKUP' && t.return_pickup_time && (
+                                <div style={{ color: '#005bb5', fontWeight: 700, marginTop: '2px' }}>
+                                  Pick-Up: {new Date(t.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                              )}
                             </td>
                             <td>
                               <div style={{ fontWeight: 700 }}>{t.registration_plate}</div>
@@ -5733,11 +5800,22 @@ export function App() {
                   Book {selectedVehicle.make} {selectedVehicle.model}
                 </span>
                 <span style={{ fontSize: '11.5px', fontWeight: 600, opacity: 0.9 }}>
-                  {bookDurationHours}h Slot • ETA {currentMetrics.etaText}
+                  {bookReservationType === 'FULL_DAY'
+                    ? 'Full Day Reserve'
+                    : bookReservationType === 'DROP_AND_PICKUP'
+                    ? 'Drop & Pick Up'
+                    : `${bookDurationHours}h Slot`}{' '}
+                  • ETA {currentMetrics.etaText}
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-                <span style={{ fontSize: '14px', fontWeight: 800 }}>0 IDR</span>
+                <span style={{ fontSize: '12.5px', fontWeight: 800 }}>
+                  {bookReservationType === 'FULL_DAY'
+                    ? 'Full Day'
+                    : bookReservationType === 'DROP_AND_PICKUP'
+                    ? 'Drop & Pick Up'
+                    : 'Work Fleet'}
+                </span>
                 <span className="gf-gocar-book-arrow">
                   <ArrowRight size={17} strokeWidth={2.75} />
                 </span>
@@ -5751,7 +5829,13 @@ export function App() {
         <StickyActionBar>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div className="type-caption" style={{ textAlign: 'center' }}>
-              {selectedVehicle.make} {selectedVehicle.model} • {selectedVehicle.registration_plate} • ETA {currentMetrics.etaText}
+              {selectedVehicle.make} {selectedVehicle.model} • {selectedVehicle.registration_plate}
+              {bookReservationType === 'FULL_DAY'
+                ? ' • Full Day'
+                : bookReservationType === 'DROP_AND_PICKUP'
+                ? ' • Drop & Pick Up'
+                : ''}{' '}
+              • ETA {currentMetrics.etaText}
             </div>
             <button
               id="submit-booking-btn"
@@ -5763,7 +5847,13 @@ export function App() {
             >
               <span style={{ fontSize: '15.5px', fontWeight: 800 }}>Request GalaxyFleet</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '13.5px', fontWeight: 800 }}>0 IDR Corp</span>
+                <span style={{ fontSize: '12.5px', fontWeight: 800 }}>
+                  {bookReservationType === 'FULL_DAY'
+                    ? 'Full Day'
+                    : bookReservationType === 'DROP_AND_PICKUP'
+                    ? 'Drop & Pick Up'
+                    : 'Confirm'}
+                </span>
                 <span className="gf-gocar-book-arrow">
                   <ArrowRight size={17} strokeWidth={2.75} />
                 </span>
@@ -6157,11 +6247,16 @@ export function App() {
                               border: '1px solid var(--color-border)',
                             }}
                           >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                               <span className="mono" style={{ fontWeight: 700, fontSize: '13px' }}>
                                 {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </span>
-                              <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                {formatReservationModeLabel(t.reservation_type, t.return_pickup_time) && (
+                                  <StatusBadge label={formatReservationModeLabel(t.reservation_type, t.return_pickup_time)!} tone="blue" />
+                                )}
+                                <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />
+                              </div>
                             </div>
                             <div className="type-caption" style={{ marginTop: '4px', fontWeight: 600 }}>
                               {t.origin} ➔ {t.destination}
@@ -6268,13 +6363,21 @@ export function App() {
                             </div>
                           ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              {vehicleTripsToday.map((t) => (
-                                <div key={t.id} className="type-caption">
-                                  <span className="mono" style={{ fontWeight: 700 }}>
-                                    {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  </span>: <span className="notranslate" translate="no">{t.department_name}</span> (Pax: {t.passenger_nickname || 'Team'})
-                                </div>
-                              ))}
+                              {vehicleTripsToday.map((t) => {
+                                const modeLabel = formatReservationModeLabel(t.reservation_type, t.return_pickup_time);
+                                return (
+                                  <div key={t.id} className="type-caption" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                    <span className="mono" style={{ fontWeight: 700 }}>
+                                      {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>: <span className="notranslate" translate="no">{t.department_name}</span> (Pax: {t.passenger_nickname || 'Team'})
+                                    {modeLabel && (
+                                      <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #bfdbfe' }}>
+                                        {modeLabel}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -6382,12 +6485,27 @@ export function App() {
                       gap: '10px',
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       <span className="mono type-body" style={{ fontWeight: 700 }}>{d.registration_plate} • {d.make} {d.model}</span>
-                      <StatusBadge label={d.trip_status} tone={toneFromStatus(d.trip_status)} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        {formatReservationModeLabel(d.reservation_type, d.return_pickup_time) && (
+                          <StatusBadge label={formatReservationModeLabel(d.reservation_type, d.return_pickup_time)!} tone="blue" />
+                        )}
+                        <StatusBadge label={d.trip_status} tone={toneFromStatus(d.trip_status)} />
+                      </div>
                     </div>
                     <div className="type-body" style={{ fontWeight: 700 }}>{d.purpose || 'Assigned Trip'}</div>
                     <div className="type-caption">{d.origin} → {d.destination}</div>
+                    {d.effective_start && d.effective_end && (
+                      <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+                        🕒 {new Date(d.effective_start).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} – {new Date(d.effective_end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {d.reservation_type === 'DROP_AND_PICKUP' && d.return_pickup_time && (
+                          <span style={{ color: '#005bb5', fontWeight: 700 }}>
+                            {' '}• Post-Event Pick-Up: {new Date(d.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <div className="type-caption">
                       Passenger: {d.requester_name} ({d.passenger_count} pax) • Odo: {d.current_odometer} km
                       {d.energy_type === 'Electric' ? ` • ${d.battery_percent ?? 100}%` : ''}
@@ -6796,7 +6914,7 @@ export function App() {
                     tall
                     icon={<Car size={20} />}
                     title={`${t.origin} → ${t.destination}`}
-                    subtitle={`${formatPassengersDisplay(t.passengers_json, t.passenger_nickname) !== 'Team' ? `Pax: ${formatPassengersDisplay(t.passengers_json, t.passenger_nickname)} • ` : ''}${new Date(t.start_time).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} • ${t.make} ${t.model} (${t.registration_plate})${t.assigned_driver_name ? ` • Driver: ${t.assigned_driver_name}` : ''}`}
+                    subtitle={`${formatReservationModeLabel(t.reservation_type, t.return_pickup_time) ? `[${formatReservationModeLabel(t.reservation_type, t.return_pickup_time)}] • ` : ''}${formatPassengersDisplay(t.passengers_json, t.passenger_nickname) !== 'Team' ? `Pax: ${formatPassengersDisplay(t.passengers_json, t.passenger_nickname)} • ` : ''}${new Date(t.start_time).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} • ${t.make} ${t.model} (${t.registration_plate})${t.assigned_driver_name ? ` • Driver: ${t.assigned_driver_name}` : ''}`}
                     trailing={
                       (() => {
                         if (t.booking_status === 'CANCELLED') return <StatusBadge label="CANCELLED" tone="red" />;
@@ -6835,7 +6953,9 @@ export function App() {
                         onClick={(e) => {
                           e.stopPropagation();
                           const paxFormatted = formatPassengersMultiLine(t.passengers_json, t.passenger_nickname);
-                          const shareMsg = `*GalaxyFleet Booking Details*\n🚗 *Vehicle*: ${t.make} ${t.model} (${t.registration_plate || '—'})\n👥 *Passenger(s) [Nickname only]*:\n${paxFormatted}\n👤 *Driver*: ${t.assigned_driver_name || 'Assigned Driver'}${t.assigned_driver_phone ? ` (${t.assigned_driver_phone})` : ''}\n📍 *Pickup*: ${t.origin}\n🎯 *Destination*: ${t.destination}\n🕒 *Schedule*: ${new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\n📌 *Status*: ${t.status}\n\n_Reminder: For privacy protection, only nicknames are used._`;
+                          const modeLabel = formatReservationModeLabel(t.reservation_type, t.return_pickup_time);
+                          const shareModeLine = modeLabel ? `\n📋 *Mode*: ${modeLabel}` : '';
+                          const shareMsg = `*GalaxyFleet Booking Details*\n🚗 *Vehicle*: ${t.make} ${t.model} (${t.registration_plate || '—'})\n👥 *Passenger(s) [Nickname only]*:\n${paxFormatted}\n👤 *Driver*: ${t.assigned_driver_name || 'Assigned Driver'}${t.assigned_driver_phone ? ` (${t.assigned_driver_phone})` : ''}\n📍 *Pickup*: ${t.origin}\n🎯 *Destination*: ${t.destination}\n🕒 *Schedule*: ${new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${shareModeLine}\n📌 *Status*: ${t.status}\n\n_Reminder: For privacy protection, only nicknames are used._`;
                           if (navigator.clipboard) {
                             navigator.clipboard.writeText(shareMsg).catch(() => {});
                           }
@@ -7147,11 +7267,16 @@ export function App() {
                         border: '1px solid var(--color-border)',
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                         <span className="mono" style={{ fontWeight: 700, fontSize: '13px' }}>
                           {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
-                        <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          {formatReservationModeLabel(t.reservation_type, t.return_pickup_time) && (
+                            <StatusBadge label={formatReservationModeLabel(t.reservation_type, t.return_pickup_time)!} tone="blue" />
+                          )}
+                          <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />
+                        </div>
                       </div>
                       <div className="type-caption" style={{ marginTop: '4px', fontWeight: 600 }}>
                         {t.origin} ➔ {t.destination}
@@ -7262,16 +7387,24 @@ export function App() {
                         <div className="type-caption" style={{ fontWeight: 700 }}>
                           Booked Slots Today ({vehicleTripsToday.length}):
                         </div>
-                        {vehicleTripsToday.map((t) => (
-                          <div key={t.id} className="type-caption" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span className="mono" style={{ fontWeight: 700 }}>
-                              🕒 {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}:
-                            </span>
-                            <span>
-                              <span className="notranslate" translate="no"><strong>{t.department_name}</strong></span> (Passenger: {t.passenger_nickname || 'Team'})
-                            </span>
-                          </div>
-                        ))}
+                        {vehicleTripsToday.map((t) => {
+                          const modeLabel = formatReservationModeLabel(t.reservation_type, t.return_pickup_time);
+                          return (
+                            <div key={t.id} className="type-caption" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <span className="mono" style={{ fontWeight: 700 }}>
+                                🕒 {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}:
+                              </span>
+                              <span>
+                                <span className="notranslate" translate="no"><strong>{t.department_name}</strong></span> (Passenger: {t.passenger_nickname || 'Team'})
+                              </span>
+                              {modeLabel && (
+                                <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #bfdbfe' }}>
+                                  {modeLabel}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -7285,6 +7418,7 @@ export function App() {
                       onClick={() =>
                         requireLocationBeforeCarUse(() => {
                           setBookVehicleId(v.id);
+                          setBookReservationType('ONE_WAY');
                           setBookingStep('ROUTE');
                           setSheetSnap('full');
                         })
@@ -7315,6 +7449,7 @@ export function App() {
             requireLocationBeforeCarUse(() => {
               setVehicleFilter('ALL');
               setScheduleMode('NOW');
+              setBookReservationType('ONE_WAY');
               setBookingStep('ROUTE');
               setSheetSnap('full');
             }),
@@ -7491,7 +7626,7 @@ export function App() {
                     Corporate Group & Shared Fleet
                   </div>
                   <div style={{ fontSize: '11.5px', color: 'rgba(255,255,255,0.78)', marginTop: '2px' }}>
-                    0 IDR Company Covered • Verified Chauffeur
+                    Internal Company Facility • Verified Chauffeur
                   </div>
                 </div>
               </div>
@@ -7506,7 +7641,7 @@ export function App() {
                   flexShrink: 0,
                 }}
               >
-                CORP PASS
+                WORK FLEET
               </span>
             </div>
           </div>
@@ -7573,6 +7708,7 @@ export function App() {
             className="gf-search-pill pressable"
             onClick={() =>
               requireLocationBeforeCarUse(() => {
+                setBookReservationType('ONE_WAY');
                 setBookingStep('ROUTE');
                 setSheetSnap('full');
               })
@@ -7641,9 +7777,8 @@ export function App() {
                 </span>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <span style={{ fontSize: '13px', fontWeight: 800, color: '#0072de' }}>0 IDR</span>
-                <span style={{ fontSize: '11px', color: '#9ca3af', textDecoration: 'line-through', marginLeft: '5px' }}>
-                  Rp150.500
+                <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#0072de', padding: '2px 8px', borderRadius: '9999px', background: '#ebf5ff' }}>
+                  Work Trip
                 </span>
               </div>
             </div>
@@ -7664,6 +7799,7 @@ export function App() {
                 onClick={() =>
                   requireLocationBeforeCarUse(() => {
                     setBookDest(oneTapDest);
+                    setBookReservationType('ONE_WAY');
                     setBookingStep('VEHICLE');
                     setSheetSnap('full');
                   })
@@ -7731,6 +7867,7 @@ export function App() {
                       requireLocationBeforeCarUse(() => {
                         setBookDest(place.name);
                         setDestCoords({ lat: place.lat, lon: place.lon });
+                        setBookReservationType('ONE_WAY');
                         setBookingStep('VEHICLE');
                         setSheetSnap('full');
                       })
@@ -7751,6 +7888,7 @@ export function App() {
                 requireLocationBeforeCarUse(() => {
                   setVehicleFilter('ALL');
                   setScheduleMode('NOW');
+                  setBookReservationType('ONE_WAY');
                   setBookingStep('ROUTE');
                   setSheetSnap('full');
                 })
@@ -8151,15 +8289,36 @@ export function App() {
               <Skeleton height={64} />
             </div>
           ) : listToDisplay.length === 0 ? (
-            <EmptyState
-              message={
-                activeText.length >= 2
-                  ? 'No matching OpenStreetMap addresses found. You can still continue with your typed address or tap Select via map.'
-                  : routeTab === 'SAVED'
-                  ? 'No saved places yet. Search any address above and tap the bookmark icon to save it.'
-                  : 'Type at least 2 characters above to search live OpenStreetMap addresses, or tap Select via map.'
-              }
-            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {activeText.length >= 2 && (
+                <ListRow
+                  tall
+                  icon={<MapPin size={18} style={{ color: '#0072de' }} />}
+                  title={`Use typed address: "${activeText}"`}
+                  subtitle="Select this location directly or refine coordinates using Select via map"
+                  showChevron
+                  onClick={() => {
+                    if (activeRouteField === 'pickup') {
+                      setBookOrigin(activeText);
+                      setOriginCoords(null);
+                      setActiveRouteField('destination');
+                    } else {
+                      setBookDest(activeText);
+                      setDestCoords(null);
+                    }
+                  }}
+                />
+              )}
+              <EmptyState
+                message={
+                  activeText.length >= 2
+                    ? 'No exact map match returned above. Tap your typed address above to use it, or tap Select via map to pin manually.'
+                    : routeTab === 'SAVED'
+                    ? 'No saved places yet. Search any Indonesian city, street, or landmark above and tap the bookmark icon to save it.'
+                    : 'Type at least 2 characters to search any city, district, landmark, or address across Indonesia.'
+                }
+              />
+            </div>
           ) : (
             /* GoCar Reference Screen 3: Live Search Results with Distance, Highlighted Query & Sub-location Band */
             <div>
@@ -8240,6 +8399,25 @@ export function App() {
                   </React.Fragment>
                 );
               })}
+              {showingLiveSearch && (
+                <ListRow
+                  tall
+                  icon={<MapPin size={16} style={{ color: '#0072de' }} />}
+                  title={`Use typed address: "${activeText}"`}
+                  subtitle="Use exact text you entered instead of suggested result"
+                  showChevron
+                  onClick={() => {
+                    if (activeRouteField === 'pickup') {
+                      setBookOrigin(activeText);
+                      setOriginCoords(null);
+                      setActiveRouteField('destination');
+                    } else {
+                      setBookDest(activeText);
+                      setDestCoords(null);
+                    }
+                  }}
+                />
+              )}
             </div>
           )}
         </div>
@@ -8303,7 +8481,7 @@ export function App() {
               </button>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11.5px', color: 'rgba(255,255,255,0.86)' }}>
-              <span>✓ Samsung Corporate Fleet • 0 IDR Covered</span>
+              <span>✓ Internal Work Fleet • Chauffeur Included</span>
               <span style={{ fontWeight: 800 }}>{currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min</span>
             </div>
           </div>
@@ -8331,28 +8509,124 @@ export function App() {
             })}
           </div>
 
-          {/* Mandatory Request Schedule & Hours of Booking */}
+          {/* Mandatory Request Schedule, Reservation Mode & Hours of Booking */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Clock size={16} style={{ color: '#0072de' }} />
-                <span style={{ fontSize: '13px', fontWeight: 800 }}>Schedule & Hours of Booking</span>
+                <span style={{ fontSize: '13px', fontWeight: 800 }}>Reservation Mode & Schedule</span>
               </div>
               <span className="type-caption" style={{ fontWeight: 700, color: '#0072de' }}>
                 Mandatory
               </span>
             </div>
 
-            {/* Quick departure presets */}
+            {/* Reservation Mode Selector: Standard Trip | Drop & Pick Up | Full Day */}
+            <div>
+              <div className="type-caption" style={{ fontWeight: 700, marginBottom: '6px' }}>
+                Trip Type
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px' }} role="group" aria-label="Reservation mode">
+                {([
+                  { id: 'ONE_WAY', label: 'Standard Trip', sub: 'Point-to-point' },
+                  { id: 'DROP_AND_PICKUP', label: 'Drop & Pick Up', sub: 'Drop & pick-up after event' },
+                  { id: 'FULL_DAY', label: 'Full Day', sub: 'Whole work day' },
+                ] as Array<{ id: 'ONE_WAY' | 'DROP_AND_PICKUP' | 'FULL_DAY'; label: string; sub: string }>).map((mode) => {
+                  const selected = bookReservationType === mode.id;
+                  return (
+                    <button
+                      key={mode.id}
+                      id={`reservation-mode-${mode.id.toLowerCase()}`}
+                      type="button"
+                      className="pressable"
+                      onClick={() => {
+                        setBookReservationType(mode.id);
+                        setScheduleMode('SCHEDULE');
+                        if (mode.id === 'DROP_AND_PICKUP') {
+                          const baseStartMs = bookStart && !Number.isNaN(new Date(bookStart).getTime())
+                            ? new Date(bookStart).getTime()
+                            : Date.now() + 2 * 3600000;
+                          if (!bookStart) setBookStart(toLocalDateTimeInput(new Date(baseStartMs)));
+                          const existingRpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
+                          const targetRpMs = !Number.isNaN(existingRpMs) && existingRpMs > baseStartMs
+                            ? existingRpMs
+                            : baseStartMs + 3 * 3600000;
+                          setBookReturnPickupTime(toLocalDateTimeInput(new Date(targetRpMs)));
+                          const curEndMs = bookEnd && !Number.isNaN(new Date(bookEnd).getTime()) ? new Date(bookEnd).getTime() : 0;
+                          const minEndMs = targetRpMs + 3600000;
+                          if (curEndMs < targetRpMs) {
+                            setBookEnd(toLocalDateTimeInput(new Date(minEndMs)));
+                            setBookDurationHours(Math.max(1, Math.round((minEndMs - baseStartMs) / 3600000)));
+                          }
+                        } else if (mode.id === 'FULL_DAY') {
+                          const nowMs = Date.now();
+                          const minLeadMs = nowMs + 2 * 3600000;
+                          const todayStart = new Date();
+                          todayStart.setHours(8, 0, 0, 0);
+                          const todayEnd = new Date();
+                          todayEnd.setHours(20, 0, 0, 0);
+                          let sMs = Math.max(todayStart.getTime(), minLeadMs);
+                          let eMs = todayEnd.getTime();
+                          if (eMs - sMs < 2 * 3600000) {
+                            const tomStart = new Date();
+                            tomStart.setDate(tomStart.getDate() + 1);
+                            tomStart.setHours(8, 0, 0, 0);
+                            const tomEnd = new Date(tomStart);
+                            tomEnd.setHours(20, 0, 0, 0);
+                            sMs = tomStart.getTime();
+                            eMs = tomEnd.getTime();
+                          }
+                          setBookStart(toLocalDateTimeInput(new Date(sMs)));
+                          setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+                          setBookDurationHours(Math.max(1, Math.round((eMs - sMs) / 3600000)));
+                        }
+                      }}
+                      style={{
+                        padding: '8px 6px',
+                        borderRadius: '10px',
+                        border: selected ? '1.5px solid #0072de' : '1px solid var(--color-border)',
+                        background: selected ? '#ebf5ff' : 'var(--color-surface)',
+                        color: selected ? '#005bb5' : 'var(--color-text-primary)',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '2px',
+                      }}
+                    >
+                      <span style={{ fontSize: '11.5px', fontWeight: 800, lineHeight: 1.2 }}>{mode.label}</span>
+                      <span style={{ fontSize: '9.5px', opacity: 0.78, lineHeight: 1.15 }}>{mode.sub}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {bookReservationType === 'DROP_AND_PICKUP' && (
+                <div style={{ marginTop: '6px', padding: '8px 10px', borderRadius: '8px', background: '#ebf5ff', border: '1px solid #bfdbfe', fontSize: '11.5px', color: '#005bb5', fontWeight: 600 }}>
+                  Driver drops passenger(s) at destination and returns to pick up at your chosen Post-Event Pick-Up time. Car stays reserved until final return.
+                </div>
+              )}
+              {bookReservationType === 'FULL_DAY' && (
+                <div style={{ marginTop: '6px', padding: '8px 10px', borderRadius: '8px', background: '#ebf5ff', border: '1px solid #bfdbfe', fontSize: '11.5px', color: '#005bb5', fontWeight: 600 }}>
+                  Full Day Reservation keeps the vehicle and chauffeur dedicated for your entire work schedule.
+                </div>
+              )}
+            </div>
+
+            {/* Quick departure & full-day presets */}
             <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
               <Chip
                 active={false}
                 onClick={() => {
                   const now = Date.now();
-                  const s = new Date(now + 2 * 3600000).toISOString().slice(0, 16);
-                  const e = new Date(now + (2 + bookDurationHours) * 3600000).toISOString().slice(0, 16);
-                  setBookStart(s);
-                  setBookEnd(e);
+                  const hrs = bookReservationType === 'FULL_DAY' ? Math.max(8, bookDurationHours) : bookDurationHours;
+                  const sMs = now + 2 * 3600000;
+                  const eMs = sMs + hrs * 3600000;
+                  setScheduleMode('SCHEDULE');
+                  setBookStart(toLocalDateTimeInput(new Date(sMs)));
+                  setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+                  if (bookReservationType === 'DROP_AND_PICKUP') {
+                    setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
+                  }
                 }}
               >
                 In 2h (Standard)
@@ -8361,10 +8635,15 @@ export function App() {
                 active={false}
                 onClick={() => {
                   const now = Date.now();
-                  const s = new Date(now + 4 * 3600000).toISOString().slice(0, 16);
-                  const e = new Date(now + (4 + bookDurationHours) * 3600000).toISOString().slice(0, 16);
-                  setBookStart(s);
-                  setBookEnd(e);
+                  const hrs = bookReservationType === 'FULL_DAY' ? Math.max(8, bookDurationHours) : bookDurationHours;
+                  const sMs = now + 4 * 3600000;
+                  const eMs = sMs + hrs * 3600000;
+                  setScheduleMode('SCHEDULE');
+                  setBookStart(toLocalDateTimeInput(new Date(sMs)));
+                  setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+                  if (bookReservationType === 'DROP_AND_PICKUP') {
+                    setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
+                  }
                 }}
               >
                 In 4h
@@ -8372,13 +8651,56 @@ export function App() {
               <Chip
                 active={false}
                 onClick={() => {
+                  const start = new Date();
+                  const minLeadMs = Date.now() + 2 * 3600000;
+                  const todayEnd = new Date();
+                  todayEnd.setHours(20, 0, 0, 0);
+                  if (todayEnd.getTime() - minLeadMs < 2 * 3600000) {
+                    todayEnd.setHours(23, 0, 0, 0);
+                  }
+                  const sMs = Math.max(start.setHours(8, 0, 0, 0), minLeadMs);
+                  const eMs = Math.max(todayEnd.getTime(), sMs + 2 * 3600000);
+                  setScheduleMode('SCHEDULE');
+                  setBookReservationType('FULL_DAY');
+                  setBookStart(toLocalDateTimeInput(new Date(sMs)));
+                  setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+                  setBookDurationHours(Math.max(1, Math.round((eMs - sMs) / 3600000)));
+                }}
+              >
+                Today Full Day
+              </Chip>
+              <Chip
+                active={false}
+                onClick={() => {
                   const tomorrow = new Date();
                   tomorrow.setDate(tomorrow.getDate() + 1);
                   tomorrow.setHours(8, 0, 0, 0);
-                  const s = tomorrow.toISOString().slice(0, 16);
-                  const e = new Date(tomorrow.getTime() + bookDurationHours * 3600000).toISOString().slice(0, 16);
-                  setBookStart(s);
-                  setBookEnd(e);
+                  const tomEnd = new Date(tomorrow);
+                  tomEnd.setHours(20, 0, 0, 0);
+                  setScheduleMode('SCHEDULE');
+                  setBookReservationType('FULL_DAY');
+                  setBookStart(toLocalDateTimeInput(tomorrow));
+                  setBookEnd(toLocalDateTimeInput(tomEnd));
+                  setBookDurationHours(12);
+                }}
+              >
+                Tomorrow Full Day
+              </Chip>
+              <Chip
+                active={false}
+                onClick={() => {
+                  const tomorrow = new Date();
+                  tomorrow.setDate(tomorrow.getDate() + 1);
+                  tomorrow.setHours(8, 0, 0, 0);
+                  const hrs = bookReservationType === 'FULL_DAY' ? 12 : bookDurationHours;
+                  const sMs = tomorrow.getTime();
+                  const eMs = sMs + hrs * 3600000;
+                  setScheduleMode('SCHEDULE');
+                  setBookStart(toLocalDateTimeInput(tomorrow));
+                  setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+                  if (bookReservationType === 'DROP_AND_PICKUP') {
+                    setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
+                  }
                 }}
               >
                 Tomorrow 08:00
@@ -8386,21 +8708,25 @@ export function App() {
               <Chip
                 active={false}
                 onClick={() => {
-                  const s = new Date(Date.now() + 15 * 60000).toISOString().slice(0, 16);
-                  const e = new Date(Date.now() + (15 * 60000 + bookDurationHours * 3600000)).toISOString().slice(0, 16);
-                  setBookStart(s);
-                  setBookEnd(e);
+                  const sMs = Date.now() + 15 * 60000;
+                  const eMs = sMs + bookDurationHours * 3600000;
+                  setScheduleMode('SCHEDULE');
+                  setBookStart(toLocalDateTimeInput(new Date(sMs)));
+                  setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+                  if (bookReservationType === 'DROP_AND_PICKUP') {
+                    setBookReturnPickupTime(toLocalDateTimeInput(new Date(sMs + Math.max(1, bookDurationHours - 1) * 3600000)));
+                  }
                 }}
               >
                 🚨 Urgent (&lt; 2h)
               </Chip>
             </div>
 
-            {/* Departure and Return Datetime Inputs */}
+            {/* Departure, Optional Post-Event Pick-Up & Return Datetime Inputs */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
               <div>
                 <label className="type-caption" htmlFor="schedule-start" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Departure Date & Time *
+                  {bookReservationType === 'DROP_AND_PICKUP' ? 'Drop-Off Departure *' : 'Departure Date & Time *'}
                 </label>
                 <input
                   id="schedule-start"
@@ -8409,21 +8735,63 @@ export function App() {
                   required
                   value={bookStart}
                   onChange={(e) => {
+                    setScheduleMode('SCHEDULE');
                     setBookStart(e.target.value);
                     if (e.target.value) {
                       const newStartMs = new Date(e.target.value).getTime();
                       if (!Number.isNaN(newStartMs)) {
-                        const newEnd = new Date(newStartMs + bookDurationHours * 3600000).toISOString().slice(0, 16);
-                        setBookEnd(newEnd);
+                        const newEndMs = newStartMs + bookDurationHours * 3600000;
+                        setBookEnd(toLocalDateTimeInput(new Date(newEndMs)));
+                        if (bookReservationType === 'DROP_AND_PICKUP') {
+                          const curRpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
+                          if (Number.isNaN(curRpMs) || curRpMs <= newStartMs) {
+                            setBookReturnPickupTime(toLocalDateTimeInput(new Date(Math.max(newStartMs + 3600000, newEndMs - 1800000))));
+                          }
+                        }
                       }
                     }
                   }}
                 />
               </div>
 
+              {bookReservationType === 'DROP_AND_PICKUP' && (
+                <div>
+                  <label className="type-caption" htmlFor="schedule-return-pickup" style={{ fontWeight: 700, display: 'block', marginBottom: '4px', color: '#005bb5' }}>
+                    Post-Event Pick-Up Time *
+                  </label>
+                  <input
+                    id="schedule-return-pickup"
+                    type="datetime-local"
+                    className="gf-input"
+                    required
+                    value={bookReturnPickupTime}
+                    onChange={(e) => {
+                      setScheduleMode('SCHEDULE');
+                      setBookReturnPickupTime(e.target.value);
+                      if (e.target.value) {
+                        const rpMs = new Date(e.target.value).getTime();
+                        const curEndMs = bookEnd ? new Date(bookEnd).getTime() : 0;
+                        const sMs = bookStart ? new Date(bookStart).getTime() : 0;
+                        if (!Number.isNaN(rpMs) && curEndMs < rpMs) {
+                          const nextEndMs = rpMs + 3600000;
+                          setBookEnd(toLocalDateTimeInput(new Date(nextEndMs)));
+                          if (!Number.isNaN(sMs) && sMs > 0) {
+                            setBookDurationHours(Math.max(1, Math.round((nextEndMs - sMs) / 3600000)));
+                          }
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="type-caption" htmlFor="schedule-end" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Return Date & Time *
+                  {bookReservationType === 'DROP_AND_PICKUP'
+                    ? 'Final Return to Pool *'
+                    : bookReservationType === 'FULL_DAY'
+                    ? 'Full Day End Date & Time *'
+                    : 'Return Date & Time *'}
                 </label>
                 <input
                   id="schedule-end"
@@ -8432,6 +8800,7 @@ export function App() {
                   required
                   value={bookEnd}
                   onChange={(e) => {
+                    setScheduleMode('SCHEDULE');
                     setBookEnd(e.target.value);
                     if (e.target.value && bookStart) {
                       const diffHrs = Math.max(1, Math.round((new Date(e.target.value).getTime() - new Date(bookStart).getTime()) / 3600000));
@@ -8442,28 +8811,53 @@ export function App() {
               </div>
             </div>
 
+            {bookReservationType === 'DROP_AND_PICKUP' && (() => {
+              const sMs = new Date(bookStart).getTime();
+              const eMs = new Date(bookEnd).getTime();
+              const rpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
+              if (Number.isNaN(rpMs) || rpMs <= sMs || (!Number.isNaN(eMs) && eMs < rpMs)) {
+                return (
+                  <div style={{ padding: '8px 10px', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fecaca', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
+                    <span style={{ fontSize: '11.5px', color: '#991b1b', fontWeight: 600 }}>
+                      Post-Event Pick-Up time must be after Drop-Off departure and at or before Final Return.
+                    </span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
             {/* Quick Duration Buttons (Hours of Booking) */}
             <div>
               <div className="type-caption" style={{ fontWeight: 700, marginBottom: '4px' }}>
                 Booking Duration (Hours)
               </div>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {[1, 2, 3, 4, 8, 24].map((hrs) => (
+                {[1, 2, 3, 4, 8, 12, 24].map((hrs) => (
                   <Chip
                     key={hrs}
                     active={bookDurationHours === hrs}
                     onClick={() => {
+                      setScheduleMode('SCHEDULE');
                       setBookDurationHours(hrs);
+                      if (hrs >= 12 && bookReservationType === 'ONE_WAY') {
+                        setBookReservationType('FULL_DAY');
+                      }
                       if (bookStart) {
                         const startMs = new Date(bookStart).getTime();
                         if (!Number.isNaN(startMs)) {
-                          const nextEnd = new Date(startMs + hrs * 3600000).toISOString().slice(0, 16);
-                          setBookEnd(nextEnd);
+                          const nextEndMs = startMs + hrs * 3600000;
+                          setBookEnd(toLocalDateTimeInput(new Date(nextEndMs)));
+                          if (bookReservationType === 'DROP_AND_PICKUP') {
+                            const rpMs = startMs + Math.max(1, hrs - 1) * 3600000;
+                            setBookReturnPickupTime(toLocalDateTimeInput(new Date(rpMs)));
+                          }
                         }
                       }
                     }}
                   >
-                    {hrs === 24 ? 'Full Day (24h)' : `${hrs} Hour${hrs > 1 ? 's' : ''}`}
+                    {hrs === 12 ? 'Work Day (12h)' : hrs === 24 ? 'Full Day (24h)' : `${hrs} Hour${hrs > 1 ? 's' : ''}`}
                   </Chip>
                 ))}
               </div>
@@ -8603,11 +8997,11 @@ export function App() {
                     subtitle={availText}
                     rightMetric={
                       <div style={{ textAlign: 'right', minWidth: '68px' }}>
-                        <div style={{ fontSize: '13.5px', fontWeight: 800, color: isSelected ? '#0072de' : 'var(--color-text-primary)' }}>
-                          0 IDR
+                        <div style={{ fontSize: '12.5px', fontWeight: 800, color: !isAvail ? '#9ca3af' : isSelected ? '#0072de' : 'var(--color-text-primary)' }}>
+                          {isAvail ? 'Ready' : 'Busy'}
                         </div>
-                        <div style={{ fontSize: '10.5px', color: '#9ca3af', textDecoration: 'line-through' }}>
-                          Rp{isEv ? '148.000' : '139.500'}
+                        <div style={{ fontSize: '10.5px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+                          {v.car_type || (isEv ? 'EV Fleet' : 'Fleet')}
                         </div>
                         <div className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '2px', marginTop: '2px', fontSize: '10.5px' }}>
                           {isEv ? <BatteryCharging size={11} /> : <Fuel size={11} />}
@@ -8655,13 +9049,13 @@ export function App() {
                     const assignedCar = vehicles.find((v) => v.default_driver_id === d.id);
                     return (
                       <option key={d.id} value={d.id}>
-                        {d.full_name} ({selectedVehicle.energy_type} Driver{assignedCar ? ` • ${assignedCar.registration_plate}` : ''})
+                        {d.full_name} ({selectedVehicle?.energy_type || 'Fleet'} Driver{assignedCar ? ` • ${assignedCar.registration_plate}` : ''})
                       </option>
                     );
                   })}
               </select>
               <div className="type-caption" style={{ marginTop: '4px', color: '#64748b' }}>
-                Drivers are filtered by the {selectedVehicle.energy_type} vehicle category. Final assignment is confirmed upon Admin/Fleet Manager approval.
+                Drivers are filtered by the {selectedVehicle?.energy_type || 'selected'} vehicle category. Final assignment is confirmed upon Admin/Fleet Manager approval.
               </div>
             </div>
 
@@ -8741,8 +9135,8 @@ export function App() {
             <ListRow
               id="summary-schedule-row"
               icon={<Calendar size={18} />}
-              title="Schedule & Hours"
-              subtitle={`${new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → ${new Date(bookEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${bookDurationHours}h)${Math.round((new Date(bookStart).getTime() - Date.now()) / 60000) < 120 ? ' • 🚨 Urgent (< 2h)' : ' • Standard'}`}
+              title="Schedule & Reservation"
+              subtitle={`${new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → ${new Date(bookEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${bookDurationHours}h) • ${formatReservationModeLabel(bookReservationType, bookReservationType === 'DROP_AND_PICKUP' ? bookReturnPickupTime : null) || 'Standard Trip'}${Math.round((new Date(bookStart).getTime() - Date.now()) / 60000) < 120 ? ' • 🚨 Urgent (< 2h)' : ' • Standard'}`}
               showChevron
               onClick={() => setBookingStep('VEHICLE')}
             />
@@ -8779,8 +9173,8 @@ export function App() {
             />
             <ListRow
               id="summary-charge-row"
-              icon={<CreditCard size={18} />}
-              title="Charge to"
+              icon={<Briefcase size={18} />}
+              title="Department & Driver"
               subtitle={`${user.department_name || 'Group'} • Driver: ${chosenDriverObj ? chosenDriverObj.full_name : 'Auto-assign'}`}
               showChevron
               onClick={() => setSummaryPicker('CHARGE')}
@@ -9043,18 +9437,30 @@ export function App() {
 
           {focusedTrip && (
             <div style={{ padding: '12px 14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                 <div className="type-body" style={{ fontWeight: 700 }}>{focusedTrip.origin} → {focusedTrip.destination}</div>
-                {focusedTrip.is_urgent === 1 && (
-                  <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' }}>
-                    🚨 URGENT (&lt; 2h)
-                  </span>
-                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  {formatReservationModeLabel(focusedTrip.reservation_type, focusedTrip.return_pickup_time) && (
+                    <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #bfdbfe' }}>
+                      {formatReservationModeLabel(focusedTrip.reservation_type, focusedTrip.return_pickup_time)}
+                    </span>
+                  )}
+                  {focusedTrip.is_urgent === 1 && (
+                    <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' }}>
+                      🚨 URGENT (&lt; 2h)
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="type-caption">{focusedTrip.make} {focusedTrip.model} • {focusedTrip.registration_plate}</div>
               {focusedTrip.start_time && focusedTrip.end_time && (
                 <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
                   🕒 Schedule: {new Date(focusedTrip.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → {new Date(focusedTrip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              )}
+              {focusedTrip.reservation_type === 'DROP_AND_PICKUP' && focusedTrip.return_pickup_time && (
+                <div className="type-caption" style={{ color: '#005bb5', fontWeight: 700 }}>
+                  🔁 Post-Event Pick-Up: {new Date(focusedTrip.return_pickup_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </div>
               )}
               {focusedTrip.urgent_reason && (
@@ -9171,16 +9577,31 @@ export function App() {
     const isStarted = tripToShow?.status === 'IN_PROGRESS';
     const driverInitials = (tripToShow?.assigned_driver_name || 'DR').slice(0, 2).toUpperCase();
 
+    const tripModeLabel = formatReservationModeLabel(tripToShow?.reservation_type, tripToShow?.return_pickup_time);
+
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
         {feedbackBanner}
         <div>
-          <StatusBadge label={isStarted ? 'In Trip' : 'Driver Assigned'} tone={isStarted ? 'blue' : 'green'} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <StatusBadge label={isStarted ? 'In Trip' : 'Driver Assigned'} tone={isStarted ? 'blue' : 'green'} />
+            {tripModeLabel && <StatusBadge label={tripModeLabel} tone="blue" />}
+          </div>
           <h1 className="type-title" style={{ marginTop: '6px' }}>
             {isStarted ? `Arriving in ~${Math.max(8, currentMetrics.durationMin || 18)} min (ETA ${currentMetrics.etaText})` : 'Driver arriving in ~10 min'}
           </h1>
           {tripToShow && (
             <div className="type-caption">{tripToShow.origin} → {tripToShow.destination}</div>
+          )}
+          {tripToShow?.start_time && tripToShow?.end_time && (
+            <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+              🕒 {new Date(tripToShow.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} – {new Date(tripToShow.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {tripToShow.reservation_type === 'DROP_AND_PICKUP' && tripToShow.return_pickup_time && (
+                <span style={{ color: '#005bb5', fontWeight: 700 }}>
+                  {' '}• Return Pick-Up: {new Date(tripToShow.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
           )}
         </div>
 
@@ -9277,7 +9698,8 @@ export function App() {
             onClick={() => {
               const driverPhone = tripToShow?.assigned_driver_phone || tripToShow?.default_driver_phone || '';
               const paxFormatted = formatPassengersMultiLine(tripToShow?.passengers_json, tripToShow?.passenger_nickname);
-              const shareMsg = `*GalaxyFleet Booking Details*\n🚗 *Vehicle*: ${tripToShow?.make} ${tripToShow?.model} (${tripToShow?.registration_plate || '—'})\n👥 *Passenger(s) [Nickname only]*:\n${paxFormatted}\n👤 *Driver*: ${tripToShow?.assigned_driver_name || 'Assigned Driver'}${driverPhone ? ` (${driverPhone})` : ''}\n📍 *Pickup*: ${tripToShow?.origin}\n🎯 *Destination*: ${tripToShow?.destination}\n🕒 *Schedule*: ${new Date(tripToShow?.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(tripToShow?.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\n📌 *Status*: ${tripToShow?.status || 'APPROVED'}\n\n_Reminder: For privacy protection, only nicknames are used._`;
+              const shareModeLine = tripModeLabel ? `\n📋 *Mode*: ${tripModeLabel}` : '';
+              const shareMsg = `*GalaxyFleet Booking Details*\n🚗 *Vehicle*: ${tripToShow?.make} ${tripToShow?.model} (${tripToShow?.registration_plate || '—'})\n👥 *Passenger(s) [Nickname only]*:\n${paxFormatted}\n👤 *Driver*: ${tripToShow?.assigned_driver_name || 'Assigned Driver'}${driverPhone ? ` (${driverPhone})` : ''}\n📍 *Pickup*: ${tripToShow?.origin}\n🎯 *Destination*: ${tripToShow?.destination}\n🕒 *Schedule*: ${new Date(tripToShow?.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(tripToShow?.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${shareModeLine}\n📌 *Status*: ${tripToShow?.status || 'APPROVED'}\n\n_Reminder: For privacy protection, only nicknames are used._`;
               if (navigator.clipboard) {
                 navigator.clipboard.writeText(shareMsg).catch(() => {});
               }

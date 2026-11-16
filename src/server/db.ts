@@ -207,6 +207,8 @@ function initializeSchema(db: AppDatabase) {
       parking_return_note TEXT,
       is_urgent INTEGER NOT NULL DEFAULT 0,
       urgent_reason TEXT,
+      reservation_type TEXT NOT NULL DEFAULT 'ONE_WAY',
+      return_pickup_time TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -527,6 +529,12 @@ function initializeSchema(db: AppDatabase) {
   } catch {}
   try {
     db.exec('ALTER TABLE trip_requests ADD COLUMN urgent_reason TEXT;');
+  } catch {}
+  try {
+    db.exec("ALTER TABLE trip_requests ADD COLUMN reservation_type TEXT NOT NULL DEFAULT 'ONE_WAY';");
+  } catch {}
+  try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN return_pickup_time TEXT;');
   } catch {}
 }
 

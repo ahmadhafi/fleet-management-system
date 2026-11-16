@@ -73,14 +73,21 @@ const DEFAULT_CENTER: [number, number] = [-6.19834, 106.88873];
 
 export type MapLayerKey = 'streets' | 'satellite' | 'terrain';
 
+export const OSM_FALLBACK_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+
 export const MAP_LAYERS: Record<MapLayerKey, { name: string; url: string; options: L.TileLayerOptions }> = {
   streets: {
     name: 'Streets',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
     options: {
-      maxZoom: 19,
-      subdomains: ['a', 'b', 'c'],
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
+      maxZoom: 20,
+      subdomains: ['a', 'b', 'c', 'd'],
+      updateWhenZooming: false,
+      updateWhenIdle: true,
+      keepBuffer: 4,
+      crossOrigin: true,
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions" target="_blank" rel="noreferrer">CARTO</a>',
     },
   },
   satellite: {
@@ -88,6 +95,10 @@ export const MAP_LAYERS: Record<MapLayerKey, { name: string; url: string; option
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     options: {
       maxZoom: 19,
+      updateWhenZooming: false,
+      updateWhenIdle: true,
+      keepBuffer: 4,
+      crossOrigin: true,
       attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
     },
   },
@@ -97,6 +108,10 @@ export const MAP_LAYERS: Record<MapLayerKey, { name: string; url: string; option
     options: {
       maxZoom: 17,
       subdomains: ['a', 'b', 'c'],
+      updateWhenZooming: false,
+      updateWhenIdle: true,
+      keepBuffer: 4,
+      crossOrigin: true,
       attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
     },
   },
@@ -241,13 +256,20 @@ export const MapView: React.FC<MapViewProps> = ({
   const fleetLayerRef = useRef<L.LayerGroup | null>(null);
   const markerMapRef = useRef<Map<number, L.Marker>>(new Map());
   const hasCenteredOnMyCoordsRef = useRef<boolean>(false);
+  const hasFittedFleetRef = useRef<boolean>(false);
+  const routeActiveRef = useRef<boolean>(false);
+  routeActiveRef.current = Boolean(routeGeometry && routeGeometry.length > 0);
   const onPinMoveRef = useRef(onPinMoveAddress);
   onPinMoveRef.current = onPinMoveAddress;
+  const onSelectVehicleRef = useRef(onSelectVehicle);
+  onSelectVehicleRef.current = onSelectVehicle;
 
   const [activeLayer, setActiveLayer] = useState<MapLayerKey>('streets');
+  const [tilesLoading, setTilesLoading] = useState<boolean>(true);
   const [isDraggingMap, setIsDraggingMap] = useState(false);
   const [pinnedLabel, setPinnedLabel] = useState<string>('Move map to position pin');
   const reverseTimerRef = useRef<number | null>(null);
+  const tileLoadSafetyTimerRef = useRef<number | null>(null);
 
   const effOrigin = useMemo<[number, number]>(() => {
     if (originCoords && Number.isFinite(originCoords.lat) && Number.isFinite(originCoords.lon)) {
@@ -294,7 +316,67 @@ export const MapView: React.FC<MapViewProps> = ({
     };
   }, [routeMetrics, origin, destination, effOrigin, effDest]);
 
-  // Initialize Leaflet Map with selected tile layer (zero exposed API keys)
+  const attachManagedTileLayer = (layerKey: MapLayerKey, map: L.Map): L.TileLayer => {
+    const config = MAP_LAYERS[layerKey];
+    let tileErrorCount = 0;
+    let didFailover = false;
+
+    const resetSafetyTimer = () => {
+      if (tileLoadSafetyTimerRef.current) {
+        window.clearTimeout(tileLoadSafetyTimerRef.current);
+      }
+      tileLoadSafetyTimerRef.current = window.setTimeout(() => {
+        setTilesLoading(false);
+      }, 2500);
+    };
+
+    setTilesLoading(true);
+    resetSafetyTimer();
+
+    const layer = L.tileLayer(config.url, config.options);
+    layer.on('loading', () => {
+      setTilesLoading(true);
+      resetSafetyTimer();
+    });
+    layer.on('load', () => {
+      if (tileLoadSafetyTimerRef.current) {
+        window.clearTimeout(tileLoadSafetyTimerRef.current);
+      }
+      setTilesLoading(false);
+    });
+    layer.on('tileerror', () => {
+      tileErrorCount += 1;
+      if (layerKey === 'streets' && !didFailover && tileErrorCount >= 3 && baseTileLayerRef.current === layer) {
+        didFailover = true;
+        map.removeLayer(layer);
+        const fallbackLayer = L.tileLayer(OSM_FALLBACK_TILE_URL, {
+          maxZoom: 19,
+          subdomains: ['a', 'b', 'c'],
+          updateWhenZooming: false,
+          updateWhenIdle: true,
+          keepBuffer: 4,
+          crossOrigin: true,
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
+        });
+        fallbackLayer.on('load', () => {
+          if (tileLoadSafetyTimerRef.current) {
+            window.clearTimeout(tileLoadSafetyTimerRef.current);
+          }
+          setTilesLoading(false);
+        });
+        fallbackLayer.addTo(map);
+        fallbackLayer.bringToBack();
+        baseTileLayerRef.current = fallbackLayer;
+      }
+    });
+
+    layer.addTo(map);
+    layer.bringToBack();
+    return layer;
+  };
+
+  // Initialize Leaflet Map with Canvas renderer, ResizeObserver & automatic tile failover
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
@@ -303,11 +385,10 @@ export const MapView: React.FC<MapViewProps> = ({
       zoom: 12,
       zoomControl: false,
       attributionControl: true,
+      preferCanvas: true,
     });
 
-    const config = MAP_LAYERS[activeLayer];
-    const tileLayer = L.tileLayer(config.url, config.options).addTo(map);
-    baseTileLayerRef.current = tileLayer;
+    baseTileLayerRef.current = attachManagedTileLayer(activeLayer, map);
 
     const pinsLayer = L.layerGroup().addTo(map);
     const fleetLayer = L.layerGroup().addTo(map);
@@ -318,7 +399,29 @@ export const MapView: React.FC<MapViewProps> = ({
     fleetLayerRef.current = fleetLayer;
     routeLayerRef.current = routeLayer;
 
+    const initInvalidateTimer = window.setTimeout(() => {
+      map.invalidateSize({ pan: false });
+    }, 120);
+
+    let rafId: number | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        if (rafId) window.cancelAnimationFrame(rafId);
+        rafId = window.requestAnimationFrame(() => {
+          map.invalidateSize({ pan: false });
+        });
+      });
+      resizeObserver.observe(mapContainerRef.current);
+    }
+
     return () => {
+      window.clearTimeout(initInvalidateTimer);
+      if (rafId) window.cancelAnimationFrame(rafId);
+      if (tileLoadSafetyTimerRef.current) {
+        window.clearTimeout(tileLoadSafetyTimerRef.current);
+      }
+      if (resizeObserver) resizeObserver.disconnect();
       map.remove();
       mapInstanceRef.current = null;
       baseTileLayerRef.current = null;
@@ -336,10 +439,7 @@ export const MapView: React.FC<MapViewProps> = ({
     if (baseTileLayerRef.current) {
       map.removeLayer(baseTileLayerRef.current);
     }
-    const config = MAP_LAYERS[activeLayer];
-    const newLayer = L.tileLayer(config.url, config.options).addTo(map);
-    newLayer.bringToBack();
-    baseTileLayerRef.current = newLayer;
+    baseTileLayerRef.current = attachManagedTileLayer(activeLayer, map);
   }, [activeLayer]);
 
   // Automatically fly to the user's detected GPS location the first time it arrives
@@ -582,11 +682,11 @@ export const MapView: React.FC<MapViewProps> = ({
       const marker = L.marker([v.latitude, v.longitude], { icon: carIcon }).addTo(fleetLayer);
       markerMapRef.current.set(v.id, marker);
 
-      if (onSelectVehicle) {
-        marker.on('click', () => {
-          onSelectVehicle(v);
-        });
-      }
+      marker.on('click', () => {
+        if (onSelectVehicleRef.current) {
+          onSelectVehicleRef.current(v);
+        }
+      });
 
       const contactButtons = v.driver_phone ? `
         <div style="display:flex;gap:8px;margin-top:8px;">
@@ -710,10 +810,11 @@ export const MapView: React.FC<MapViewProps> = ({
       `);
     }
 
-    if (map && bounds.isValid() && (!routeGeometry || routeGeometry.length === 0)) {
+    if (map && bounds.isValid() && !routeActiveRef.current && !hasFittedFleetRef.current) {
+      hasFittedFleetRef.current = true;
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
     }
-  }, [fleetPositions, routeGeometry, onSelectVehicle]);
+  }, [fleetPositions]);
 
   // Fly to focused vehicle when focusedVehicleId changes
   useEffect(() => {
@@ -1192,6 +1293,30 @@ export const MapView: React.FC<MapViewProps> = ({
         >
           <ArrowLeft size={20} />
         </button>
+      )}
+
+      {/* Non-blocking Tile Loading Indicator */}
+      {tilesLoading && !isOffline && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(126px + var(--safe-top))',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 455,
+            background: 'var(--color-bg-surface)',
+            color: '#0072de',
+            border: '1px solid var(--color-divider)',
+            padding: '5px 12px',
+            borderRadius: 'var(--radius-pill)',
+            boxShadow: 'var(--shadow-floating)',
+            fontSize: '11.5px',
+            fontWeight: 700,
+            pointerEvents: 'none',
+          }}
+        >
+          Loading map tiles...
+        </div>
       )}
 
       {/* Connection Required Banner Pill */}

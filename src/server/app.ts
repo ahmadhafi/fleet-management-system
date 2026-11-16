@@ -9,6 +9,7 @@ import { ensureVapidKeys, notifyAdmins, notifyRole, sendUserNotification } from 
 import { checkDriverConflict, checkVehicleConflict } from './conflict.ts';
 import { createRateLimiter } from './rate-limit.ts';
 import { liveEvents, type LiveEvent } from './events.ts';
+import { searchIndonesianPois } from './indonesian-pois.ts';
 
 export function fetchEnrichedTrip(db: AppDatabase, tripId: number): Record<string, unknown> | null {
   const baseSelect = `
@@ -63,6 +64,8 @@ export function fetchEnrichedTrip(db: AppDatabase, tripId: number): Record<strin
     is_urgent: Number(row.is_urgent || 0) === 1,
     urgent_reason: (row.urgent_reason as string) || null,
     requires_pic_urgent_approval: Number(row.is_urgent || 0) === 1 && !picApproved,
+    reservation_type: (row.reservation_type as string) || 'ONE_WAY',
+    return_pickup_time: (row.return_pickup_time as string) || null,
   };
 }
 
@@ -129,7 +132,7 @@ export function createApp() {
     res.setHeader('X-XSS-Protection', '1; mode=block');
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-inline' https://translate.google.com https://translate-pa.googleapis.com; style-src 'self' 'unsafe-inline' https://translate.google.com; img-src 'self' data: blob: https://*.maptiler.com https://api.maptiler.com https://*.openstreetmap.org https://www.google.com https://*.google.com https://translate.google.com; connect-src 'self' https://api.maptiler.com https://nominatim.openstreetmap.org https://router.project-osrm.org https://translate.googleapis.com; frame-ancestors 'none'; form-action 'self'; base-uri 'self';"
+      "default-src 'self'; script-src 'self' 'unsafe-inline' https://translate.google.com https://translate-pa.googleapis.com; style-src 'self' 'unsafe-inline' https://translate.google.com; img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://*.arcgisonline.com https://*.opentopomap.org https://*.maptiler.com https://api.maptiler.com https://*.openstreetmap.org https://www.google.com https://*.google.com https://translate.google.com; connect-src 'self' https://api.maptiler.com https://nominatim.openstreetmap.org https://photon.komoot.io https://router.project-osrm.org https://translate.googleapis.com; frame-ancestors 'none'; form-action 'self'; base-uri 'self';"
     );
     res.setHeader('Permissions-Policy', 'camera=(self), geolocation=(self), microphone=()');
     next();
@@ -616,76 +619,41 @@ export function createApp() {
 
   const MAPTILER_API_KEY = process.env.MAPTILER_API_KEY || process.env.VITE_MAPTILER_API_KEY || 'KHmsrWcJhgdZjirijNbw';
 
-  // Comprehensive Indonesian Corporate, Industrial, Transit & Landmark POI Catalog
-  const INDONESIAN_POIS = [
-    // Operational Plants & Pools
-    { name: 'Manufacturing Plant 1', address: 'Jl. Danau Sunter Barat No. 8, Sunter Jaya, Jakarta Utara', lat: -6.13842, lon: 106.88561, keywords: 'plant 1 sunter pabrik manufaktur factory main' },
-    { name: 'Manufacturing Plant 2', address: 'Kawasan Industri KIIC Lot A-1, Telukjambe Timur, Karawang Barat', lat: -6.34789, lon: 107.28912, keywords: 'plant 2 karawang kiic pabrik factory assembly' },
-    { name: 'Cikarang Assembly Plant', address: 'Greenland International Industrial Center (GIIC), Deltamas, Cikarang Pusat', lat: -6.37521, lon: 107.16834, keywords: 'plant cikarang giic deltamas assembly pabrik' },
-    { name: 'Central Fleet Pool & Operations Base', address: 'Jl. Rawa Gelam IV No. 2, Kawasan Industri Pulogadung, Jakarta Timur', lat: -6.19834, lon: 106.88873, keywords: 'central fleet pool hq operational car pool parkir pulogadung base' },
-    { name: 'Karawang Staging Pool', address: 'Jl. Surya Madya VI, Kawasan Industri Suryacipta, Karawang Timur', lat: -6.38891, lon: 107.34567, keywords: 'pool karawang suryacipta operational car fleet' },
-    { name: 'Cikarang Fleet Depot', address: 'Kawasan Industri MM2100 Blok C, Cikarang Barat, Bekasi', lat: -6.29412, lon: 107.08745, keywords: 'pool cikarang mm2100 depot fleet armada' },
+  interface GeoSearchEntry {
+    expiresAt: number;
+    results: Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }>;
+  }
+  interface ReverseGeoEntry {
+    expiresAt: number;
+    payload: {
+      name: string;
+      address: string;
+      lat: number;
+      lon: number;
+      place: { name: string; address: string; lat: number; lon: number };
+    };
+  }
+  interface RouteCacheEntry {
+    expiresAt: number;
+    distanceKm: number;
+    durationMin: number;
+    geometry: Array<[number, number]>;
+    source: string;
+  }
 
-    // Headquarters & Corporate Offices
-    { name: 'Head Office - SCBD District 8', address: 'District 8 SCBD, Treasury Tower Lt. 35, Jl. Jend. Sudirman Kav. 52-53, Jakarta Selatan', lat: -6.22728, lon: 106.80816, keywords: 'head office scbd sudirman district 8 treasury tower hq kantor pusat' },
-    { name: 'Menara Astra Regional Office', address: 'Jl. Jend. Sudirman Kav. 5-6, Karet Tengsin, Jakarta Pusat', lat: -6.20845, lon: 106.82231, keywords: 'menara astra sudirman karet tengsin office kantor' },
-    { name: 'Pondok Indah Office Tower 3', address: 'Jl. Sultan Iskandar Muda Kav. V-TA, Pondok Indah, Jakarta Selatan', lat: -6.28421, lon: 106.78215, keywords: 'pondok indah office tower piot south jakarta kantor cabang' },
-    { name: 'Logistics Hub & Distribution Center', address: 'Kawasan Marunda Center Blok B, Tarumajaya, Bekasi', lat: -6.11542, lon: 106.97451, keywords: 'logistics hub distribution center marunda gudang depo' },
-    { name: 'R&D Tech Center BSD', address: 'BSD Green Office Park 9, Jl. Grand Boulevard, BSD City, Tangerang', lat: -6.30214, lon: 106.65219, keywords: 'tech center r&d bsd green office park tangerang' },
+  const geocodeSearchCache = new Map<string, GeoSearchEntry>();
+  const reverseGeocodeCache = new Map<string, ReverseGeoEntry>();
+  const routeCalcCache = new Map<string, RouteCacheEntry>();
 
-    // Airports & Transit Stations
-    { name: 'Bandara Internasional Soekarno-Hatta (CGK) - Terminal 3', address: 'Bandara Soekarno-Hatta Terminal 3 Ultimate, Benda, Kota Tangerang', lat: -6.12556, lon: 106.65589, keywords: 'bandara airport soekarno hatta cgk soetta terminal 3 ultimate t3 tangerang' },
-    { name: 'Bandara Internasional Soekarno-Hatta (CGK) - Terminal 1 & 2', address: 'Bandara Soekarno-Hatta Terminal 1-2, Benda, Kota Tangerang', lat: -6.13012, lon: 106.65421, keywords: 'bandara airport soekarno hatta cgk soetta terminal 1 2 t1 t2 tangerang' },
-    { name: 'Bandara Halim Perdanakusuma (HLP)', address: 'Jl. Halim Perdana Kusuma, Makasar, Jakarta Timur', lat: -6.26654, lon: 106.89087, keywords: 'bandara airport halim perdanakusuma hlp jakarta timur' },
-    { name: 'Stasiun Kereta Cepat Whoosh Halim (KCIC)', address: 'Jl. Akses Stasiun Kereta Cepat Halim, Makasar, Jakarta Timur', lat: -6.24876, lon: 106.88765, keywords: 'stasiun kcic whoosh halim kereta cepat station jakarta timur' },
-    { name: 'Stasiun Kereta Cepat Whoosh Karawang (KCIC)', address: 'Wanakerta, Telukjambe Barat, Karawang', lat: -6.36845, lon: 107.24123, keywords: 'stasiun kcic whoosh karawang kereta cepat station telukjambe' },
-    { name: 'Stasiun Kereta Cepat Whoosh Padalarang (KCIC)', address: 'Kertajaya, Padalarang, Kabupaten Bandung Barat', lat: -6.83987, lon: 107.48123, keywords: 'stasiun kcic whoosh padalarang bandung barat station' },
-    { name: 'Stasiun Gambir', address: 'Jl. Medan Merdeka Timur No. 1, Gambir, Jakarta Pusat', lat: -6.17667, lon: 106.83056, keywords: 'stasiun gambir central station kereta api monas' },
-    { name: 'Stasiun Pasar Senen', address: 'Jl. Stasiun Senen No. 1, Senen, Jakarta Pusat', lat: -6.17421, lon: 106.84432, keywords: 'stasiun pasar senen kereta api station senen' },
-    { name: 'Stasiun Manggarai', address: 'Jl. Manggarai Utara 1, Tebet, Jakarta Selatan', lat: -6.20987, lon: 106.85012, keywords: 'stasiun manggarai transit krl central station' },
-    { name: 'Stasiun MRT Bundaran HI Bank DKI', address: 'Jl. MH Thamrin, Gondangdia, Menteng, Jakarta Pusat', lat: -6.19254, lon: 106.82312, keywords: 'stasiun mrt bundaran hi thamrin menteng' },
-    { name: 'Stasiun MRT Blok M BCA', address: 'Jl. Panglima Polim, Melawai, Kebayoran Baru, Jakarta Selatan', lat: -6.24432, lon: 106.79845, keywords: 'stasiun mrt blok m kebayoran baru' },
-    { name: 'Terminal Terpadu Pulo Gebang', address: 'Jl. Sentra Primer Timur, Cakung, Jakarta Timur', lat: -6.21234, lon: 106.95321, keywords: 'terminal pulo gebang bus station cakung' },
+  const setBoundedCache = <V>(cache: Map<string, V>, key: string, value: V, maxSize = 500) => {
+    if (cache.size >= maxSize) {
+      const oldestKey = cache.keys().next().value;
+      if (oldestKey !== undefined) cache.delete(oldestKey);
+    }
+    cache.set(key, value);
+  };
 
-    // Key Industrial Estates
-    { name: 'Kawasan Industri MM2100', address: 'Jl. Irian, Cikarang Barat, Kabupaten Bekasi', lat: -6.29412, lon: 107.08745, keywords: 'mm2100 cikarang barat bekasi industrial estate kawasan industri' },
-    { name: 'Kawasan Industri Jababeka 1 & 2', address: 'Jl. Jababeka Raya, Harja Mekar, Cikarang Utara, Bekasi', lat: -6.31145, lon: 107.14231, keywords: 'jababeka cikarang baru industri estate bekasi' },
-    { name: 'Kawasan Industri EJIP', address: 'East Jakarta Industrial Park, Sukaresmi, Cikarang Selatan, Bekasi', lat: -6.32789, lon: 107.11245, keywords: 'ejip cikarang selatan industrial park bekasi' },
-    { name: 'Kawasan Industri KIIC Karawang', address: 'Jl. Permata Raya, Karawang Barat, Karawang', lat: -6.35678, lon: 107.27654, keywords: 'kiic karawang barat international industrial city' },
-    { name: 'Kawasan Industri Suryacipta', address: 'Jl. Surya Madya, Kutamekar, Ciampel, Karawang', lat: -6.38891, lon: 107.34567, keywords: 'suryacipta city of industry karawang timur ciampel' },
-
-    // Major Business Districts & Malls
-    { name: 'Pacific Place Mall & SCBD', address: 'Jl. Jend. Sudirman Kav. 52-53, Senayan, Kebayoran Baru, Jakarta Selatan', lat: -6.22435, lon: 106.80976, keywords: 'pacific place scbd ritz carlton sudirman senayan' },
-    { name: 'Grand Indonesia & Plaza Indonesia', address: 'Jl. M.H. Thamrin No. 1, Menteng, Jakarta Pusat', lat: -6.19512, lon: 106.82145, keywords: 'grand indonesia gi pi plaza indonesia bundaran hi thamrin' },
-    { name: 'Senayan City & Plaza Senayan', address: 'Jl. Asia Afrika No. 19, Gelora, Tanah Abang, Jakarta Pusat', lat: -6.22689, lon: 106.79874, keywords: 'senayan city senci plaza senayan asia afrika' },
-    { name: 'Central Park Mall & Neo Soho', address: 'Jl. Letjen S. Parman Kav. 28, Tanjung Duren, Jakarta Barat', lat: -6.17743, lon: 106.79012, keywords: 'central park neo soho grogol tanjung duren jakarta barat' },
-    { name: 'Mall Kelapa Gading (MKG)', address: 'Jl. Boulevard Raya, Kelapa Gading Timur, Jakarta Utara', lat: -6.15789, lon: 106.90876, keywords: 'mall kelapa gading mkg boulevard raya jakarta utara' },
-    { name: 'Mega Kuningan Business District', address: 'Kawasan Mega Kuningan, Jl. DR. Ide Anak Agung Gde Agung, Jakarta Selatan', lat: -6.22891, lon: 106.82876, keywords: 'mega kuningan ritz carlton marriott kedubes jakarta selatan' },
-    { name: 'Gelora Bung Karno (GBK)', address: 'Jl. Pintu Satu Senayan, Gelora, Jakarta Pusat', lat: -6.21845, lon: 106.80198, keywords: 'gbk gelora bung karno stadion senayan' },
-    { name: 'Monumen Nasional (Monas)', address: 'Gambir, Jakarta Pusat, DKI Jakarta', lat: -6.17539, lon: 106.82715, keywords: 'monas monumen nasional gambir medan merdeka jakarta pusat' },
-
-    // Medical Centers & Hospitals
-    { name: 'RS Cipto Mangunkusumo (RSCM)', address: 'Jl. Pangeran Diponegoro No. 71, Kenari, Senen, Jakarta Pusat', lat: -6.19789, lon: 106.84876, keywords: 'rscm cipto mangunkusumo rumah sakit hospital salemba senen' },
-    { name: 'RS Siloam Lippo Cikarang', address: 'Jl. M.H. Thamrin Kav. 105, Lippo Cikarang, Bekasi', lat: -6.32654, lon: 107.13542, keywords: 'rs siloam lippo cikarang rumah sakit hospital bekasi' },
-    { name: 'RS Medistra Jakarta', address: 'Jl. Gatot Subroto Kav. 59, Kuningan Barat, Jakarta Selatan', lat: -6.24123, lon: 106.83456, keywords: 'rs medistra gatot subroto rumah sakit kuningan' },
-    { name: 'RS Pondok Indah', address: 'Jl. Metro Pondok Indah Kav. UE, Kebayoran Lama, Jakarta Selatan', lat: -6.28234, lon: 106.78291, keywords: 'rs pondok indah rspi rumah sakit hospital' },
-    { name: 'RS Mitra Keluarga Kelapa Gading', address: 'Jl. Raya Gading Kirana No. 2, Kelapa Gading Barat, Jakarta Utara', lat: -6.15432, lon: 106.89678, keywords: 'rs mitra keluarga kelapa gading rumah sakit' },
-
-    // Government & Convention Centers
-    { name: 'Balai Kota DKI Jakarta', address: 'Jl. Medan Merdeka Selatan No. 8-9, Gambir, Jakarta Pusat', lat: -6.18123, lon: 106.82845, keywords: 'balai kota dki jakarta gubernur gambir merdeka selatan' },
-    { name: 'Jakarta Convention Center (JCC)', address: 'Jl. Gatot Subroto No. 1, Gelora, Tanah Abang, Jakarta Pusat', lat: -6.21456, lon: 106.80678, keywords: 'jcc jakarta convention center senayan gatot subroto' },
-    { name: 'JIExpo Kemayoran', address: 'Gedung Pusat Niaga, Arena PRJ Kemayoran, Jakarta Pusat', lat: -6.14876, lon: 106.84567, keywords: 'jiexpo kemayoran prj pameran arena expo' },
-    { name: 'Indonesia Convention Exhibition (ICE BSD)', address: 'Jl. BSD Grand Boulevard Raya No. 1, Pagedangan, Tangerang', lat: -6.30123, lon: 106.63678, keywords: 'ice bsd convention exhibition tangerang bsd' },
-
-    // Regional City Centers
-    { name: 'Cikarang Pusat - Pemda Bekasi', address: 'Sukamahi, Cikarang Pusat, Kabupaten Bekasi, Jawa Barat', lat: -6.36389, lon: 107.17222, keywords: 'cikarang pusat pemda deltamas bekasi' },
-    { name: 'Karawang Barat Kota', address: 'Nagirbakar, Karawang Barat, Kabupaten Karawang, Jawa Barat', lat: -6.30722, lon: 107.29361, keywords: 'karawang barat alun alun kota karawang' },
-    { name: 'Bekasi Kota - Alun-Alun', address: 'Jl. Veteran No. 34, Marga Jaya, Bekasi Selatan, Kota Bekasi', lat: -6.23828, lon: 106.97557, keywords: 'bekasi kota alun alun stasiun summarecon bekasi' },
-    { name: 'Tangerang Kota', address: 'Jl. Satria Sudirman, Sukaasih, Kota Tangerang, Banten', lat: -6.17831, lon: 106.63189, keywords: 'tangerang kota bale kota tangcity banten' },
-    { name: 'Bogor Kota - Kebun Raya', address: 'Jl. Ir. H. Juanda No. 13, Paledang, Kota Bogor, Jawa Barat', lat: -6.59715, lon: 106.80604, keywords: 'bogor kebun raya istana bogor pajajaran' }
-  ];
-
-  // MapTiler Geocoding & Reverse Geocoding Proxy (with instant Indonesian Corporate POIs and Nominatim fallback)
+  // Comprehensive Nationwide Indonesian Geocoding Proxy (Local POIs + Parallel MapTiler + Nominatim + Photon)
   app.get('/api/geocode/search', requireAuth, async (req: Request, res: Response) => {
     const q = String(req.query.q || '').trim();
     if (!q || q.length < 2) {
@@ -693,129 +661,148 @@ export function createApp() {
       return;
     }
 
-    const normQuery = q.toLowerCase();
-    const queryTokens = normQuery.split(/\s+/).filter(Boolean);
-
-    // 1. Instant Match from Local Indonesian Corporate & Regional POI Directory
-    const matchedPois: Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number; score: number }> = [];
-    for (const poi of INDONESIAN_POIS) {
-      const nameLower = poi.name.toLowerCase();
-      const addrLower = poi.address.toLowerCase();
-      const kwLower = poi.keywords.toLowerCase();
-
-      let score = 0;
-      if (nameLower.startsWith(normQuery)) {
-        score += 100;
-      } else if (nameLower.includes(normQuery)) {
-        score += 70;
-      }
-
-      let allTokensMatch = true;
-      for (const tok of queryTokens) {
-        if (nameLower.includes(tok) || addrLower.includes(tok) || kwLower.includes(tok)) {
-          score += 20;
-        } else {
-          allTokensMatch = false;
-        }
-      }
-
-      if (score > 0 || allTokensMatch) {
-        matchedPois.push({
-          place_id: `poi_${poi.lat}_${poi.lon}`,
-          name: poi.name,
-          address: poi.address,
-          lat: poi.lat,
-          lon: poi.lon,
-          score,
-        });
-      }
+    const cacheKey = q.toLowerCase();
+    const cached = geocodeSearchCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      res.json({ results: cached.results });
+      return;
     }
 
-    matchedPois.sort((a, b) => b.score - a.score);
-
+    // 1. Instant Match from Nationwide Indonesian POI Directory
+    const matchedPois = searchIndonesianPois(q, 8);
     const results: Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }> = matchedPois
-      .slice(0, 5)
       .map(({ score: _s, ...rest }) => rest);
 
-    // 2. Fetch live MapTiler Geocoding strictly constrained to Indonesia with proximity to Jakarta/West Java
-    try {
+    const isInsideIndonesia = (lat: number, lon: number) =>
+      Number.isFinite(lat) && Number.isFinite(lon) && lat >= -11.5 && lat <= 6.5 && lon >= 94.5 && lon <= 141.5;
+
+    const pushUniqueResult = (candidate: { place_id: string | number; name: string; address: string; lat: number; lon: number }) => {
+      if (!isInsideIndonesia(candidate.lat, candidate.lon)) return;
+      const duplicate = results.some(
+        (r) => Math.abs(r.lat - candidate.lat) < 0.0015 && Math.abs(r.lon - candidate.lon) < 0.0015
+      );
+      if (!duplicate) {
+        results.push(candidate);
+      }
+    };
+
+    // 2. Fetch MapTiler, OSM Nominatim (Nationwide ID without narrow viewbox), & Photon Komoot in parallel
+    const maptilerPromise = (async () => {
       const maptilerUrl = `https://api.maptiler.com/geocoding/${encodeURIComponent(q)}.json?key=${encodeURIComponent(
         MAPTILER_API_KEY
-      )}&country=id&proximity=106.88873,-6.19834&bbox=95.0,-11.0,141.0,6.0&limit=8&language=id,en`;
-
-      const mtResp = await fetch(maptilerUrl, { signal: AbortSignal.timeout(3500) }).catch(() => null);
-      if (mtResp && mtResp.ok) {
-        const mtData = (await mtResp.json()) as { features?: Array<any> };
-        if (Array.isArray(mtData.features) && mtData.features.length > 0) {
-          for (const feat of mtData.features) {
-            const center = Array.isArray(feat.center) ? feat.center : feat.geometry?.coordinates || [106.88873, -6.19834];
-            const placeName = String(feat.place_name || feat.text || q);
-            const primary = String(feat.text || placeName.split(',')[0] || q).trim();
-            const lat = Number(center[1]);
-            const lon = Number(center[0]);
-
-            // Prevent duplicate locations within 300 meters of existing results
-            const isDuplicate = results.some(
-              (r) => Math.abs(r.lat - lat) < 0.003 && Math.abs(r.lon - lon) < 0.003
-            );
-            if (!isDuplicate && Number.isFinite(lat) && Number.isFinite(lon)) {
-              results.push({
-                place_id: feat.id || `mt_${results.length + 1}`,
-                name: primary,
-                address: placeName,
-                lat,
-                lon,
-              });
-            }
-          }
+      )}&country=id&bbox=94.5,-11.2,141.5,6.2&limit=10&language=id,en`;
+      const mtResp = await fetch(maptilerUrl, { signal: AbortSignal.timeout(2200) });
+      if (!mtResp.ok) return [] as Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }>;
+      const mtData = (await mtResp.json()) as { features?: Array<any> };
+      const list: Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }> = [];
+      for (const feat of Array.isArray(mtData.features) ? mtData.features : []) {
+        const center = Array.isArray(feat.center) ? feat.center : feat.geometry?.coordinates || [];
+        const placeName = String(feat.place_name || feat.text || q);
+        const primary = String(feat.text || placeName.split(',')[0] || q).trim();
+        const lat = Number(center[1]);
+        const lon = Number(center[0]);
+        if (isInsideIndonesia(lat, lon)) {
+          list.push({
+            place_id: feat.id || `mt_${lat.toFixed(4)}_${lon.toFixed(4)}`,
+            name: primary,
+            address: placeName,
+            lat,
+            lon,
+          });
         }
       }
-    } catch {
-      // MapTiler query timed out or failed; continue with results gathered
-    }
+      return list;
+    })();
 
-    // 3. Fallback to OpenStreetMap Nominatim with strict country code and viewbox if results are sparse (< 4)
-    if (results.length < 4) {
-      try {
-        const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&countrycodes=id&viewbox=105.0,-7.5,108.5,-5.5&bounded=0&limit=6&q=${encodeURIComponent(
-          q
-        )}`;
-        const resp = await fetch(url, {
-          headers: {
-            'User-Agent': 'GalaxyFleet/2.0 (Corporate Fleet Management System)',
-            'Accept-Language': 'id,en',
-          },
-          signal: AbortSignal.timeout(3500),
-        }).catch(() => null);
-
-        if (resp && resp.ok) {
-          const data = (await resp.json()) as Array<any>;
-          for (const item of Array.isArray(data) ? data : []) {
-            const display = String(item.display_name || '');
-            const primary = item.name || display.split(',')[0] || q;
-            const lat = Number(item.lat);
-            const lon = Number(item.lon);
-
-            const isDuplicate = results.some(
-              (r) => Math.abs(r.lat - lat) < 0.003 && Math.abs(r.lon - lon) < 0.003
-            );
-            if (!isDuplicate && Number.isFinite(lat) && Number.isFinite(lon)) {
-              results.push({
-                place_id: item.place_id,
-                name: String(primary).trim(),
-                address: display,
-                lat,
-                lon,
-              });
-            }
-          }
+    const nominatimPromise = (async () => {
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&countrycodes=id&limit=10&q=${encodeURIComponent(
+        q
+      )}`;
+      const resp = await fetch(url, {
+        headers: {
+          'User-Agent': 'GalaxyFleet/2.0 (Corporate Fleet Management System)',
+          'Accept-Language': 'id,en',
+        },
+        signal: AbortSignal.timeout(2200),
+      });
+      if (!resp.ok) return [] as Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }>;
+      const data = (await resp.json()) as Array<any>;
+      const list: Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }> = [];
+      for (const item of Array.isArray(data) ? data : []) {
+        const display = String(item.display_name || '');
+        const primary = item.name || display.split(',')[0] || q;
+        const lat = Number(item.lat);
+        const lon = Number(item.lon);
+        if (isInsideIndonesia(lat, lon)) {
+          list.push({
+            place_id: item.place_id || `nom_${lat.toFixed(4)}_${lon.toFixed(4)}`,
+            name: String(primary).trim(),
+            address: display,
+            lat,
+            lon,
+          });
         }
-      } catch {
-        // Nominatim query timed out or failed
+      }
+      return list;
+    })();
+
+    const photonPromise = (async () => {
+      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=94.5,-11.2,141.5,6.2&limit=10`;
+      const resp = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(2200),
+      });
+      if (!resp.ok) return [] as Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }>;
+      const data = (await resp.json()) as { features?: Array<any> };
+      const list: Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }> = [];
+      for (const feat of Array.isArray(data.features) ? data.features : []) {
+        const coords = feat.geometry?.coordinates || [];
+        const lon = Number(coords[0]);
+        const lat = Number(coords[1]);
+        const props = feat.properties || {};
+        const primary = String(props.name || props.street || props.city || props.county || q).trim();
+        const addrParts = [
+          props.name,
+          props.street,
+          props.district || props.locality,
+          props.city || props.county,
+          props.state,
+          props.country,
+        ]
+          .filter(Boolean)
+          .map((s) => String(s).trim());
+        const uniqueAddrParts = Array.from(new Set(addrParts));
+        const address = uniqueAddrParts.join(', ') || primary;
+        if (isInsideIndonesia(lat, lon) && (!props.countrycode || String(props.countrycode).toUpperCase() === 'ID')) {
+          list.push({
+            place_id: `ph_${props.osm_id || `${lat.toFixed(4)}_${lon.toFixed(4)}`}`,
+            name: primary,
+            address,
+            lat,
+            lon,
+          });
+        }
+      }
+      return list;
+    })();
+
+    const settled = await Promise.allSettled([maptilerPromise, nominatimPromise, photonPromise]);
+    for (const outcome of settled) {
+      if (outcome.status === 'fulfilled') {
+        for (const item of outcome.value) {
+          pushUniqueResult(item);
+        }
       }
     }
 
-    res.json({ results: results.slice(0, 10) });
+    const finalResults = results.slice(0, 15);
+    if (finalResults.length > 0) {
+      setBoundedCache(geocodeSearchCache, cacheKey, {
+        expiresAt: Date.now() + 10 * 60_000,
+        results: finalResults,
+      });
+    }
+    res.json({ results: finalResults });
   });
 
   app.get('/api/geocode/reverse', requireAuth, async (req: Request, res: Response) => {
@@ -825,22 +812,35 @@ export function createApp() {
       res.status(400).json({ error: 'Valid lat and lon are required' });
       return;
     }
+
+    const revKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+    const cachedRev = reverseGeocodeCache.get(revKey);
+    if (cachedRev && cachedRev.expiresAt > Date.now()) {
+      res.json(cachedRev.payload);
+      return;
+    }
+
     try {
       const maptilerUrl = `https://api.maptiler.com/geocoding/${encodeURIComponent(String(lon))},${encodeURIComponent(String(lat))}.json?key=${encodeURIComponent(MAPTILER_API_KEY)}&limit=1&language=id,en`;
-      const mtResp = await fetch(maptilerUrl);
-      if (mtResp.ok) {
+      const mtResp = await fetch(maptilerUrl, { signal: AbortSignal.timeout(2200) }).catch(() => null);
+      if (mtResp && mtResp.ok) {
         const mtData = (await mtResp.json()) as { features?: Array<any> };
         const feat = mtData.features?.[0];
         if (feat) {
           const placeName = String(feat.place_name || feat.text || `${lat.toFixed(5)}, ${lon.toFixed(5)}`);
           const primary = String(feat.text || placeName.split(',')[0] || `${lat.toFixed(5)}, ${lon.toFixed(5)}`).trim();
-          res.json({
+          const payload = {
             name: primary,
             address: placeName,
             lat,
             lon,
             place: { name: primary, address: placeName, lat, lon },
+          };
+          setBoundedCache(reverseGeocodeCache, revKey, {
+            expiresAt: Date.now() + 15 * 60_000,
+            payload,
           });
+          res.json(payload);
           return;
         }
       }
@@ -849,10 +849,12 @@ export function createApp() {
       const resp = await fetch(url, {
         headers: {
           'User-Agent': 'GalaxyFleet/2.0 (Corporate Fleet Management System)',
-          'Accept-Language': 'en,id',
+          'Accept-Language': 'id,en',
         },
-      });
-      if (!resp.ok) {
+        signal: AbortSignal.timeout(2200),
+      }).catch(() => null);
+
+      if (!resp || !resp.ok) {
         res.json({
           name: `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
           address: `Coordinates ${lat.toFixed(5)}, ${lon.toFixed(5)}`,
@@ -863,14 +865,19 @@ export function createApp() {
       }
       const item = (await resp.json()) as any;
       const display = String(item.display_name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`);
-      const primary = item.name || display.split(',')[0] || `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-      res.json({
-        name: String(primary).trim(),
+      const primary = String(item.name || display.split(',')[0] || `${lat.toFixed(5)}, ${lon.toFixed(5)}`).trim();
+      const payload = {
+        name: primary,
         address: display,
         lat,
         lon,
-        place: { name: String(primary).trim(), address: display, lat, lon },
+        place: { name: primary, address: display, lat, lon },
+      };
+      setBoundedCache(reverseGeocodeCache, revKey, {
+        expiresAt: Date.now() + 15 * 60_000,
+        payload,
       });
+      res.json(payload);
     } catch {
       res.json({
         name: `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
@@ -904,14 +911,29 @@ export function createApp() {
         ? new Date(departureTimeRaw).getTime()
         : Date.now();
 
+    const routeCacheKey = `${originLat.toFixed(4)},${originLon.toFixed(4)}->${destLat.toFixed(4)},${destLon.toFixed(4)}`;
+    const cachedRoute = routeCalcCache.get(routeCacheKey);
+    if (cachedRoute && cachedRoute.expiresAt > Date.now()) {
+      const etaDate = new Date(baseDepartureMs + cachedRoute.durationMin * 60_000);
+      res.json({
+        distanceKm: cachedRoute.distanceKm,
+        durationMin: cachedRoute.durationMin,
+        etaIso: etaDate.toISOString(),
+        etaText: etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        geometry: cachedRoute.geometry,
+        source: cachedRoute.source,
+      });
+      return;
+    }
+
     try {
-      const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${encodeURIComponent(String(originLon))},${encodeURIComponent(String(originLat))};${encodeURIComponent(String(destLon))},${encodeURIComponent(String(destLat))}?overview=full&geometries=geojson`;
+      const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${encodeURIComponent(String(originLon))},${encodeURIComponent(String(originLat))};${encodeURIComponent(String(destLon))},${encodeURIComponent(String(destLat))}?overview=simplified&geometries=geojson`;
       const resp = await fetch(osrmUrl, {
         headers: {
           'User-Agent': 'GalaxyFleetManagement/2.0 (Indonesian Fleet System)',
           Accept: 'application/json',
         },
-        signal: AbortSignal.timeout(6000),
+        signal: AbortSignal.timeout(2200),
       });
 
       if (resp.ok) {
@@ -938,23 +960,32 @@ export function createApp() {
                 [originLat, originLon],
                 [destLat, destLon],
               ] as Array<[number, number]>);
+          const finalGeometry = coords.length >= 2 ? coords : [[originLat, originLon], [destLat, destLon]] as Array<[number, number]>;
+
+          setBoundedCache(routeCalcCache, routeCacheKey, {
+            expiresAt: Date.now() + 15 * 60_000,
+            distanceKm,
+            durationMin,
+            geometry: finalGeometry,
+            source: 'osrm',
+          });
 
           res.json({
             distanceKm,
             durationMin,
             etaIso: etaDate.toISOString(),
             etaText,
-            geometry: coords.length >= 2 ? coords : [[originLat, originLon], [destLat, destLon]],
+            geometry: finalGeometry,
             source: 'osrm',
           });
           return;
         }
       }
     } catch {
-      // Fallback to Highway-Aware Corridor Routing below
+      // Fallback to Nationwide Indonesian Highway-Aware Corridor Routing below
     }
 
-    // Fallback: Real road calculation using Greater Jakarta highway network corridors
+    // Fallback: Real road calculation using Nationwide Indonesian toll & arterial network corridors
     const toRad = (deg: number) => (deg * Math.PI) / 180;
     const dLat = toRad(destLat - originLat);
     const dLon = toRad(destLon - originLon);
@@ -963,54 +994,72 @@ export function createApp() {
       Math.cos(toRad(originLat)) * Math.cos(toRad(destLat)) * Math.sin(dLon / 2) ** 2;
     const straightKm = 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-    // Road winding factor: 1.28x for tollway corridors, 1.38x for city streets
-    const distanceKm = Math.max(0.5, Number((straightKm * (straightKm > 15 ? 1.25 : 1.34)).toFixed(1)));
-
-    // Realistic Jabodetabek traffic speed model (22 km/h city, 48 km/h toll)
-    const effectiveSpeedKmh = straightKm < 6 ? 22 : straightKm < 20 ? 32 : 46;
+    const distanceKm = Math.max(0.5, Number((straightKm * (straightKm > 30 ? 1.22 : straightKm > 10 ? 1.28 : 1.34)).toFixed(1)));
+    const effectiveSpeedKmh = straightKm < 6 ? 24 : straightKm < 20 ? 34 : straightKm < 80 ? 52 : 68;
     const durationMin = Math.max(3, Math.round((distanceKm / effectiveSpeedKmh) * 60));
     const etaDate = new Date(baseDepartureMs + durationMin * 60_000);
     const etaText = etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // Major Indonesian road and tollway corridor pivot nodes
+    // Nationwide Indonesian road and tollway corridor pivot nodes
     const CORRIDOR_NODES: Array<[number, number]> = [
-      [-6.13012, 106.65421], // Bandara Soekarno-Hatta Soedyatmo Toll
-      [-6.15542, 106.74512], // Pluit - Cengkareng Interchange
-      [-6.17743, 106.79012], // Tomang Interchange (Grogol)
-      [-6.21987, 106.81543], // Semanggi Interchange (Sudirman)
-      [-6.24123, 106.86541], // Cawang Interchange (Inner Ring x Cikampek Toll)
-      [-6.19834, 106.88873], // Pulogadung Industrial Corridor
-      [-6.24876, 106.88765], // Halim KCIC / Jagorawi Junction
-      [-6.24812, 106.99234], // Bekasi Barat Toll Gate
-      [-6.30541, 107.09845], // Cikarang Barat MM2100 Toll Gate
-      [-6.36845, 107.16541], // Cikarang Pusat / Deltamas Toll Gate
-      [-6.34215, 107.27812], // Karawang Barat KIIC Toll Gate
-      [-6.38891, 107.34567], // Karawang Timur Suryacipta Toll Gate
+      // Jabodetabek & Banten
+      [-6.01542, 106.04812], // Cilegon / Tol Tangerang-Merak
+      [-6.11528, 106.15417], // Serang
+      [-6.13012, 106.65421], // Bandara Soetta / Soedyatmo
+      [-6.15542, 106.74512], // Pluit - Cengkareng
+      [-6.17743, 106.79012], // Tomang Interchange
+      [-6.21987, 106.81543], // Semanggi
+      [-6.24123, 106.86541], // Cawang
+      [-6.19834, 106.88873], // Pulogadung
+      [-6.24876, 106.88765], // Halim / Jagorawi
+      [-6.56817, 106.85483], // Sentul / Jagorawi Selatan
+      [-6.24812, 106.99234], // Bekasi Barat
+      [-6.30541, 107.09845], // Cikarang Barat MM2100
+      [-6.36845, 107.16541], // Cikarang Pusat / Deltamas
+      [-6.34215, 107.27812], // Karawang Barat KIIC
+      [-6.38891, 107.34567], // Karawang Timur / Cikampek
+      // Cipularang & Trans-Java
+      [-6.55405, 107.44149], // Sadang Purwakarta
+      [-6.89304, 107.58989], // Pasteur Bandung
+      [-6.71541, 108.48122], // Palimanan / Cipali Cirebon
+      [-6.95624, 109.96935], // Batang / Trans-Jawa
+      [-6.99028, 110.42294], // Semarang Krapyak / Kalikangkung
+      [-7.55704, 110.82206], // Solo / Kartasura
+      [-7.37983, 112.78686], // Waru / Juanda Surabaya
+      [-7.97713, 112.63398], // Singosari / Malang
+      // Bali, Sumatra, Kalimantan, Sulawesi
+      [-8.74489, 115.21164], // Tol Bali Mandara / Benoa
+      [-5.42944, 105.26111], // Bandar Lampung / Bakauheni
+      [-2.99111, 104.76342], // Palembang
+      [3.59125, 98.67668],   // Medan
+      [-1.26827, 116.89448], // Balikpapan / Samboja IKN
+      [-5.14361, 119.40711], // Makassar
     ];
 
-    // Find if any corridor nodes lie reasonably along the travel vector
-    const minLat = Math.min(originLat, destLat) - 0.03;
-    const maxLat = Math.max(originLat, destLat) + 0.03;
-    const minLon = Math.min(originLon, destLon) - 0.03;
-    const maxLon = Math.max(originLon, destLon) + 0.03;
+    const latPad = Math.max(0.03, Math.abs(destLat - originLat) * 0.15);
+    const lonPad = Math.max(0.03, Math.abs(destLon - originLon) * 0.15);
+    const minLat = Math.min(originLat, destLat) - latPad;
+    const maxLat = Math.max(originLat, destLat) + latPad;
+    const minLon = Math.min(originLon, destLon) - lonPad;
+    const maxLon = Math.max(originLon, destLon) + lonPad;
 
     const intermediateNodes = CORRIDOR_NODES.filter(([nLat, nLon]) => {
       return nLat >= minLat && nLat <= maxLat && nLon >= minLon && nLon <= maxLon;
-    }).sort((a, b) => {
-      // Sort in direction from origin to destination
-      const distA = Math.hypot(a[0] - originLat, a[1] - originLon);
-      const distB = Math.hypot(b[0] - originLat, b[1] - originLon);
-      return distA - distB;
-    });
+    })
+      .sort((a, b) => {
+        const distA = Math.hypot(a[0] - originLat, a[1] - originLon);
+        const distB = Math.hypot(b[0] - originLat, b[1] - originLon);
+        return distA - distB;
+      })
+      .slice(0, 6);
 
     const anchors: Array<[number, number]> = [[originLat, originLon], ...intermediateNodes, [destLat, destLon]];
 
-    // Interpolate smooth multi-segment path that traces road network
     const geometry: Array<[number, number]> = [];
     for (let seg = 0; seg < anchors.length - 1; seg++) {
       const p1 = anchors[seg];
       const p2 = anchors[seg + 1];
-      const subSteps = Math.max(4, Math.min(12, Math.round(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) * 120)));
+      const subSteps = Math.max(3, Math.min(10, Math.round(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) * 60)));
       for (let s = 0; s < subSteps; s++) {
         const t = s / subSteps;
         const curLat = p1[0] + (p2[0] - p1[0]) * t;
@@ -1938,6 +1987,8 @@ export function createApp() {
         is_urgent: Number(r.is_urgent || 0) === 1,
         urgent_reason: (r.urgent_reason as string) || null,
         requires_pic_urgent_approval: Number(r.is_urgent || 0) === 1 && !picApproved,
+        reservation_type: (r.reservation_type as string) || 'ONE_WAY',
+        return_pickup_time: (r.return_pickup_time as string) || null,
       };
     });
 
@@ -1999,6 +2050,8 @@ export function createApp() {
       self_drive,
       is_urgent,
       urgent_reason,
+      reservation_type,
+      return_pickup_time,
     } = req.body ?? {};
 
     // Revision #1: Self-drive is strictly prohibited
@@ -2018,6 +2071,37 @@ export function createApp() {
       res.status(400).json({ error: 'End time must be after start time (REQ-02)' });
       return;
     }
+
+    const finalReservationType = reservation_type ? String(reservation_type).trim().toUpperCase() : 'ONE_WAY';
+    if (!['ONE_WAY', 'DROP_AND_PICKUP', 'FULL_DAY'].includes(finalReservationType)) {
+      res.status(400).json({ error: 'reservation_type must be ONE_WAY, DROP_AND_PICKUP, or FULL_DAY' });
+      return;
+    }
+
+    let finalReturnPickupTime: string | null = null;
+    if (finalReservationType === 'DROP_AND_PICKUP') {
+      const rpMs = return_pickup_time ? new Date(return_pickup_time).getTime() : NaN;
+      if (!return_pickup_time || Number.isNaN(rpMs)) {
+        res.status(400).json({ error: 'return_pickup_time is required for Drop & Pick Up After Event bookings' });
+        return;
+      }
+      if (rpMs <= startMs) {
+        res.status(400).json({ error: 'Return pick-up time after event must be after departure time' });
+        return;
+      }
+      if (endMs < rpMs) {
+        res.status(400).json({ error: 'Final return time must be at or after the post-event pick-up time' });
+        return;
+      }
+      finalReturnPickupTime = new Date(rpMs).toISOString();
+    }
+
+    const modeSummary =
+      finalReservationType === 'FULL_DAY'
+        ? ' [Full Day]'
+        : finalReservationType === 'DROP_AND_PICKUP'
+        ? ` [Drop & Pick Up After Event • Return Pick-Up: ${new Date(finalReturnPickupTime!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}]`
+        : '';
 
     const now = Date.now();
     // Allow slight tolerance of 60 seconds for clock skew
@@ -2097,8 +2181,8 @@ export function createApp() {
             `INSERT INTO trip_requests (
               requester_id, department_id, vehicle_id, preferred_driver_id, passenger_nickname, passengers_json,
               purpose, origin, destination, start_time, end_time, passenger_count, notes, status,
-              is_urgent, urgent_reason
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL', ?, ?)`
+              is_urgent, urgent_reason, reservation_type, return_pickup_time
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL', ?, ?, ?, ?)`
           )
           .run(
             user.id,
@@ -2115,7 +2199,9 @@ export function createApp() {
             pax,
             notes ? String(notes).trim() : null,
             finalIsUrgent,
-            finalUrgentReason
+            finalUrgentReason,
+            finalReservationType,
+            finalReturnPickupTime
           );
 
         const tripId = Number(tripRes.lastInsertRowid);
@@ -2151,7 +2237,7 @@ export function createApp() {
       notifyAdmins(db, {
         triggerType: 'TRIP_REQUEST_SUBMITTED',
         title: 'New Vehicle Booking Awaiting Approval',
-        body: `${user.nickname} booked a car for "${purpose}" (${origin} -> ${destination}). Vehicle slot is locked pending your approval.`,
+        body: `${user.nickname} booked a car for "${purpose}"${modeSummary} (${origin} -> ${destination}). Vehicle slot is locked pending your approval.`,
         relatedEntityType: 'TRIP_REQUEST',
         relatedEntityId: createdPayload.tripId,
       });
@@ -2160,7 +2246,7 @@ export function createApp() {
         userId: user.id,
         triggerType: 'BOOKING_SUBMITTED',
         title: 'Booking Reserved (Pending Approval)',
-        body: `Your booking for "${purpose}" has locked the vehicle schedule and awaits Admin approval.`,
+        body: `Your booking for "${purpose}"${modeSummary} has locked the vehicle schedule and awaits Admin approval.`,
         relatedEntityType: 'TRIP_REQUEST',
         relatedEntityId: createdPayload.tripId,
       });
@@ -2169,7 +2255,7 @@ export function createApp() {
         notifyRole(db, 'FM', {
           triggerType: 'URGENT_TRIP_NEEDS_APPROVAL',
           title: '🚨 Urgent Car Request (< 2h Advance)',
-          body: `${user.nickname} submitted an URGENT request for "${purpose}" departing at ${start_time} (${leadTimeMinutes} min from now). Fleet Operation PIC authorization is required.`,
+          body: `${user.nickname} submitted an URGENT request for "${purpose}"${modeSummary} departing at ${start_time} (${leadTimeMinutes} min from now). Fleet Operation PIC authorization is required.`,
           relatedEntityType: 'TRIP_REQUEST',
           relatedEntityId: createdPayload.tripId,
         });
@@ -2206,6 +2292,8 @@ export function createApp() {
           destination: string;
           start_time: string;
           end_time: string;
+          reservation_type?: string;
+          return_pickup_time?: string | null;
           status: string;
         }
       | undefined;
@@ -2214,6 +2302,17 @@ export function createApp() {
       res.status(404).json({ error: 'Trip request not found' });
       return;
     }
+
+    const modeTag =
+      trip.reservation_type === 'FULL_DAY'
+        ? ' [Full Day]'
+        : trip.reservation_type === 'DROP_AND_PICKUP'
+        ? ` [Drop & Pick Up After Event${
+            trip.return_pickup_time
+              ? ` • Return Pick-Up ${new Date(trip.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+              : ''
+          }]`
+        : '';
 
     // REQ-10: Prevent a user from approving a request they submitted themselves
     if (trip.requester_id === user.id) {
@@ -2406,14 +2505,14 @@ export function createApp() {
           userId: trip.requester_id,
           triggerType: 'TRIP_REJECTED',
           title: 'Booking Request Rejected',
-          body: `Your booking "${trip.purpose}" was rejected. Reason: ${reason}`,
+          body: `Your booking "${trip.purpose}"${modeTag} was rejected. Reason: ${reason}`,
           relatedEntityType: 'TRIP_REQUEST',
           relatedEntityId: tripId,
         });
         notifyAdmins(db, {
           triggerType: 'TRIP_REJECTED',
           title: 'Trip Request Rejected',
-          body: `${user.nickname} (${user.role}) rejected Trip #${tripId}. Reason: ${reason}`,
+          body: `${user.nickname} (${user.role}) rejected Trip #${tripId}${modeTag}. Reason: ${reason}`,
           relatedEntityType: 'TRIP_REQUEST',
           relatedEntityId: tripId,
         });
@@ -2422,7 +2521,7 @@ export function createApp() {
         notifyRole(db, 'HWS', {
           triggerType: 'TRIP_NEEDS_HWS_APPROVAL',
           title: 'Action Required: Head Of WS Part Approval',
-          body: `Fleet Operation PIC approved Trip #${tripId} ("${trip.purpose}"). Your Head Of WS Part authorization is required.`,
+          body: `Fleet Operation PIC approved Trip #${tripId} ("${trip.purpose}")${modeTag}. Your Head Of WS Part authorization is required.`,
           relatedEntityType: 'TRIP_REQUEST',
           relatedEntityId: tripId,
         });
@@ -2430,7 +2529,7 @@ export function createApp() {
           userId: trip.requester_id,
           triggerType: 'TRIP_STAGE_APPROVED',
           title: 'Booking Approved by Fleet Operation PIC',
-          body: `Your booking "${trip.purpose}" was approved by Fleet Operation PIC, awaiting Head Of WS Part review.`,
+          body: `Your booking "${trip.purpose}"${modeTag} was approved by Fleet Operation PIC, awaiting Head Of WS Part review.`,
           relatedEntityType: 'TRIP_REQUEST',
           relatedEntityId: tripId,
         });
@@ -2441,8 +2540,8 @@ export function createApp() {
           triggerType: isUrgent ? 'URGENT_TRIP_NEEDS_PIC_APPROVAL' : 'TRIP_NEEDS_PIC_APPROVAL',
           title: isUrgent ? '🚨 Action Required: Urgent Trip PIC Authorization' : 'Action Required: Fleet Operation PIC Dispatch',
           body: isUrgent
-            ? `Head Of WS Part approved Urgent Trip #${tripId} ("${trip.purpose}"). Your mandatory Fleet Operation PIC approval and driver dispatch is required immediately.`
-            : `Head Of WS Part approved Trip #${tripId} ("${trip.purpose}"). Please confirm vehicle and driver dispatch.`,
+            ? `Head Of WS Part approved Urgent Trip #${tripId} ("${trip.purpose}")${modeTag}. Your mandatory Fleet Operation PIC approval and driver dispatch is required immediately.`
+            : `Head Of WS Part approved Trip #${tripId} ("${trip.purpose}")${modeTag}. Please confirm vehicle and driver dispatch.`,
           relatedEntityType: 'TRIP_REQUEST',
           relatedEntityId: tripId,
         });
@@ -2450,7 +2549,7 @@ export function createApp() {
           userId: trip.requester_id,
           triggerType: 'TRIP_STAGE_APPROVED',
           title: 'Booking Approved by Head Of WS Part',
-          body: `Your booking "${trip.purpose}" was approved by Head Of WS Part, awaiting Fleet Operation PIC dispatch.`,
+          body: `Your booking "${trip.purpose}"${modeTag} was approved by Head Of WS Part, awaiting Fleet Operation PIC dispatch.`,
           relatedEntityType: 'TRIP_REQUEST',
           relatedEntityId: tripId,
         });
@@ -2460,7 +2559,7 @@ export function createApp() {
           userId: trip.requester_id,
           triggerType: 'TRIP_APPROVED',
           title: 'Booking Approved & Dispatched',
-          body: `Your booking "${trip.purpose}" (${trip.origin} -> ${trip.destination}) has been approved and dispatched.`,
+          body: `Your booking "${trip.purpose}"${modeTag} (${trip.origin} -> ${trip.destination}) has been approved and dispatched.`,
           relatedEntityType: 'TRIP_REQUEST',
           relatedEntityId: tripId,
         });
@@ -2470,7 +2569,7 @@ export function createApp() {
             userId: outcome.assignedDriverUserId,
             triggerType: 'DISPATCH_ORDER_ASSIGNED',
             title: 'New Dispatch Order Assigned',
-            body: `Dispatch order for "${trip.purpose}" (${trip.origin} -> ${trip.destination}) starting at ${trip.start_time}. Please acknowledge in the Driver PWA.`,
+            body: `Dispatch order for "${trip.purpose}"${modeTag} (${trip.origin} -> ${trip.destination}) starting at ${trip.start_time}. Please acknowledge in the Driver PWA.`,
             relatedEntityType: 'TRIP_REQUEST',
             relatedEntityId: tripId,
           });
@@ -2479,7 +2578,7 @@ export function createApp() {
         notifyAdmins(db, {
           triggerType: 'TRIP_APPROVED_AND_DISPATCHED',
           title: 'Trip Request Dispatched',
-          body: `Trip #${tripId} ("${trip.purpose}") is fully approved and dispatched.`,
+          body: `Trip #${tripId} ("${trip.purpose}")${modeTag} is fully approved and dispatched.`,
           relatedEntityType: 'TRIP_REQUEST',
           relatedEntityId: tripId,
         });
@@ -2524,6 +2623,8 @@ export function createApp() {
           start_time: string;
           end_time: string;
           passenger_count: number;
+          reservation_type?: string;
+          return_pickup_time?: string | null;
           status: string;
         }
       | undefined;
@@ -2545,6 +2646,37 @@ export function createApp() {
     const nextStart = req.body?.start_time || trip.start_time;
     const nextEnd = req.body?.end_time || trip.end_time;
     const nextVehicleId = req.body?.vehicle_id ? Number(req.body.vehicle_id) : trip.vehicle_id;
+    const nextReservationType = req.body?.reservation_type
+      ? String(req.body.reservation_type).trim().toUpperCase()
+      : (trip.reservation_type || 'ONE_WAY');
+    if (!['ONE_WAY', 'DROP_AND_PICKUP', 'FULL_DAY'].includes(nextReservationType)) {
+      res.status(400).json({ error: 'reservation_type must be ONE_WAY, DROP_AND_PICKUP, or FULL_DAY' });
+      return;
+    }
+    const nextStartMs = new Date(nextStart).getTime();
+    const nextEndMs = new Date(nextEnd).getTime();
+    if (Number.isNaN(nextStartMs) || Number.isNaN(nextEndMs) || nextEndMs <= nextStartMs) {
+      res.status(400).json({ error: 'End time must be after start time (REQ-02)' });
+      return;
+    }
+    let nextReturnPickup: string | null = null;
+    if (nextReservationType === 'DROP_AND_PICKUP') {
+      const rawReturn = req.body?.return_pickup_time !== undefined ? req.body.return_pickup_time : trip.return_pickup_time;
+      const rpMs = rawReturn ? new Date(rawReturn).getTime() : NaN;
+      if (!rawReturn || Number.isNaN(rpMs)) {
+        res.status(400).json({ error: 'return_pickup_time is required for Drop & Pick Up After Event bookings' });
+        return;
+      }
+      if (rpMs <= nextStartMs) {
+        res.status(400).json({ error: 'Return pick-up time after event must be after departure time' });
+        return;
+      }
+      if (nextEndMs < rpMs) {
+        res.status(400).json({ error: 'Final return time must be at or after the post-event pick-up time' });
+        return;
+      }
+      nextReturnPickup = new Date(rpMs).toISOString();
+    }
 
     try {
       const updated = runInTransaction(db, () => {
@@ -2557,9 +2689,9 @@ export function createApp() {
 
         db.prepare(
           `UPDATE trip_requests
-           SET purpose = ?, vehicle_id = ?, start_time = ?, end_time = ?, status = 'PENDING_APPROVAL', updated_at = datetime('now')
+           SET purpose = ?, vehicle_id = ?, start_time = ?, end_time = ?, reservation_type = ?, return_pickup_time = ?, status = 'PENDING_APPROVAL', updated_at = datetime('now')
            WHERE id = ?`
-        ).run(nextPurpose, nextVehicleId, nextStart, nextEnd, tripId);
+        ).run(nextPurpose, nextVehicleId, nextStart, nextEnd, nextReservationType, nextReturnPickup, tripId);
 
         db.prepare(
           `INSERT INTO bookings (trip_request_id, vehicle_id, booked_by, purpose, start_time, end_time, buffer_minutes, status)
@@ -2879,6 +3011,7 @@ export function createApp() {
       SELECT a.id as assignment_id, a.trip_request_id, a.booking_id, a.vehicle_id, a.driver_profile_id,
              a.effective_start, a.effective_end, a.acknowledged_at, a.reason as assignment_reason,
              tr.purpose, tr.origin, tr.destination, tr.passenger_count, tr.notes, tr.status as trip_status,
+             tr.reservation_type, tr.return_pickup_time,
              tr.start_odometer, tr.end_odometer, tr.distance_km,
              v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.current_odometer, v.battery_percent, v.last_parking_spot,
              u.nickname as requester_name, d.name as department_name

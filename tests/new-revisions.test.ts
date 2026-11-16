@@ -1321,6 +1321,238 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(appTsx).toContain('id="urgent-reason-input"');
       });
     });
+
+    describe('Bug Fixes: Fast Maps, Nationwide Indonesian Geocoding, Zero Trip Pricing & Reservation Modes', () => {
+      it('configures fast map CDN, CSP directives, preconnect hints, and Canvas rendering', async () => {
+        const fs = require('fs');
+        const path = require('path');
+
+        const res = await request(app).get('/api/health');
+        expect(res.headers['content-security-policy']).toContain('basemaps.cartocdn.com');
+        expect(res.headers['content-security-policy']).toContain('photon.komoot.io');
+        expect(res.headers['content-security-policy']).toContain('router.project-osrm.org');
+
+        const indexHtml = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf8');
+        expect(indexHtml).toContain('basemaps.cartocdn.com');
+        expect(indexHtml).toContain('rel="preconnect"');
+
+        const mapViewTsx = fs.readFileSync(path.join(process.cwd(), 'src/components/MapView.tsx'), 'utf8');
+        expect(mapViewTsx).toContain('rastertiles/voyager');
+        expect(mapViewTsx).toContain('OSM_FALLBACK_TILE_URL');
+        expect(mapViewTsx).toContain('preferCanvas: true');
+        expect(mapViewTsx).toContain('ResizeObserver');
+      });
+
+      it('indexes nationwide Indonesian cities/landmarks and expands Indonesian abbreviations accurately', async () => {
+        const { searchIndonesianPois } = await import('../src/server/indonesian-pois.ts');
+
+        const surabayaMatches = searchIndonesianPois('sby');
+        expect(surabayaMatches.length).toBeGreaterThan(0);
+        expect(surabayaMatches.some((p) => p.name.toLowerCase().includes('surabaya'))).toBe(true);
+
+        const iknMatches = searchIndonesianPois('ikn');
+        expect(iknMatches.some((p) => p.name.includes('Nusantara'))).toBe(true);
+
+        const makassarMatches = searchIndonesianPois('mks');
+        expect(makassarMatches.some((p) => p.name.includes('Makassar'))).toBe(true);
+
+        const baliMatches = searchIndonesianPois('Denpasar');
+        expect(baliMatches.some((p) => p.name.includes('Denpasar') || p.name.includes('Ngurah Rai'))).toBe(true);
+
+        const jayapuraMatches = searchIndonesianPois('Jayapura');
+        expect(jayapuraMatches.some((p) => p.name.includes('Jayapura') || p.name.includes('Sentani'))).toBe(true);
+
+        const geoRes = await request(app)
+          .get('/api/geocode/search?q=Surabaya')
+          .set('Authorization', `Bearer ${currentEmpToken}`);
+        expect(geoRes.status).toBe(200);
+        expect(Array.isArray(geoRes.body.results)).toBe(true);
+        expect(geoRes.body.results.length).toBeGreaterThan(0);
+        expect(
+          geoRes.body.results.some((r: any) => String(r.name).toLowerCase().includes('surabaya') || String(r.address).toLowerCase().includes('surabaya'))
+        ).toBe(true);
+      });
+
+      it('removes all passenger trip pricing from booking UI while preserving Admin IDR expense ledgers', () => {
+        const fs = require('fs');
+        const path = require('path');
+
+        const appTsx = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
+        expect(appTsx).not.toContain('0 IDR');
+        expect(appTsx).not.toContain('Rp150.500');
+        expect(appTsx).not.toContain('Rp148.000');
+        expect(appTsx).not.toContain('Rp139.500');
+        expect(appTsx).not.toContain('CORP PASS');
+        expect(appTsx).not.toContain('title="Charge to"');
+
+        // Summary Department & Driver row and custom address fallback exist
+        expect(appTsx).toContain('id="summary-charge-row"');
+        expect(appTsx).toContain('Department & Driver');
+        expect(appTsx).toContain('Use typed address:');
+
+        // Reservation mode UI controls present
+        expect(appTsx).toContain('id={`reservation-mode-${mode.id.toLowerCase()}`}');
+        expect(appTsx).toContain('id="schedule-return-pickup"');
+        expect(appTsx).toContain('Today Full Day');
+        expect(appTsx).toContain('Tomorrow Full Day');
+
+        // Admin IDR reporting ledger strictly preserved
+        expect(appTsx).toContain('export function formatIdr');
+        expect(appTsx).toContain('Comprehensive Energy & Operating Expense Ledger (IDR)');
+        expect(appTsx).toContain('TOTAL OPERATING COST (IDR)');
+      });
+
+      it('validates and creates DROP_AND_PICKUP and FULL_DAY reservations end-to-end with conflict locking', async () => {
+        const day10Base = Date.now() + 10 * 86400_000;
+        const depIso = new Date(day10Base).toISOString();
+        const invalidEarlyRpIso = new Date(day10Base - 30 * 60_000).toISOString();
+        const validRpIso = new Date(day10Base + 3 * 3600_000).toISOString();
+        const validEndIso = new Date(day10Base + 4 * 3600_000).toISOString();
+
+        // 1. Invalid reservation_type
+        const invalidModeRes = await request(app)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${currentEmpToken}`)
+          .send({
+            vehicle_id: 2,
+            purpose: 'Invalid Reservation Mode Check',
+            origin: 'Head Office - SCBD District 8',
+            destination: 'ICE BSD',
+            start_time: depIso,
+            end_time: validEndIso,
+            reservation_type: 'INVALID_MODE',
+          });
+        expect(invalidModeRes.status).toBe(400);
+
+        // 2. Missing return_pickup_time for DROP_AND_PICKUP
+        const missingRpRes = await request(app)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${currentEmpToken}`)
+          .send({
+            vehicle_id: 2,
+            purpose: 'Event Drop Missing Return Pickup',
+            origin: 'Head Office - SCBD District 8',
+            destination: 'ICE BSD',
+            start_time: depIso,
+            end_time: validEndIso,
+            reservation_type: 'DROP_AND_PICKUP',
+          });
+        expect(missingRpRes.status).toBe(400);
+
+        // 3. return_pickup_time <= start_time rejected
+        const earlyRpRes = await request(app)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${currentEmpToken}`)
+          .send({
+            vehicle_id: 2,
+            purpose: 'Event Drop Early Return Pickup',
+            origin: 'Head Office - SCBD District 8',
+            destination: 'ICE BSD',
+            start_time: depIso,
+            end_time: validEndIso,
+            reservation_type: 'DROP_AND_PICKUP',
+            return_pickup_time: invalidEarlyRpIso,
+          });
+        expect(earlyRpRes.status).toBe(400);
+
+        // 4. end_time < return_pickup_time rejected
+        const lateRpRes = await request(app)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${currentEmpToken}`)
+          .send({
+            vehicle_id: 2,
+            purpose: 'Event Drop Return Before Pickup',
+            origin: 'Head Office - SCBD District 8',
+            destination: 'ICE BSD',
+            start_time: depIso,
+            end_time: validRpIso,
+            reservation_type: 'DROP_AND_PICKUP',
+            return_pickup_time: validEndIso,
+          });
+        expect(lateRpRes.status).toBe(400);
+
+        // 5. Valid DROP_AND_PICKUP succeeds
+        const validDropRes = await request(app)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${currentEmpToken}`)
+          .send({
+            vehicle_id: 2,
+            purpose: 'Conference Drop & Pick Up After Event',
+            origin: 'Head Office - SCBD District 8',
+            destination: 'Indonesia Convention Exhibition (ICE BSD)',
+            start_time: depIso,
+            end_time: validEndIso,
+            reservation_type: 'DROP_AND_PICKUP',
+            return_pickup_time: validRpIso,
+            passenger_count: 2,
+          });
+        expect(validDropRes.status).toBe(201);
+        const dropTripId = validDropRes.body.tripId;
+
+        const tripsGet = await request(app)
+          .get('/api/trips')
+          .set('Authorization', `Bearer ${currentAdminToken}`);
+        expect(tripsGet.status).toBe(200);
+        const dropTrip = tripsGet.body.trips.find((t: any) => t.id === dropTripId);
+        expect(dropTrip).toBeDefined();
+        expect(dropTrip.reservation_type).toBe('DROP_AND_PICKUP');
+        expect(dropTrip.return_pickup_time).toBe(validRpIso);
+
+        // Driver dispatch view includes reservation_type and return_pickup_time
+        const dispatchRes = await request(app)
+          .get('/api/driver/dispatches')
+          .set('Authorization', `Bearer ${currentAdminToken}`);
+        expect(dispatchRes.status).toBe(200);
+        const dropDispatch = dispatchRes.body.dispatches.find((d: any) => d.trip_request_id === dropTripId);
+        expect(dropDispatch).toBeDefined();
+        expect(dropDispatch.reservation_type).toBe('DROP_AND_PICKUP');
+        expect(dropDispatch.return_pickup_time).toBe(validRpIso);
+
+        // 6. FULL_DAY reservation creation + overlapping slot conflict protection
+        const day12Start = new Date(Date.now() + 12 * 86400_000);
+        day12Start.setHours(8, 0, 0, 0);
+        const day12End = new Date(day12Start);
+        day12End.setHours(20, 0, 0, 0);
+
+        const fullDayRes = await request(app)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${currentEmpToken}`)
+          .send({
+            vehicle_id: 3,
+            purpose: 'Full Day Plant Tour & Audit',
+            origin: 'Manufacturing Plant 1',
+            destination: 'Manufacturing Plant 2',
+            start_time: day12Start.toISOString(),
+            end_time: day12End.toISOString(),
+            reservation_type: 'FULL_DAY',
+            passenger_count: 3,
+          });
+        expect(fullDayRes.status).toBe(201);
+        const fullDayId = fullDayRes.body.tripId;
+
+        const db = getDb();
+        const fdRow = db.prepare('SELECT reservation_type, return_pickup_time FROM trip_requests WHERE id = ?').get(fullDayId) as any;
+        expect(fdRow.reservation_type).toBe('FULL_DAY');
+        expect(fdRow.return_pickup_time).toBeNull();
+
+        // Overlapping midday booking on vehicle 3 is blocked (409)
+        const midStart = new Date(day12Start.getTime() + 4 * 3600_000).toISOString();
+        const midEnd = new Date(day12Start.getTime() + 6 * 3600_000).toISOString();
+        const conflictRes = await request(app)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${currentEmpToken}`)
+          .send({
+            vehicle_id: 3,
+            purpose: 'Conflicting Midday Trip',
+            origin: 'Central Fleet Pool',
+            destination: 'SCBD',
+            start_time: midStart,
+            end_time: midEnd,
+            reservation_type: 'ONE_WAY',
+          });
+        expect(conflictRes.status).toBe(409);
+      });
+    });
   });
 });
 
