@@ -365,7 +365,7 @@ export function App() {
   // Navigation & Presentation State
   const [navSection, setNavSection] = useState<NavSection>('HOME');
   const [bookingStep, setBookingStep] = useState<BookingStep>('HOME');
-  const [sheetSnap, setSheetSnap] = useState<SnapPoint>('half');
+  const [sheetSnap, setSheetSnap] = useState<SnapPoint>('full');
   const [adminModule, setAdminModule] = useState<AdminModule>('FLEET_MAP');
   const [fleetPositions, setFleetPositions] = useState<FleetVehiclePosition[]>([]);
   const [driverSearchQuery, setDriverSearchQuery] = useState<string>('');
@@ -8453,7 +8453,10 @@ export function App() {
                 <button
                   type="button"
                   className="gf-pic1-facility-btn pressable"
-                  onClick={() => setCustomerHomeMode('GOCAR_LANDING')}
+                  onClick={() => {
+                    setCustomerHomeMode('GOCAR_LANDING');
+                    setSheetSnap('full');
+                  }}
                 >
                   <div className="gf-pic1-facility-btn-icon">
                     <Car size={18} />
@@ -8508,7 +8511,10 @@ export function App() {
               <button
                 type="button"
                 className="gf-pic1-service-item pressable"
-                onClick={() => setCustomerHomeMode('GOCAR_LANDING')}
+                onClick={() => {
+                  setCustomerHomeMode('GOCAR_LANDING');
+                  setSheetSnap('full');
+                }}
               >
                 <div className="gf-pic1-service-circle" style={{ background: '#0072de', color: '#ffffff' }}>
                   <Car size={24} />
@@ -8637,7 +8643,7 @@ export function App() {
                 <h3 className="type-section" style={{ fontSize: '15px', margin: 0 }}>
                   {t('Your Frequent Destinations')}
                 </h3>
-                <span style={{ fontSize: '12px', color: '#0072de', fontWeight: 700, cursor: 'pointer' }} onClick={() => setCustomerHomeMode('GOCAR_LANDING')}>
+                <span style={{ fontSize: '12px', color: '#0072de', fontWeight: 700, cursor: 'pointer' }} onClick={() => { setCustomerHomeMode('GOCAR_LANDING'); setSheetSnap('full'); }}>
                   {t('Book Car')} →
                 </span>
               </div>
@@ -8689,7 +8695,10 @@ export function App() {
               <button
                 type="button"
                 className="gf-icon-btn-48 pressable"
-                onClick={() => setCustomerHomeMode('SUPER_APP')}
+                onClick={() => {
+                  setCustomerHomeMode('SUPER_APP');
+                  setSheetSnap('full');
+                }}
                 aria-label={t('Back')}
                 style={{ width: '36px', height: '36px' }}
               >
