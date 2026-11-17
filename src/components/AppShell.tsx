@@ -64,10 +64,10 @@ export const EmbeddedTopNav: React.FC<EmbeddedTopNavProps> = ({
 }) => {
   const navItems = isDriverOnly
     ? [
-        { id: 'DRIVER' as const, label: 'Beranda', icon: <Car size={17} />, badge: pendingDispatchCount },
+        { id: 'DRIVER' as const, label: 'Home', icon: <Car size={17} />, badge: pendingDispatchCount },
         { id: 'ACTIVITY' as const, label: 'Trip Log', icon: <Clock size={17} /> },
-        { id: 'INBOX' as const, label: 'Pesan', icon: <Inbox size={17} />, badge: unreadInboxCount },
-        { id: 'PROFILE' as const, label: 'Akun', icon: <User size={17} /> },
+        { id: 'INBOX' as const, label: 'Messages', icon: <Inbox size={17} />, badge: unreadInboxCount },
+        { id: 'PROFILE' as const, label: 'Account', icon: <User size={17} /> },
       ]
     : [
         { id: 'HOME' as const, label: 'Home', icon: <Home size={17} /> },
@@ -219,10 +219,10 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   const navItems: NavItem[] = isDriverOnly
     ? [
-        { id: 'DRIVER', label: 'Beranda', icon: <Car size={22} />, badge: pendingDispatchCount },
+        { id: 'DRIVER', label: 'Home', icon: <Car size={22} />, badge: pendingDispatchCount },
         { id: 'ACTIVITY', label: 'Trip Log', icon: <Clock size={22} /> },
-        { id: 'INBOX', label: 'Pesan', icon: <Inbox size={22} />, badge: unreadInboxCount },
-        { id: 'PROFILE', label: 'Akun', icon: <User size={22} /> },
+        { id: 'INBOX', label: 'Messages', icon: <Inbox size={22} />, badge: unreadInboxCount },
+        { id: 'PROFILE', label: 'Account', icon: <User size={22} /> },
       ]
     : [
         { id: 'HOME', label: 'Home', icon: <Home size={22} />, },
@@ -316,10 +316,10 @@ export const DesktopHeaderNav: React.FC<DesktopHeaderNavProps> = ({
 
   const items: NavItem[] = isDriverOnly
     ? [
-        { id: 'DRIVER', label: 'Beranda', icon: <Car size={18} /> },
+        { id: 'DRIVER', label: 'Home', icon: <Car size={18} /> },
         { id: 'ACTIVITY', label: 'Trip Log', icon: <Clock size={18} /> },
-        { id: 'INBOX', label: 'Pesan', icon: <Inbox size={18} />, badge: unreadInboxCount },
-        { id: 'PROFILE', label: 'Akun', icon: <User size={18} /> },
+        { id: 'INBOX', label: 'Messages', icon: <Inbox size={18} />, badge: unreadInboxCount },
+        { id: 'PROFILE', label: 'Account', icon: <User size={18} /> },
       ]
     : [
         { id: 'HOME', label: 'Home', icon: <Home size={18} /> },
@@ -553,17 +553,18 @@ export const AdminShell: React.FC<AdminShellProps> = ({
 
       <div className="gf-admin-main">
         <header className="gf-admin-topbar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
             <button
               type="button"
               className="gf-icon-btn-48 gf-mobile-only-btn"
+              style={{ width: '40px', height: '40px', minWidth: '40px', minHeight: '40px' }}
               onClick={() => setMobileMenuOpen((v) => !v)}
               aria-label="Toggle admin menu"
             >
-              <Menu size={22} />
+              <Menu size={20} />
             </button>
-            <div>
-              <div className="type-section" style={{ fontSize: '18px', fontWeight: 800 }}>
+            <div style={{ minWidth: 0 }}>
+              <div className="type-section gf-admin-topbar-title" style={{ fontSize: '18px', fontWeight: 800 }}>
                 {t('GalaxyFleet Admin Console')}
               </div>
               <div className="type-caption gf-admin-subtitle-desktop" style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
@@ -572,7 +573,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <div className="gf-admin-topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
             <div className="gf-topbar-lang-wrap">
               <LanguageSwitcher compact={false} />
             </div>
@@ -580,23 +581,26 @@ export const AdminShell: React.FC<AdminShellProps> = ({
               <button
                 id="admin-topbar-profile-btn"
                 type="button"
-                className="gf-btn gf-btn-secondary pressable"
+                className="gf-btn gf-btn-secondary gf-btn-sm pressable gf-admin-action-btn"
                 onClick={onOpenProfile}
-                style={{ fontSize: '13.5px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                style={{ fontSize: '13.5px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 title={t('My Account Profile & Change Password')}
+                aria-label={t('Profile')}
               >
-                <User size={16} />
-                <span>{t('Profile')}</span>
+                <User size={15} />
+                <span className="gf-topbar-btn-text">{t('Profile')}</span>
               </button>
             )}
             <button
               id="admin-topbar-signout-btn"
               type="button"
-              className="gf-btn gf-btn-outline-danger pressable"
+              className="gf-btn gf-btn-outline-danger gf-btn-sm pressable gf-admin-action-btn"
               onClick={onSignOut}
-              style={{ fontSize: '13.5px', padding: '8px 14px' }}
+              style={{ fontSize: '13.5px', padding: '6px 12px' }}
+              title={t('Sign Out')}
+              aria-label={t('Sign Out')}
             >
-              <LogOut size={16} /> {t('Sign Out')}
+              <LogOut size={15} /> <span className="gf-topbar-btn-text">{t('Sign Out')}</span>
             </button>
           </div>
         </header>

@@ -326,7 +326,7 @@ textarea {
   right: 0;
   bottom: 0;
   z-index: var(--z-sticky);
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.99);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-top: 1px solid var(--color-divider);
@@ -339,7 +339,7 @@ textarea {
 }
 
 :root[data-theme='dark'] .gf-bottom-nav {
-  background: rgba(20, 25, 23, 0.94);
+  background: rgba(20, 25, 23, 0.98);
   border-top-color: var(--color-divider);
 }
 
@@ -438,7 +438,8 @@ textarea {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .gf-topbar-logo {
@@ -461,6 +462,7 @@ textarea {
 .gf-topbar-brand-meta {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .gf-topbar-title {
@@ -475,6 +477,9 @@ textarea {
   font-size: 12px;
   color: var(--color-text-secondary);
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .gf-topbar-nav {
@@ -485,6 +490,7 @@ textarea {
   padding: 4px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--color-divider);
+  flex-shrink: 0;
 }
 
 .gf-topbar-nav-pill {
@@ -564,6 +570,34 @@ textarea {
   color: #ffffff;
 }
 
+/* Laptop & Compact Desktops (768px - 1380px) — keep entire permanent header unclipped */
+@media (min-width: 768px) and (max-width: 1380px) {
+  .gf-embedded-topbar {
+    padding: 0 14px;
+    gap: 10px;
+  }
+  .gf-topbar-brand-meta {
+    max-width: 175px;
+  }
+  .gf-topbar-nav-pill {
+    padding: 7px 12px;
+    font-size: 13px;
+    gap: 5px;
+  }
+  .gf-embedded-topbar .gf-lang-label-full {
+    display: none;
+  }
+  #topbar-profile-btn {
+    max-width: 136px;
+    overflow: hidden;
+  }
+  #topbar-profile-btn span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 /* Mobile Navigation & Screen Real Estate (< 768px) — Clean Native App Mode */
 @media (max-width: 767px) {
   /* Hide desktop website navbar completely on mobile */
@@ -585,7 +619,7 @@ textarea {
     right: 0;
     bottom: 0;
     z-index: 1000;
-    background: rgba(255, 255, 255, 0.96);
+    background: rgba(255, 255, 255, 0.99);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border-top: 1px solid rgba(0, 0, 0, 0.08);
@@ -614,10 +648,15 @@ textarea {
   }
 
   /* Mobile Touch Targets & Form Inputs */
-  .gf-btn {
-    min-height: 48px !important;
-    font-size: 15px !important;
-    border-radius: 14px !important;
+  .gf-btn:not(.gf-btn-sm):not(.gf-alert-btn) {
+    min-height: 44px;
+    font-size: 14.5px;
+    border-radius: 14px;
+  }
+  .gf-btn.gf-btn-sm,
+  .gf-btn.gf-alert-btn {
+    min-height: 34px;
+    border-radius: 10px;
   }
   .gf-input,
   .gf-select,
@@ -772,6 +811,14 @@ textarea {
     opacity: 0 !important;
     visibility: hidden !important;
     pointer-events: none !important;
+  }
+
+  .gf-map-stage-host {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    order: 2;
   }
 
   .gf-map-stage {
@@ -1860,7 +1907,7 @@ textarea {
   overflow-y: auto;
   background: var(--color-bg-surface);
   border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
-  padding: var(--space-6);
+  padding: var(--space-5) var(--space-5) calc(var(--space-6) + var(--safe-bottom));
   box-shadow: var(--shadow-floating);
   border: 1px solid var(--color-divider);
 }
@@ -1868,6 +1915,7 @@ textarea {
 @media (min-width: 640px) {
   .gf-modal-card {
     border-radius: var(--radius-sheet);
+    padding: var(--space-6);
   }
 }
 
@@ -1956,7 +2004,7 @@ textarea {
 
 .gf-table th {
   text-align: left;
-  padding: 13px 16px;
+  padding: 11px 9px;
   background: var(--color-bg-subtle);
   color: var(--color-text-secondary);
   font-size: var(--text-caption-size);
@@ -1968,7 +2016,7 @@ textarea {
 }
 
 .gf-table td {
-  padding: 14px 16px;
+  padding: 12px 9px;
   border-bottom: 1px solid var(--color-divider);
   vertical-align: middle;
   font-size: var(--text-body-size);
@@ -2270,6 +2318,11 @@ iframe.goog-te-banner-frame {
     gap: 6px !important;
   }
 
+  .gf-map-stage.has-driver-topbar .gf-map-layer-switcher,
+  .gf-map-stage.has-driver-topbar .gf-map-overlay-actions {
+    top: calc(74px + var(--safe-top)) !important;
+  }
+
   #map-locate-me-btn {
     width: 42px !important;
     height: 42px !important;
@@ -2287,8 +2340,7 @@ iframe.goog-te-banner-frame {
   }
 
   .gf-map-metrics-pill {
-    font-size: 11px !important;
-    padding: 4px 8px !important;
+    display: none !important;
   }
 }
 
@@ -2298,6 +2350,7 @@ iframe.goog-te-banner-frame {
    ------------------------------------------------------------------------- */
 .gf-gojek-priority-strip {
   width: 100%;
+  flex-shrink: 0;
   padding: 8px 16px;
   background: linear-gradient(135deg, #0072de 0%, #005bb5 100%);
   color: #ffffff;
@@ -2315,6 +2368,7 @@ iframe.goog-te-banner-frame {
 
 .gf-gojek-tab-group {
   display: flex;
+  flex-shrink: 0;
   gap: 8px;
   align-items: center;
   overflow-x: auto;
@@ -2322,6 +2376,7 @@ iframe.goog-te-banner-frame {
 }
 
 .gf-gojek-tab-chip {
+  flex-shrink: 0;
   padding: 6px 16px;
   min-height: 36px;
   height: 36px;
@@ -3223,7 +3278,7 @@ iframe.goog-te-banner-frame {
   overflow: hidden;
 }
 
-.gf-proto-hero svg {
+.gf-proto-hero > svg {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -3444,7 +3499,7 @@ iframe.goog-te-banner-frame {
   right: 0;
   bottom: 0;
   z-index: 950;
-  background: rgba(255, 255, 255, 0.96);
+  background: rgba(255, 255, 255, 0.99);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-top: 1px solid var(--color-divider);
@@ -3455,12 +3510,12 @@ iframe.goog-te-banner-frame {
 }
 
 :root[data-theme='dark'] .gf-admin-bottom-nav {
-  background: rgba(17, 24, 39, 0.96);
+  background: rgba(17, 24, 39, 0.98);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .gf-admin-bottom-nav {
-    background: rgba(17, 24, 39, 0.96);
+    background: rgba(17, 24, 39, 0.98);
   }
 }
 
@@ -3541,7 +3596,23 @@ iframe.goog-te-banner-frame {
     gap: 14px !important;
   }
   .gf-admin-topbar {
-    padding: 10px 14px !important;
+    padding: 8px 12px !important;
+    flex-wrap: nowrap !important;
+    gap: 8px !important;
+  }
+  .gf-admin-topbar-title {
+    font-size: 14px !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .gf-admin-action-btn {
+    padding: 6px 8px !important;
+    min-width: 34px !important;
+    min-height: 34px !important;
+  }
+  .gf-admin-action-btn .gf-topbar-btn-text {
+    display: none;
   }
   .gf-admin-subtitle-desktop {
     display: none !important;

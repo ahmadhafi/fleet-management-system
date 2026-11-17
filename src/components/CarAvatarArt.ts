@@ -318,7 +318,7 @@ export function getDriverAvatarDataUri(name: string, photoUrl?: string | null): 
   }
   const colors = [
     { bg: '#0072de', cap: '#005bb5', skin: '#f6d1b1' },
-    { bg: '#059669', cap: '#047857', skin: '#e5b894' },
+    { bg: '#0f172a', cap: '#1e293b', skin: '#e5b894' },
     { bg: '#4f46e5', cap: '#3730a3', skin: '#fcd34d' },
     { bg: '#d97706', cap: '#b45309', skin: '#f6c39a' },
   ];

@@ -104,8 +104,8 @@
   --z-rail: 20;
   --z-sheet: 30;
   --z-sticky: 35;
-  --z-modal: 50;
-  --z-toast: 60;
+  --z-modal: 2000;
+  --z-toast: 2100;
 
   /* Motion */
   --dur-fast: 150ms;

@@ -223,6 +223,7 @@ interface MapViewProps {
   isOffline?: boolean;
   focusedVehicleId?: number | null;
   onSelectVehicle?: (vehicle: FleetVehiclePosition) => void;
+  hasDriverTopbar?: boolean;
 }
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -251,6 +252,7 @@ export const MapView: React.FC<MapViewProps> = ({
   isOffline = false,
   focusedVehicleId,
   onSelectVehicle,
+  hasDriverTopbar = false,
 }) => {
   const { t } = useAppLanguage();
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -990,7 +992,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
   return (
     <div
-      className="gf-map-stage"
+      className={`gf-map-stage ${hasDriverTopbar ? 'has-driver-topbar' : ''}`}
       tabIndex={pinMode ? 0 : -1}
       role={pinMode ? 'application' : undefined}
       aria-label={pinMode ? 'Interactive map. Drag or use arrow keys to position the pin.' : 'Route and live vehicle position view'}

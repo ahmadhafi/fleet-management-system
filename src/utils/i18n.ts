@@ -69,7 +69,6 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
 
   // Booking & Ride Form
   { en: 'Where to?', id: 'Mau ke mana?', ko: '어디로 가시나요?' },
-  { en: 'Mau ke mana?', id: 'Mau ke mana?', ko: '어디로 가시나요?' },
   { en: 'Book a Ride', id: 'Pesan Kendaraan', ko: '차량 예약' },
   { en: 'Request Fleet Ride', id: 'Ajukan Perjalanan Armada', ko: '차량 배차 요청' },
   { en: 'Current pickup point', id: 'Titik jemput saat ini', ko: '현재 출발지' },
@@ -81,13 +80,9 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
   { en: 'Pin on Map', id: 'Tandai di Peta', ko: '지도에서 선택' },
   { en: 'Search location...', id: 'Cari lokasi...', ko: '위치 검색...' },
   { en: 'Add', id: 'Tambah', ko: '추가' },
-  { en: 'Tambah', id: 'Tambah', ko: '추가' },
   { en: 'Add destination', id: 'Tambah tujuan', ko: '목적지 추가' },
-  { en: 'Tambah tujuan', id: 'Tambah tujuan', ko: '목적지 추가' },
   { en: 'Add trip destination', id: 'Tambah tujuan perjalanan', ko: '운행 목적지 추가' },
-  { en: 'Tambah tujuan perjalanan', id: 'Tambah tujuan perjalanan', ko: '운행 목적지 추가' },
   { en: 'Can only schedule for 1 destination', id: 'Hanya bisa jadwalkan 1 tujuan', ko: '예약은 1개 목적지만 가능합니다' },
-  { en: 'Hanya bisa jadwalkan 1 tujuan', id: 'Hanya bisa jadwalkan 1 tujuan', ko: '예약은 1개 목적지만 가능합니다' },
   { en: 'Quick Shortcuts', id: 'Pintasan Cepat', ko: '빠른 바로가기' },
   { en: 'Recent Destinations', id: 'Tujuan Terakhir', ko: '최근 목적지' },
   { en: 'Popular Destinations', id: 'Tujuan Populer', ko: '자주 가는 목적지' },
@@ -98,59 +93,33 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
 
   // Scheduling Bar & Triggers
   { en: 'Book Now', id: 'Pesan Sekarang', ko: '지금 예약' },
-  { en: 'Pesan Sekarang', id: 'Pesan Sekarang', ko: '지금 예약' },
   { en: 'Ready to depart immediately or tap schedule button for advance reservation', id: 'Siap jalan segera atau tap tombol jadwal untuk reservasi', ko: '즉시 출발 가능 또는 예약 버튼을 눌러 사전 예약' },
-  { en: 'Siap jalan segera atau tap tombol jadwal untuk reservasi', id: 'Siap jalan segera atau tap tombol jadwal untuk reservasi', ko: '즉시 출발 가능 또는 예약 버튼을 눌러 사전 예약' },
-  { en: 'Set Schedule', id: 'Atur Jadwal', ko: '일정 예약' },
-  { en: 'Atur Jadwal', id: 'Atur Jadwal', ko: '일정 예약' },
+  { en: 'Set Schedule', id: 'Atur Jadwal', ko: '일정 설정' },
   { en: 'Set Trip Schedule', id: 'Atur Jadwal Perjalanan', ko: '운행 일정 설정' },
-  { en: 'Atur Jadwal Perjalanan', id: 'Atur Jadwal Perjalanan', ko: '운행 일정 설정' },
   { en: 'Change Trip Schedule', id: 'Ubah Jadwal Perjalanan', ko: '운행 일정 변경' },
-  { en: 'Ubah Jadwal Perjalanan', id: 'Ubah Jadwal Perjalanan', ko: '운행 일정 변경' },
   { en: 'Departure Schedule', id: 'Jadwal Keberangkatan', ko: '출발 일정' },
-  { en: 'Jadwal Keberangkatan', id: 'Jadwal Keberangkatan', ko: '출발 일정' },
   { en: 'Change', id: 'Ubah', ko: '변경' },
-  { en: 'Ubah', id: 'Ubah', ko: '변경' },
   { en: 'Remove', id: 'Hapus', ko: '삭제' },
-  { en: 'Hapus', id: 'Hapus', ko: '삭제' },
   { en: 'Remove schedule and return to instant booking', id: 'Hapus Jadwal dan kembali ke Pesan Langsung', ko: '일정을 취소하고 즉시 예약으로 전환' },
-  { en: 'Hapus Jadwal dan kembali ke Pesan Langsung', id: 'Hapus Jadwal dan kembali ke Pesan Langsung', ko: '일정을 취소하고 즉시 예약으로 전환' },
   { en: 'Schedule cancelled. Returned to instant booking mode.', id: 'Jadwal dibatalkan. Kembali ke mode pesan langsung.', ko: '예약이 취소되었습니다. 즉시 예약 모드로 전환됩니다.' },
-  { en: 'Jadwal dibatalkan. Kembali ke mode pesan langsung.', id: 'Jadwal dibatalkan. Kembali ke mode pesan langsung.', ko: '예약이 취소되었습니다. 즉시 예약 모드로 전환됩니다.' },
   { en: 'Schedule set successfully:', id: 'Jadwal berhasil diatur:', ko: '일정이 설정되었습니다:' },
-  { en: 'Jadwal berhasil diatur:', id: 'Jadwal berhasil diatur:', ko: '일정이 설정되었습니다:' },
   { en: 'Continue to Vehicle', id: 'Lanjut Pilih Kendaraan', ko: '차량 선택으로 이동' },
-  { en: 'Lanjut Pilih Kendaraan', id: 'Lanjut Pilih Kendaraan', ko: '차량 선택으로 이동' },
 
   // Gojek Wheel Picker Sheet
   { en: 'No worries, your booking is our priority', id: 'Gak perlu cemas, booking-mu jadi prioritas', ko: '안심하세요, 예약이 최우선 처리됩니다' },
-  { en: 'Gak perlu cemas, booking-mu jadi prioritas', id: 'Gak perlu cemas, booking-mu jadi prioritas', ko: '안심하세요, 예약이 최우선 처리됩니다' },
   { en: 'When do you want to leave?', id: 'Kapan mau berangkat?', ko: '언제 출발하시나요?' },
-  { en: 'Kapan mau berangkat?', id: 'Kapan mau berangkat?', ko: '언제 출발하시나요?' },
   { en: 'Today', id: 'Hari ini', ko: '오늘' },
-  { en: 'Hari ini', id: 'Hari ini', ko: '오늘' },
   { en: 'Tomorrow', id: 'Besok', ko: '내일' },
-  { en: 'Besok', id: 'Besok', ko: '내일' },
   { en: 'Select date', id: 'Pilih tanggal', ko: '날짜 선택' },
-  { en: 'Pilih tanggal', id: 'Pilih tanggal', ko: '날짜 선택' },
   { en: 'Pickup time estimate', id: 'Estimasi waktu jemput', ko: '예상 픽업 시간' },
-  { en: 'Estimasi waktu jemput', id: 'Estimasi waktu jemput', ko: '예상 픽업 시간' },
-  { en: 'Perkiraan waktu jemput', id: 'Perkiraan waktu jemput', ko: '예상 픽업 시간' },
   { en: 'Pickup time drum wheel picker', id: 'Pemilih waktu penjemputan drum wheel', ko: '픽업 시간 드럼 휠 선택기' },
-  { en: 'Pemilih waktu penjemputan drum wheel', id: 'Pemilih waktu penjemputan drum wheel', ko: '픽업 시간 드럼 휠 선택기' },
   { en: 'Select pickup time slot', id: 'Pilih slot waktu penjemputan', ko: '픽업 시간대 선택' },
-  { en: 'Pilih slot waktu penjemputan', id: 'Pilih slot waktu penjemputan', ko: '픽업 시간대 선택' },
   { en: 'Cancel', id: 'Batal', ko: '취소' },
-  { en: 'Gak jadi', id: 'Gak jadi', ko: '취소' },
   { en: 'Set schedule', id: 'Set jadwal', ko: '일정 확정' },
-  { en: 'Set jadwal', id: 'Set jadwal', ko: '일정 확정' },
   { en: 'Trip Reservation Type', id: 'Tipe Reservasi Perjalanan', ko: '운행 예약 유형' },
-  { en: 'Tipe Reservasi Perjalanan', id: 'Tipe Reservasi Perjalanan', ko: '운행 예약 유형' },
   { en: 'Point-to-point', id: 'Point-to-point', ko: '편도 운행' },
   { en: 'Drop & pick up later', id: 'Drop & jemput nanti', ko: '하차 후 추후 픽업' },
-  { en: 'Drop & jemput nanti', id: 'Drop & jemput nanti', ko: '하차 후 추후 픽업' },
   { en: 'Full business day', id: 'Seharian kerja', ko: '업무 시간 전일 대절' },
-  { en: 'Seharian kerja', id: 'Seharian kerja', ko: '업무 시간 전일 대절' },
   { en: 'Full Day (Seharian)', id: 'Full Day (Seharian)', ko: '종일 대절' },
   { en: 'In 2h (Standard)', id: '2 Jam Lagi (Standar)', ko: '2시간 후 (기본)' },
   { en: 'In 4h', id: '4 Jam Lagi', ko: '4시간 후' },
@@ -163,21 +132,14 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
   { en: 'Full Day End Date & Time *', id: 'Waktu Selesai Seharian Penuh *', ko: '종일 대절 종료 일시 *' },
   { en: 'Return Date & Time *', id: 'Tanggal & Waktu Kembali *', ko: '귀환 일시 *' },
   { en: 'Urgent Reason *', id: 'Alasan Mendesak *', ko: '긴급 사유 *' },
-  { en: 'Alasan Mendesak *', id: 'Alasan Mendesak *', ko: '긴급 사유 *' },
   { en: 'Enter urgent reason (e.g. client site emergency, urgent VIP transport)...', id: 'Tulis alasan urgensi (misal: darurat site klien, transport VIP mendadak)...', ko: '긴급 사유를 입력하세요 (예: 거래처 긴급 지원, VIP 의전 등)...' },
-  { en: 'Tulis alasan urgensi (misal: darurat site klien, transport VIP mendadak)...', id: 'Tulis alasan urgensi (misal: darurat site klien, transport VIP mendadak)...', ko: '긴급 사유를 입력하세요 (예: 거래처 긴급 지원, VIP 의전 등)...' },
   { en: 'Departure time cannot be in the past. Please select an upcoming departure time.', id: 'Waktu keberangkatan tidak boleh di masa lalu. Silakan pilih waktu mendatang.', ko: '출발 시간은 과거일 수 없습니다. 이후 시간을 선택해 주세요.' },
-  { en: 'Waktu keberangkatan tidak boleh di masa lalu. Silakan pilih waktu mendatang.', id: 'Waktu keberangkatan tidak boleh di masa lalu. Silakan pilih waktu mendatang.', ko: '출발 시간은 과거일 수 없습니다. 이후 시간을 선택해 주세요.' },
   { en: 'Custom schedule', id: 'Jadwal khusus', ko: '지정 일정' },
-  { en: 'Jadwal khusus', id: 'Jadwal khusus', ko: '지정 일정' },
 
   // Reservation Types
   { en: 'Standard Trip', id: 'Perjalanan Standar', ko: '일반 운행' },
-  { en: 'Perjalanan Standar', id: 'Perjalanan Standar', ko: '일반 운행' },
   { en: 'Full Day', id: 'Seharian Penuh', ko: '종일 대절' },
-  { en: 'Seharian Penuh', id: 'Seharian Penuh', ko: '종일 대절' },
   { en: 'Drop & Pick Up', id: 'Antar & Jemput', ko: '왕복 배차' },
-  { en: 'Antar & Jemput', id: 'Antar & Jemput', ko: '왕복 배차' },
   { en: 'Full Day Reservation', id: 'Reservasi Seharian Penuh', ko: '종일 대절 예약' },
   { en: 'Drop & Pick Up Later', id: 'Antar & Jemput Nanti', ko: '행사 후 픽업 예약' },
   { en: 'Dedicated vehicle for the entire business day', id: 'Kendaraan khusus sepanjang hari kerja', ko: '업무 시간 전일 전담 배차' },
@@ -185,78 +147,49 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
 
   // Vehicle Selection Step
   { en: 'Select Vehicle', id: 'Pilih Kendaraan', ko: '차량 선택' },
-  { en: 'Pilih Kendaraan', id: 'Pilih Kendaraan', ko: '차량 선택' },
   { en: 'Vehicle Type', id: 'Tipe Kendaraan', ko: '차량 종류' },
-  { en: 'Tipe Kendaraan', id: 'Tipe Kendaraan', ko: '차량 종류' },
   { en: 'All Categories', id: 'Semua Kategori', ko: '모든 차종' },
-  { en: 'Semua Kategori', id: 'Semua Kategori', ko: '모든 차종' },
   { en: 'All', id: 'Semua', ko: '전체' },
-  { en: 'Semua', id: 'Semua', ko: '전체' },
   { en: 'Free Corporate Facility', id: 'Fasilitas Operasional Perusahaan', ko: '사내 업무용 무료 차량' },
-  { en: 'Fasilitas Operasional Perusahaan', id: 'Fasilitas Operasional Perusahaan', ko: '사내 업무용 무료 차량' },
   { en: 'Company facility for working purpose', id: 'Fasilitas perusahaan untuk keperluan dinas', ko: '업무 목적 회사 지원 차량' },
   { en: 'Seats', id: 'Kursi', ko: '인승' },
   { en: 'seats', id: 'kursi', ko: '인승' },
   { en: 'Available Now', id: 'Tersedia Sekarang', ko: '지금 이용 가능' },
-  { en: 'Tersedia Sekarang', id: 'Tersedia Sekarang', ko: '지금 이용 가능' },
   { en: 'Scheduled / In Use', id: 'Terjadwal / Digunakan', ko: '예약됨 / 사용 중' },
   { en: 'No vehicles registered in this category yet.', id: 'Belum ada kendaraan di kategori ini.', ko: '해당 차종의 등록된 차량이 없습니다.' },
   { en: 'Add Vehicle in Admin Console', id: 'Tambah Kendaraan di Konsol Admin', ko: '관리자 콘솔에서 차량 추가' },
   { en: 'Ready to Depart', id: 'Siap Berangkat', ko: '출발 준비 완료' },
-  { en: 'Siap Berangkat', id: 'Siap Berangkat', ko: '출발 준비 완료' },
   { en: 'Schedule', id: 'Jadwalkan', ko: '예약' },
-  { en: 'Jadwalin', id: 'Jadwalkan', ko: '예약' },
-  { en: 'Jadwalkan', id: 'Jadwalkan', ko: '예약' },
   { en: 'Book', id: 'Pesan', ko: '예약' },
-  { en: 'Pesan', id: 'Pesan', ko: '예약' },
 
   // Order Summary & Confirmation
   { en: 'Almost there', id: 'Hampir selesai', ko: '거의 완료됨' },
-  { en: 'Hampir selesai', id: 'Hampir selesai', ko: '거의 완료됨' },
   { en: 'Booking Summary', id: 'Ringkasan Pemesanan', ko: '예약 확인' },
-  { en: 'Ringkasan Pemesanan', id: 'Ringkasan Pemesanan', ko: '예약 확인' },
   { en: 'Almost there! Check trip details before requesting booking.', id: 'Hampir selesai! Periksa rincian sebelum mengajukan booking.', ko: '거의 완료되었습니다! 예약 신청 전 상세 내역을 확인해 주세요.' },
-  { en: 'Hampir selesai! Periksa rincian sebelum mengajukan booking.', id: 'Hampir selesai! Periksa rincian sebelum mengajukan booking.', ko: '거의 완료되었습니다! 예약 신청 전 상세 내역을 확인해 주세요.' },
   { en: 'Schedule & Reservation', id: 'Jadwal & Reservasi', ko: '일정 및 예약' },
   { en: 'Trip Purpose', id: 'Keperluan Perjalanan', ko: '운행 목적' },
-  { en: 'Keperluan Perjalanan', id: 'Keperluan Perjalanan', ko: '운행 목적' },
   { en: 'Purpose of Trip', id: 'Keperluan Perjalanan', ko: '운행 목적' },
   { en: 'Purpose', id: 'Keperluan', ko: '목적' },
-  { en: 'Keperluan', id: 'Keperluan', ko: '목적' },
   { en: 'Passengers', id: 'Penumpang', ko: '동승자' },
-  { en: 'Penumpang', id: 'Penumpang', ko: '동승자' },
   { en: 'Passenger Details', id: 'Rincian Penumpang', ko: '동승자 상세' },
   { en: 'Passenger Count', id: 'Jumlah Penumpang', ko: '탑승 인원' },
   { en: 'Passenger Nicknames', id: 'Nama Panggilan Penumpang', ko: '동승자 이름' },
   { en: 'Passenger Nicknames (Comma separated)', id: 'Nama Panggilan Penumpang (Pisahkan koma)', ko: '동승자 닉네임 (쉼표로 구분)' },
   { en: 'Notes', id: 'Catatan', ko: '메모' },
-  { en: 'Catatan', id: 'Catatan', ko: '메모' },
   { en: 'Dispatch Notes', id: 'Catatan Disposisi', ko: '배차 메모' },
   { en: 'Group & Driver', id: 'Grup & Driver', ko: '그룹 및 기사' },
   { en: 'Department & Driver', id: 'Departemen & Pengemudi', ko: '부서 및 기사' },
-  { en: 'Departemen & Pengemudi', id: 'Departemen & Pengemudi', ko: '부서 및 기사' },
   { en: '* Mandatory', id: '* Wajib', ko: '* 필수' },
-  { en: '* Wajib', id: '* Wajib', ko: '* 필수' },
   { en: '* Wajib diisi', id: '* Wajib diisi', ko: '* 필수' },
-  { en: '* Wajib Diisi', id: '* Wajib diisi', ko: '* 필수' },
   { en: '✓ Filled', id: '✓ Terisi', ko: '✓ 입력됨' },
-  { en: '✓ Terisi', id: '✓ Terisi', ko: '✓ 입력됨' },
   { en: 'Done', id: 'Selesai', ko: '완료' },
-  { en: 'Selesai', id: 'Selesai', ko: '완료' },
-  { en: 'Batal', id: 'Batal', ko: '취소' },
   { en: 'Confirm', id: 'Konfirmasi', ko: '확인' },
-  { en: 'Konfirmasi', id: 'Konfirmasi', ko: '확인' },
   { en: 'Confirm Booking', id: 'Konfirmasi Pemesanan', ko: '예약 확정' },
-  { en: 'Konfirmasi Pemesanan', id: 'Konfirmasi Pemesanan', ko: '예약 확정' },
   { en: 'Confirm & Request Booking', id: 'Konfirmasi & Kirim Booking', ko: '예약 확정 및 신청' },
-  { en: 'Konfirmasi & Kirim Booking', id: 'Konfirmasi & Kirim Booking', ko: '예약 확정 및 신청' },
   { en: 'Request GalaxyFleet', id: 'Pesan GalaxyFleet', ko: 'GalaxyFleet 배차 요청' },
-  { en: 'Pesan GalaxyFleet', id: 'Pesan GalaxyFleet', ko: 'GalaxyFleet 배차 요청' },
   { en: 'Complete Details', id: 'Lengkapi Data', ko: '정보 입력' },
-  { en: 'Lengkapi Data', id: 'Lengkapi Data', ko: '정보 입력' },
   { en: 'Fill Data', id: 'Lengkapi Data', ko: '정보 입력' },
   { en: 'Close', id: 'Tutup', ko: '닫기' },
-  { en: 'Tutup', id: 'Tutup', ko: '닫기' },
   { en: 'Back', id: 'Kembali', ko: '뒤로' },
   { en: 'Save', id: 'Simpan', ko: '저장' },
   { en: 'Submit', id: 'Kirim', ko: '제출' },
@@ -265,24 +198,16 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
 
   // Sub-Modals & Validation Messages
   { en: 'Select operational purpose or enter custom purpose:', id: 'Pilih tujuan operasional atau masukkan tujuan khusus:', ko: '운행 목적을 선택하거나 직접 입력하세요:' },
-  { en: 'Pilih tujuan operasional atau masukkan tujuan khusus:', id: 'Pilih tujuan operasional atau masukkan tujuan khusus:', ko: '운행 목적을 선택하거나 직접 입력하세요:' },
   { en: 'Client visit', id: 'Kunjungan klien', ko: '고객사 미팅' },
   { en: 'Site audit', id: 'Audit lapangan', ko: '현장 실사' },
   { en: 'Airport transfer', id: 'Antar jemput bandara', ko: '공항 픽업/샌딩' },
   { en: 'Executive briefing', id: 'Briefing eksekutif', ko: '임원 보고' },
   { en: 'Trip Purpose *', id: 'Tujuan Perjalanan *', ko: '운행 목적 *' },
-  { en: 'Tujuan Perjalanan *', id: 'Tujuan Perjalanan *', ko: '운행 목적 *' },
   { en: 'Example: Cikarang Plant Visit...', id: 'Contoh: Kunjungan Pabrik Cikarang...', ko: '예: 찌카랑 공장 방문...' },
-  { en: 'Contoh: Kunjungan Pabrik Cikarang...', id: 'Contoh: Kunjungan Pabrik Cikarang...', ko: '예: 찌카랑 공장 방문...' },
   { en: '⚠️ Mandatory • Tap to select or enter purpose', id: '⚠️ Wajib diisi • Ketuk untuk pilih atau ketik tujuan', ko: '⚠️ 필수 입력 • 터치하여 목적 선택 또는 입력' },
-  { en: '⚠️ Wajib diisi • Ketuk untuk pilih atau ketik tujuan', id: '⚠️ Wajib diisi • Ketuk untuk pilih atau ketik tujuan', ko: '⚠️ 필수 입력 • 터치하여 목적 선택 또는 입력' },
   { en: '⚠️ Mandatory • Tap to enter passenger nickname', id: '⚠️ Wajib diisi • Ketuk untuk masukkan nama panggilan (nickname)', ko: '⚠️ 필수 입력 • 터치하여 동승자 닉네임 입력' },
-  { en: '⚠️ Wajib diisi • Ketuk untuk masukkan nama panggilan (nickname)', id: '⚠️ Wajib diisi • Ketuk untuk masukkan nama panggilan (nickname)', ko: '⚠️ 필수 입력 • 터치하여 동승자 닉네임 입력' },
-  { en: 'Passengers', id: 'Orang', ko: '명' },
   { en: 'Trip Purpose is mandatory. Please select or enter your trip purpose before booking.', id: 'Tujuan perjalanan (Purpose) wajib diisi. Silakan pilih atau ketik tujuan perjalanan Anda sebelum memesan.', ko: '운행 목적은 필수입니다. 예약 전 목적을 선택하거나 입력해 주세요.' },
-  { en: 'Tujuan perjalanan (Purpose) wajib diisi. Silakan pilih atau ketik tujuan perjalanan Anda sebelum memesan.', id: 'Tujuan perjalanan (Purpose) wajib diisi. Silakan pilih atau ketik tujuan perjalanan Anda sebelum memesan.', ko: '운행 목적은 필수입니다. 예약 전 목적을 선택하거나 입력해 주세요.' },
   { en: 'Passenger data is mandatory. Please enter at least 1 passenger nickname.', id: 'Data penumpang (Passengers) wajib diisi. Masukkan minimal 1 nama panggilan penumpang.', ko: '동승자 명단은 필수입니다. 최소 1명의 동승자 닉네임을 입력해 주세요.' },
-  { en: 'Data penumpang (Passengers) wajib diisi. Masukkan minimal 1 nama panggilan penumpang.', id: 'Data penumpang (Passengers) wajib diisi. Masukkan minimal 1 nama panggilan penumpang.', ko: '동승자 명단은 필수입니다. 최소 1명의 동승자 닉네임을 입력해 주세요.' },
   { en: 'Please select an available vehicle first.', id: 'Silakan pilih kendaraan yang tersedia terlebih dahulu.', ko: '이용 가능한 차량을 먼저 선택해 주세요.' },
   { en: 'Please enter both pickup and destination locations.', id: 'Harap masukkan lokasi penjemputan dan tujuan.', ko: '출발지와 목적지를 모두 입력해 주세요.' },
   { en: 'Please select both departure and return dates/times.', id: 'Harap pilih tanggal/waktu berangkat dan kembali.', ko: '출발 및 귀환 일시를 모두 선택해 주세요.' },
@@ -293,9 +218,7 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
 
   // Activity Tab
   { en: 'Ongoing', id: 'Berjalan', ko: '진행 중' },
-  { en: 'Berjalan', id: 'Berjalan', ko: '진행 중' },
   { en: 'History', id: 'Riwayat', ko: '완료 내역' },
-  { en: 'Riwayat', id: 'Riwayat', ko: '완료 내역' },
   { en: 'No ongoing rides right now.', id: 'Tidak ada perjalanan yang sedang berlangsung saat ini.', ko: '현재 진행 중인 운행이 없습니다.' },
   { en: 'No completed trips yet.', id: 'Belum ada riwayat perjalanan selesai.', ko: '완료된 운행 기록이 없습니다.' },
   { en: 'Open Driver Dispatch', id: 'Buka Disposisi Driver', ko: '기사 배차 콘솔 열기' },
@@ -406,6 +329,14 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
   { en: 'Push Notifications', id: 'Notifikasi Push', ko: '푸시 알림' },
   { en: 'Mark all as read', id: 'Tandai semua sudah dibaca', ko: '모두 읽음으로 표시' },
   { en: 'Mark all read', id: 'Tandai semua dibaca', ko: '모두 읽음으로 표시' },
+  { en: 'Enable Real-Time Notifications', id: 'Aktifkan Notifikasi Real-Time', ko: '실시간 알림 활성화' },
+  { en: 'Enable Real-Time Alerts', id: 'Aktifkan Notifikasi Real-Time', ko: '실시간 알림 활성화' },
+  { en: 'Get instant push alerts for car approvals, driver dispatches, and operations.', id: 'Terima notifikasi instan untuk persetujuan mobil, disposisi driver, dan operasional.', ko: '차량 승인, 기사 배차 및 운행 알림을 실시간으로 받아보세요.' },
+  { en: 'Get instant alerts for car approvals, dispatches, and trips.', id: 'Terima notifikasi instan untuk persetujuan mobil, disposisi, dan perjalanan.', ko: '차량 승인, 배차 및 운행 알림을 실시간으로 받아보세요.' },
+  { en: 'Allow Alerts', id: 'Izinkan Notifikasi', ko: '알림 허용' },
+  { en: 'Dismiss', id: 'Tutup', ko: '닫기' },
+  { en: 'Allow', id: 'Izinkan', ko: '허용' },
+  { en: 'Later', id: 'Nanti', ko: '나중에' },
 
   // Profile Modal & Menu
   { en: 'Profile Details', id: 'Detail Profil', ko: '프로필 정보' },
@@ -479,69 +410,36 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
 
   // Super-App Home (Pic 1) & Booking Landing (Pic 2)
   { en: 'Company Facility', id: 'Fasilitas Perusahaan', ko: '사내 지원 시설' },
-  { en: 'Fasilitas Perusahaan', id: 'Fasilitas Perusahaan', ko: '사내 지원 시설' },
   { en: 'Zero Operational Cost (Rp0)', id: 'Bebas Biaya Operasional (Rp0)', ko: '업무 비용 무료 (Rp0)' },
-  { en: 'Bebas Biaya Operasional (Rp0)', id: 'Bebas Biaya Operasional (Rp0)', ko: '업무 비용 무료 (Rp0)' },
   { en: 'Book Car', id: 'Pesan Mobil', ko: '차량 예약' },
-  { en: 'Pesan Mobil', id: 'Pesan Mobil', ko: '차량 예약' },
   { en: 'Official Car', id: 'Mobil Dinas', ko: '업무용 차량' },
-  { en: 'Mobil Dinas', id: 'Mobil Dinas', ko: '업무용 차량' },
   { en: 'Shuttle Bus', id: 'Bus Jemputan', ko: '통근 버스' },
-  { en: 'Bus Jemputan', id: 'Bus Jemputan', ko: '통근 버스' },
   { en: 'VIP / Executive', id: 'VIP / Direksi', ko: 'VIP / 임원' },
-  { en: 'VIP / Direksi', id: 'VIP / Direksi', ko: 'VIP / 임원' },
   { en: 'Logistics Transport', id: 'Kirim Logistik', ko: '물류 배송' },
-  { en: 'Kirim Logistik', id: 'Kirim Logistik', ko: '물류 배송' },
-  { en: 'Set Schedule', id: 'Atur Jadwal', ko: '일정 설정' },
-  { en: 'Atur Jadwal', id: 'Atur Jadwal', ko: '일정 설정' },
   { en: 'Favorite Routes', id: 'Rute Favorit', ko: '자주 가는 경로' },
-  { en: 'Rute Favorit', id: 'Rute Favorit', ko: '자주 가는 경로' },
-  { en: 'Driver Dispatch', id: 'Disposisi Driver', ko: '기사 배차' },
-  { en: 'Disposisi Driver', id: 'Disposisi Driver', ko: '기사 배차' },
   { en: 'Fleet Helpdesk', id: 'Bantuan Armada', ko: '차량 지원센터' },
-  { en: 'Bantuan Armada', id: 'Bantuan Armada', ko: '차량 지원센터' },
   { en: 'Your Frequent Destinations', id: 'Pilihan kamu biasanya', ko: '자주 찾는 목적지' },
-  { en: 'Pilihan kamu biasanya', id: 'Pilihan kamu biasanya', ko: '자주 찾는 목적지' },
   { en: 'Where to today?', id: 'Mau ke mana hari ini?', ko: '어디로 이동하시나요?' },
-  { en: 'Mau ke mana hari ini?', id: 'Mau ke mana hari ini?', ko: '어디로 이동하시나요?' },
   { en: 'Under Development', id: 'Sedang Dikembangkan', ko: '개발 중' },
-  { en: 'Sedang Dikembangkan', id: 'Sedang Dikembangkan', ko: '개발 중' },
   { en: 'Under Dev', id: 'Tahap Dev', ko: '개발 중' },
-  { en: 'Bus Jemputan sedang dalam tahap pengembangan (Under Development).', id: 'Bus Jemputan sedang dalam tahap pengembangan (Under Development).', ko: '셔틀버스 서비스는 현재 개발 중입니다 (Under Development).' },
   { en: 'Shuttle Bus service is currently under development.', id: 'Bus Jemputan sedang dalam tahap pengembangan (Under Development).', ko: '셔틀버스 서비스는 현재 개발 중입니다 (Under Development).' },
   { en: 'Seamless corporate mobility with GalaxyFleet', id: 'Pergi dinas operasional mudah dengan GalaxyFleet', ko: 'GalaxyFleet과 함께하는 편리한 업무 이동' },
-  { en: 'Pergi dinas operasional mudah dengan GalaxyFleet', id: 'Pergi dinas operasional mudah dengan GalaxyFleet', ko: 'GalaxyFleet과 함께하는 편리한 업무 이동' },
   { en: 'Travel on duty with your team • Zero-cost corporate vehicle facility', id: 'Pergi dinas bersama tim • Fasilitas kendaraan dinas bebas biaya', ko: '팀원과 함께 업무 이동 • 사내 차량 무료 지원' },
-  { en: 'Pergi dinas bersama tim • Fasilitas kendaraan dinas bebas biaya', id: 'Pergi dinas bersama tim • Fasilitas kendaraan dinas bebas biaya', ko: '팀원과 함께 업무 이동 • 사내 차량 무료 지원' },
   { en: 'Search corporate services or destinations...', id: 'Cari layanan dinas atau tujuan...', ko: '업무 서비스 또는 목적지 검색...' },
-  { en: 'Cari layanan dinas atau tujuan...', id: 'Cari layanan dinas atau tujuan...', ko: '업무 서비스 또는 목적지 검색...' },
 
   // Driver Console & Gojek Driver Reference
   { en: 'Trip Log', id: 'Log Perjalanan', ko: '운행 일지' },
-  { en: 'Log Perjalanan', id: 'Log Perjalanan', ko: '운행 일지' },
   { en: 'Duty', id: 'Tugas', ko: '근무' },
-  { en: 'Tugas', id: 'Tugas', ko: '근무' },
-  { en: 'Beranda', id: 'Beranda', ko: '홈' },
-  { en: 'Akun', id: 'Akun', ko: '계정' },
-  { en: 'Pesan', id: 'Pesan', ko: '메시지' },
+  { en: 'Account', id: 'Akun', ko: '계정' },
+  { en: 'Messages', id: 'Pesan', ko: '메시지' },
   { en: 'Ready for Duty', id: 'Siap Tugas', ko: '근무 대기' },
-  { en: 'Siap Tugas', id: 'Siap Tugas', ko: '근무 대기' },
   { en: 'Switching to online...', id: 'Mengubah jadi online...', ko: '온라인 상태로 전환 중...' },
-  { en: 'Mengubah jadi online...', id: 'Mengubah jadi online...', ko: '온라인 상태로 전환 중...' },
   { en: 'You are now online', id: 'Anda sekarang online', ko: '현재 온라인 상태입니다' },
-  { en: 'Anda sekarang online', id: 'Anda sekarang online', ko: '현재 온라인 상태입니다' },
   { en: "Let's start duty!", id: 'Mulai kerja, yuk!', ko: '업무를 시작해 볼까요!' },
-  { en: 'Mulai kerja, yuk!', id: 'Mulai kerja, yuk!', ko: '업무를 시작해 볼까요!' },
   { en: 'in service driving', id: 'dalam dinas menyetir', ko: '운행 중' },
-  { en: 'dalam dinas menyetir', id: 'dalam dinas menyetir', ko: '운행 중' },
   { en: 'Total Driving Time', id: 'Total Waktu Menyetir', ko: '총 운행 시간' },
-  { en: 'Total Waktu Menyetir', id: 'Total Waktu Menyetir', ko: '총 운행 시간' },
   { en: 'Trips Completed', id: 'Perjalanan Selesai', ko: '완료된 운행' },
-  { en: 'Perjalanan Selesai', id: 'Perjalanan Selesai', ko: '완료된 운행' },
-  { en: 'Total Distance', id: 'Total Jarak', ko: '총 주행 거리' },
-  { en: 'Total Jarak', id: 'Total Jarak', ko: '총 주행 거리' },
   { en: 'Assigned Vehicle', id: 'Kendaraan Ditugaskan', ko: '배정 차량' },
-  { en: 'Kendaraan Ditugaskan', id: 'Kendaraan Ditugaskan', ko: '배정 차량' },
   { en: 'SIM License', id: 'Surat Izin Mengemudi (SIM)', ko: '운전면허증' },
   { en: 'Corporate Driver Profile', id: 'Profil Driver Perusahaan', ko: '전담 기사 프로필' },
   { en: 'App Version', id: 'Versi Aplikasi', ko: '앱 버전' },
@@ -584,6 +482,10 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
   { en: 'Status updated to Offline', id: 'Status berubah ke Offline', ko: '오프라인 상태로 전환되었습니다' },
   { en: 'Online', id: 'Online', ko: '온라인' },
   { en: 'Offline', id: 'Offline', ko: '오프라인' },
+  { en: 'Reimbursements', id: 'Reimbursements', ko: '경비 청구' },
+  { en: 'Driver Reimbursements', id: 'Klaim Biaya Driver', ko: '기사 경비 청구' },
+  { en: 'Upload Parking, Gas, EV Charging, and Toll receipts', id: 'Unggah struk Parkir, BBM, Pengisian EV, dan Tol', ko: '주차, 주유, EV 충전, 통행료 영수증을 업로드하세요' },
+  { en: 'No reimbursement claims submitted yet.', id: 'Belum ada pengajuan klaim biaya.', ko: '아직 제출된 경비 청구가 없습니다.' },
 ];
 
 /**
@@ -616,6 +518,20 @@ function registerEntry(entry: TranslationItem) {
 
 for (const item of TRANSLATION_ITEMS) {
   registerEntry(item);
+}
+
+// Informal aliases map strictly forward to canonical entries without clobbering English reverse mappings
+const PHRASE_ALIASES: Array<[string, string]> = [
+  ['Perkiraan waktu jemput', 'Pickup time estimate'],
+  ['Gak jadi', 'Cancel'],
+  ['Jadwalin', 'Schedule'],
+];
+for (const [alias, canonicalEn] of PHRASE_ALIASES) {
+  const canonical = TRANSLATION_MAP.get(canonicalEn);
+  if (canonical) {
+    TRANSLATION_MAP.set(alias, canonical);
+    TRANSLATION_MAP.set(alias.toLowerCase(), canonical);
+  }
 }
 
 /**
@@ -722,6 +638,7 @@ function triggerGoogleTranslateCombo(lang: SupportedLang): boolean {
 
 // WeakMaps to remember original text of nodes and attributes without leaking memory
 const originalTextMap = new WeakMap<Node, string>();
+const translatedByWalkerMap = new WeakMap<Node, string>();
 const originalPlaceholderMap = new WeakMap<Element, string>();
 const originalTitleMap = new WeakMap<Element, string>();
 
@@ -757,9 +674,16 @@ export function translateDomTree(root: Node = document.body, lang: SupportedLang
   let currentNode = walker.nextNode();
   while (currentNode) {
     let original = originalTextMap.get(currentNode);
+    const prevWalkerVal = translatedByWalkerMap.get(currentNode);
+    const currentVal = currentNode.nodeValue || '';
     if (original === undefined) {
-      original = currentNode.nodeValue || '';
+      original = currentVal;
       originalTextMap.set(currentNode, original);
+    } else if (currentVal !== prevWalkerVal && currentVal !== original) {
+      // React re-rendered this text node cleanly; adopt new text without reverting it
+      original = currentVal;
+      originalTextMap.set(currentNode, original);
+      translatedByWalkerMap.delete(currentNode);
     }
     nodesToUpdate.push({ node: currentNode, originalText: original });
     currentNode = walker.nextNode();
@@ -767,10 +691,15 @@ export function translateDomTree(root: Node = document.body, lang: SupportedLang
 
   for (const { node, originalText } of nodesToUpdate) {
     const translated = t(originalText, lang);
-    if (translated !== originalText && node.nodeValue !== translated) {
-      node.nodeValue = translated;
-    } else if (translated === originalText && node.nodeValue !== originalText) {
+    const prevWalkerVal = translatedByWalkerMap.get(node);
+    if (translated !== originalText) {
+      if (node.nodeValue !== translated) {
+        node.nodeValue = translated;
+      }
+      translatedByWalkerMap.set(node, translated);
+    } else if (prevWalkerVal !== undefined && node.nodeValue === prevWalkerVal) {
       node.nodeValue = originalText;
+      translatedByWalkerMap.delete(node);
     }
   }
 

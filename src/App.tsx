@@ -199,6 +199,10 @@ export function formatDurationHuman(totalMinutes: number, lang: SupportedLang = 
   return `${hours} jam ${mins} menit`;
 }
 
+function roundUpTo5MinMs(ms: number): number {
+  return Math.ceil(ms / 300000) * 300000;
+}
+
 function getSlotWindow(dateOrIso: string | Date): string {
   try {
     const d = typeof dateOrIso === 'string' ? new Date(dateOrIso) : dateOrIso;
@@ -472,8 +476,9 @@ export function App() {
   const [auditEvents, setAuditEvents] = useState<any[]>([]);
 
   // Booking Form State
-  const defaultStart = toLocalDateTimeInput(new Date(Date.now() + 2 * 3600000));
-  const defaultEnd = toLocalDateTimeInput(new Date(Date.now() + 4 * 3600000));
+  const defaultStartMs = roundUpTo5MinMs(Date.now() + 2 * 3600000);
+  const defaultStart = toLocalDateTimeInput(new Date(defaultStartMs));
+  const defaultEnd = toLocalDateTimeInput(new Date(defaultStartMs + 2 * 3600000));
   const [bookPurpose, setBookPurpose] = useState('');
   const [bookPassengerNickname, setBookPassengerNickname] = useState('');
   const [bookPassengers, setBookPassengers] = useState<Array<{ id: number; nickname: string }>>([
@@ -485,7 +490,7 @@ export function App() {
   const [bookEnd, setBookEnd] = useState(defaultEnd);
   const [bookReservationType, setBookReservationType] = useState<'ONE_WAY' | 'DROP_AND_PICKUP' | 'FULL_DAY'>('ONE_WAY');
   const [bookReturnPickupTime, setBookReturnPickupTime] = useState<string>(() =>
-    toLocalDateTimeInput(new Date(Date.now() + 5 * 3600000))
+    toLocalDateTimeInput(new Date(defaultStartMs + 3 * 3600000))
   );
   const [bookVehicleId, setBookVehicleId] = useState<number>(0);
   const [bookDriverId, setBookDriverId] = useState<string>('');
@@ -1325,11 +1330,6 @@ export function App() {
       }
     }
 
-    // If user is on Employee Home or Driver Dispatch and hasn't verified location permission yet, show the location permission popup
-    if (!locationPermissionVerified && !myCoords && (user.role === 'EMP' || user.role === 'DRV')) {
-      setShowLocationPermissionModal(true);
-    }
-
     const locInterval = window.setInterval(() => {
       detectAndReportUserLocation(false);
     }, 45 * 1000);
@@ -1566,7 +1566,11 @@ export function App() {
   }, [bookStart, schedulePickerTab]);
 
   const selectedTimeSlot = useMemo(() => {
-    return getSlotWindow(bookStart);
+    const d = new Date(bookStart);
+    if (Number.isNaN(d.getTime())) return '08:00 - 08:05';
+    const snapped = new Date(d);
+    snapped.setMinutes(Math.floor(d.getMinutes() / 5) * 5, 0, 0);
+    return getSlotWindow(snapped);
   }, [bookStart]);
 
   const handleSelectSlot = (slotStr: string) => {
@@ -3877,6 +3881,7 @@ export function App() {
                 padding: '12px 16px',
                 borderRadius: '12px',
                 display: 'flex',
+                flexWrap: 'wrap',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 gap: '12px',
@@ -3884,31 +3889,31 @@ export function App() {
                 marginBottom: '12px',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 210px', minWidth: 0 }}>
                 <Bell size={20} style={{ flexShrink: 0 }} />
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: '13px' }}>Enable Real-Time Notifications</div>
-                  <div style={{ fontSize: '11px', opacity: 0.9 }}>
-                    Get instant push alerts for car approvals, driver dispatches, and operations.
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, fontSize: '13px' }}>{t('Enable Real-Time Notifications')}</div>
+                  <div style={{ fontSize: '11.5px', opacity: 0.9, lineHeight: 1.35 }}>
+                    {t('Get instant push alerts for car approvals, driver dispatches, and operations.')}
                   </div>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                 <button
                   type="button"
-                  className="gf-btn"
-                  style={{ background: '#ffffff', color: '#0072de', fontWeight: 800, border: 'none', padding: '6px 12px', fontSize: '12px' }}
+                  className="gf-btn gf-alert-btn"
+                  style={{ background: '#ffffff', color: '#0072de', fontWeight: 800, border: 'none', padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}
                   onClick={() => handleEnablePushNotifications(false)}
                 >
-                  Allow Alerts
+                  {t('Allow Alerts')}
                 </button>
                 <button
                   type="button"
-                  className="gf-btn"
-                  style={{ background: 'transparent', color: '#ffffff', border: '1px solid rgba(255,255,255,0.4)', padding: '6px 10px', fontSize: '11px' }}
+                  className="gf-btn gf-alert-btn"
+                  style={{ background: 'transparent', color: '#ffffff', border: '1px solid rgba(255,255,255,0.45)', padding: '6px 12px', fontSize: '11.5px', minHeight: '34px' }}
                   onClick={() => setShowNotificationPromptBanner(false)}
                 >
-                  Dismiss
+                  {t('Dismiss')}
                 </button>
               </div>
             </div>
@@ -6475,6 +6480,7 @@ export function App() {
           padding: '12px 14px',
           borderRadius: '12px',
           display: 'flex',
+          flexWrap: 'wrap',
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: '10px',
@@ -6482,31 +6488,31 @@ export function App() {
           marginBottom: '12px',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 200px', minWidth: 0 }}>
           <Bell size={18} style={{ flexShrink: 0 }} />
-          <div>
-            <div style={{ fontWeight: 800, fontSize: '12.5px' }}>Enable Real-Time Alerts</div>
-            <div style={{ fontSize: '11px', opacity: 0.9 }}>
-              Get instant alerts for car approvals, dispatches, and trips.
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: '12.5px' }}>{t('Enable Real-Time Alerts')}</div>
+            <div style={{ fontSize: '11px', opacity: 0.9, lineHeight: 1.35 }}>
+              {t('Get instant alerts for car approvals, dispatches, and trips.')}
             </div>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
           <button
             type="button"
-            className="gf-btn"
-            style={{ background: '#ffffff', color: '#0072de', fontWeight: 800, border: 'none', padding: '5px 10px', fontSize: '12px' }}
+            className="gf-btn gf-alert-btn"
+            style={{ background: '#ffffff', color: '#0072de', fontWeight: 800, border: 'none', padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}
             onClick={() => handleEnablePushNotifications(false)}
           >
-            Allow
+            {t('Allow')}
           </button>
           <button
             type="button"
-            className="gf-btn"
-            style={{ background: 'transparent', color: '#ffffff', border: '1px solid rgba(255,255,255,0.4)', padding: '5px 8px', fontSize: '11px' }}
+            className="gf-btn gf-alert-btn"
+            style={{ background: 'transparent', color: '#ffffff', border: '1px solid rgba(255,255,255,0.45)', padding: '6px 10px', fontSize: '11.5px', minHeight: '34px' }}
             onClick={() => setShowNotificationPromptBanner(false)}
           >
-            Later
+            {t('Later')}
           </button>
         </div>
       </div>
@@ -7325,7 +7331,7 @@ export function App() {
               <div>
                 <h1 className="type-title">{t('Trip Log')}</h1>
                 <p className="type-caption">
-                  {user.department_name || 'Driver G'} • {t('Total Waktu Menyetir')}
+                  {user.department_name || 'Driver G'} • {t('Total Driving Time')}
                 </p>
               </div>
               <StatusBadge label={`${driverCompletedTrips.length} ${t('Trips Completed')}`} tone="blue" />
@@ -7366,7 +7372,7 @@ export function App() {
                 onClick={() => setDriverTripLogTab('TRIPS')}
               >
                 <Clock size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-                {t('Riwayat')} ({driverCompletedTrips.length})
+                {t('History')} ({driverCompletedTrips.length})
               </button>
               <button
                 type="button"
@@ -7374,7 +7380,7 @@ export function App() {
                 onClick={() => setDriverTripLogTab('EXPENSES')}
               >
                 <Upload size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-                Reimbursements ({expenses.length})
+                {t('Reimbursements')} ({expenses.length})
               </button>
             </div>
 
@@ -7388,22 +7394,22 @@ export function App() {
                       className="gf-btn gf-btn-primary"
                       onClick={() => setNavSection('DRIVER')}
                     >
-                      <Car size={16} /> {t('Beranda')}
+                      <Car size={16} /> {t('Home')}
                     </button>
                   }
                 />
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {driverCompletedTrips.map((t) => {
-                    const durationMins = computeTripDurationMinutes(t);
+                  {driverCompletedTrips.map((trip) => {
+                    const durationMins = computeTripDurationMinutes(trip);
                     const formattedDur = formatDurationHuman(durationMins, lang);
-                    const startOdo = t.start_odometer || 0;
-                    const endOdo = t.end_odometer || startOdo;
-                    const diffKm = endOdo >= startOdo ? endOdo - startOdo : (t.distance_km || 0);
+                    const startOdo = trip.start_odometer || 0;
+                    const endOdo = trip.end_odometer || startOdo;
+                    const diffKm = endOdo >= startOdo ? endOdo - startOdo : (trip.distance_km || 0);
 
                     return (
                       <div
-                        key={t.id}
+                        key={trip.id}
                         style={{
                           borderRadius: 'var(--radius-card)',
                           border: '1px solid var(--color-border)',
@@ -7414,45 +7420,45 @@ export function App() {
                           gap: '8px',
                         }}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
                           <div>
                             <div className="type-body" style={{ fontWeight: 800 }}>
-                              {t.origin} ➔ {t.destination}
+                              {trip.origin} ➔ {trip.destination}
                             </div>
                             <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                              {new Date(t.start_time).toLocaleDateString([], { month: 'short', day: 'numeric' })} • {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {new Date(trip.start_time).toLocaleDateString([], { month: 'short', day: 'numeric' })} • {new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </div>
                           </div>
                           <span className="gf-driver-triplog-duration-pill">
-                            ⏱️ {formattedDur} {t('dalam dinas menyetir')}
+                            ⏱️ {formattedDur} {t('in service driving')}
                           </span>
                         </div>
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap', paddingTop: '6px', borderTop: '1px solid var(--color-divider)' }}>
                           <span className="type-caption">
-                            Car: <strong>{t.make} {t.model}</strong> (<span className="mono">{t.registration_plate}</span>) • Pax: <strong>{t.passenger_nickname || 'Team'}</strong>
+                            {t('Car')}: <strong>{trip.make} {trip.model}</strong> (<span className="mono">{trip.registration_plate}</span>) • Pax: <strong>{trip.passenger_nickname || 'Team'}</strong>
                           </span>
                           <span className="type-caption mono" style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
                             Odo: {startOdo} ➔ {endOdo} km ({diffKm} km)
                           </span>
                         </div>
 
-                        {(t.start_odometer_photo_url || t.end_odometer_photo_url) && (
+                        {(trip.start_odometer_photo_url || trip.end_odometer_photo_url) && (
                           <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
-                            {t.start_odometer_photo_url && (
+                            {trip.start_odometer_photo_url && (
                               <img
-                                src={t.start_odometer_photo_url}
+                                src={trip.start_odometer_photo_url}
                                 alt="Start Odometer"
                                 style={{ width: '60px', height: '44px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #bfdbfe' }}
-                                title="Start Odometer Photo"
+                                title={t('Start Odometer Photo')}
                               />
                             )}
-                            {t.end_odometer_photo_url && (
+                            {trip.end_odometer_photo_url && (
                               <img
-                                src={t.end_odometer_photo_url}
+                                src={trip.end_odometer_photo_url}
                                 alt="End Odometer"
                                 style={{ width: '60px', height: '44px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #bfdbfe' }}
-                                title="End Odometer Photo"
+                                title={t('End Odometer Photo')}
                               />
                             )}
                           </div>
@@ -7466,8 +7472,8 @@ export function App() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                   <div>
-                    <h2 className="type-section" style={{ fontSize: '15px', margin: 0 }}>Driver Reimbursements</h2>
-                    <p className="type-caption" style={{ margin: 0 }}>Upload Parking, Gas, EV Charging, and Toll receipts</p>
+                    <h2 className="type-section" style={{ fontSize: '15px', margin: 0 }}>{t('Driver Reimbursements')}</h2>
+                    <p className="type-caption" style={{ margin: 0 }}>{t('Upload Parking, Gas, EV Charging, and Toll receipts')}</p>
                   </div>
                   <button
                     id="driver-upload-receipt-btn"
@@ -7475,12 +7481,12 @@ export function App() {
                     className="gf-btn gf-btn-primary"
                     onClick={() => setShowDriverExpenseModal(true)}
                   >
-                    <Upload size={16} /> Upload Receipt
+                    <Upload size={16} /> {t('Upload Receipt')}
                   </button>
                 </div>
 
                 {expenses.length === 0 ? (
-                  <EmptyState message="No reimbursement claims submitted yet." />
+                  <EmptyState message={t('No reimbursement claims submitted yet.')} />
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {expenses.map((exp) => (
@@ -7581,9 +7587,9 @@ export function App() {
             />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {shownList.map((t) => (
+              {shownList.map((trip) => (
                 <div
-                  key={t.id}
+                  key={trip.id}
                   style={{
                     borderRadius: 'var(--radius-card)',
                     border: '1px solid var(--color-border)',
@@ -7594,38 +7600,38 @@ export function App() {
                   <ListRow
                     tall
                     icon={<Car size={20} />}
-                    title={`${t.origin} → ${t.destination}`}
-                    subtitle={`${formatReservationModeLabel(t.reservation_type, t.return_pickup_time) ? `[${formatReservationModeLabel(t.reservation_type, t.return_pickup_time)}] • ` : ''}${formatPassengersDisplay(t.passengers_json, t.passenger_nickname) !== 'Team' ? `Pax: ${formatPassengersDisplay(t.passengers_json, t.passenger_nickname)} • ` : ''}${new Date(t.start_time).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} • ${t.make} ${t.model} (${t.registration_plate})${t.assigned_driver_name ? ` • Driver: ${t.assigned_driver_name}` : ''}`}
+                    title={`${trip.origin} → ${trip.destination}`}
+                    subtitle={`${formatReservationModeLabel(trip.reservation_type, trip.return_pickup_time) ? `[${formatReservationModeLabel(trip.reservation_type, trip.return_pickup_time)}] • ` : ''}${formatPassengersDisplay(trip.passengers_json, trip.passenger_nickname) !== 'Team' ? `Pax: ${formatPassengersDisplay(trip.passengers_json, trip.passenger_nickname)} • ` : ''}${new Date(trip.start_time).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} • ${trip.make} ${trip.model} (${trip.registration_plate})${trip.assigned_driver_name ? ` • Driver: ${trip.assigned_driver_name}` : ''}`}
                     trailing={
                       (() => {
-                        if (t.booking_status === 'CANCELLED') return <StatusBadge label="CANCELLED" tone="red" />;
-                        if (t.status === 'APPROVED') return <StatusBadge label="APPROVED" tone="green" />;
-                        if (t.status === 'IN_PROGRESS') return <StatusBadge label="IN TRIP" tone="blue" />;
-                        if (t.status === 'PENDING_APPROVAL' && t.requires_dual_approval) {
-                          if (t.pic_approved) return <StatusBadge label="AWAITING HWS" tone="amber" />;
-                          if (t.hws_approved) return <StatusBadge label="AWAITING PIC" tone="amber" />;
+                        if (trip.booking_status === 'CANCELLED') return <StatusBadge label="CANCELLED" tone="red" />;
+                        if (trip.status === 'APPROVED') return <StatusBadge label="APPROVED" tone="green" />;
+                        if (trip.status === 'IN_PROGRESS') return <StatusBadge label="IN TRIP" tone="blue" />;
+                        if (trip.status === 'PENDING_APPROVAL' && trip.requires_dual_approval) {
+                          if (trip.pic_approved) return <StatusBadge label="AWAITING HWS" tone="amber" />;
+                          if (trip.hws_approved) return <StatusBadge label="AWAITING PIC" tone="amber" />;
                         }
-                        return <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />;
+                        return <StatusBadge label={trip.status} tone={toneFromStatus(trip.status)} />;
                       })()
                     }
                     showChevron={activityTab === 'ONGOING'}
                     onClick={
                       activityTab === 'ONGOING'
                         ? () => {
-                            setFocusedTripId(t.id);
+                            setFocusedTripId(trip.id);
                             if (user.role === 'DRV') {
                               setNavSection('DRIVER');
                               setSheetSnap('full');
                             } else {
                               setNavSection('HOME');
-                              setBookingStep(t.status === 'PENDING_APPROVAL' ? 'WAITING' : 'IN_TRIP');
+                              setBookingStep(trip.status === 'PENDING_APPROVAL' ? 'WAITING' : 'IN_TRIP');
                               setSheetSnap('half');
                             }
                           }
                         : undefined
                     }
                   />
-                  {(t.status === 'APPROVED' || t.status === 'IN_PROGRESS') && t.booking_status !== 'CANCELLED' && (
+                  {(trip.status === 'APPROVED' || trip.status === 'IN_PROGRESS') && trip.booking_status !== 'CANCELLED' && (
                     <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '6px', borderTop: '1px solid var(--color-divider)', marginTop: '4px' }}>
                       <button
                         type="button"
@@ -7633,18 +7639,18 @@ export function App() {
                         style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
                         onClick={(e) => {
                           e.stopPropagation();
-                          const paxFormatted = formatPassengersMultiLine(t.passengers_json, t.passenger_nickname);
-                          const modeLabel = formatReservationModeLabel(t.reservation_type, t.return_pickup_time);
+                          const paxFormatted = formatPassengersMultiLine(trip.passengers_json, trip.passenger_nickname);
+                          const modeLabel = formatReservationModeLabel(trip.reservation_type, trip.return_pickup_time);
                           const shareModeLine = modeLabel ? `\n📋 *Mode*: ${modeLabel}` : '';
-                          const shareMsg = `*GalaxyFleet Booking Details*\n🚗 *Vehicle*: ${t.make} ${t.model} (${t.registration_plate || '—'})\n👥 *Passenger(s) [Nickname only]*:\n${paxFormatted}\n👤 *Driver*: ${t.assigned_driver_name || 'Assigned Driver'}${t.assigned_driver_phone ? ` (${t.assigned_driver_phone})` : ''}\n📍 *Pickup*: ${t.origin}\n🎯 *Destination*: ${t.destination}\n🕒 *Schedule*: ${new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${shareModeLine}\n📌 *Status*: ${t.status}\n\n_Reminder: For privacy protection, only nicknames are used._`;
+                          const shareMsg = `*GalaxyFleet Booking Details*\n🚗 *Vehicle*: ${trip.make} ${trip.model} (${trip.registration_plate || '—'})\n👥 *Passenger(s) [Nickname only]*:\n${paxFormatted}\n👤 *Driver*: ${trip.assigned_driver_name || 'Assigned Driver'}${trip.assigned_driver_phone ? ` (${trip.assigned_driver_phone})` : ''}\n📍 *Pickup*: ${trip.origin}\n🎯 *Destination*: ${trip.destination}\n🕒 *Schedule*: ${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${shareModeLine}\n📌 *Status*: ${trip.status}\n\n_Reminder: For privacy protection, only nicknames are used._`;
                           if (navigator.clipboard) {
                             navigator.clipboard.writeText(shareMsg).catch(() => {});
                           }
                           window.open(`https://wa.me/?text=${encodeURIComponent(shareMsg)}`, '_blank');
-                          setStatusBanner({ type: 'success', text: 'Booking details copied & opened WhatsApp to share with passenger!' });
+                          setStatusBanner({ type: 'success', text: t('Booking details copied & opened WhatsApp to share with passenger!') });
                         }}
                       >
-                        <Share2 size={13} /> Share to Passenger (WhatsApp)
+                        <Share2 size={13} /> {t('Share to Passenger (WhatsApp)')}
                       </button>
                     </div>
                   )}
@@ -8689,8 +8695,6 @@ export function App() {
               <p>{t('Operational cars ready to roll.')}</p>
             </div>
 
-            {feedbackBanner}
-
             <button
               type="button"
               className="gf-proto-promo pressable"
@@ -8719,6 +8723,29 @@ export function App() {
           </div>
 
           <div className="gf-proto-wc" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {statusBanner && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: 'var(--radius-control)',
+                  background: statusBanner.type === 'danger' ? 'var(--color-status-red-bg)' : 'var(--color-status-green-bg)',
+                  color: statusBanner.type === 'danger' ? 'var(--color-status-red-fg)' : 'var(--color-status-green-fg)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '8px',
+                }}
+              >
+                <span className="type-caption" style={{ fontWeight: 700, color: 'inherit' }}>{statusBanner.text}</span>
+                <button
+                  type="button"
+                  onClick={() => setStatusBanner(null)}
+                  style={{ border: 'none', background: 'transparent', color: 'inherit', fontWeight: 700, cursor: 'pointer', minHeight: '32px' }}
+                >
+                  OK
+                </button>
+              </div>
+            )}
             <svg viewBox="0 0 380 86" style={{ width: '100%', height: '86px', borderRadius: '12px', display: 'block' }} aria-hidden="true">
               <rect width="380" height="86" fill="#edf1f7" />
               <path d="M0 64C100 18 200 78 380 26" stroke="#ffffff" strokeWidth="8" fill="none" />
@@ -9424,9 +9451,9 @@ export function App() {
                   title={t('Remove schedule and return to instant booking')}
                   onClick={() => {
                     setScheduleMode('NOW');
-                    const now = Date.now();
-                    setBookStart(toLocalDateTimeInput(new Date(now + 2 * 3600000)));
-                    setBookEnd(toLocalDateTimeInput(new Date(now + 4 * 3600000)));
+                    const sMs = roundUpTo5MinMs(Date.now() + 2 * 3600000);
+                    setBookStart(toLocalDateTimeInput(new Date(sMs)));
+                    setBookEnd(toLocalDateTimeInput(new Date(sMs + 2 * 3600000)));
                     setStatusBanner({
                       type: 'info',
                       text: t('Schedule cancelled. Returned to instant booking mode.'),
@@ -9459,7 +9486,7 @@ export function App() {
             <div className="gf-modal-backdrop" onClick={() => setShowSchedulePicker(false)}>
               <div
                 className="gf-modal-card"
-                style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', maxWidth: '520px' }}
+                style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', maxWidth: '520px', maxHeight: '88dvh' }}
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
@@ -9471,24 +9498,25 @@ export function App() {
                   <span>{t('No worries, your booking is our priority')}</span>
                 </div>
 
-                {/* Modal Body */}
-                <div style={{ padding: '16px 20px 20px', display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: 'calc(88dvh - 50px)', overflowY: 'auto' }}>
-                  {/* Top Header */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
-                      {t('When do you want to leave?')}
-                    </h2>
-                    <button
-                      type="button"
-                      className="gf-icon-btn-48 pressable"
-                      style={{ width: '32px', height: '32px', minWidth: '32px', minHeight: '32px' }}
-                      onClick={() => setShowSchedulePicker(false)}
-                      aria-label={t('Close')}
-                    >
-                      <X size={18} />
-                    </button>
-                  </div>
+                {/* Top Header (Pinned so tabs & wheel have unobstructed scroll room below) */}
+                <div style={{ padding: '14px 20px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)' }}>
+                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
+                    {t('When do you want to leave?')}
+                  </h2>
+                  <button
+                    type="button"
+                    className="gf-icon-btn-48 pressable"
+                    style={{ width: '32px', height: '32px', minWidth: '32px', minHeight: '32px', flexShrink: 0 }}
+                    onClick={() => setShowSchedulePicker(false)}
+                    aria-label={t('Close')}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
 
+                {/* Modal Scrollable Body (Block scroll box prevents flex children from squishing vertically) */}
+                <div style={{ padding: '14px 20px 16px', flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {/* 2. 3-Tab Chips: Hari ini / Besok / Pilih tanggal */}
                   <div className="gf-gojek-tab-group" role="tablist">
                     {([
@@ -9508,7 +9536,7 @@ export function App() {
                             setSchedulePickerTab(tab.id);
                             const curD = new Date(bookStart);
                             const curH = !Number.isNaN(curD.getTime()) ? curD.getHours() : 8;
-                            const curM = !Number.isNaN(curD.getTime()) ? curD.getMinutes() : 0;
+                            const curM = !Number.isNaN(curD.getTime()) ? Math.floor(curD.getMinutes() / 5) * 5 : 0;
                             const target = new Date();
                             if (tab.id === 'TOMORROW') {
                               target.setDate(target.getDate() + 1);
@@ -9516,7 +9544,7 @@ export function App() {
                             } else if (tab.id === 'TODAY') {
                               target.setHours(curH, curM, 0, 0);
                             } else {
-                              target.setTime(!Number.isNaN(curD.getTime()) ? curD.getTime() : Date.now() + 2 * 3600000);
+                              target.setTime(!Number.isNaN(curD.getTime()) ? curD.getTime() : roundUpTo5MinMs(Date.now() + 2 * 3600000));
                             }
                             const sIso = toLocalDateTimeInput(target);
                             setBookStart(sIso);
@@ -9539,10 +9567,10 @@ export function App() {
                     <span className="gf-gojek-estimate-caption">{t('Pickup time estimate')}</span>
                     <span className="gf-gojek-estimate-value">
                       {schedulePickerTab === 'TODAY'
-                        ? `${t('Today')} | ${getSlotWindow(bookStart)}`
+                        ? `${t('Today')} | ${selectedTimeSlot}`
                         : schedulePickerTab === 'TOMORROW'
-                        ? `${t('Tomorrow')} | ${getSlotWindow(bookStart)}`
-                        : `${new Date(bookStart).toLocaleDateString(lang === 'en' ? 'en-US' : lang === 'ko' ? 'ko-KR' : 'id-ID', { weekday: 'short', day: 'numeric', month: 'short' })} | ${getSlotWindow(bookStart)}`}
+                        ? `${t('Tomorrow')} | ${selectedTimeSlot}`
+                        : `${new Date(bookStart).toLocaleDateString(lang === 'en' ? 'en-US' : lang === 'ko' ? 'ko-KR' : 'id-ID', { weekday: 'short', day: 'numeric', month: 'short' })} | ${selectedTimeSlot}`}
                     </span>
                   </div>
 
@@ -9582,7 +9610,7 @@ export function App() {
                               if (mode.id === 'DROP_AND_PICKUP') {
                                 const baseStartMs = bookStart && !Number.isNaN(new Date(bookStart).getTime())
                                   ? new Date(bookStart).getTime()
-                                  : Date.now() + 2 * 3600000;
+                                  : roundUpTo5MinMs(Date.now() + 2 * 3600000);
                                 if (!bookStart) setBookStart(toLocalDateTimeInput(new Date(baseStartMs)));
                                 const existingRpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
                                 const targetRpMs = !Number.isNaN(existingRpMs) && existingRpMs > baseStartMs
@@ -9596,8 +9624,7 @@ export function App() {
                                   setBookDurationHours(Math.max(1, Math.round((minEndMs - baseStartMs) / 3600000)));
                                 }
                               } else if (mode.id === 'FULL_DAY') {
-                                const nowMs = Date.now();
-                                const minLeadMs = nowMs + 2 * 3600000;
+                                const minLeadMs = roundUpTo5MinMs(Date.now() + 2 * 3600000);
                                 const todayStart = new Date();
                                 todayStart.setHours(8, 0, 0, 0);
                                 const todayEnd = new Date();
@@ -9644,9 +9671,8 @@ export function App() {
                     <Chip
                       active={false}
                       onClick={() => {
-                        const now = Date.now();
                         const hrs = bookReservationType === 'FULL_DAY' ? Math.max(8, bookDurationHours) : bookDurationHours;
-                        const sMs = now + 2 * 3600000;
+                        const sMs = roundUpTo5MinMs(Date.now() + 2 * 3600000);
                         const eMs = sMs + hrs * 3600000;
                         setBookStart(toLocalDateTimeInput(new Date(sMs)));
                         setBookEnd(toLocalDateTimeInput(new Date(eMs)));
@@ -9660,9 +9686,8 @@ export function App() {
                     <Chip
                       active={false}
                       onClick={() => {
-                        const now = Date.now();
                         const hrs = bookReservationType === 'FULL_DAY' ? Math.max(8, bookDurationHours) : bookDurationHours;
-                        const sMs = now + 4 * 3600000;
+                        const sMs = roundUpTo5MinMs(Date.now() + 4 * 3600000);
                         const eMs = sMs + hrs * 3600000;
                         setBookStart(toLocalDateTimeInput(new Date(sMs)));
                         setBookEnd(toLocalDateTimeInput(new Date(eMs)));
@@ -9677,7 +9702,7 @@ export function App() {
                       active={false}
                       onClick={() => {
                         const start = new Date();
-                        const minLeadMs = Date.now() + 2 * 3600000;
+                        const minLeadMs = roundUpTo5MinMs(Date.now() + 2 * 3600000);
                         const todayEnd = new Date();
                         todayEnd.setHours(20, 0, 0, 0);
                         if (todayEnd.getTime() - minLeadMs < 2 * 3600000) {
@@ -9855,9 +9880,19 @@ export function App() {
                       </div>
                     );
                   })()}
+                  </div>
+                </div>
 
-                  {/* 8. Gojek Footer Button Pair */}
-                  <div className="gf-gojek-footer-pair" style={{ marginTop: '4px' }}>
+                {/* 8. Pinned Gojek Footer Button Pair */}
+                <div
+                  style={{
+                    padding: '12px 20px calc(14px + var(--safe-bottom))',
+                    borderTop: '1px solid var(--color-divider)',
+                    background: 'var(--color-bg-surface)',
+                    flexShrink: 0,
+                  }}
+                >
+                  <div className="gf-gojek-footer-pair">
                     <button
                       type="button"
                       className="gf-gojek-btn-cancel pressable"
@@ -10231,21 +10266,21 @@ export function App() {
           {summaryPicker && (
             <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label={`Edit ${summaryPicker.toLowerCase()}`}>
               <div className="gf-modal-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                  <h3 className="type-section" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px 12px', flexWrap: 'wrap', marginBottom: '14px' }}>
+                  <h3 className="type-section" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', minWidth: 0 }}>
+                    <span style={{ whiteSpace: 'nowrap' }}>
                       {summaryPicker === 'PURPOSE' && t('Trip Purpose')}
                       {summaryPicker === 'PAX' && t('Passenger Details')}
                       {summaryPicker === 'NOTES' && t('Dispatch Notes')}
                       {summaryPicker === 'CHARGE' && t('Group & Driver')}
                     </span>
                     {(summaryPicker === 'PURPOSE' || summaryPicker === 'PAX') && (
-                      <span style={{ fontSize: '11px', fontWeight: 800, color: '#dc2626', background: '#fef2f2', padding: '2px 8px', borderRadius: '4px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 800, lineHeight: 1.3, color: '#dc2626', background: '#fef2f2', padding: '3px 8px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>
                         {t('* Mandatory')}
                       </span>
                     )}
                   </h3>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0, marginLeft: 'auto' }}>
                     <button
                       type="button"
                       className="gf-btn gf-btn-ghost"
@@ -10868,7 +10903,7 @@ export function App() {
         }}
         onSwitchToAdmin={() => setNavSection('ADMIN')}
         mapStage={
-          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+          <div className="gf-map-stage-host">
             {/* Gojek Driver Top Controls (Avatar, Status Pill, Circular Power Button) */}
             {(isDriverOnly || user?.role === 'DRV') && navSection === 'DRIVER' && (
               <div className="gf-driver-topbar">
@@ -10966,6 +11001,7 @@ export function App() {
             )}
 
             <MapView
+              hasDriverTopbar={(isDriverOnly || user?.role === 'DRV') && navSection === 'DRIVER'}
               origin={mapOrigin}
               destination={mapDest}
               originCoords={originCoords}
