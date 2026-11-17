@@ -2631,3 +2631,344 @@ iframe.goog-te-banner-frame {
     transform: translateY(0) scale(1);
   }
 }
+
+/* =========================================================================
+   PIC 1: SUPER-APP HOME EXPERIENCE (Samsung Corporate Mobility)
+   ========================================================================= */
+.gf-pic1-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.gf-pic1-searchbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.gf-pic1-search-input-pill {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--color-bg-surface);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  padding: 10px 16px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+  transition: all 150ms ease;
+}
+
+.gf-pic1-search-input-pill:hover {
+  border-color: var(--color-samsung-blue);
+  box-shadow: 0 4px 14px rgba(0, 114, 222, 0.12);
+}
+
+.gf-pic1-facility-card {
+  position: relative;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #0a0f1d 0%, #002d6b 50%, #0072de 100%);
+  color: #ffffff;
+  padding: 16px 18px;
+  box-shadow: 0 8px 24px rgba(0, 82, 180, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.gf-pic1-facility-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gf-pic1-facility-balance {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.gf-pic1-facility-actions {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 14px;
+  padding: 10px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.gf-pic1-facility-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 8px;
+  transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.gf-pic1-facility-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  transform: translateY(-1px);
+}
+
+.gf-pic1-facility-btn-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #0072de;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
+}
+
+.gf-pic1-service-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px 10px;
+  padding: 4px 0;
+}
+
+.gf-pic1-service-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  text-align: center;
+  transition: transform 140ms ease;
+}
+
+.gf-pic1-service-item:hover {
+  transform: translateY(-2px);
+}
+
+.gf-pic1-service-circle {
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  background: var(--color-samsung-blue-tint);
+  border: 1.5px solid rgba(0, 114, 222, 0.2);
+  color: var(--color-samsung-blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 10px rgba(0, 114, 222, 0.12);
+  transition: all 140ms ease;
+}
+
+.gf-pic1-service-item:hover .gf-pic1-service-circle {
+  background: var(--color-samsung-blue);
+  color: #ffffff;
+  box-shadow: 0 5px 16px rgba(0, 114, 222, 0.3);
+}
+
+.gf-pic1-service-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  line-height: 1.25;
+}
+
+.gf-pic1-loyalty-banner {
+  border-radius: 16px;
+  background: var(--color-bg-subtle);
+  border: 1.5px solid var(--color-border);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gf-pic1-recent-card {
+  border-radius: 14px;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-bg-surface);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.gf-pic1-recent-card:hover {
+  border-color: var(--color-samsung-blue);
+  background: var(--color-samsung-blue-tint);
+  transform: translateY(-1px);
+}
+
+/* =========================================================================
+   PIC 2: GOCAR BOOKING LANDING EXPERIENCE
+   ========================================================================= */
+.gf-pic2-hero-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gf-pic2-info-banner {
+  border-radius: 14px;
+  background: #ebf5ff;
+  border: 1.5px solid #bfdbfe;
+  color: #1e3a8a;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.gf-pic2-map-card {
+  position: relative;
+  border-radius: 20px;
+  background: var(--color-bg-surface);
+  border: 1.5px solid var(--color-border);
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gf-pic2-mini-map {
+  width: 100%;
+  height: 90px;
+  border-radius: 14px;
+  background: #e2e8f0;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* =========================================================================
+   GOJEK DRIVER CONSOLE & TRIP LOG
+   ========================================================================= */
+.gf-driver-topbar {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.gf-driver-topbar > * {
+  pointer-events: auto;
+}
+
+.gf-driver-avatar-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2.5px solid #cbd5e1;
+  background: #ffffff;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  transition: all 150ms ease;
+}
+
+.gf-driver-avatar-btn.is-online {
+  border-color: #0072de;
+  box-shadow: 0 0 0 3px rgba(0, 114, 222, 0.35);
+}
+
+.gf-driver-status-pill {
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-pill);
+  background: #0a0a0a;
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  transition: all 150ms ease;
+}
+
+.gf-driver-status-pill.is-online {
+  background: #0072de;
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 4px 18px rgba(0, 114, 222, 0.4);
+}
+
+.gf-driver-power-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: #0a0a0a;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  transition: all 150ms ease;
+}
+
+.gf-driver-power-btn.is-online {
+  background: #0072de;
+  box-shadow: 0 0 0 4px rgba(0, 114, 222, 0.35), 0 4px 20px rgba(0, 114, 222, 0.45);
+}
+
+.gf-driver-power-btn:hover {
+  transform: scale(1.05);
+}
+
+.gf-driver-triplog-stat-card {
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--color-bg-surface);
+  border: 1.5px solid var(--color-border);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gf-driver-triplog-duration-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  background: #ebf5ff;
+  color: #005bb5;
+  border: 1px solid #bfdbfe;
+  font-size: 11.5px;
+  font-weight: 800;
+}
+

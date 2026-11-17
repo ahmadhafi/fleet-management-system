@@ -64,10 +64,10 @@ export const EmbeddedTopNav: React.FC<EmbeddedTopNavProps> = ({
 }) => {
   const navItems = isDriverOnly
     ? [
-        { id: 'DRIVER' as const, label: 'Dispatch', icon: <Navigation size={17} />, badge: pendingDispatchCount },
-        { id: 'ACTIVITY' as const, label: 'Activity', icon: <Clock size={17} /> },
-        { id: 'INBOX' as const, label: 'Inbox', icon: <Inbox size={17} />, badge: unreadInboxCount },
-        { id: 'PROFILE' as const, label: 'Profile', icon: <User size={17} /> },
+        { id: 'DRIVER' as const, label: 'Beranda', icon: <Car size={17} />, badge: pendingDispatchCount },
+        { id: 'ACTIVITY' as const, label: 'Trip Log', icon: <Clock size={17} /> },
+        { id: 'INBOX' as const, label: 'Pesan', icon: <Inbox size={17} />, badge: unreadInboxCount },
+        { id: 'PROFILE' as const, label: 'Akun', icon: <User size={17} /> },
       ]
     : [
         { id: 'HOME' as const, label: 'Home', icon: <Home size={17} /> },
@@ -219,10 +219,10 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   const navItems: NavItem[] = isDriverOnly
     ? [
-        { id: 'DRIVER', label: 'Dispatch', icon: <Navigation size={22} />, badge: pendingDispatchCount },
-        { id: 'ACTIVITY', label: 'Activity', icon: <Clock size={22} /> },
-        { id: 'INBOX', label: 'Inbox', icon: <Inbox size={22} />, badge: unreadInboxCount },
-        { id: 'PROFILE', label: 'Profile', icon: <User size={22} /> },
+        { id: 'DRIVER', label: 'Beranda', icon: <Car size={22} />, badge: pendingDispatchCount },
+        { id: 'ACTIVITY', label: 'Trip Log', icon: <Clock size={22} /> },
+        { id: 'INBOX', label: 'Pesan', icon: <Inbox size={22} />, badge: unreadInboxCount },
+        { id: 'PROFILE', label: 'Akun', icon: <User size={22} /> },
       ]
     : [
         { id: 'HOME', label: 'Home', icon: <Home size={22} />, },
@@ -316,10 +316,10 @@ export const DesktopHeaderNav: React.FC<DesktopHeaderNavProps> = ({
 
   const items: NavItem[] = isDriverOnly
     ? [
-        { id: 'DRIVER', label: 'Dispatch', icon: <Navigation size={18} /> },
-        { id: 'ACTIVITY', label: 'Activity', icon: <Clock size={18} /> },
-        { id: 'INBOX', label: 'Inbox', icon: <Inbox size={18} />, badge: unreadInboxCount },
-        { id: 'PROFILE', label: 'Profile', icon: <User size={18} /> },
+        { id: 'DRIVER', label: 'Beranda', icon: <Car size={18} /> },
+        { id: 'ACTIVITY', label: 'Trip Log', icon: <Clock size={18} /> },
+        { id: 'INBOX', label: 'Pesan', icon: <Inbox size={18} />, badge: unreadInboxCount },
+        { id: 'PROFILE', label: 'Akun', icon: <User size={18} /> },
       ]
     : [
         { id: 'HOME', label: 'Home', icon: <Home size={18} /> },
