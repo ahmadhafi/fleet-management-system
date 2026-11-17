@@ -60,6 +60,7 @@ import {
   formatPhoneCallUrl,
 } from './components/MapView';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
+import { useAppLanguage, startDomTranslationObserver, type SupportedLang } from './utils/i18n';
 import { SamsungBusLogo } from './components/SamsungBusLogo';
 import { RouteFields } from './components/RouteFields';
 import { VehicleArt } from './components/VehicleArt';
@@ -181,12 +182,14 @@ function getSlotWindow(dateOrIso: string | Date): string {
   }
 }
 
-function getScheduleSlotBrief(isoOrDateStr: string): string {
+function getScheduleSlotBrief(isoOrDateStr: string, targetLang?: SupportedLang): string {
   try {
     const d = new Date(isoOrDateStr);
     if (Number.isNaN(d.getTime())) return 'Jadwal khusus';
-    const dayName = d.toLocaleDateString('id-ID', { weekday: 'short' });
-    const dateNum = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+    const lang = targetLang || 'id';
+    const locale = lang === 'en' ? 'en-US' : lang === 'ko' ? 'ko-KR' : 'id-ID';
+    const dayName = d.toLocaleDateString(locale, { weekday: 'short' });
+    const dateNum = d.toLocaleDateString(locale, { day: 'numeric', month: 'short' });
     const slot = getSlotWindow(d);
     return `${dayName}, ${dateNum} at ${slot}`;
   } catch {
@@ -194,12 +197,14 @@ function getScheduleSlotBrief(isoOrDateStr: string): string {
   }
 }
 
-function getScheduleSlotDisplay(isoOrDateStr: string): string {
+function getScheduleSlotDisplay(isoOrDateStr: string, targetLang?: SupportedLang): string {
   try {
     const d = new Date(isoOrDateStr);
     if (Number.isNaN(d.getTime())) return 'Jadwal khusus';
-    const dayName = d.toLocaleDateString('id-ID', { weekday: 'long' });
-    const dateNum = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    const lang = targetLang || 'id';
+    const locale = lang === 'en' ? 'en-US' : lang === 'ko' ? 'ko-KR' : 'id-ID';
+    const dayName = d.toLocaleDateString(locale, { weekday: 'long' });
+    const dateNum = d.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
     const slot = getSlotWindow(d);
     return `${dayName}, ${dateNum} • ${slot}`;
   } catch {
@@ -269,6 +274,12 @@ export function playNotificationChime(): void {
 }
 
 export function App() {
+  const { lang, t } = useAppLanguage();
+
+  useEffect(() => {
+    startDomTranslationObserver();
+  }, []);
+
   const [user, setUser] = useState<any | null>(null);
   const [vapidPublicKey, setVapidPublicKey] = useState<string>('');
   const [loadingAuth, setLoadingAuth] = useState<boolean>(true);
@@ -1470,23 +1481,24 @@ export function App() {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    dates.push({ id: 'TODAY', label: 'Hari ini', dateObj: today });
-    dates.push({ id: 'TOMORROW', label: 'Besok', dateObj: tomorrow });
+    const locale = lang === 'en' ? 'en-US' : lang === 'ko' ? 'ko-KR' : 'id-ID';
+    dates.push({ id: 'TODAY', label: t('Today'), dateObj: today });
+    dates.push({ id: 'TOMORROW', label: t('Tomorrow'), dateObj: tomorrow });
 
     for (let i = 2; i < 14; i++) {
       const d = new Date(today);
       d.setDate(d.getDate() + i);
       const dayNum = d.getDate();
-      const weekday = d.toLocaleDateString('id-ID', { weekday: 'short' });
+      const weekday = d.toLocaleDateString(locale, { weekday: 'short' });
       const id = d.toISOString().slice(0, 10);
       dates.push({
         id,
-        label: `${dayNum} ${weekday}`,
+        label: lang === 'ko' ? `${d.getMonth() + 1}/${dayNum} (${weekday})` : `${dayNum} ${weekday}`,
         dateObj: d,
       });
     }
     return dates;
-  }, []);
+  }, [lang, t]);
 
   const all5MinSlots = useMemo(() => {
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -2208,7 +2220,7 @@ export function App() {
             <SamsungBusLogo size={52} />
             <div>
               <h1 className="type-title">GalaxyFleet</h1>
-              <p className="type-caption">Internal Fleet Management System</p>
+              <p className="type-caption">{t('Internal Fleet Management System')}</p>
             </div>
           </div>
 
@@ -2221,8 +2233,8 @@ export function App() {
                 setAuthMessage(null);
               }}
               options={[
-                { value: 'LOGIN', label: 'Sign In' },
-                { value: 'REGISTER', label: 'Register Account' },
+                { value: 'LOGIN', label: t('Sign In') },
+                { value: 'REGISTER', label: t('Register Account') },
               ]}
             />
           </div>
@@ -2247,7 +2259,7 @@ export function App() {
             <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
                 <label className="type-caption" htmlFor="login-username" style={{ fontWeight: 700, display: 'block', marginBottom: '6px' }}>
-                  Username
+                  {t('Username')}
                 </label>
                 <input
                   id="login-username"
@@ -2255,14 +2267,14 @@ export function App() {
                   type="text"
                   autoComplete="username"
                   required
-                  placeholder="Enter your username"
+                  placeholder={t('Enter your username')}
                   value={loginUsername}
                   onChange={(e) => setLoginUsername(e.target.value)}
                 />
               </div>
               <div>
                 <label className="type-caption" htmlFor="login-password" style={{ fontWeight: 700, display: 'block', marginBottom: '6px' }}>
-                  Password
+                  {t('Password')}
                 </label>
                 <input
                   id="login-password"
@@ -2270,13 +2282,13 @@ export function App() {
                   type="password"
                   autoComplete="current-password"
                   required
-                  placeholder="Enter your password"
+                  placeholder={t('Enter your password')}
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                 />
               </div>
               <button id="login-submit-btn" type="submit" className="gf-btn gf-btn-primary gf-btn-full">
-                Sign In to GalaxyFleet
+                {t('Sign In to GalaxyFleet')}
               </button>
             </form>
           ) : (
@@ -2295,14 +2307,14 @@ export function App() {
 
               <div>
                 <label className="type-caption" htmlFor="reg-nickname" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Nickname
+                  {t('Nickname')}
                 </label>
                 <input
                   id="reg-nickname"
                   className="gf-input"
                   type="text"
                   required
-                  placeholder="Enter your nickname"
+                  placeholder={t('Enter your nickname')}
                   value={regNickname}
                   onChange={(e) => setRegNickname(e.target.value)}
                 />
@@ -2310,7 +2322,7 @@ export function App() {
 
               <div>
                 <label className="type-caption" htmlFor="reg-dept" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Group
+                  {t('Group')}
                 </label>
                 <select id="reg-dept" className="gf-select notranslate" translate="no" value={regDeptId} onChange={(e) => setRegDeptId(Number(e.target.value))}>
                   {(activeGroups.length > 0 ? activeGroups : groupsList).map((g) => (
@@ -2323,14 +2335,14 @@ export function App() {
 
               <div>
                 <label className="type-caption" htmlFor="reg-username" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Username
+                  {t('Username')}
                 </label>
                 <input
                   id="reg-username"
                   className="gf-input"
                   type="text"
                   required
-                  placeholder="Enter your username"
+                  placeholder={t('Enter your username')}
                   value={regUsername}
                   onChange={(e) => setRegUsername(e.target.value)}
                 />
@@ -2338,7 +2350,7 @@ export function App() {
 
               <div>
                 <label className="type-caption" htmlFor="reg-password" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Password
+                  {t('Password')}
                 </label>
                 <input
                   id="reg-password"
@@ -2346,7 +2358,7 @@ export function App() {
                   type="password"
                   required
                   minLength={6}
-                  placeholder="Minimum 6 characters"
+                  placeholder={t('Minimum 6 characters')}
                   value={regPassword}
                   onChange={(e) => setRegPassword(e.target.value)}
                 />
@@ -2354,7 +2366,7 @@ export function App() {
 
               <div>
                 <label className="type-caption" htmlFor="reg-role" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Account Type
+                  {t('Account Type')}
                 </label>
                 <select
                   id="reg-role"
@@ -2372,13 +2384,13 @@ export function App() {
                     }
                   }}
                 >
-                  <option value="EMP">User / Employee (Book & Reserve Cars)</option>
-                  <option value="DRV">Company Driver (Receive Dispatch Orders)</option>
+                  <option value="EMP">{t('User / Employee (Book & Reserve Cars)')}</option>
+                  <option value="DRV">{t('Company Driver (Receive Dispatch Orders)')}</option>
                 </select>
               </div>
 
               <button id="register-submit-btn" type="submit" className="gf-btn gf-btn-primary gf-btn-full">
-                Submit Registration
+                {t('Submit Registration')}
               </button>
             </form>
           )}
@@ -3573,7 +3585,7 @@ export function App() {
                   setProfileStatusBanner(null);
                 }}
               >
-                👤 Profile Details
+                👤 {t('Profile Details')}
               </button>
               <button
                 type="button"
@@ -3584,7 +3596,7 @@ export function App() {
                   setProfileStatusBanner(null);
                 }}
               >
-                🔒 Change Password
+                🔒 {t('Change Password')}
               </button>
             </div>
 
@@ -3619,7 +3631,7 @@ export function App() {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <label className="gf-btn gf-btn-secondary" style={{ cursor: 'pointer', fontSize: '12px', padding: '6px 12px', minHeight: '32px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                      <Camera size={14} /> Upload New Photo
+                      <Camera size={14} /> {t('Upload New Photo')}
                       <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleProfilePhotoChange} />
                     </label>
                     {profilePhotoUrl && (
@@ -3629,7 +3641,7 @@ export function App() {
                         style={{ fontSize: '11px', color: '#dc2626', padding: '2px 6px', textAlign: 'left' }}
                         onClick={() => setProfilePhotoUrl(null)}
                       >
-                        Remove Photo
+                        {t('Remove Photo')}
                       </button>
                     )}
                   </div>
@@ -3637,7 +3649,7 @@ export function App() {
 
                 <div>
                   <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                    Full Name / Display Nickname <span style={{ color: '#dc2626' }}>*</span>
+                    {t('Full Name / Display Nickname')} <span style={{ color: '#dc2626' }}>*</span>
                   </label>
                   <input
                     type="text"
@@ -3651,7 +3663,7 @@ export function App() {
 
                 <div>
                   <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                    Contact Phone Number (WhatsApp / Mobile)
+                    {t('Contact Phone Number (WhatsApp / Mobile)')}
                   </label>
                   <input
                     type="tel"
@@ -3667,11 +3679,11 @@ export function App() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   <div>
-                    <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>System Role</label>
+                    <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>{t('System Role')}</label>
                     <input type="text" className="gf-input" disabled value={user.role} />
                   </div>
                   <div>
-                    <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Assigned Group</label>
+                    <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>{t('Assigned Group')}</label>
                     {user.role === 'ADM' ? (
                       <select
                         className="gf-select notranslate"
@@ -3706,7 +3718,7 @@ export function App() {
                     onClick={() => setShowProfileModal(false)}
                     disabled={profileSaving}
                   >
-                    Cancel
+                    {t('Cancel')}
                   </button>
                   <button
                     type="submit"
@@ -3714,7 +3726,7 @@ export function App() {
                     style={{ flex: 1 }}
                     disabled={profileSaving}
                   >
-                    {profileSaving ? 'Saving...' : 'Save Profile'}
+                    {profileSaving ? t('Saving...') : t('Save Profile')}
                   </button>
                 </div>
               </form>
@@ -3726,7 +3738,7 @@ export function App() {
 
                 <div>
                   <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                    Current Password <span style={{ color: '#dc2626' }}>*</span>
+                    {t('Current Password')} <span style={{ color: '#dc2626' }}>*</span>
                   </label>
                   <div style={{ position: 'relative' }}>
                     <input
@@ -3735,7 +3747,7 @@ export function App() {
                       required
                       value={currentPassword}
                       onChange={(e) => setCurrentPassword(e.target.value)}
-                      placeholder="Enter your existing password"
+                      placeholder={t('Enter current password')}
                       style={{ paddingRight: '40px' }}
                     />
                     <button
@@ -3751,7 +3763,7 @@ export function App() {
 
                 <div>
                   <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                    New Password (min 6 characters) <span style={{ color: '#dc2626' }}>*</span>
+                    {t('New Password')} <span style={{ color: '#dc2626' }}>*</span>
                   </label>
                   <div style={{ position: 'relative' }}>
                     <input
@@ -3761,7 +3773,7 @@ export function App() {
                       minLength={6}
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Enter your new secure password"
+                      placeholder={t('Enter new password')}
                       style={{ paddingRight: '40px' }}
                     />
                     <button
@@ -3777,7 +3789,7 @@ export function App() {
 
                 <div>
                   <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                    Confirm New Password <span style={{ color: '#dc2626' }}>*</span>
+                    {t('Confirm New Password')} <span style={{ color: '#dc2626' }}>*</span>
                   </label>
                   <div style={{ position: 'relative' }}>
                     <input
@@ -3787,7 +3799,7 @@ export function App() {
                       minLength={6}
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Re-enter your new password"
+                      placeholder={t('Confirm New Password')}
                       style={{ paddingRight: '40px' }}
                     />
                     <button
@@ -3809,7 +3821,7 @@ export function App() {
                     onClick={() => setShowProfileModal(false)}
                     disabled={profileSaving}
                   >
-                    Cancel
+                    {t('Cancel')}
                   </button>
                   <button
                     type="submit"
@@ -3817,7 +3829,7 @@ export function App() {
                     style={{ flex: 1 }}
                     disabled={profileSaving}
                   >
-                    {profileSaving ? 'Updating Password...' : 'Update Password'}
+                    {profileSaving ? t('Updating...') : t('Update Password')}
                   </button>
                 </div>
               </form>
@@ -4741,7 +4753,7 @@ export function App() {
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   {(['VEHICLES', 'DRIVERS', 'GROUPS', 'FUEL_EV', 'MAINTENANCE', 'EXPENSES', 'DOCUMENTS'] as const).map((sub) => (
                     <Chip key={sub} active={opsSubTab === sub} onClick={() => setOpsSubTab(sub)}>
-                      {sub.replace('_', ' & ')}
+                      {t(sub.replace('_', ' & '))}
                     </Chip>
                   ))}
                 </div>
@@ -6070,7 +6082,7 @@ export function App() {
                   setSheetSnap('full');
                 }}
               >
-                Pick your ride
+                {t('Continue to Vehicle')}
               </button>
             </div>
           </StickyActionBar>
@@ -6085,8 +6097,8 @@ export function App() {
               id="schedule-circle-btn"
               type="button"
               className={`gf-schedule-circle-btn pressable ${scheduleMode === 'SCHEDULE' ? 'is-active' : ''}`}
-              title={scheduleMode === 'SCHEDULE' ? 'Ubah Jadwal Perjalanan' : 'Atur Jadwal Perjalanan'}
-              aria-label="Atur Jadwal Perjalanan"
+              title={scheduleMode === 'SCHEDULE' ? t('Change Trip Schedule') : t('Set Trip Schedule')}
+              aria-label={scheduleMode === 'SCHEDULE' ? t('Change Trip Schedule') : t('Set Trip Schedule')}
               onClick={() => setShowSchedulePicker(true)}
             >
               <Calendar size={22} />
@@ -6105,24 +6117,24 @@ export function App() {
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0 }}>
                 <span style={{ fontSize: '15px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {scheduleMode === 'SCHEDULE'
-                    ? `Jadwalin ${selectedVehicle.make} ${selectedVehicle.model}`
-                    : `Pesan ${selectedVehicle.make} ${selectedVehicle.model}`}
+                    ? `${t('Schedule')} ${selectedVehicle.make} ${selectedVehicle.model}`
+                    : `${t('Book')} ${selectedVehicle.make} ${selectedVehicle.model}`}
                 </span>
                 <span style={{ fontSize: '11.5px', fontWeight: 600, opacity: 0.9 }}>
                   {scheduleMode === 'SCHEDULE'
-                    ? getScheduleSlotBrief(bookStart)
-                    : `Siap Berangkat • ETA ${currentMetrics.etaText}`}
+                    ? getScheduleSlotBrief(bookStart, lang)
+                    : `${t('Ready to Depart')} • ETA ${currentMetrics.etaText}`}
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
                 <span style={{ fontSize: '12.5px', fontWeight: 800 }}>
                   {bookReservationType === 'FULL_DAY'
-                    ? 'Full Day'
+                    ? t('Full Day')
                     : bookReservationType === 'DROP_AND_PICKUP'
-                    ? 'Drop & Pick Up'
+                    ? t('Drop & Pick Up')
                     : scheduleMode === 'SCHEDULE'
-                    ? 'Terjadwal'
-                    : 'Langsung'}
+                    ? t('Scheduled')
+                    : t('Instant')}
                 </span>
                 <span className="gf-gocar-book-arrow">
                   <ArrowRight size={17} strokeWidth={2.75} />
@@ -6159,29 +6171,29 @@ export function App() {
               }}
               disabled={isOffline}
               onClick={handleCreateTripBooking}
-              title={!canProceedBooking ? 'Lengkapi Purpose dan Passengers sebelum memesan' : 'Kirim Permintaan Booking'}
+              title={!canProceedBooking ? t('Please complete Purpose and Passengers before booking') : t('Submit Booking Request')}
             >
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <span style={{ fontSize: '15.5px', fontWeight: 800 }}>Request GalaxyFleet</span>
+                <span style={{ fontSize: '15.5px', fontWeight: 800 }}>{t('Request GalaxyFleet')}</span>
                 {!canProceedBooking && (
                   <span style={{ fontSize: '11px', color: '#fca5a5', fontWeight: 700 }}>
                     {!isPurposeFilled && !isPassengerFilled
-                      ? '⚠️ Wajib isi Purpose & Passengers'
+                      ? `⚠️ ${t('Mandatory to fill Purpose & Passengers')}`
                       : !isPurposeFilled
-                      ? '⚠️ Wajib isi Purpose'
-                      : '⚠️ Wajib isi Passengers'}
+                      ? `⚠️ ${t('Trip Purpose is mandatory.')}`
+                      : `⚠️ ${t('Passenger data is mandatory.')}`}
                   </span>
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ fontSize: '12.5px', fontWeight: 800 }}>
                   {bookReservationType === 'FULL_DAY'
-                    ? 'Full Day'
+                    ? t('Full Day')
                     : bookReservationType === 'DROP_AND_PICKUP'
-                    ? 'Drop & Pick Up'
+                    ? t('Drop & Pick Up')
                     : canProceedBooking
-                    ? 'Confirm'
-                    : 'Lengkapi Data'}
+                    ? t('Confirm')
+                    : t('Complete Details')}
                 </span>
                 <span className="gf-gocar-book-arrow">
                   <ArrowRight size={17} strokeWidth={2.75} />
@@ -6300,33 +6312,33 @@ export function App() {
           {feedbackBanner}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <div>
-              <h1 className="type-title">Driver Dispatch</h1>
+              <h1 className="type-title">{t('Driver Dispatch')}</h1>
               <p className="type-caption">
-                {user.department_name || 'Company Driver'} • Driver duty console & car operational schedule
+                {user.department_name || t('Company Driver')} • {t('Driver duty console & car operational schedule')}
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <LanguageSwitcher compact />
-              <StatusBadge label={driverCheckedInReady ? 'Online & Checked In' : 'Offline / Standby'} tone={driverCheckedInReady ? 'green' : 'amber'} />
+              <StatusBadge label={driverCheckedInReady ? t('Online & Checked In') : t('Offline / Standby')} tone={driverCheckedInReady ? 'green' : 'amber'} />
               <button
                 type="button"
                 className="gf-btn gf-btn-secondary"
                 style={{ minHeight: '38px', padding: '0 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 onClick={handleOpenProfileModal}
-                aria-label="Account Profile & Password"
-                title="Account Profile & Password"
+                aria-label={t('Profile')}
+                title={t('Profile')}
               >
-                <User size={16} /> Profile
+                <User size={16} /> {t('Profile')}
               </button>
               <button
                 type="button"
                 className="gf-btn gf-btn-outline-danger"
                 style={{ minHeight: '38px', padding: '0 10px' }}
                 onClick={handleLogout}
-                aria-label="Sign Out"
-                title="Sign Out"
+                aria-label={t('Sign Out')}
+                title={t('Sign Out')}
               >
-                <LogOut size={16} /> Sign Out
+                <LogOut size={16} /> {t('Sign Out')}
               </button>
             </div>
           </div>
@@ -6477,7 +6489,7 @@ export function App() {
               onClick={() => setDriverSectionTab('DISPATCH')}
             >
               <Navigation size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-              Duty & Trips ({dispatches.length})
+              {t('Duty & Trips')} ({dispatches.length})
             </button>
             <button
               type="button"
@@ -6487,7 +6499,7 @@ export function App() {
               onClick={() => setDriverSectionTab('SCHEDULE')}
             >
               <Calendar size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-              Car Timetable & Schedule
+              {t('Car Timetable & Schedule')}
             </button>
           </div>
 
@@ -6526,13 +6538,13 @@ export function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
                 <Chip active={scheduleFilterTab === 'ALL'} onClick={() => setScheduleFilterTab('ALL')}>
-                  All Cars ({vehicles.length})
+                  {t('All Cars')} ({vehicles.length})
                 </Chip>
                 <Chip active={scheduleFilterTab === 'AVAILABLE'} onClick={() => setScheduleFilterTab('AVAILABLE')}>
-                  Available Now ({vehicles.filter((v) => v.status === 'Available').length})
+                  {t('Available Now')} ({vehicles.filter((v) => v.status === 'Available').length})
                 </Chip>
                 <Chip active={scheduleFilterTab === 'BOOKED'} onClick={() => setScheduleFilterTab('BOOKED')}>
-                  Booked Today
+                  {t('Booked Today')}
                 </Chip>
               </div>
 
@@ -7166,7 +7178,7 @@ export function App() {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {feedbackBanner}
-          <h1 className="type-title">Activity</h1>
+          <h1 className="type-title">{t('Activity')}</h1>
 
           <div className="gf-underline-tabs" role="tablist" aria-label="Trip history tabs">
             <button
@@ -7176,7 +7188,7 @@ export function App() {
               className={`gf-underline-tab ${activityTab === 'ONGOING' ? 'is-active' : ''}`}
               onClick={() => setActivityTab('ONGOING')}
             >
-              Ongoing ({ongoingTrips.length})
+              {t('Ongoing')} ({ongoingTrips.length})
             </button>
             <button
               type="button"
@@ -7185,7 +7197,7 @@ export function App() {
               className={`gf-underline-tab ${activityTab === 'HISTORY' ? 'is-active' : ''}`}
               onClick={() => setActivityTab('HISTORY')}
             >
-              History ({historyTrips.length})
+              {t('History')} ({historyTrips.length})
             </button>
           </div>
 
@@ -7197,7 +7209,7 @@ export function App() {
             </div>
           ) : shownList.length === 0 ? (
             <EmptyState
-              message={activityTab === 'ONGOING' ? 'No ongoing rides right now.' : 'No completed trips yet.'}
+              message={activityTab === 'ONGOING' ? t('No ongoing rides right now.') : t('No completed trips yet.')}
               action={
                 user.role === 'DRV' ? (
                   <button
@@ -7208,7 +7220,7 @@ export function App() {
                       setSheetSnap('full');
                     }}
                   >
-                    <Navigation size={16} /> Open Driver Dispatch
+                    <Navigation size={16} /> {t('Open Driver Dispatch')}
                   </button>
                 ) : (
                   <button
@@ -7222,7 +7234,7 @@ export function App() {
                       })
                     }
                   >
-                    Book a ride
+                    {t('Book a ride')}
                   </button>
                 )
               }
@@ -7312,7 +7324,7 @@ export function App() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {feedbackBanner}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-            <h1 className="type-title">Inbox</h1>
+            <h1 className="type-title">{t('Inbox')}</h1>
             {unreadCount > 0 && (
               <button
                 type="button"
@@ -7322,18 +7334,18 @@ export function App() {
                   await loadAllData(user);
                 }}
               >
-                Mark all read
+                {t('Mark all read')}
               </button>
             )}
           </div>
 
           <button type="button" className="gf-btn gf-btn-secondary gf-btn-full" onClick={handleEnablePushNotifications}>
             <Bell size={16} />
-            {pushSubscribed ? 'Push notifications enabled (Send test)' : 'Enable Push Alerts'}
+            {pushSubscribed ? t('Push notifications enabled (Send test)') : t('Enable Push Alerts')}
           </button>
 
           {notifications.length === 0 ? (
-            <EmptyState message="You're all caught up! Alerts appear here." />
+            <EmptyState message={t("You're all caught up! Alerts appear here.")} />
           ) : (
             <div>
               {notifications.map((n) => (
@@ -7410,25 +7422,25 @@ export function App() {
               style={{ minHeight: '36px', padding: '0 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
               onClick={handleOpenProfileModal}
             >
-              <User size={16} /> Edit Profile
+              <User size={16} /> {t('Edit Profile')}
             </button>
           </div>
 
           <div style={{ padding: '12px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
-            <div className="type-caption" style={{ fontWeight: 700, marginBottom: '8px' }}>Language (Google Translate)</div>
+            <div className="type-caption" style={{ fontWeight: 700, marginBottom: '8px' }}>{t('Language')}</div>
             <LanguageSwitcher />
           </div>
 
           <div style={{ padding: '12px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
-            <div className="type-caption" style={{ fontWeight: 700, marginBottom: '8px' }}>Appearance</div>
+            <div className="type-caption" style={{ fontWeight: 700, marginBottom: '8px' }}>{t('Appearance')}</div>
             <Segmented
               ariaLabel="Theme preference"
               value={themePref}
               onChange={setThemePref}
               options={[
-                { value: 'system', label: 'Auto' },
-                { value: 'light', label: 'Light' },
-                { value: 'dark', label: 'Dark' },
+                { value: 'system', label: t('Auto') },
+                { value: 'light', label: t('Light') },
+                { value: 'dark', label: t('Dark') },
               ]}
             />
           </div>
@@ -7436,15 +7448,15 @@ export function App() {
           <div>
             <ListRow
               icon={<User size={18} />}
-              title="Edit Profile & Details"
-              subtitle={user.contact_number ? `Phone: ${user.contact_number}` : 'Update display nickname, phone & photo'}
+              title={t('Edit Profile & Details')}
+              subtitle={user.contact_number ? `${t('Phone')}: ${user.contact_number}` : t('Update display nickname, phone & photo')}
               showChevron
               onClick={handleOpenProfileModal}
             />
             <ListRow
               icon={<ShieldCheck size={18} />}
-              title="Change Account Password"
-              subtitle="Update login password securely"
+              title={t('Change Account Password')}
+              subtitle={t('Update login password securely')}
               showChevron
               onClick={() => {
                 handleOpenProfileModal();
@@ -7453,23 +7465,23 @@ export function App() {
             />
             <ListRow
               icon={<Bell size={18} />}
-              title="Push Notifications"
-              subtitle={pushSubscribed ? 'Active on this device' : 'Receive booking & dispatch updates'}
+              title={t('Push Notifications')}
+              subtitle={pushSubscribed ? t('Active on this device') : t('Receive booking & dispatch updates')}
               showChevron
               onClick={handleEnablePushNotifications}
             />
             <ListRow
               icon={<Smartphone size={18} />}
-              title="Install GalaxyFleet App"
-              subtitle="Add shortcut to your home screen"
+              title={t('Install GalaxyFleet App')}
+              subtitle={t('Add shortcut to your home screen')}
               showChevron
               onClick={handleInstallPwa}
             />
             {(user.role === 'DRV' || isPrivileged) && (
               <ListRow
                 icon={<Navigation size={18} />}
-                title="Driver Dispatch Console"
-                subtitle="View assigned orders & periodic GPS check-ins"
+                title={t('Driver Dispatch Console')}
+                subtitle={t('View assigned orders & periodic GPS check-ins')}
                 showChevron
                 onClick={() => {
                   setNavSection('DRIVER');
@@ -7480,15 +7492,15 @@ export function App() {
             {isPrivileged && (
               <ListRow
                 icon={<ShieldCheck size={18} />}
-                title="Admin Command Console"
-                subtitle="Approvals, vehicles, analytics & audit log"
+                title={t('Admin Command Console')}
+                subtitle={t('Approvals, vehicles, analytics & audit log')}
                 showChevron
                 onClick={() => setNavSection('ADMIN')}
               />
             )}
             <ListRow
               icon={<LogOut size={18} />}
-              title="Sign Out"
+              title={t('Sign Out')}
               danger
               onClick={handleLogout}
             />
@@ -8050,7 +8062,7 @@ export function App() {
           >
             <span className="gf-dest-ring-dot" aria-hidden="true" />
             <span className="type-section" style={{ flex: 1, color: 'var(--color-text-primary)', fontWeight: 700 }}>
-              Where to?
+              {t('Where to?')}
             </span>
             <Search size={20} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
           </button>
@@ -8854,13 +8866,13 @@ export function App() {
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: '11px', fontWeight: 700, color: '#005bb5', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    Jadwal Terpilih • Prioritas
+                    {t('Departure Schedule')}
                   </div>
                   <div style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {getScheduleSlotDisplay(bookStart)}
+                    {getScheduleSlotDisplay(bookStart, lang)}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                    {bookReservationType === 'FULL_DAY' ? 'Full Day (Seharian)' : bookReservationType === 'DROP_AND_PICKUP' ? 'Drop & Pick Up' : 'Standard Trip'} • {bookDurationHours} jam
+                    {bookReservationType === 'FULL_DAY' ? t('Full Day (Seharian)') : bookReservationType === 'DROP_AND_PICKUP' ? t('Drop & Pick Up') : t('Standard Trip')} • {bookDurationHours} {t('hours')}
                   </div>
                 </div>
               </div>
@@ -8871,13 +8883,13 @@ export function App() {
                   style={{ minHeight: '32px', height: '32px', padding: '0 10px', fontSize: '11.5px', fontWeight: 700 }}
                   onClick={() => setShowSchedulePicker(true)}
                 >
-                  Ubah
+                  {t('Change')}
                 </button>
                 <button
                   type="button"
                   className="gf-btn gf-btn-ghost"
                   style={{ minHeight: '32px', height: '32px', padding: '0 8px', fontSize: '11px', color: '#dc2626', fontWeight: 600 }}
-                  title="Hapus Jadwal dan kembali ke Pesan Langsung"
+                  title={t('Remove schedule and return to instant booking')}
                   onClick={() => {
                     setScheduleMode('NOW');
                     const now = Date.now();
@@ -8885,11 +8897,11 @@ export function App() {
                     setBookEnd(toLocalDateTimeInput(new Date(now + 4 * 3600000)));
                     setStatusBanner({
                       type: 'info',
-                      text: 'Jadwal dibatalkan. Kembali ke mode pesan langsung.',
+                      text: t('Schedule cancelled. Returned to instant booking mode.'),
                     });
                   }}
                 >
-                  <X size={14} /> Hapus
+                  <X size={14} /> {t('Remove')}
                 </button>
               </div>
             </div>
@@ -8897,7 +8909,7 @@ export function App() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '14px', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)', fontSize: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-text-secondary)' }}>
                 <Clock size={16} style={{ color: '#0072de' }} />
-                <span><strong>Pesan Sekarang</strong> • Siap jalan segera atau tap tombol jadwal untuk reservasi</span>
+                <span><strong>{t('Book Now')}</strong> • {t('Ready to depart immediately or tap schedule button for advance reservation')}</span>
               </div>
               <button
                 type="button"
@@ -8905,7 +8917,7 @@ export function App() {
                 style={{ padding: '0 10px', height: '30px', fontSize: '11.5px', fontWeight: 700 }}
                 onClick={() => setShowSchedulePicker(true)}
               >
-                Atur Jadwal
+                {t('Set Schedule')}
               </button>
             </div>
           )}
@@ -8919,12 +8931,12 @@ export function App() {
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
-                aria-label="Kapan mau berangkat?"
+                aria-label={t('When do you want to leave?')}
               >
                 {/* 1. Gojek Priority Strip Banner */}
                 <div className="gf-gojek-priority-strip">
                   <ShieldCheck size={14} />
-                  <span>Gak perlu cemas, booking-mu jadi prioritas</span>
+                  <span>{t('No worries, your booking is our priority')}</span>
                 </div>
 
                 {/* Modal Body */}
@@ -8932,14 +8944,14 @@ export function App() {
                   {/* Top Header */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
-                      Kapan mau berangkat?
+                      {t('When do you want to leave?')}
                     </h2>
                     <button
                       type="button"
                       className="gf-icon-btn-48 pressable"
                       style={{ width: '32px', height: '32px', minWidth: '32px', minHeight: '32px' }}
                       onClick={() => setShowSchedulePicker(false)}
-                      aria-label="Tutup"
+                      aria-label={t('Close')}
                     >
                       <X size={18} />
                     </button>
@@ -8948,9 +8960,9 @@ export function App() {
                   {/* 2. 3-Tab Chips: Hari ini / Besok / Pilih tanggal */}
                   <div className="gf-gojek-tab-group" role="tablist">
                     {([
-                      { id: 'TODAY', label: 'Hari ini' },
-                      { id: 'TOMORROW', label: 'Besok' },
-                      { id: 'DATE', label: 'Pilih tanggal', icon: <Calendar size={14} /> },
+                      { id: 'TODAY', label: t('Today') },
+                      { id: 'TOMORROW', label: t('Tomorrow') },
+                      { id: 'DATE', label: t('Select date'), icon: <Calendar size={14} /> },
                     ] as Array<{ id: 'TODAY' | 'TOMORROW' | 'DATE'; label: string; icon?: React.ReactNode }>).map((tab) => {
                       const active = schedulePickerTab === tab.id;
                       return (
@@ -8992,13 +9004,13 @@ export function App() {
 
                   {/* 3. Gojek Estimate Card */}
                   <div className="gf-gojek-estimate-card">
-                    <span className="gf-gojek-estimate-caption">Estimasi waktu jemput</span>
+                    <span className="gf-gojek-estimate-caption">{t('Pickup time estimate')}</span>
                     <span className="gf-gojek-estimate-value">
                       {schedulePickerTab === 'TODAY'
-                        ? `Hari ini | ${getSlotWindow(bookStart)}`
+                        ? `${t('Today')} | ${getSlotWindow(bookStart)}`
                         : schedulePickerTab === 'TOMORROW'
-                        ? `Besok | ${getSlotWindow(bookStart)}`
-                        : `${new Date(bookStart).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })} | ${getSlotWindow(bookStart)}`}
+                        ? `${t('Tomorrow')} | ${getSlotWindow(bookStart)}`
+                        : `${new Date(bookStart).toLocaleDateString(lang === 'en' ? 'en-US' : lang === 'ko' ? 'ko-KR' : 'id-ID', { weekday: 'short', day: 'numeric', month: 'short' })} | ${getSlotWindow(bookStart)}`}
                     </span>
                   </div>
 
@@ -9018,13 +9030,13 @@ export function App() {
                   {/* 5. Reservation Mode & Preset Shortcuts */}
                   <div>
                     <div className="type-caption" style={{ fontWeight: 700, marginBottom: '6px' }}>
-                      Tipe Reservasi Perjalanan
+                      {t('Trip Reservation Type')}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px' }} role="group" aria-label="Reservation mode">
                       {([
-                        { id: 'ONE_WAY', label: 'Standard Trip', sub: 'Point-to-point' },
-                        { id: 'DROP_AND_PICKUP', label: 'Drop & Pick Up', sub: 'Drop & jemput nanti' },
-                        { id: 'FULL_DAY', label: 'Full Day', sub: 'Seharian kerja' },
+                        { id: 'ONE_WAY', label: t('Standard Trip'), sub: t('Point-to-point') },
+                        { id: 'DROP_AND_PICKUP', label: t('Drop & Pick Up'), sub: t('Drop & pick up later') },
+                        { id: 'FULL_DAY', label: t('Full Day'), sub: t('Full business day') },
                       ] as Array<{ id: 'ONE_WAY' | 'DROP_AND_PICKUP' | 'FULL_DAY'; label: string; sub: string }>).map((mode) => {
                         const selected = bookReservationType === mode.id;
                         return (
@@ -9111,7 +9123,7 @@ export function App() {
                         }
                       }}
                     >
-                      In 2h (Standard)
+                      {t('In 2h (Standard)')}
                     </Chip>
                     <Chip
                       active={false}
@@ -9127,7 +9139,7 @@ export function App() {
                         }
                       }}
                     >
-                      In 4h
+                      {t('In 4h')}
                     </Chip>
                     <Chip
                       active={false}
@@ -9147,7 +9159,7 @@ export function App() {
                         setBookDurationHours(Math.max(1, Math.round((eMs - sMs) / 3600000)));
                       }}
                     >
-                      Today Full Day
+                      {t('Today Full Day')}
                     </Chip>
                     <Chip
                       active={false}
@@ -9163,7 +9175,7 @@ export function App() {
                         setBookDurationHours(12);
                       }}
                     >
-                      Tomorrow Full Day
+                      {t('Tomorrow Full Day')}
                     </Chip>
                   </div>
 
@@ -9171,7 +9183,7 @@ export function App() {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
                     <div>
                       <label className="type-caption" htmlFor="schedule-start" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                        {bookReservationType === 'DROP_AND_PICKUP' ? 'Drop-Off Departure *' : 'Departure Date & Time *'}
+                        {bookReservationType === 'DROP_AND_PICKUP' ? t('Drop-Off Departure *') : t('Departure Date & Time *')}
                       </label>
                       <input
                         id="schedule-start"
@@ -9201,7 +9213,7 @@ export function App() {
                     {bookReservationType === 'DROP_AND_PICKUP' && (
                       <div>
                         <label className="type-caption" htmlFor="schedule-return-pickup" style={{ fontWeight: 700, display: 'block', marginBottom: '4px', color: '#005bb5' }}>
-                          Post-Event Pick-Up Time *
+                          {t('Post-Event Pick-Up Time *')}
                         </label>
                         <input
                           id="schedule-return-pickup"
@@ -9231,10 +9243,10 @@ export function App() {
                     <div>
                       <label className="type-caption" htmlFor="schedule-end" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
                         {bookReservationType === 'DROP_AND_PICKUP'
-                          ? 'Final Return to Pool *'
+                          ? t('Final Return to Pool *')
                           : bookReservationType === 'FULL_DAY'
-                          ? 'Full Day End Date & Time *'
-                          : 'Return Date & Time *'}
+                          ? t('Full Day End Date & Time *')
+                          : t('Return Date & Time *')}
                       </label>
                       <input
                         id="schedule-end"
@@ -9266,7 +9278,7 @@ export function App() {
                         <div style={{ padding: '8px 10px', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fecaca', display: 'flex', gap: '8px', alignItems: 'center' }}>
                           <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
                           <span style={{ fontSize: '11.5px', color: '#991b1b', fontWeight: 600 }}>
-                            Waktu keberangkatan tidak boleh di masa lalu. Silakan pilih waktu mendatang.
+                            {t('Departure time cannot be in the past. Please select an upcoming departure time.')}
                           </span>
                         </div>
                       );
@@ -9278,22 +9290,22 @@ export function App() {
                           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                             <AlertTriangle size={16} style={{ color: '#dc2626', flexShrink: 0 }} />
                             <span style={{ fontSize: '12px', fontWeight: 800, color: '#991b1b', textTransform: 'uppercase' }}>
-                              🚨 Permintaan Mendesak (&lt; 2 Jam) • Wajib Persetujuan PIC Fleet
+                              🚨 {t('Urgent Request (< 2h) • Mandatory Fleet PIC Approval')}
                             </span>
                           </div>
                           <div style={{ fontSize: '11.5px', color: '#7f1d1d' }}>
-                            Aturan perusahaan mewajibkan booking minimal 2 jam sebelumnya. Trip ini berangkat dalam <strong>{diffMin} menit</strong> dan memerlukan justifikasi mendesak.
+                            {t('Company policy requires booking at least 2 hours in advance. This trip departs in')} <strong>{diffMin} {t('min ride')}</strong> {t('and requires urgent justification.')}
                           </div>
                           <div>
                             <label className="type-caption" htmlFor="urgent-reason-input" style={{ fontWeight: 700, display: 'block', color: '#991b1b', marginBottom: '2px' }}>
-                              Alasan Mendesak *
+                              {t('Urgent Reason *')}
                             </label>
                             <input
                               id="urgent-reason-input"
                               type="text"
                               className="gf-input"
                               required
-                              placeholder="Tulis alasan urgensi (misal: darurat site klien, transport VIP mendadak)..."
+                              placeholder={t('Enter urgent reason (e.g. client site emergency, urgent VIP transport)...')}
                               value={bookUrgentReason}
                               onChange={(e) => setBookUrgentReason(e.target.value)}
                             />
@@ -9306,7 +9318,7 @@ export function App() {
                       <div style={{ padding: '8px 10px', borderRadius: '8px', background: '#ebf5ff', border: '1px solid #bfdbfe', display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <CheckCircle2 size={15} style={{ color: '#0072de', flexShrink: 0 }} />
                         <span style={{ fontSize: '11.5px', color: '#005bb5', fontWeight: 600 }}>
-                          ✓ Reservasi Standar ({Math.floor(diffMin / 60)}j {diffMin % 60}m sebelum keberangkatan • Sesuai kebijakan min. 2 jam)
+                          ✓ {t('Standard Trip')} ({Math.floor(diffMin / 60)}h {diffMin % 60}m)
                         </span>
                       </div>
                     );
@@ -9319,7 +9331,7 @@ export function App() {
                       className="gf-gojek-btn-cancel pressable"
                       onClick={() => setShowSchedulePicker(false)}
                     >
-                      Gak jadi
+                      {t('Cancel')}
                     </button>
                     <button
                       type="button"
@@ -9329,11 +9341,11 @@ export function App() {
                         setShowSchedulePicker(false);
                         setStatusBanner({
                           type: 'success',
-                          text: `Jadwal berhasil diatur: ${getScheduleSlotBrief(bookStart)}`,
+                          text: `${t('Schedule set successfully:')} ${getScheduleSlotBrief(bookStart, lang)}`,
                         });
                       }}
                     >
-                      Set jadwal
+                      {t('Set schedule')}
                     </button>
                   </div>
                 </div>
@@ -9498,7 +9510,7 @@ export function App() {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {feedbackBanner}
-          <h1 className="type-title">Almost there</h1>
+          <h1 className="type-title">{t('Almost there')}</h1>
 
           {/* Compact route card with Edit link (GoCar Reference Up-Arrow & Target Ring-Dot) */}
           <div style={{ padding: '14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
@@ -9519,7 +9531,7 @@ export function App() {
               </div>
             </div>
             <button type="button" className="gf-btn gf-btn-ghost" onClick={() => setBookingStep('ROUTE')}>
-              Edit
+              {t('Edit')}
             </button>
           </div>
 
@@ -9539,7 +9551,7 @@ export function App() {
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
                 <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#991b1b', textTransform: 'uppercase' }}>
-                  🚨 Urgent Short-Notice Request (&lt; 2h Advance)
+                  🚨 {t('Urgent Short-Notice Request (< 2h Advance)') || 'Urgent Short-Notice Request (< 2h Advance)'}
                 </span>
               </div>
               <div style={{ fontSize: '11.5px', color: '#7f1d1d' }}>
@@ -9563,11 +9575,11 @@ export function App() {
             >
               <AlertTriangle size={18} style={{ color: '#dc2626', flexShrink: 0 }} />
               <div style={{ fontSize: '12px', color: '#991b1b', lineHeight: 1.4 }}>
-                <strong>Data Wajib Belum Lengkap:</strong> Harap lengkapi{' '}
-                {!bookPurpose.trim() && <strong>Tujuan Perjalanan (Purpose)</strong>}
-                {!bookPurpose.trim() && (bookPassengers.length === 0 || bookPassengers.some((p) => !p.nickname.trim())) && ' dan '}
-                {(bookPassengers.length === 0 || bookPassengers.some((p) => !p.nickname.trim())) && <strong>Nama Penumpang (Passengers)</strong>}{' '}
-                sebelum melanjutkan pemesanan armada.
+                <strong>{t('Mandatory Data Incomplete') || 'Data Wajib Belum Lengkap'}:</strong> {t('Please complete') || 'Harap lengkapi'}{' '}
+                {!bookPurpose.trim() && <strong>{t('Trip Purpose')}</strong>}
+                {!bookPurpose.trim() && (bookPassengers.length === 0 || bookPassengers.some((p) => !p.nickname.trim())) && ` ${t('and') || 'dan'} `}
+                {(bookPassengers.length === 0 || bookPassengers.some((p) => !p.nickname.trim())) && <strong>{t('Passengers')}</strong>}{' '}
+                {t('before requesting booking.') || 'sebelum melanjutkan pemesanan armada.'}
               </div>
             </div>
           )}
@@ -9577,7 +9589,7 @@ export function App() {
             <ListRow
               id="summary-schedule-row"
               icon={<Calendar size={18} />}
-              title="Schedule & Reservation"
+              title={t('Schedule & Reservation')}
               subtitle={`${new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → ${new Date(bookEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${bookDurationHours}h) • ${formatReservationModeLabel(bookReservationType, bookReservationType === 'DROP_AND_PICKUP' ? bookReturnPickupTime : null) || 'Standard Trip'}${Math.round((new Date(bookStart).getTime() - Date.now()) / 60000) < 120 ? ' • 🚨 Urgent (< 2h)' : ' • Standard'}`}
               showChevron
               onClick={() => setBookingStep('VEHICLE')}
@@ -9587,7 +9599,7 @@ export function App() {
               icon={<Briefcase size={18} style={{ color: bookPurpose.trim() ? '#0072de' : '#dc2626' }} />}
               title={
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>Purpose</span>
+                  <span>{t('Trip Purpose')}</span>
                   <span
                     style={{
                       fontSize: '10.5px',
@@ -9598,7 +9610,7 @@ export function App() {
                       color: bookPurpose.trim() ? '#0072de' : '#dc2626',
                     }}
                   >
-                    {bookPurpose.trim() ? '✓ Terisi' : '* Wajib'}
+                    {bookPurpose.trim() ? t('✓ Filled') : t('* Mandatory')}
                   </span>
                 </div>
               }
@@ -9607,7 +9619,7 @@ export function App() {
                   bookPurpose.trim()
                 ) : (
                   <span style={{ color: '#dc2626', fontWeight: 600 }}>
-                    ⚠️ Wajib diisi • Ketuk untuk pilih atau ketik tujuan
+                    {t('⚠️ Mandatory • Tap to select or enter purpose')}
                   </span>
                 )
               }
@@ -9622,7 +9634,7 @@ export function App() {
               icon={<Users size={18} style={{ color: bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim())) ? '#0072de' : '#dc2626' }} />}
               title={
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>Passengers</span>
+                  <span>{t('Passengers')}</span>
                   <span
                     style={{
                       fontSize: '10.5px',
@@ -9634,8 +9646,8 @@ export function App() {
                     }}
                   >
                     {bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim()))
-                      ? `✓ ${bookPassengers.length} Orang`
-                      : '* Wajib'}
+                      ? `✓ ${bookPassengers.length} ${t('Passengers')}`
+                      : t('* Mandatory')}
                   </span>
                 </div>
               }
@@ -9644,7 +9656,7 @@ export function App() {
                   bookPassengers.map((p) => `${p.id}. ${p.nickname.trim()}`).join(', ')
                 ) : (
                   <span style={{ color: '#dc2626', fontWeight: 600 }}>
-                    ⚠️ Wajib diisi • Ketuk untuk masukkan nama panggilan (nickname)
+                    {t('⚠️ Mandatory • Tap to enter passenger nickname')}
                   </span>
                 )
               }
@@ -9657,16 +9669,16 @@ export function App() {
             <ListRow
               id="summary-notes-row"
               icon={<StickyNote size={18} />}
-              title="Notes"
-              subtitle={bookNotes || 'Add pickup instructions for driver'}
+              title={t('Notes')}
+              subtitle={bookNotes || t('Add pickup instructions for driver')}
               showChevron
               onClick={() => setSummaryPicker('NOTES')}
             />
             <ListRow
               id="summary-charge-row"
               icon={<Briefcase size={18} />}
-              title="Department & Driver"
-              subtitle={`${user.department_name || 'Group'} • Driver: ${chosenDriverObj ? chosenDriverObj.full_name : 'Auto-assign'}`}
+              title={t('Department & Driver')}
+              subtitle={`${user.department_name || 'Group'} • Driver: ${chosenDriverObj ? chosenDriverObj.full_name : t('Auto-assign') || 'Auto-assign'}`}
               showChevron
               onClick={() => setSummaryPicker('CHARGE')}
             />
@@ -9679,14 +9691,14 @@ export function App() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                   <h3 className="type-section" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span>
-                      {summaryPicker === 'PURPOSE' && 'Trip Purpose'}
-                      {summaryPicker === 'PAX' && 'Passenger Details'}
-                      {summaryPicker === 'NOTES' && 'Dispatch Notes'}
-                      {summaryPicker === 'CHARGE' && 'Group & Driver'}
+                      {summaryPicker === 'PURPOSE' && t('Trip Purpose')}
+                      {summaryPicker === 'PAX' && t('Passenger Details')}
+                      {summaryPicker === 'NOTES' && t('Dispatch Notes')}
+                      {summaryPicker === 'CHARGE' && t('Group & Driver')}
                     </span>
                     {(summaryPicker === 'PURPOSE' || summaryPicker === 'PAX') && (
                       <span style={{ fontSize: '11px', fontWeight: 800, color: '#dc2626', background: '#fef2f2', padding: '2px 8px', borderRadius: '4px' }}>
-                        * Wajib Diisi
+                        {t('* Mandatory')}
                       </span>
                     )}
                   </h3>
@@ -9700,7 +9712,7 @@ export function App() {
                         setSummaryPicker(null);
                       }}
                     >
-                      Batal
+                      {t('Cancel')}
                     </button>
                     <button
                       type="button"
@@ -9708,7 +9720,7 @@ export function App() {
                       style={{ minHeight: '36px', height: '36px', padding: '0 16px', fontSize: '12.5px', fontWeight: 700 }}
                       onClick={handleDoneSummaryPicker}
                     >
-                      Done
+                      {t('Done')}
                     </button>
                   </div>
                 </div>
@@ -9736,7 +9748,7 @@ export function App() {
                 {summaryPicker === 'PURPOSE' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <div className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-secondary)' }}>
-                      Pilih tujuan operasional atau masukkan tujuan khusus:
+                      {t('Select operational purpose or enter custom purpose:')}
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                       {['Client visit', 'Site audit', 'Airport transfer', 'Executive briefing'].map((preset) => (
@@ -9748,18 +9760,18 @@ export function App() {
                             setPickerValidationError(null);
                           }}
                         >
-                          {preset}
+                          {t(preset)}
                         </Chip>
                       ))}
                     </div>
                     <div>
                       <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                        Tujuan Perjalanan *
+                        {t('Trip Purpose *')}
                       </label>
                       <input
                         type="text"
                         className="gf-input"
-                        placeholder="Contoh: Kunjungan Pabrik Cikarang..."
+                        placeholder={t('Example: Cikarang Plant Visit...')}
                         value={bookPurpose}
                         required
                         onChange={(e) => {
@@ -9784,7 +9796,7 @@ export function App() {
                         lineHeight: 1.4,
                       }}
                     >
-                      ⚠️ <strong>Kebijakan Privasi:</strong> Wajib mengisi nama panggilan penumpang yang menaiki kendaraan operasional. Masukkan <strong>hanya nama panggilan (nickname)</strong> (contoh: Budi, Sarah). Dilarang memasukkan nama lengkap.
+                      ⚠️ <strong>{t('Privacy Policy:') || 'Privacy Policy:'}</strong> {t('Privacy Policy: Mandatory to enter passenger nicknames boarding the operational vehicle. Enter nicknames only (e.g., Budi, Sarah). Do not enter full names.') || 'Wajib mengisi nama panggilan penumpang yang menaiki kendaraan operasional. Masukkan hanya nama panggilan (nickname) (contoh: Budi, Sarah). Dilarang memasukkan nama lengkap.'}
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -9805,7 +9817,7 @@ export function App() {
                           >
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <label className="type-caption" style={{ fontWeight: 700, color: isMissing ? '#dc2626' : 'var(--color-primary)' }}>
-                                {index === 0 ? '1. Penumpang 1 (Lead Passenger) *' : `${index + 1}. Penumpang ${index + 1} *`}
+                                {index === 0 ? `1. ${t('Passengers')} 1 (Lead Passenger) *` : `${index + 1}. ${t('Passengers')} ${index + 1} *`}
                               </label>
                               {bookPassengers.length > 1 && (
                                 <button
@@ -9820,7 +9832,7 @@ export function App() {
                                     if (renumbered[0]) setBookPassengerNickname(renumbered[0].nickname);
                                   }}
                                 >
-                                  ✕ Hapus
+                                  ✕ {t('Remove')}
                                 </button>
                               )}
                             </div>
@@ -9859,7 +9871,7 @@ export function App() {
                             setBookPax(nextList.length);
                           }}
                         >
-                          <Plus size={15} /> Add Passenger {bookPassengers.length + 1}
+                          <Plus size={15} /> {t('Add')} {t('Passengers')} {bookPassengers.length + 1}
                         </button>
                       )}
                     </div>

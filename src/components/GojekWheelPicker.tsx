@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useAppLanguage } from '../utils/i18n';
 
 export interface DateOption {
   id: string;
@@ -27,6 +28,7 @@ export const GojekWheelPicker: React.FC<GojekWheelPickerProps> = ({
   selectedDateId,
   onSelectDate,
 }) => {
+  const { t } = useAppLanguage();
   const timeColumnRef = useRef<HTMLDivElement | null>(null);
   const dateColumnRef = useRef<HTMLDivElement | null>(null);
   const [isScrolling, setIsScrolling] = useState(false);
@@ -98,7 +100,7 @@ export const GojekWheelPicker: React.FC<GojekWheelPickerProps> = ({
     <div
       className={`gf-gojek-wheel-container ${isScrolling ? 'is-scrolling' : ''}`}
       role="region"
-      aria-label="Pemilih waktu penjemputan drum wheel"
+      aria-label={t('Pemilih waktu penjemputan drum wheel')}
     >
       {/* Selection Lens: Top & Bottom Horizontal Framing Lines */}
       <div className="gf-gojek-wheel-selection-lens">
@@ -111,7 +113,7 @@ export const GojekWheelPicker: React.FC<GojekWheelPickerProps> = ({
           ref={dateColumnRef}
           className="gf-gojek-wheel-column"
           onScroll={handleDateScroll}
-          aria-label="Pilih tanggal"
+          aria-label={t('Pilih tanggal')}
         >
           {dateList.map((d, idx) => {
             const isSel = d.id === selectedDateId;
@@ -129,7 +131,7 @@ export const GojekWheelPicker: React.FC<GojekWheelPickerProps> = ({
                   if (onSelectDate) onSelectDate(d);
                 }}
               >
-                <span>{d.label}</span>
+                <span>{t(d.label)}</span>
               </div>
             );
           })}
@@ -141,7 +143,7 @@ export const GojekWheelPicker: React.FC<GojekWheelPickerProps> = ({
         ref={timeColumnRef}
         className="gf-gojek-wheel-column"
         onScroll={handleTimeScroll}
-        aria-label="Pilih slot waktu penjemputan"
+        aria-label={t('Pilih slot waktu penjemputan')}
       >
         {timeSlots.map((slot, idx) => {
           const isSel = slot === selectedTimeSlot;

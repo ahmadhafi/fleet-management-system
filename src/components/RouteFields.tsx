@@ -1,5 +1,6 @@
 import React from 'react';
 import { ArrowUp, Plus, X } from 'lucide-react';
+import { useAppLanguage } from '../utils/i18n';
 
 interface RouteFieldsProps {
   pickup: string;
@@ -21,11 +22,16 @@ export const RouteFields: React.FC<RouteFieldsProps> = ({
   onDestinationChange,
   activeField,
   onFocusField,
-  pickupPlaceholder = 'Current pickup point',
-  destinationPlaceholder = 'Where to?',
+  pickupPlaceholder,
+  destinationPlaceholder,
   onAddStop,
   multiStopToast,
 }) => {
+  const { t } = useAppLanguage();
+
+  const finalPickupPlaceholder = pickupPlaceholder || t('Current pickup point');
+  const finalDestPlaceholder = destinationPlaceholder || t('Where to?');
+
   return (
     <div className="gf-route-box" style={{ position: 'relative' }}>
       {multiStopToast && (
@@ -48,8 +54,8 @@ export const RouteFields: React.FC<RouteFieldsProps> = ({
             id="route-pickup-input"
             type="text"
             className="gf-route-input"
-            aria-label="Pickup location"
-            placeholder={pickupPlaceholder}
+            aria-label={t('Pickup location')}
+            placeholder={finalPickupPlaceholder}
             value={pickup}
             onFocus={() => onFocusField('pickup')}
             onChange={(e) => onPickupChange(e.target.value)}
@@ -60,7 +66,7 @@ export const RouteFields: React.FC<RouteFieldsProps> = ({
           {pickup && (
             <button
               type="button"
-              aria-label="Clear pickup"
+              aria-label={t('Clear pickup')}
               onClick={() => onPickupChange('')}
               style={{
                 background: 'transparent',
@@ -84,8 +90,8 @@ export const RouteFields: React.FC<RouteFieldsProps> = ({
             id="route-destination-input"
             type="text"
             className="gf-route-input"
-            aria-label="Destination location"
-            placeholder={destinationPlaceholder}
+            aria-label={t('Destination location')}
+            placeholder={finalDestPlaceholder}
             value={destination}
             onFocus={() => onFocusField('destination')}
             onChange={(e) => onDestinationChange(e.target.value)}
@@ -95,7 +101,7 @@ export const RouteFields: React.FC<RouteFieldsProps> = ({
             {destination && (
               <button
                 type="button"
-                aria-label="Clear destination"
+                aria-label={t('Clear destination')}
                 onClick={() => onDestinationChange('')}
                 style={{
                   background: 'transparent',
@@ -118,13 +124,13 @@ export const RouteFields: React.FC<RouteFieldsProps> = ({
                 type="button"
                 className="gf-add-stop-btn pressable"
                 onClick={onAddStop}
-                aria-label="Tambah tujuan"
-                title="Tambah tujuan perjalanan"
+                aria-label={t('Add destination')}
+                title={t('Add trip destination')}
               >
                 <span className="gf-add-stop-icon-circle">
                   <Plus size={10} strokeWidth={3} />
                 </span>
-                <span>Tambah</span>
+                <span>{t('Add')}</span>
               </button>
             )}
           </div>
