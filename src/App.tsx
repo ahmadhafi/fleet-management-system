@@ -3,7 +3,6 @@ import {
   Car,
   ShieldCheck,
   Bell,
-  Download,
   LogOut,
   Calendar,
   Navigation,
@@ -46,6 +45,7 @@ import {
   ArrowRight,
   ArrowLeft,
   Bus,
+  Info,
   X,
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
@@ -401,7 +401,6 @@ export function App() {
   const [profileStatusBanner, setProfileStatusBanner] = useState<{ type: 'success' | 'danger'; text: string } | null>(null);
 
   // Home / Route / Ride / Activity sub-states
-  const [carouselIdx, setCarouselIdx] = useState(0);
   const [routeTab, setRouteTab] = useState<'RECENT' | 'SAVED' | 'PIN' | 'PICKUP'>('RECENT');
   const [selectedPickupSpot, setSelectedPickupSpot] = useState<'A' | 'B' | 'C'>('A');
   const [activeRouteField, setActiveRouteField] = useState<'pickup' | 'destination'>('destination');
@@ -729,6 +728,7 @@ export function App() {
         setVapidPublicKey(res.vapidPublicKey || '');
         if (res.user.role === 'DRV') {
           setNavSection('DRIVER');
+          setSheetSnap('half');
         } else if (['ADM', 'FM', 'HWS'].includes(res.user.role)) {
           setNavSection('ADMIN');
           setAdminModule('ADMIN_DISPATCH');
@@ -948,6 +948,7 @@ export function App() {
       setVapidPublicKey(res.vapidPublicKey || '');
       if (res.user.role === 'DRV') {
         setNavSection('DRIVER');
+        setSheetSnap('half');
       } else if (['ADM', 'FM', 'HWS'].includes(res.user.role)) {
         setNavSection('ADMIN');
         setAdminModule('ADMIN_DISPATCH');
@@ -2198,32 +2199,6 @@ export function App() {
     }
     return Array.from(map.values());
   }, [trips]);
-
-  // Real live system status cards for Home carousel (zero fake announcements)
-  const liveOverviewCards = useMemo(() => {
-    const availCars = vehicles.filter((v) => v.status === 'Available').length;
-    const evCars = vehicles.filter((v) => v.energy_type === 'Electric' && v.status === 'Available').length;
-    return [
-      {
-        tag: 'Fleet Status',
-        title: vehicles.length > 0 ? `${availCars} of ${vehicles.length} Vehicles Available` : 'Fleet Ready for Registration',
-        body:
-          vehicles.length > 0
-            ? `${evCars} Electric and ${Math.max(0, availCars - evCars)} Gasoline vehicles ready for booking.`
-            : 'Administrators can register company vehicles and drivers in the Admin Console.',
-      },
-      {
-        tag: 'Schedule Protection',
-        title: 'Instant Schedule Lock',
-        body: 'Vehicle and driver time slots lock immediately on submission to prevent double-booking.',
-      },
-      {
-        tag: 'Mobile PWA',
-        title: 'Push Alerts & Reminders',
-        body: 'Enable push notifications to receive instant booking approvals, dispatch updates, and trip reminders.',
-      },
-    ];
-  }, [vehicles]);
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
   const pendingUsers = usersList.filter((u) => u.approval_status === 'PENDING_APPROVAL');
@@ -4370,7 +4345,7 @@ export function App() {
               <section className="gf-card-flat">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                   <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <UserCheck size={18} /> Pending Account Registrations ({pendingUsers.length})
+                    <UserCheck size={18} /> {t('Pending Account Registrations')} ({pendingUsers.length})
                   </h2>
                   <button
                     type="button"
@@ -4381,197 +4356,343 @@ export function App() {
                       await loadAllData(user);
                     }}
                   >
-                    <Bell size={16} /> Send Upcoming Push Reminders
+                    <Bell size={16} /> {t('Send Upcoming Push Reminders')}
                   </button>
                 </div>
 
                 {pendingUsers.length === 0 ? (
-                  <EmptyState message="All registered accounts have been reviewed." />
+                  <EmptyState message={t('All registered accounts have been reviewed.')} />
                 ) : (
-                  <div className="gf-table-wrap">
-                    <table className="gf-table">
-                      <thead>
-                        <tr>
-                          <th>Nickname</th>
-                          <th>Group Username</th>
-                          <th>Group</th>
-                          <th>Assign Role</th>
-                          <th>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {pendingUsers.map((u) => {
-                          const roleVal = pendingRoleSelections[u.id] || u.role || 'EMP';
-                          const groupVal = pendingGroupSelections[u.id] ?? u.department_id;
-                          return (
-                            <tr key={u.id}>
-                              <td style={{ fontWeight: 700 }}>{u.nickname}</td>
-                              <td className="mono">@{u.group_username}</td>
-                              <td>
-                                <select
-                                  className="gf-select notranslate"
-                                  translate="no"
-                                  aria-label={`Assign group for ${u.nickname}`}
-                                  style={{ minHeight: '38px', padding: '0 10px' }}
-                                  value={groupVal}
-                                  onChange={(e) =>
-                                    setPendingGroupSelections({ ...pendingGroupSelections, [u.id]: Number(e.target.value) })
-                                  }
-                                >
-                                  {(activeGroups.length > 0 ? activeGroups : groupsList).map((g) => (
-                                    <option key={g.id} value={g.id} className="notranslate" translate="no">
-                                      {g.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </td>
-                              <td>
-                                <select
-                                  className="gf-select"
-                                  style={{ minHeight: '38px', padding: '0 10px' }}
-                                  value={roleVal}
-                                  onChange={(e) => {
-                                    const nextRole = e.target.value;
-                                    setPendingRoleSelections({ ...pendingRoleSelections, [u.id]: nextRole });
-                                    if (nextRole === 'DRV' && driverGroupId) {
-                                      setPendingGroupSelections({ ...pendingGroupSelections, [u.id]: driverGroupId });
-                                    } else if (nextRole !== 'DRV' && groupVal === driverGroupId && u.department_id !== driverGroupId) {
-                                      setPendingGroupSelections({ ...pendingGroupSelections, [u.id]: u.department_id });
-                                    }
-                                  }}
-                                >
-                                  <option value="EMP">EMP (Employee)</option>
-                                  <option value="DRV">DRV (Driver)</option>
-                                  <option value="FM">FM (Fleet Operation PIC)</option>
-                                  <option value="HWS">HWS (Head Of WS Part)</option>
-                                  <option value="ADM">ADM (Admin)</option>
-                                </select>
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                  <button type="button" className="gf-btn gf-btn-primary" onClick={() => handleApproveUser(u.id, true, roleVal, groupVal)}>
-                                    Approve
-                                  </button>
-                                  <button type="button" className="gf-btn gf-btn-outline-danger" onClick={() => handleApproveUser(u.id, false, roleVal, groupVal)}>
-                                    Reject
-                                  </button>
-                                </div>
-                              </td>
+                  <>
+                    <div className="gf-desktop-only-table">
+                      <div className="gf-table-wrap">
+                        <table className="gf-table">
+                          <thead>
+                            <tr>
+                              <th>Nickname</th>
+                              <th>Group Username</th>
+                              <th>Group</th>
+                              <th>Assign Role</th>
+                              <th>Action</th>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                          </thead>
+                          <tbody>
+                            {pendingUsers.map((u) => {
+                              const roleVal = pendingRoleSelections[u.id] || u.role || 'EMP';
+                              const groupVal = pendingGroupSelections[u.id] ?? u.department_id;
+                              return (
+                                <tr key={u.id}>
+                                  <td style={{ fontWeight: 700 }}>{u.nickname}</td>
+                                  <td className="mono">@{u.group_username}</td>
+                                  <td>
+                                    <select
+                                      className="gf-select notranslate"
+                                      translate="no"
+                                      aria-label={`Assign group for ${u.nickname}`}
+                                      style={{ minHeight: '38px', padding: '0 10px' }}
+                                      value={groupVal}
+                                      onChange={(e) =>
+                                        setPendingGroupSelections({ ...pendingGroupSelections, [u.id]: Number(e.target.value) })
+                                      }
+                                    >
+                                      {(activeGroups.length > 0 ? activeGroups : groupsList).map((g) => (
+                                        <option key={g.id} value={g.id} className="notranslate" translate="no">
+                                          {g.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                  <td>
+                                    <select
+                                      className="gf-select"
+                                      style={{ minHeight: '38px', padding: '0 10px' }}
+                                      value={roleVal}
+                                      onChange={(e) => {
+                                        const nextRole = e.target.value;
+                                        setPendingRoleSelections({ ...pendingRoleSelections, [u.id]: nextRole });
+                                        if (nextRole === 'DRV' && driverGroupId) {
+                                          setPendingGroupSelections({ ...pendingGroupSelections, [u.id]: driverGroupId });
+                                        } else if (nextRole !== 'DRV' && groupVal === driverGroupId && u.department_id !== driverGroupId) {
+                                          setPendingGroupSelections({ ...pendingGroupSelections, [u.id]: u.department_id });
+                                        }
+                                      }}
+                                    >
+                                      <option value="EMP">EMP (Employee)</option>
+                                      <option value="DRV">DRV (Driver)</option>
+                                      <option value="FM">FM (Fleet Operation PIC)</option>
+                                      <option value="HWS">HWS (Head Of WS Part)</option>
+                                      <option value="ADM">ADM (Admin)</option>
+                                    </select>
+                                  </td>
+                                  <td>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                      <button type="button" className="gf-btn gf-btn-primary" onClick={() => handleApproveUser(u.id, true, roleVal, groupVal)}>
+                                        Approve
+                                      </button>
+                                      <button type="button" className="gf-btn gf-btn-outline-danger" onClick={() => handleApproveUser(u.id, false, roleVal, groupVal)}>
+                                        Reject
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="gf-mobile-only-cards">
+                      {pendingUsers.map((u) => {
+                        const roleVal = pendingRoleSelections[u.id] || u.role || 'EMP';
+                        const groupVal = pendingGroupSelections[u.id] ?? u.department_id;
+                        return (
+                          <div key={u.id} className="gf-proto-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontWeight: 800, fontSize: '14.5px' }}>{u.nickname}</span>
+                              <span className="mono type-caption">@{u.group_username}</span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                              <select
+                                className="gf-select notranslate"
+                                translate="no"
+                                aria-label={`Mobile group for ${u.nickname}`}
+                                style={{ minHeight: '36px', padding: '0 8px', fontSize: '12.5px' }}
+                                value={groupVal}
+                                onChange={(e) =>
+                                  setPendingGroupSelections({ ...pendingGroupSelections, [u.id]: Number(e.target.value) })
+                                }
+                              >
+                                {(activeGroups.length > 0 ? activeGroups : groupsList).map((g) => (
+                                  <option key={g.id} value={g.id} className="notranslate" translate="no">
+                                    {g.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                className="gf-select"
+                                aria-label={`Mobile role for ${u.nickname}`}
+                                style={{ minHeight: '36px', padding: '0 8px', fontSize: '12.5px' }}
+                                value={roleVal}
+                                onChange={(e) => {
+                                  const nextRole = e.target.value;
+                                  setPendingRoleSelections({ ...pendingRoleSelections, [u.id]: nextRole });
+                                  if (nextRole === 'DRV' && driverGroupId) {
+                                    setPendingGroupSelections({ ...pendingGroupSelections, [u.id]: driverGroupId });
+                                  } else if (nextRole !== 'DRV' && groupVal === driverGroupId && u.department_id !== driverGroupId) {
+                                    setPendingGroupSelections({ ...pendingGroupSelections, [u.id]: u.department_id });
+                                  }
+                                }}
+                              >
+                                <option value="EMP">EMP</option>
+                                <option value="DRV">DRV</option>
+                                <option value="FM">FM</option>
+                                <option value="HWS">HWS</option>
+                                <option value="ADM">ADM</option>
+                              </select>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button type="button" className="gf-proto-btn gf-proto-btn-s pressable" style={{ flex: 1 }} onClick={() => handleApproveUser(u.id, true, roleVal, groupVal)}>
+                                Approve
+                              </button>
+                              <button type="button" className="gf-proto-btn gf-proto-btn-r gf-proto-btn-s pressable" style={{ flex: 1 }} onClick={() => handleApproveUser(u.id, false, roleVal, groupVal)}>
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
               </section>
 
               <section className="gf-card-flat">
                 <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                  <ShieldCheck size={18} /> Vehicle Bookings & Dispatch Queue ({trips.length})
+                  <ShieldCheck size={18} /> {t('Vehicle Bookings & Dispatch Queue')} ({trips.length})
                 </h2>
                 {trips.length === 0 ? (
-                  <EmptyState message="No vehicle bookings submitted yet." />
+                  <EmptyState message={t('No vehicle bookings submitted yet.')} />
                 ) : (
-                  <div className="gf-table-wrap">
-                    <table className="gf-table">
-                      <thead>
-                        <tr>
-                          <th>ID & Purpose</th>
-                          <th>Requester & Group</th>
-                          <th>Window</th>
-                          <th>Vehicle & Driver</th>
-                          <th>Status</th>
-                          <th>Control</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {trips.map((t) => (
-                          <tr key={t.id}>
-                            <td>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                                <span style={{ fontWeight: 700 }}>#{t.id} — {t.purpose}</span>
-                                {t.is_urgent === 1 && (
-                                  <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', whiteSpace: 'nowrap' }}>
-                                    🚨 URGENT (&lt; 2h)
-                                  </span>
-                                )}
-                                {formatReservationModeLabel(t.reservation_type, t.return_pickup_time) && (
-                                  <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #bfdbfe', whiteSpace: 'nowrap' }}>
-                                    {formatReservationModeLabel(t.reservation_type, t.return_pickup_time)}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="type-caption">{t.origin} → {t.destination} ({t.passenger_count} pax)</div>
-                              {t.urgent_reason && (
-                                <div className="type-caption" style={{ color: '#b91c1c', fontStyle: 'italic', marginTop: '2px' }}>
-                                  Urgent Reason: {t.urgent_reason}
-                                </div>
-                              )}
-                            </td>
-                            <td>
-                              <div style={{ fontWeight: 600 }}>{t.requester_name}</div>
-                              <div className="type-caption">{t.department_name}</div>
-                            </td>
-                            <td className="mono type-caption">
-                              <div>{new Date(t.start_time).toLocaleString()}</div>
-                              <div>{new Date(t.end_time).toLocaleTimeString()}</div>
-                              {t.reservation_type === 'DROP_AND_PICKUP' && t.return_pickup_time && (
-                                <div style={{ color: '#005bb5', fontWeight: 700, marginTop: '2px' }}>
-                                  Pick-Up: {new Date(t.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </div>
-                              )}
-                            </td>
-                            <td>
-                              <div style={{ fontWeight: 700 }}>{t.registration_plate}</div>
-                              <div className="type-caption">Driver: {t.assigned_driver_name || 'Unassigned'}</div>
-                            </td>
-                            <td>
-                              <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />
-                              {t.status === 'PENDING_APPROVAL' && t.is_urgent === 1 && (
-                                <div style={{ marginTop: '3px', fontSize: '11px', fontWeight: 700, color: '#dc2626' }}>
-                                  ⚠️ Requires Fleet Operation PIC Urgent Approval
-                                </div>
-                              )}
-                              {t.status === 'PENDING_APPROVAL' && t.requires_dual_approval && (
-                                <div style={{ marginTop: '4px', fontSize: '11px', fontWeight: 600 }}>
-                                  {t.pic_approved && !t.hws_approved ? (
-                                    <span style={{ color: '#0072de' }}>✓ PIC Approved • Awaiting Head Of WS Part</span>
-                                  ) : t.hws_approved && !t.pic_approved ? (
-                                    <span style={{ color: '#005bb5' }}>✓ Head Of WS Part Approved • Awaiting PIC</span>
-                                  ) : (
-                                    <span style={{ color: '#d97706' }}>⏳ Pending PIC & Head Of WS Part</span>
+                  <>
+                    <div className="gf-desktop-only-table">
+                      <div className="gf-table-wrap">
+                        <table className="gf-table">
+                          <thead>
+                            <tr>
+                              <th>ID & Purpose</th>
+                              <th>Requester & Group</th>
+                              <th>Window</th>
+                              <th>Vehicle & Driver</th>
+                              <th>Status</th>
+                              <th>Control</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {trips.map((t) => (
+                              <tr key={t.id}>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                    <span style={{ fontWeight: 700 }}>#{t.id} — {t.purpose}</span>
+                                    {t.is_urgent === 1 && (
+                                      <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', whiteSpace: 'nowrap' }}>
+                                        🚨 URGENT (&lt; 2h)
+                                      </span>
+                                    )}
+                                    {formatReservationModeLabel(t.reservation_type, t.return_pickup_time) && (
+                                      <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #bfdbfe', whiteSpace: 'nowrap' }}>
+                                        {formatReservationModeLabel(t.reservation_type, t.return_pickup_time)}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="type-caption">{t.origin} → {t.destination} ({t.passenger_count} pax)</div>
+                                  {t.urgent_reason && (
+                                    <div className="type-caption" style={{ color: '#b91c1c', fontStyle: 'italic', marginTop: '2px' }}>
+                                      Urgent Reason: {t.urgent_reason}
+                                    </div>
                                   )}
-                                </div>
+                                </td>
+                                <td>
+                                  <div style={{ fontWeight: 600 }}>{t.requester_name}</div>
+                                  <div className="type-caption">{t.department_name}</div>
+                                </td>
+                                <td className="mono type-caption">
+                                  <div>{new Date(t.start_time).toLocaleString()}</div>
+                                  <div>{new Date(t.end_time).toLocaleTimeString()}</div>
+                                  {t.reservation_type === 'DROP_AND_PICKUP' && t.return_pickup_time && (
+                                    <div style={{ color: '#005bb5', fontWeight: 700, marginTop: '2px' }}>
+                                      Pick-Up: {new Date(t.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                  )}
+                                </td>
+                                <td>
+                                  <div style={{ fontWeight: 700 }}>{t.registration_plate}</div>
+                                  <div className="type-caption">Driver: {t.assigned_driver_name || 'Unassigned'}</div>
+                                </td>
+                                <td>
+                                  <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />
+                                  {t.status === 'PENDING_APPROVAL' && t.is_urgent === 1 && (
+                                    <div style={{ marginTop: '3px', fontSize: '11px', fontWeight: 700, color: '#dc2626' }}>
+                                      ⚠️ Requires Fleet Operation PIC Urgent Approval
+                                    </div>
+                                  )}
+                                  {t.status === 'PENDING_APPROVAL' && t.requires_dual_approval && (
+                                    <div style={{ marginTop: '4px', fontSize: '11px', fontWeight: 600 }}>
+                                      {t.pic_approved && !t.hws_approved ? (
+                                        <span style={{ color: '#0072de' }}>✓ PIC Approved • Awaiting Head Of WS Part</span>
+                                      ) : t.hws_approved && !t.pic_approved ? (
+                                        <span style={{ color: '#005bb5' }}>✓ Head Of WS Part Approved • Awaiting PIC</span>
+                                      ) : (
+                                        <span style={{ color: '#d97706' }}>⏳ Pending PIC & Head Of WS Part</span>
+                                      )}
+                                    </div>
+                                  )}
+                                </td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    className="gf-btn gf-btn-primary"
+                                    onClick={() => {
+                                      setDispatchModalTrip(t);
+                                      setDispatchVehicleId(t.vehicle_id);
+                                      const defaultDrv = t.driver_profile_id || t.preferred_driver_id || drivers[0]?.id || '';
+                                      setDispatchDriverId(defaultDrv ? String(defaultDrv) : '');
+                                      setDispatchDecisionReason('');
+                                    }}
+                                  >
+                                    {t.status === 'PENDING_APPROVAL' ? 'Review & Dispatch' : 'Manage'}
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="gf-mobile-only-cards">
+                      {trips.map((tr) => (
+                        <div key={tr.id} className="gf-proto-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 800, fontSize: '14px' }}>#{tr.id} — {tr.purpose}</span>
+                            <StatusBadge label={tr.status} tone={toneFromStatus(tr.status)} />
+                          </div>
+
+                          {(tr.is_urgent === 1 || formatReservationModeLabel(tr.reservation_type, tr.return_pickup_time)) && (
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                              {tr.is_urgent === 1 && (
+                                <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca' }}>
+                                  🚨 URGENT (&lt; 2h)
+                                </span>
                               )}
-                            </td>
-                            <td>
-                              <button
-                                type="button"
-                                className="gf-btn gf-btn-primary"
-                                onClick={() => {
-                                  setDispatchModalTrip(t);
-                                  setDispatchVehicleId(t.vehicle_id);
-                                  const defaultDrv = t.driver_profile_id || t.preferred_driver_id || drivers[0]?.id || '';
-                                  setDispatchDriverId(defaultDrv ? String(defaultDrv) : '');
-                                  setDispatchDecisionReason('');
-                                }}
-                              >
-                                {t.status === 'PENDING_APPROVAL' ? 'Review & Dispatch' : 'Manage'}
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                              {formatReservationModeLabel(tr.reservation_type, tr.return_pickup_time) && (
+                                <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #bfdbfe' }}>
+                                  {formatReservationModeLabel(tr.reservation_type, tr.return_pickup_time)}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span className="gf-proto-pn" />
+                            <span style={{ fontSize: '13px', fontWeight: 600 }}>{tr.origin}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span className="gf-proto-od" />
+                            <span style={{ fontSize: '13px', fontWeight: 600 }}>{tr.destination}</span>
+                          </div>
+
+                          <div className="type-caption">
+                            {new Date(tr.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} – {new Date(tr.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {tr.passenger_count} pax · {tr.requester_name} ({tr.department_name})
+                          </div>
+
+                          {tr.urgent_reason && (
+                            <div className="type-caption" style={{ color: '#b91c1c', fontStyle: 'italic' }}>
+                              Urgent Reason: {tr.urgent_reason}
+                            </div>
+                          )}
+
+                          {tr.status === 'PENDING_APPROVAL' && tr.requires_dual_approval && (
+                            <div style={{ fontSize: '11.5px', fontWeight: 600 }}>
+                              {tr.pic_approved && !tr.hws_approved ? (
+                                <span style={{ color: '#0072de' }}>✓ PIC Approved • Awaiting Head Of WS Part</span>
+                              ) : tr.hws_approved && !tr.pic_approved ? (
+                                <span style={{ color: '#005bb5' }}>✓ Head Of WS Part Approved • Awaiting PIC</span>
+                              ) : (
+                                <span style={{ color: '#d97706' }}>⏳ Pending PIC & Head Of WS Part</span>
+                              )}
+                            </div>
+                          )}
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', paddingTop: '6px', borderTop: '1px solid var(--color-divider)' }}>
+                            <div className="type-caption">
+                              <strong className="mono">{tr.registration_plate || 'Pool'}</strong> · Driver: {tr.assigned_driver_name || 'Unassigned'}
+                            </div>
+                            <button
+                              type="button"
+                              className="gf-proto-btn gf-proto-btn-s pressable"
+                              onClick={() => {
+                                setDispatchModalTrip(tr);
+                                setDispatchVehicleId(tr.vehicle_id);
+                                const defaultDrv = tr.driver_profile_id || tr.preferred_driver_id || drivers[0]?.id || '';
+                                setDispatchDriverId(defaultDrv ? String(defaultDrv) : '');
+                                setDispatchDecisionReason('');
+                              }}
+                            >
+                              {tr.status === 'PENDING_APPROVAL' ? t('Review & Dispatch') : t('Manage')}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
                 )}
               </section>
 
               <section className="gf-card-flat">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                   <div>
-                    <h2 className="type-section">User Registry & Account Management ({usersList.length})</h2>
+                    <h2 className="type-section">{t('User Registry & Account Management')} ({usersList.length})</h2>
                     <p className="type-caption">Create approved accounts, assign groups (including Driver groups), deactivate/activate, or delete users</p>
                   </div>
                 </div>
@@ -4636,7 +4757,7 @@ export function App() {
                     <option value="ADM">ADM (Admin)</option>
                   </select>
                   <button type="submit" className="gf-btn gf-btn-primary">
-                    <Plus size={16} /> Create User
+                    <Plus size={16} /> {t('Create User')}
                   </button>
                 </form>
 
@@ -4665,47 +4786,148 @@ export function App() {
                   />
                 </div>
 
-                <div className="gf-table-wrap">
-                  <table className="gf-table">
-                    <thead>
-                      <tr>
-                        <th>Nickname & Username</th>
-                        <th>Group (Department)</th>
-                        <th>Role</th>
-                        <th>Status</th>
-                        <th>Actions (Approve / Deactivate / Delete)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {usersList
-                        .filter((u) => {
-                          if (userFilterTab === 'PENDING' && u.approval_status !== 'PENDING_APPROVAL') return false;
-                          if (userFilterTab === 'DRIVERS' && u.role !== 'DRV') return false;
-                          if (userFilterTab === 'INACTIVE' && u.is_active !== 0) return false;
-                          if (userSearchQuery.trim()) {
-                            const q = userSearchQuery.trim().toLowerCase();
-                            return (
-                              String(u.nickname || '').toLowerCase().includes(q) ||
-                              String(u.group_username || '').toLowerCase().includes(q) ||
-                              String(u.department_name || '').toLowerCase().includes(q)
-                            );
-                          }
-                          return true;
-                        })
-                        .map((u) => {
+                {(() => {
+                  const filteredRegistryUsers = usersList.filter((u) => {
+                    if (userFilterTab === 'PENDING' && u.approval_status !== 'PENDING_APPROVAL') return false;
+                    if (userFilterTab === 'DRIVERS' && u.role !== 'DRV') return false;
+                    if (userFilterTab === 'INACTIVE' && u.is_active !== 0) return false;
+                    if (userSearchQuery.trim()) {
+                      const q = userSearchQuery.trim().toLowerCase();
+                      return (
+                        String(u.nickname || '').toLowerCase().includes(q) ||
+                        String(u.group_username || '').toLowerCase().includes(q) ||
+                        String(u.department_name || '').toLowerCase().includes(q)
+                      );
+                    }
+                    return true;
+                  });
+
+                  return (
+                    <>
+                      <div className="gf-desktop-only-table">
+                        <div className="gf-table-wrap">
+                          <table className="gf-table">
+                            <thead>
+                              <tr>
+                                <th>Nickname & Username</th>
+                                <th>Group (Department)</th>
+                                <th>Role</th>
+                                <th>Status</th>
+                                <th>Actions (Approve / Deactivate / Delete)</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filteredRegistryUsers.map((u) => {
+                                const isSelf = u.id === user.id;
+                                return (
+                                  <tr key={u.id} style={{ opacity: u.is_active === 0 ? 0.65 : 1 }}>
+                                    <td>
+                                      <div style={{ fontWeight: 700 }}>{u.nickname}</div>
+                                      <div className="mono type-caption">@{u.group_username}</div>
+                                    </td>
+                                    <td>
+                                      <select
+                                        className="gf-select notranslate"
+                                        translate="no"
+                                        style={{ minHeight: '36px', padding: '0 8px' }}
+                                        aria-label={`Group for ${u.nickname}`}
+                                        value={u.department_id}
+                                        onChange={(e) => handleUpdateUserRoleOrGroup(u.id, { department_id: Number(e.target.value) })}
+                                      >
+                                        {activeGroups.map((g) => (
+                                          <option key={g.id} value={g.id} className="notranslate" translate="no">
+                                            {g.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </td>
+                                    <td>
+                                      <select
+                                        className="gf-select"
+                                        style={{ minHeight: '36px', padding: '0 8px' }}
+                                        aria-label={`Role for ${u.nickname}`}
+                                        value={u.role}
+                                        onChange={(e) => handleUpdateUserRoleOrGroup(u.id, { role: e.target.value })}
+                                      >
+                                        <option value="EMP">EMP (Employee)</option>
+                                        <option value="DRV">DRV (Driver)</option>
+                                        <option value="FM">FM (Fleet Operation PIC)</option>
+                                        <option value="HWS">HWS (Head Of WS Part)</option>
+                                        <option value="ADM">ADM (Admin)</option>
+                                      </select>
+                                    </td>
+                                    <td>
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                                        <StatusBadge label={u.approval_status} tone={toneFromStatus(u.approval_status)} />
+                                        <StatusBadge label={u.is_active === 1 ? 'Active' : 'Deactivated'} tone={u.is_active === 1 ? 'green' : 'red'} />
+                                      </div>
+                                    </td>
+                                    <td>
+                                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                        {u.approval_status !== 'APPROVED' && (
+                                          <button
+                                            type="button"
+                                            className="gf-btn gf-btn-primary"
+                                            style={{ minHeight: '34px', padding: '0 10px' }}
+                                            onClick={() => handleApproveUser(u.id, true, u.role, u.department_id)}
+                                          >
+                                            Approve
+                                          </button>
+                                        )}
+                                        <button
+                                          id={`toggle-user-active-${u.id}`}
+                                          type="button"
+                                          className="gf-btn gf-btn-secondary"
+                                          style={{ minHeight: '34px', padding: '0 10px' }}
+                                          disabled={isSelf}
+                                          onClick={() => handleToggleUserActive(u)}
+                                          title={u.is_active === 1 ? 'Deactivate user account' : 'Reactivate user account'}
+                                        >
+                                          <Power size={14} /> {u.is_active === 1 ? t('Deactivate') : t('Activate')}
+                                        </button>
+                                        <button
+                                          id={`delete-user-${u.id}`}
+                                          type="button"
+                                          className="gf-btn gf-btn-outline-danger"
+                                          style={{ minHeight: '34px', padding: '0 10px' }}
+                                          disabled={isSelf}
+                                          onClick={() => handleDeleteUser(u)}
+                                          title="Permanently delete user account"
+                                        >
+                                          <Trash2 size={14} /> Delete
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="gf-mobile-only-cards">
+                        {filteredRegistryUsers.map((u) => {
                           const isSelf = u.id === user.id;
                           return (
-                            <tr key={u.id} style={{ opacity: u.is_active === 0 ? 0.65 : 1 }}>
-                              <td>
-                                <div style={{ fontWeight: 700 }}>{u.nickname}</div>
-                                <div className="mono type-caption">@{u.group_username}</div>
-                              </td>
-                              <td>
+                            <div key={u.id} className="gf-proto-card" style={{ opacity: u.is_active === 0 ? 0.65 : 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                                <div>
+                                  <div style={{ fontWeight: 800, fontSize: '14.5px' }}>{u.nickname}</div>
+                                  <div className="mono type-caption">@{u.group_username}</div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                  <StatusBadge label={u.approval_status} tone={toneFromStatus(u.approval_status)} />
+                                  <StatusBadge label={u.is_active === 1 ? 'Active' : 'Deactivated'} tone={u.is_active === 1 ? 'blue' : 'red'} />
+                                </div>
+                              </div>
+
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                                 <select
                                   className="gf-select notranslate"
                                   translate="no"
-                                  style={{ minHeight: '36px', padding: '0 8px' }}
-                                  aria-label={`Group for ${u.nickname}`}
+                                  style={{ minHeight: '36px', padding: '0 8px', fontSize: '12.5px' }}
+                                  aria-label={`Mobile group for ${u.nickname}`}
                                   value={u.department_id}
                                   onChange={(e) => handleUpdateUserRoleOrGroup(u.id, { department_id: Number(e.target.value) })}
                                 >
@@ -4715,70 +4937,57 @@ export function App() {
                                     </option>
                                   ))}
                                 </select>
-                              </td>
-                              <td>
                                 <select
                                   className="gf-select"
-                                  style={{ minHeight: '36px', padding: '0 8px' }}
-                                  aria-label={`Role for ${u.nickname}`}
+                                  style={{ minHeight: '36px', padding: '0 8px', fontSize: '12.5px' }}
+                                  aria-label={`Mobile role for ${u.nickname}`}
                                   value={u.role}
                                   onChange={(e) => handleUpdateUserRoleOrGroup(u.id, { role: e.target.value })}
                                 >
-                                  <option value="EMP">EMP (Employee)</option>
-                                  <option value="DRV">DRV (Driver)</option>
-                                  <option value="FM">FM (Fleet Operation PIC)</option>
-                                  <option value="HWS">HWS (Head Of WS Part)</option>
-                                  <option value="ADM">ADM (Admin)</option>
+                                  <option value="EMP">EMP</option>
+                                  <option value="DRV">DRV</option>
+                                  <option value="FM">FM</option>
+                                  <option value="HWS">HWS</option>
+                                  <option value="ADM">ADM</option>
                                 </select>
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
-                                  <StatusBadge label={u.approval_status} tone={toneFromStatus(u.approval_status)} />
-                                  <StatusBadge label={u.is_active === 1 ? 'Active' : 'Deactivated'} tone={u.is_active === 1 ? 'green' : 'red'} />
-                                </div>
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                  {u.approval_status !== 'APPROVED' && (
-                                    <button
-                                      type="button"
-                                      className="gf-btn gf-btn-primary"
-                                      style={{ minHeight: '34px', padding: '0 10px' }}
-                                      onClick={() => handleApproveUser(u.id, true, u.role, u.department_id)}
-                                    >
-                                      Approve
-                                    </button>
-                                  )}
+                              </div>
+
+                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                {u.approval_status !== 'APPROVED' && (
                                   <button
-                                    id={`toggle-user-active-${u.id}`}
                                     type="button"
-                                    className="gf-btn gf-btn-secondary"
-                                    style={{ minHeight: '34px', padding: '0 10px' }}
-                                    disabled={isSelf}
-                                    onClick={() => handleToggleUserActive(u)}
-                                    title={u.is_active === 1 ? 'Deactivate user account' : 'Reactivate user account'}
+                                    className="gf-proto-btn gf-proto-btn-s pressable"
+                                    onClick={() => handleApproveUser(u.id, true, u.role, u.department_id)}
                                   >
-                                    <Power size={14} /> {u.is_active === 1 ? 'Deactivate' : 'Activate'}
+                                    Approve
                                   </button>
-                                  <button
-                                    id={`delete-user-${u.id}`}
-                                    type="button"
-                                    className="gf-btn gf-btn-outline-danger"
-                                    style={{ minHeight: '34px', padding: '0 10px' }}
-                                    disabled={isSelf}
-                                    onClick={() => handleDeleteUser(u)}
-                                    title="Permanently delete user account"
-                                  >
-                                    <Trash2 size={14} /> Delete
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
+                                )}
+                                <button
+                                  id={`mobile-toggle-user-active-${u.id}`}
+                                  type="button"
+                                  className="gf-proto-btn gf-proto-btn-o gf-proto-btn-s pressable"
+                                  disabled={isSelf}
+                                  onClick={() => handleToggleUserActive(u)}
+                                >
+                                  <Power size={13} /> {u.is_active === 1 ? t('Deactivate') : t('Activate')}
+                                </button>
+                                <button
+                                  id={`mobile-delete-user-${u.id}`}
+                                  type="button"
+                                  className="gf-proto-btn gf-proto-btn-r gf-proto-btn-s pressable"
+                                  disabled={isSelf}
+                                  onClick={() => handleDeleteUser(u)}
+                                >
+                                  <Trash2 size={13} /> Delete
+                                </button>
+                              </div>
+                            </div>
                           );
                         })}
-                    </tbody>
-                  </table>
-                </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </section>
             </>
           )}
@@ -6344,176 +6553,20 @@ export function App() {
       );
 
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {feedbackBanner}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <div>
-              <h1 className="type-title">{t('Driver Dispatch')}</h1>
-              <p className="type-caption">
-                {user.department_name || t('Company Driver')} • {t('Driver duty console & car operational schedule')}
+              <h1 className="type-title" style={{ fontSize: '20px', margin: 0 }}>{t('Driver Dispatch')}</h1>
+              <p className="type-caption" style={{ margin: '2px 0 0' }}>
+                {user.department_name || t('Company Driver')} • {t('Driver dispatch console')}
               </p>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <LanguageSwitcher compact />
-              <StatusBadge label={driverCheckedInReady ? t('Online & Checked In') : t('Offline / Standby')} tone={driverCheckedInReady ? 'green' : 'amber'} />
-              <button
-                type="button"
-                className="gf-btn gf-btn-secondary"
-                style={{ minHeight: '38px', padding: '0 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                onClick={handleOpenProfileModal}
-                aria-label={t('Profile')}
-                title={t('Profile')}
-              >
-                <User size={16} /> {t('Profile')}
-              </button>
-              <button
-                type="button"
-                className="gf-btn gf-btn-outline-danger"
-                style={{ minHeight: '38px', padding: '0 10px' }}
-                onClick={handleLogout}
-                aria-label={t('Sign Out')}
-                title={t('Sign Out')}
-              >
-                <LogOut size={16} /> {t('Sign Out')}
-              </button>
+              <StatusBadge label={driverCheckedInReady ? t('Online & Checked In') : t('Offline / Standby')} tone={driverCheckedInReady ? 'blue' : 'amber'} />
             </div>
           </div>
-
-          {/* Driver Profile & Photo Card */}
-          {(() => {
-            const myDriver = drivers.find((d) => d.user_id === user.id || d.full_name.toLowerCase() === (user.nickname || '').toLowerCase());
-            const photoSrc = myDriver?.photo_url || getDriverAvatarDataUri(user.nickname || 'Driver');
-            return (
-              <div
-                style={{
-                  padding: '14px 16px',
-                  borderRadius: 'var(--radius-card)',
-                  background: 'var(--color-bg-surface)',
-                  border: '1.5px solid var(--color-border)',
-                  boxShadow: 'var(--shadow-card)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  flexWrap: 'wrap',
-                  gap: '14px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <div style={{ position: 'relative', width: '56px', height: '56px', flexShrink: 0 }}>
-                    <img
-                      src={photoSrc}
-                      alt={user.nickname}
-                      style={{
-                        width: '56px',
-                        height: '56px',
-                        borderRadius: '50%',
-                        objectFit: 'cover',
-                        border: '2.5px solid var(--color-samsung-blue)',
-                        background: '#f1f5f9',
-                      }}
-                    />
-                    <label
-                      title="Upload new driver photo"
-                      style={{
-                        position: 'absolute',
-                        bottom: 0,
-                        right: 0,
-                        width: '22px',
-                        height: '22px',
-                        borderRadius: '50%',
-                        background: 'var(--color-samsung-blue)',
-                        color: '#fff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.25)',
-                      }}
-                    >
-                      <Camera size={12} />
-                      <input
-                        type="file"
-                        accept="image/*"
-                        style={{ display: 'none' }}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onload = async (ev) => {
-                              const base64 = String(ev.target?.result || '');
-                              try {
-                                await apiRequest('/api/driver/profile/photo', {
-                                  method: 'POST',
-                                  body: JSON.stringify({ photo_url: base64 }),
-                                });
-                                setStatusBanner({ type: 'success', text: 'Driver profile photo updated successfully!' });
-                                await loadAllData(user);
-                              } catch (err: any) {
-                                setStatusBanner({ type: 'danger', text: err.message });
-                              }
-                            };
-                            reader.readAsDataURL(file);
-                          }
-                        }}
-                      />
-                    </label>
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: '15px', color: 'var(--color-fg-primary)' }}>
-                      {user.nickname} <span className="mono" style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>@{user.group_username}</span>
-                    </div>
-                    <div className="type-caption" style={{ fontSize: '12.5px', display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
-                      <span>SIM: <strong>{myDriver?.licence_number || 'Registered'}</strong> (Class {myDriver?.licence_class || 'A'})</span>
-                      {myDriver?.contact_number && <span>• Tel: <strong>{myDriver.contact_number}</strong></span>}
-                      <span>• Group: <strong>{user.department_name || 'Fleet'}</strong></span>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    className="gf-btn gf-btn-secondary"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', minHeight: '34px', fontSize: '12.5px' }}
-                    onClick={handleOpenProfileModal}
-                  >
-                    <User size={14} /> Edit Profile & Password
-                  </button>
-                  <label
-                    className="gf-btn gf-btn-secondary"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0, minHeight: '34px', fontSize: '12.5px' }}
-                  >
-                    <Camera size={14} /> Update Photo
-                    <input
-                      type="file"
-                      accept="image/*"
-                      style={{ display: 'none' }}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onload = async (ev) => {
-                            const base64 = String(ev.target?.result || '');
-                            try {
-                              await apiRequest('/api/driver/profile/photo', {
-                                method: 'POST',
-                                body: JSON.stringify({ photo_url: base64 }),
-                              });
-                              setStatusBanner({ type: 'success', text: 'Driver profile photo updated successfully!' });
-                              await loadAllData(user);
-                            } catch (err: any) {
-                              setStatusBanner({ type: 'danger', text: err.message });
-                            }
-                          };
-                          reader.readAsDataURL(file);
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              </div>
-            );
-          })()}
 
           {/* Subtabs for Driver: Duty & Trips vs Car Schedule */}
           <div className="gf-underline-tabs" role="tablist" aria-label="Driver subtabs">
@@ -6542,31 +6595,30 @@ export function App() {
           {/* Dedicated Car Card */}
           {dedicatedCar && (
             <div
+              className="gf-proto-card"
               style={{
-                padding: '12px 14px',
-                borderRadius: 'var(--radius-card)',
-                background: 'var(--color-bg-subtle)',
-                border: '1.5px solid var(--color-green)',
+                borderColor: 'var(--color-samsung-blue)',
+                background: 'var(--color-samsung-blue-tint)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 gap: '12px',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div className="gf-circle-icon is-green" style={{ width: 34, height: 34 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                <div className="gf-circle-icon" style={{ width: 34, height: 34, background: '#0072de', color: '#ffffff', flexShrink: 0 }}>
                   <Car size={18} />
                 </div>
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <div className="type-body" style={{ fontWeight: 800, fontSize: '14px' }}>
                     {dedicatedCar.make} {dedicatedCar.model} • <span className="mono">{dedicatedCar.registration_plate}</span>
                   </div>
                   <div className="type-caption" style={{ fontSize: '12px' }}>
-                    Assigned Dedicated Car • {dedicatedCar.energy_type} • Odo: {dedicatedCar.current_odometer} km
+                    {t('Assigned Dedicated Car')} • {dedicatedCar.energy_type} • Odo: {dedicatedCar.current_odometer} km
                   </div>
                 </div>
               </div>
-              <StatusBadge label={dedicatedCar.status} tone={dedicatedCar.status === 'Available' ? 'green' : 'amber'} />
+              <StatusBadge label={dedicatedCar.status} tone={dedicatedCar.status === 'Available' ? 'blue' : 'amber'} />
             </div>
           )}
 
@@ -6797,13 +6849,12 @@ export function App() {
             </div>
           ) : (
             <>
-              {/* Gojek-Style Driver Duty Confirmation & Location Check-In Card */}
+              {/* Driver Duty Confirmation & Location Check-In Card */}
               <div
+                className="gf-proto-card"
                 style={{
-                  padding: '16px',
-                  borderRadius: 'var(--radius-card)',
-                  background: driverCheckedInReady ? 'var(--color-green-tint)' : 'var(--color-bg-subtle)',
-                  border: `1.5px solid ${driverCheckedInReady ? 'var(--color-green)' : 'var(--color-border)'}`,
+                  borderColor: driverCheckedInReady ? 'var(--color-samsung-blue)' : 'var(--color-divider)',
+                  background: driverCheckedInReady ? 'var(--color-samsung-blue-tint)' : 'var(--color-bg-surface)',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '10px',
@@ -6811,9 +6862,9 @@ export function App() {
               >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
               <div className="type-body" style={{ fontWeight: 700 }}>
-                {driverCheckedInReady ? 'Ready to Drive — Duty Active' : 'Step 1: Confirm Ready to Drive & Work'}
+                {driverCheckedInReady ? t('Ready for Duty') : t('Step 1: Confirm Ready to Drive & Work')}
               </div>
-              <StatusBadge label={driverCheckedInReady ? 'Verified' : 'Required'} tone={driverCheckedInReady ? 'green' : 'amber'} />
+              <StatusBadge label={driverCheckedInReady ? 'Verified' : 'Required'} tone={driverCheckedInReady ? 'blue' : 'amber'} />
             </div>
             <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
               Before starting any assigned operational trip, please confirm you are on duty and send your current check-in location to dispatch.
@@ -6852,10 +6903,10 @@ export function App() {
                   onClick={() => {
                     setGpsReportingActive(false);
                     setGpsNoticeAccepted(false);
-                    setStatusBanner({ type: 'info', text: 'Switched to Standby / Off-Duty.' });
+                    setStatusBanner({ type: 'info', text: t('Status updated to Offline') });
                   }}
                 >
-                  Go Offline
+                  {t('Go Offline')}
                 </button>
               </div>
             )}
@@ -6866,7 +6917,7 @@ export function App() {
             )}
           </div>
 
-          <h2 className="type-section">Assigned Trips ({dispatches.length})</h2>
+          <h2 className="type-section">{t('Assigned Trips')} ({dispatches.length})</h2>
           {loadingData ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <Skeleton height={84} />
@@ -6884,18 +6935,17 @@ export function App() {
                 return (
                   <div
                     key={d.assignment_id}
+                    className="gf-proto-card"
                     style={{
-                      padding: '16px',
-                      borderRadius: 'var(--radius-card)',
-                      border: `1px solid ${isInProgress ? 'var(--color-green)' : 'var(--color-divider)'}`,
-                      background: isInProgress ? 'var(--color-green-tint)' : 'var(--color-bg-surface)',
+                      borderColor: isInProgress ? 'var(--color-samsung-blue)' : 'var(--color-divider)',
+                      background: isInProgress ? 'var(--color-samsung-blue-tint)' : 'var(--color-bg-surface)',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: '10px',
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <span className="mono type-body" style={{ fontWeight: 700 }}>{d.registration_plate} • {d.make} {d.model}</span>
+                      <span className="mono type-body" style={{ fontWeight: 800 }}>{d.registration_plate} • {d.make} {d.model}</span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                         {formatReservationModeLabel(d.reservation_type, d.return_pickup_time) && (
                           <StatusBadge label={formatReservationModeLabel(d.reservation_type, d.return_pickup_time)!} tone="blue" />
@@ -6904,7 +6954,16 @@ export function App() {
                       </div>
                     </div>
                     <div className="type-body" style={{ fontWeight: 700 }}>{d.purpose || 'Assigned Trip'}</div>
-                    <div className="type-caption">{d.origin} → {d.destination}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="gf-proto-pn" />
+                        <span style={{ fontSize: '13px', fontWeight: 600 }}>{d.origin}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="gf-proto-od" />
+                        <span style={{ fontSize: '13px', fontWeight: 600 }}>{d.destination}</span>
+                      </div>
+                    </div>
                     {d.effective_start && d.effective_end && (
                       <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
                         🕒 {new Date(d.effective_start).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} – {new Date(d.effective_end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -7628,16 +7687,17 @@ export function App() {
           {notifications.length === 0 ? (
             <EmptyState message={t("You're all caught up! Alerts appear here.")} />
           ) : (
-            <div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {notifications.map((n) => (
-                <ListRow
-                  key={n.id}
-                  tall
-                  icon={<Bell size={18} style={{ color: n.is_read ? 'var(--color-text-muted)' : 'var(--color-green)' }} />}
-                  title={n.title}
-                  subtitle={n.body}
-                  trailing={!n.is_read ? <span className="gf-dot-green" aria-label="Unread" /> : undefined}
-                />
+                <div key={n.id} className={!n.is_read ? 'gf-proto-inbox-unread' : undefined}>
+                  <ListRow
+                    tall
+                    icon={<Bell size={18} style={{ color: n.is_read ? 'var(--color-text-muted)' : '#0072de' }} />}
+                    title={n.title}
+                    subtitle={n.body}
+                    trailing={!n.is_read ? <span className="gf-dot-green" style={{ background: '#0072de' }} aria-label="Unread" /> : undefined}
+                  />
+                </div>
               ))}
             </div>
           )}
@@ -8265,119 +8325,55 @@ export function App() {
     // BOOKING FLOW STEP 0: HOME
     // -------------------------------------------------------------------------
     if (bookingStep === 'HOME') {
-      const shortcuts = [
-        {
-          id: 'sc-ride',
-          label: 'Book Ride',
-          green: true,
-          icon: <Car size={24} />,
-          action: () =>
-            requireLocationBeforeCarUse(() => {
-              setVehicleFilter('ALL');
-              setScheduleMode('NOW');
-              setBookReservationType('ONE_WAY');
-              setBookingStep('ROUTE');
-              setSheetSnap('full');
-            }),
-        },
-        {
-          id: 'sc-schedule',
-          label: 'Schedule',
-          green: false,
-          icon: <Calendar size={22} />,
-          action: () => {
-            setBookingStep('SCHEDULE_VIEW');
-            setSheetSnap('full');
-          },
-        },
-        {
-          id: 'sc-saved',
-          label: 'Saved Places',
-          green: false,
-          icon: <Bookmark size={22} />,
-          action: () =>
-            requireLocationBeforeCarUse(() => {
-              setRouteTab('SAVED');
-              setBookingStep('ROUTE');
-              setSheetSnap('full');
-            }),
-        },
-        {
-          id: 'sc-trips',
-          label: 'My Trips',
-          green: false,
-          icon: <Clock size={22} />,
-          action: () => setNavSection('ACTIVITY'),
-        },
-        {
-          id: 'sc-push',
-          label: 'Alerts',
-          green: false,
-          icon: <Bell size={22} />,
-          action: handleEnablePushNotifications,
-        },
-        {
-          id: 'sc-install',
-          label: 'Install App',
-          green: false,
-          icon: <Download size={22} />,
-          action: handleInstallPwa,
-        },
-        ...(isPrivileged || user.role === 'DRV'
-          ? [
-              {
-                id: 'sc-ops',
-                label: isPrivileged ? 'Admin' : 'Dispatch',
-                green: true,
-                icon: isPrivileged ? <ShieldCheck size={22} /> : <Navigation size={22} />,
-                action: () => setNavSection(isPrivileged ? 'ADMIN' : 'DRIVER'),
-              },
-            ]
-          : []),
-      ];
-
-      const activeOverview = liveOverviewCards[carouselIdx % liveOverviewCards.length];
+      const isNightHero = new Date().getHours() >= 18 || new Date().getHours() < 5;
       const oneTapDest = recentDestinationChips[0] || QUICK_CORPORATE_POIS[0]?.name || 'Sudirman Central Business District (SCBD)';
       const oneTapAddr = recentPlacesList[0]?.address || QUICK_CORPORATE_POIS[0]?.address || 'Jl. Jend. Sudirman Kav 52-53, Jakarta Selatan';
+
+      const myHomeTrips = (isPrivileged
+        ? trips.filter((tr) => tr.requester_id === user.id || tr.requester_name === user.nickname)
+        : trips
+      )
+        .slice()
+        .sort((a, b) => Number(b.id) - Number(a.id));
 
       const ongoingTripCard = ongoingTrips.length > 0 && (() => {
         const topTrip = ongoingTrips[0];
         const isApproved = topTrip.status === 'APPROVED' || topTrip.status === 'IN_PROGRESS';
         const isDual = topTrip.requires_dual_approval;
-        let statusText = 'Waiting for approval';
+        let statusText = t('Waiting for approval');
         let badgeTone: 'green' | 'amber' | 'blue' = 'amber';
         let badgeLabel = 'PENDING';
 
         if (topTrip.status === 'IN_PROGRESS') {
-          statusText = topTrip.assigned_driver_name ? `In Trip • Driver: ${topTrip.assigned_driver_name}` : 'In Trip';
+          statusText = topTrip.assigned_driver_name ? `${t('In Trip')} • Driver: ${topTrip.assigned_driver_name}` : t('In Trip');
           badgeTone = 'blue';
           badgeLabel = 'IN TRIP';
         } else if (topTrip.status === 'APPROVED') {
-          statusText = topTrip.assigned_driver_name ? `Ride Assigned • Driver: ${topTrip.assigned_driver_name}` : 'Ride Approved & Dispatched';
+          statusText = topTrip.assigned_driver_name ? `Driver: ${topTrip.assigned_driver_name}` : 'Approved & Dispatched';
           badgeTone = 'blue';
           badgeLabel = 'APPROVED';
         } else if (isDual && topTrip.pic_approved) {
           statusText = 'Approved by Fleet PIC • Awaiting Head of WS Part';
           badgeTone = 'amber';
-          badgeLabel = 'STAGE 1 APPROVED';
+          badgeLabel = 'STAGE 1';
         } else if (isDual && topTrip.hws_approved) {
           statusText = 'Approved by Head of WS Part • Awaiting Fleet PIC';
           badgeTone = 'amber';
-          badgeLabel = 'STAGE 1 APPROVED';
+          badgeLabel = 'STAGE 1';
         }
 
         return (
           <button
             type="button"
             className="gf-option-row is-selected pressable"
-            style={{ minHeight: '68px', display: 'flex', alignItems: 'center', gap: '12px' }}
+            style={{ minHeight: '64px', display: 'flex', alignItems: 'center', gap: '12px' }}
             onClick={() => {
               setFocusedTripId(topTrip.id);
               setBookingStep(topTrip.status === 'PENDING_APPROVAL' ? 'WAITING' : 'IN_TRIP');
               setSheetSnap('half');
             }}
           >
-            <div className="gf-circle-icon" style={{ background: isApproved ? 'var(--color-primary)' : 'var(--color-amber)', color: '#ffffff', flexShrink: 0 }}>
+            <div className="gf-circle-icon" style={{ background: isApproved ? '#0072de' : 'var(--color-amber)', color: '#ffffff', flexShrink: 0 }}>
               <Car size={18} />
             </div>
             <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
@@ -8389,23 +8385,23 @@ export function App() {
                 {topTrip.origin} → {topTrip.destination} • {topTrip.make} {topTrip.model} ({topTrip.registration_plate || '—'})
               </div>
             </div>
-            <ChevronRight size={18} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
+            <ChevronRight size={18} style={{ color: '#0072de', flexShrink: 0 }} />
           </button>
         );
       })();
 
-      // PIC 1: SUPER-APP HOME
+      // PROTOTYPE SCREEN 1: SIMPLE EMPLOYEE HOME
       if (customerHomeMode === 'SUPER_APP') {
         return (
-          <div className="gf-pic1-container">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {feedbackBanner}
 
-            {/* Top Search Bar & Profile Circle (Pic 1 Reference) */}
-            <div className="gf-pic1-searchbar">
+            {/* Clean Search Pill + Profile Circle */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <button
                 id="home-where-to-btn"
                 type="button"
-                className="gf-pic1-search-input-pill pressable"
+                className="gf-proto-sbar pressable"
                 onClick={() =>
                   requireLocationBeforeCarUse(() => {
                     setBookReservationType('ONE_WAY');
@@ -8413,11 +8409,11 @@ export function App() {
                     setSheetSnap('full');
                   })
                 }
-                aria-label={t('Search corporate services or destinations...')}
+                aria-label={t('Search services')}
               >
-                <Search size={18} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
-                <span style={{ fontSize: '13.5px', color: 'var(--color-text-secondary)', fontWeight: 500, flex: 1, textAlign: 'left' }}>
-                  {t('Search corporate services or destinations...')}
+                <Search size={18} style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: '14px', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {t('Search services')}
                 </span>
               </button>
               <button
@@ -8435,111 +8431,40 @@ export function App() {
               </button>
             </div>
 
-            {/* Corporate Facility Card (Pic 1 GoPay style in Samsung Blue/Black) */}
-            <div className="gf-pic1-facility-card">
-              <div className="gf-pic1-facility-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <ShieldCheck size={16} />
-                  <span style={{ fontSize: '13px', fontWeight: 800 }}>{t('Company Facility')}</span>
-                </div>
-                <span style={{ fontSize: '11px', fontWeight: 700, opacity: 0.9 }}>
-                  {user.department_name || 'Corporate'}
-                </span>
-              </div>
-              <div className="gf-pic1-facility-balance">
-                <span style={{ fontSize: '19px', fontWeight: 800 }}>{t('Zero Operational Cost (Rp0)')}</span>
-              </div>
-              <div className="gf-pic1-facility-actions">
-                <button
-                  type="button"
-                  className="gf-pic1-facility-btn pressable"
-                  onClick={() => {
-                    setCustomerHomeMode('GOCAR_LANDING');
-                    setSheetSnap('full');
-                  }}
-                >
-                  <div className="gf-pic1-facility-btn-icon">
-                    <Car size={18} />
-                  </div>
-                  <span style={{ fontSize: '11px', fontWeight: 700 }}>{t('Book Car')}</span>
-                </button>
-                <button
-                  type="button"
-                  className="gf-pic1-facility-btn pressable"
-                  onClick={() => {
-                    setBookingStep('SCHEDULE_VIEW');
-                    setSheetSnap('full');
-                  }}
-                >
-                  <div className="gf-pic1-facility-btn-icon">
-                    <Calendar size={18} />
-                  </div>
-                  <span style={{ fontSize: '11px', fontWeight: 700 }}>{t('Set Schedule')}</span>
-                </button>
-                <button
-                  type="button"
-                  className="gf-pic1-facility-btn pressable"
-                  onClick={() => setNavSection('ACTIVITY')}
-                >
-                  <div className="gf-pic1-facility-btn-icon">
-                    <Clock size={18} />
-                  </div>
-                  <span style={{ fontSize: '11px', fontWeight: 700 }}>{t('History')}</span>
-                </button>
-                <button
-                  type="button"
-                  className="gf-pic1-facility-btn pressable"
-                  onClick={() => {
-                    if (isPrivileged) {
-                      setNavSection('ADMIN');
-                    } else {
-                      window.open(FLEET_HELPDESK_WHATSAPP_URL, '_blank');
-                    }
-                  }}
-                  title={isPrivileged ? t('Admin') : `Fleet Helpdesk: ${FLEET_HELPDESK_PIC_LABEL}`}
-                >
-                  <div className="gf-pic1-facility-btn-icon">
-                    {isPrivileged ? <ShieldCheck size={18} /> : <Phone size={18} />}
-                  </div>
-                  <span style={{ fontSize: '11px', fontWeight: 700 }}>{isPrivileged ? t('Admin') : t('Fleet Helpdesk')}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Corporate Mobility Services Grid */}
-            <div className="gf-pic1-service-grid">
+            {/* Clean 4-Column Service Grid (Car, Shuttle [Under Development], Schedule, Fleet Helpdesk [+ Admin if privileged]) */}
+            <div className="gf-proto-shortcut-grid">
               <button
                 type="button"
-                className="gf-pic1-service-item pressable"
+                className="gf-proto-shortcut-item pressable"
                 onClick={() => {
                   setCustomerHomeMode('GOCAR_LANDING');
                   setSheetSnap('full');
                 }}
               >
-                <div className="gf-pic1-service-circle" style={{ background: '#0072de', color: '#ffffff' }}>
-                  <Car size={24} />
+                <div className="gf-proto-shortcut-tile is-primary">
+                  <Car size={26} />
                 </div>
-                <span className="gf-pic1-service-label">{t('Official Car')}</span>
+                <span style={{ fontSize: '12px', fontWeight: 700 }}>{t('Car')}</span>
               </button>
 
               <button
                 type="button"
-                className="gf-pic1-service-item pressable"
+                className="gf-proto-shortcut-item pressable"
                 onClick={() => {
                   setStatusBanner({
                     type: 'info',
-                    text: t('Bus Jemputan sedang dalam tahap pengembangan (Under Development).'),
+                    text: t('Shuttle Bus service is currently under development.'),
                   });
                 }}
                 title={t('Under Development')}
               >
-                <div className="gf-pic1-service-circle" style={{ position: 'relative' }}>
+                <div className="gf-proto-shortcut-tile">
                   <Bus size={24} />
                   <span
                     style={{
                       position: 'absolute',
                       top: '-4px',
-                      right: '-8px',
+                      right: '-6px',
                       background: '#0a0a0a',
                       color: '#ffffff',
                       fontSize: '8.5px',
@@ -8547,196 +8472,263 @@ export function App() {
                       padding: '1px 5px',
                       borderRadius: '9999px',
                       whiteSpace: 'nowrap',
-                      letterSpacing: '0.02em',
                     }}
                   >
                     Dev
                   </span>
                 </div>
-                <span className="gf-pic1-service-label">{t('Shuttle Bus')}</span>
+                <span style={{ fontSize: '12px', fontWeight: 600 }}>{t('Shuttle Bus')}</span>
               </button>
 
               <button
                 type="button"
-                className="gf-pic1-service-item pressable"
+                className="gf-proto-shortcut-item pressable"
                 onClick={() => {
                   setBookingStep('SCHEDULE_VIEW');
                   setSheetSnap('full');
                 }}
               >
-                <div className="gf-pic1-service-circle">
+                <div className="gf-proto-shortcut-tile">
                   <Calendar size={24} />
                 </div>
-                <span className="gf-pic1-service-label">{t('Set Schedule')}</span>
+                <span style={{ fontSize: '12px', fontWeight: 600 }}>{t('Set Schedule')}</span>
               </button>
 
               <button
                 type="button"
-                className="gf-pic1-service-item pressable"
-                onClick={() =>
-                  requireLocationBeforeCarUse(() => {
-                    setRouteTab('SAVED');
-                    setBookingStep('ROUTE');
-                    setSheetSnap('full');
-                  })
-                }
+                className="gf-proto-shortcut-item pressable"
+                onClick={() => window.open(FLEET_HELPDESK_WHATSAPP_URL, '_blank')}
+                title={`Fleet Helpdesk: ${FLEET_HELPDESK_PIC_LABEL}`}
               >
-                <div className="gf-pic1-service-circle">
-                  <Bookmark size={24} />
+                <div className="gf-proto-shortcut-tile">
+                  <Phone size={24} />
                 </div>
-                <span className="gf-pic1-service-label">{t('Favorite Routes')}</span>
+                <span style={{ fontSize: '12px', fontWeight: 600 }}>{t('Fleet Helpdesk')}</span>
               </button>
 
               {isPrivileged && (
                 <button
                   type="button"
-                  className="gf-pic1-service-item pressable"
+                  className="gf-proto-shortcut-item pressable"
                   onClick={() => setNavSection('ADMIN')}
                   title={t('Admin Command Console')}
                 >
-                  <div className="gf-pic1-service-circle">
+                  <div className="gf-proto-shortcut-tile">
                     <ShieldCheck size={24} />
                   </div>
-                  <span className="gf-pic1-service-label">{t('Admin')}</span>
+                  <span style={{ fontSize: '12px', fontWeight: 700 }}>{t('Admin')}</span>
                 </button>
               )}
-
-              <button
-                type="button"
-                className="gf-pic1-service-item pressable"
-                onClick={() => {
-                  window.open(FLEET_HELPDESK_WHATSAPP_URL, '_blank');
-                }}
-                title={`Fleet Helpdesk: ${FLEET_HELPDESK_PIC_LABEL}`}
-              >
-                <div className="gf-pic1-service-circle">
-                  <Phone size={24} />
-                </div>
-                <span className="gf-pic1-service-label">{t('Fleet Helpdesk')}</span>
-              </button>
             </div>
 
-            {/* Active ongoing trip card if any */}
-            {ongoingTripCard}
-
-            {/* Corporate Mobility Policy Banner (Pic 1 Reference) */}
-            <div className="gf-pic1-loyalty-banner">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#ebf5ff', color: '#0072de', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <SamsungBusLogo size={22} />
-                </div>
-                <div>
-                  <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                    GalaxyFleet Corporate Mobility
-                  </div>
-                  <div style={{ fontSize: '11.5px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                    {t('Pergi dinas bersama tim • Fasilitas kendaraan dinas bebas biaya')}
-                  </div>
-                </div>
-              </div>
-              <ChevronRight size={18} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
-            </div>
-
-            {/* Pilihan kamu biasanya (Pic 1 Reference: Frequent Destination Cards) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {/* Prototype Activity Section directly on Home */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 className="type-section" style={{ fontSize: '15px', margin: 0 }}>
-                  {t('Your Frequent Destinations')}
-                </h3>
-                <span style={{ fontSize: '12px', color: '#0072de', fontWeight: 700, cursor: 'pointer' }} onClick={() => { setCustomerHomeMode('GOCAR_LANDING'); setSheetSnap('full'); }}>
-                  {t('Book Car')} →
-                </span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {(recentPlacesList.length > 0 ? recentPlacesList.slice(0, 3) : QUICK_CORPORATE_POIS.slice(0, 3)).map((p, idx) => (
-                  <div
-                    key={`${p.name}-${idx}`}
-                    className="gf-pic1-recent-card pressable"
-                    onClick={() =>
-                      requireLocationBeforeCarUse(() => {
-                        setBookDest(p.name);
-                        if (p.lat && p.lon) setDestCoords({ lat: p.lat, lon: p.lon });
-                        setBookReservationType('ONE_WAY');
-                        setBookingStep('VEHICLE');
-                        setSheetSnap('full');
-                      })
-                    }
+                <h2 style={{ fontSize: '17px', fontWeight: 800, margin: 0 }}>{t('Activity')}</h2>
+                {myHomeTrips.length > 0 && (
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-ghost"
+                    style={{ minHeight: '28px', padding: '0 6px', fontSize: '12px', fontWeight: 700, color: '#0072de' }}
+                    onClick={() => setNavSection('ACTIVITY')}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--color-bg-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0072de', flexShrink: 0 }}>
-                        <Clock size={16} />
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {p.name}
-                        </div>
-                        <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }}>
-                          {p.address}
-                        </div>
-                      </div>
-                    </div>
-                    <ChevronRight size={18} style={{ color: '#0072de', flexShrink: 0 }} />
-                  </div>
-                ))}
+                    {t('History')} →
+                  </button>
+                )}
               </div>
+
+              {loadingData ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <Skeleton height={86} />
+                  <Skeleton height={86} />
+                </div>
+              ) : myHomeTrips.length === 0 ? (
+                <div className="gf-proto-empty">
+                  <b>{t('No bookings yet')}</b>
+                  {t('Tap Car to start a booking.')}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {myHomeTrips.slice(0, 6).map((tr) => {
+                    const isCancelled = tr.booking_status === 'CANCELLED' || tr.status === 'CANCELLED';
+                    const isPending = tr.status === 'PENDING_APPROVAL' && !isCancelled;
+                    const badgeLabel = isCancelled
+                      ? 'CANCELLED'
+                      : tr.status === 'APPROVED' && tr.registration_plate
+                      ? `${tr.status} · ${tr.registration_plate}`
+                      : tr.status === 'IN_PROGRESS' && tr.registration_plate
+                      ? `IN TRIP · ${tr.registration_plate}`
+                      : tr.status === 'PENDING_APPROVAL' && tr.requires_dual_approval && tr.pic_approved
+                      ? 'AWAITING HWS'
+                      : tr.status === 'PENDING_APPROVAL' && tr.requires_dual_approval && tr.hws_approved
+                      ? 'AWAITING PIC'
+                      : tr.status;
+                    const badgeTone = isCancelled ? 'red' : toneFromStatus(tr.status);
+                    const modeLabel = formatReservationModeLabel(tr.reservation_type, tr.return_pickup_time);
+
+                    return (
+                      <div
+                        key={tr.id}
+                        className="gf-proto-card pressable"
+                        style={{ cursor: isPending || tr.status === 'APPROVED' || tr.status === 'IN_PROGRESS' ? 'pointer' : 'default' }}
+                        onClick={() => {
+                          if (isPending || tr.status === 'APPROVED' || tr.status === 'IN_PROGRESS') {
+                            setFocusedTripId(tr.id);
+                            setBookingStep(isPending ? 'WAITING' : 'IN_TRIP');
+                            setSheetSnap('half');
+                          }
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 800, fontSize: '14px' }}>
+                            {tr.make ? `${tr.make} ${tr.model}` : t('Operational Car')}
+                          </span>
+                          <StatusBadge label={badgeLabel} tone={badgeTone} />
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px' }}>
+                          <span className="gf-proto-pn" />
+                          <span style={{ fontSize: '13px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {tr.origin}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
+                          <span className="gf-proto-od" />
+                          <span style={{ fontSize: '13px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {tr.destination}
+                          </span>
+                        </div>
+
+                        <div className="type-caption" style={{ marginTop: '7px' }}>
+                          {new Date(tr.start_time).toLocaleDateString([], { month: 'short', day: 'numeric' })} ·{' '}
+                          {new Date(tr.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} –{' '}
+                          {new Date(tr.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ·{' '}
+                          {tr.passenger_count || 1} pax
+                          {tr.purpose ? ` · ${tr.purpose}` : ''}
+                          {modeLabel ? ` · ${modeLabel}` : ''}
+                        </div>
+
+                        {isPending && (
+                          <div style={{ marginTop: '10px' }}>
+                            <button
+                              type="button"
+                              className="gf-proto-btn gf-proto-btn-r gf-proto-btn-s pressable"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCancelBookingRequest(tr);
+                              }}
+                            >
+                              {t('Cancel')}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         );
       }
 
-      // PIC 2: GOCAR BOOKING LANDING
+      // PROTOTYPE SCREEN 2: CAR BOOKING LANDING (Samsung Blue Day/Night Sky Hero + Overlapping Sheet)
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {feedbackBanner}
+        <div className="gf-proto-land-shell">
+          <div className="gf-proto-hero">
+            <svg viewBox="0 0 412 205" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+              <defs>
+                <linearGradient id="gfProtoSkyGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop stopColor={isNightHero ? '#0B1F4D' : '#6FCBEF'} />
+                  <stop offset="1" stopColor={isNightHero ? '#1B3E86' : '#CDEEF8'} />
+                </linearGradient>
+              </defs>
+              <rect width="412" height="205" fill="url(#gfProtoSkyGrad)" />
+              {isNightHero ? (
+                <>
+                  <circle cx="70" cy="48" r="16" fill="#FFE9A8" />
+                  <circle cx="78" cy="42" r="14" fill="#0B1F4D" />
+                  <g fill="#ffffff">
+                    <circle cx="150" cy="30" r="1.5" />
+                    <circle cx="260" cy="50" r="1.5" />
+                    <circle cx="340" cy="26" r="2" />
+                    <circle cx="200" cy="70" r="1.2" />
+                  </g>
+                </>
+              ) : (
+                <circle cx="340" cy="52" r="24" fill="#FFE27A" />
+              )}
+              <g fill={isNightHero ? '#16306B' : '#9ED8EE'}>
+                <rect x="40" y="105" width="26" height="70" />
+                <rect x="300" y="85" width="30" height="90" />
+                <rect x="340" y="115" width="24" height="60" />
+              </g>
+              <ellipse cx="206" cy="260" rx="300" ry="100" fill="#0072de" />
+            </svg>
 
-          {/* Pic 2: Header with Back button to Super-App Home + Greeting */}
-          <div className="gf-pic2-hero-header">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
-              <button
-                type="button"
-                className="gf-icon-btn-48 pressable"
-                onClick={() => {
-                  setCustomerHomeMode('SUPER_APP');
-                  setSheetSnap('full');
-                }}
-                aria-label={t('Back')}
-                style={{ width: '36px', height: '36px' }}
-              >
-                <ArrowLeft size={18} />
-              </button>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    padding: '3px 10px',
-                    borderRadius: '9999px',
-                    background: '#ebf5ff',
-                    color: '#005bb5',
-                    fontSize: '11.5px',
-                    fontWeight: 700,
-                  }}
-                >
-                  <ShieldCheck size={13} />
-                  <span className="notranslate" translate="no">{user.department_name || 'Company Group'}</span>
-                </span>
-                <LanguageSwitcher compact />
-              </div>
+            <button
+              type="button"
+              className="gf-proto-hero-back pressable"
+              onClick={() => {
+                setCustomerHomeMode('SUPER_APP');
+                setSheetSnap('half');
+              }}
+              aria-label={t('Back')}
+            >
+              <ArrowLeft size={20} />
+            </button>
+
+            <div style={{ position: 'absolute', top: '14px', right: '14px', zIndex: 3, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <LanguageSwitcher compact />
             </div>
-
-            <h1 className="type-title" style={{ fontSize: '20px', margin: '6px 0 2px 0', fontWeight: 800 }}>
-              {t('Where to today?')}
-            </h1>
           </div>
 
-          {/* Pic 2: Floating Card with Where to? pill & saved chips */}
-          <div className="gf-pic2-map-card">
-            {/* Where to? Search Pill */}
+          <div className="gf-proto-blue-band" style={{ paddingTop: '4px', paddingBottom: '22px' }}>
+            <div className="gf-proto-gr" style={{ marginTop: '-52px', marginBottom: '12px' }}>
+              <h2>{t('Where to,')} {user.nickname}?</h2>
+              <p>{t('Operational cars ready to roll.')}</p>
+            </div>
+
+            {feedbackBanner}
+
+            <button
+              type="button"
+              className="gf-proto-promo pressable"
+              onClick={() => setNavSection('ACTIVITY')}
+            >
+              <span
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  background: '#ffffff',
+                  color: '#0072de',
+                  display: 'grid',
+                  placeItems: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Info size={18} />
+              </span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <b style={{ display: 'block', fontSize: '13.5px' }}>{t('Booking reviewed before departure')}</b>
+                <span style={{ fontSize: '11.5px', opacity: 0.92 }}>{t('Reviewed by Fleet PIC & Head of WS. Check status here.')}</span>
+              </span>
+              <ChevronRight size={18} style={{ flexShrink: 0 }} />
+            </button>
+          </div>
+
+          <div className="gf-proto-wc" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <svg viewBox="0 0 380 86" style={{ width: '100%', height: '86px', borderRadius: '12px', display: 'block' }} aria-hidden="true">
+              <rect width="380" height="86" fill="#edf1f7" />
+              <path d="M0 64C100 18 200 78 380 26" stroke="#ffffff" strokeWidth="8" fill="none" />
+              <circle cx="190" cy="44" r="6" fill="#0072de" stroke="#ffffff" strokeWidth="2" />
+            </svg>
+
             <button
               id="home-where-to-btn"
               type="button"
-              className="gf-search-pill pressable"
+              className="gf-proto-sbar pressable"
               onClick={() =>
                 requireLocationBeforeCarUse(() => {
                   setBookReservationType('ONE_WAY');
@@ -8745,19 +8737,18 @@ export function App() {
                 })
               }
             >
-              <span className="gf-dest-ring-dot" aria-hidden="true" />
-              <span className="type-section" style={{ flex: 1, color: 'var(--color-text-primary)', fontWeight: 700 }}>
+              <span className="gf-proto-od" style={{ width: '16px', height: '16px' }} aria-hidden="true" />
+              <span style={{ flex: 1, fontWeight: 700, color: 'var(--color-text-primary)', fontSize: '14px' }}>
                 {t('Where to?')}
               </span>
-              <Search size={20} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
+              <Search size={18} />
             </button>
 
-            {/* Saved-Place Horizontal Chips */}
-            <div className="gf-hscroll" style={{ marginTop: '-4px' }}>
+            <div className="gf-proto-chips" style={{ margin: 0 }}>
               {(recentDestinationChips.length > 0 ? recentDestinationChips : QUICK_CORPORATE_POIS.map((p) => p.label)).map((dest) => (
-                <Chip
+                <button
                   key={dest}
-                  icon={<Bookmark size={14} style={{ color: '#0072de' }} />}
+                  type="button"
                   onClick={() =>
                     requireLocationBeforeCarUse(() => {
                       const matchedPoi = QUICK_CORPORATE_POIS.find((p) => p.label === dest || p.name === dest);
@@ -8768,110 +8759,85 @@ export function App() {
                     })
                   }
                 >
-                  {dest}
-                </Chip>
+                  <Bookmark size={14} style={{ color: '#0072de' }} />
+                  <span>{dest}</span>
+                </button>
               ))}
             </div>
-          </div>
 
-          {/* Active ongoing trip card if any */}
-          {ongoingTripCard}
+            {ongoingTripCard}
 
-          {/* GoCar Reference Screen 1: Expandable OneTap Card */}
-          <div className="gf-gocar-onetap-card">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                <span
-                  style={{
-                    background: '#0072de',
-                    color: '#ffffff',
-                    fontSize: '10.5px',
-                    fontWeight: 800,
-                    padding: '2px 8px',
-                    borderRadius: '9999px',
-                    letterSpacing: '0.03em',
-                  }}
-                >
-                  OneTap
-                </span>
-                <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                  GalaxyFleet
-                </span>
-                <span
-                  style={{
-                    fontSize: '10px',
-                    fontWeight: 800,
-                    fontStyle: 'italic',
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    background: '#0a0a0a',
-                    color: '#ffffff',
-                  }}
-                >
-                  PRIORITY
-                </span>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#0072de', padding: '2px 8px', borderRadius: '9999px', background: '#ebf5ff' }}>
+            {/* OneTap Quick Booking Card */}
+            <div className="gf-gocar-onetap-card">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <span style={{ background: '#0072de', color: '#ffffff', fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '9999px' }}>
+                    OneTap
+                  </span>
+                  <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                    GalaxyFleet
+                  </span>
+                  <span style={{ fontSize: '10px', fontWeight: 800, fontStyle: 'italic', padding: '2px 6px', borderRadius: '4px', background: '#0a0a0a', color: '#ffffff' }}>
+                    PRIORITY
+                  </span>
+                </div>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: '#0072de', padding: '2px 8px', borderRadius: '9999px', background: '#ebf5ff' }}>
                   Work Trip
                 </span>
               </div>
-            </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {oneTapDest}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: '14.5px', fontWeight: 800, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {oneTapDest}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }}>
+                    {oneTapAddr}
+                  </div>
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }}>
-                  {oneTapAddr}
-                </div>
+                <button
+                  type="button"
+                  className="pressable"
+                  aria-label={`OneTap book to ${oneTapDest}`}
+                  onClick={() =>
+                    requireLocationBeforeCarUse(() => {
+                      setBookDest(oneTapDest);
+                      setBookReservationType('ONE_WAY');
+                      setBookingStep('VEHICLE');
+                      setSheetSnap('full');
+                    })
+                  }
+                  style={{
+                    width: '38px',
+                    height: '38px',
+                    borderRadius: '9999px',
+                    border: 'none',
+                    background: '#0072de',
+                    color: '#ffffff',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                  }}
+                >
+                  <ArrowRight size={18} strokeWidth={2.5} />
+                </button>
               </div>
-              <button
-                type="button"
-                className="pressable"
-                aria-label={`OneTap book to ${oneTapDest}`}
-                onClick={() =>
-                  requireLocationBeforeCarUse(() => {
-                    setBookDest(oneTapDest);
-                    setBookReservationType('ONE_WAY');
-                    setBookingStep('VEHICLE');
-                    setSheetSnap('full');
-                  })
-                }
-                style={{
-                  width: '40px',
-                  height: '40px',
-                  borderRadius: '9999px',
-                  border: 'none',
-                  background: '#0072de',
-                  color: '#ffffff',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                  boxShadow: '0 4px 12px rgba(0, 114, 222, 0.3)',
-                }}
-              >
-                <ArrowRight size={19} strokeWidth={2.5} />
-              </button>
+
+              <div style={{ borderTop: '1.5px dashed var(--color-border)', paddingTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="gf-pickup-up-circle" style={{ width: '18px', height: '18px' }}>
+                  <ArrowUp size={11} strokeWidth={3} />
+                </span>
+                <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  Pickup: {bookOrigin || 'Current GPS Location'}
+                </span>
+              </div>
             </div>
 
-            <div style={{ borderTop: '1.5px dashed var(--color-border)', paddingTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className="gf-pickup-up-circle" style={{ width: '18px', height: '18px' }}>
-                <ArrowUp size={11} strokeWidth={3} />
-              </span>
-              <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                Pickup: {bookOrigin || 'Current GPS Location'}
-              </span>
-            </div>
-          </div>
-
-          {/* GoCar Reference Screen 1: Recent Destination List Rows */}
-          {recentPlacesList.length > 0 && (
-            <div style={{ borderRadius: 'var(--radius-card)', border: '1px solid var(--color-divider)', background: 'var(--color-bg-elevated)', padding: '0 12px' }}>
-              {recentPlacesList.slice(0, 3).map((place, i) => {
+            {/* Clean Recent / Corporate Locations List */}
+            <div style={{ borderRadius: '16px', border: '1px solid var(--color-divider)', background: 'var(--color-bg-surface)', padding: '0 12px' }}>
+              {(recentPlacesList.length > 0 ? recentPlacesList : QUICK_CORPORATE_POIS).slice(0, 3).map((place, i) => {
                 const isSaved = savedPlaces.some((sp) => sp.name === place.name);
                 return (
                   <ListRow
@@ -8910,108 +8876,6 @@ export function App() {
                   />
                 );
               })}
-            </div>
-          )}
-
-          {/* Hero Action Cards for Primary Workflows */}
-          <div className="gf-hero-action-grid">
-            <button
-              id="hero-book-ride-card"
-              type="button"
-              className="gf-hero-action-card pressable"
-              onClick={() =>
-                requireLocationBeforeCarUse(() => {
-                  setVehicleFilter('ALL');
-                  setScheduleMode('NOW');
-                  setBookReservationType('ONE_WAY');
-                  setBookingStep('ROUTE');
-                  setSheetSnap('full');
-                })
-              }
-              style={{ borderLeft: '4px solid #0072de' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className="gf-circle-icon is-green" style={{ width: '40px', height: '40px' }}>
-                  <Car size={22} />
-                </div>
-                <ChevronRight size={18} style={{ color: '#0072de' }} />
-              </div>
-              <div>
-                <div className="type-title" style={{ fontSize: '16px', fontWeight: 800 }}>Book a Ride</div>
-                <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                  Request operational car
-                </div>
-              </div>
-            </button>
-
-            <button
-              id="hero-fleet-schedule-card"
-              type="button"
-              className="gf-hero-action-card pressable"
-              onClick={() => {
-                setBookingStep('SCHEDULE_VIEW');
-                setSheetSnap('full');
-              }}
-              style={{ borderLeft: '4px solid #0a0a0a' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className="gf-circle-icon" style={{ width: '40px', height: '40px', background: 'var(--color-bg-subtle)' }}>
-                  <Calendar size={22} />
-                </div>
-                <ChevronRight size={18} style={{ color: 'var(--color-text-secondary)' }} />
-              </div>
-              <div>
-                <div className="type-title" style={{ fontSize: '16px', fontWeight: 800 }}>Fleet Schedule</div>
-                <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                  Live slots & cars
-                </div>
-              </div>
-            </button>
-          </div>
-
-          {/* Service Shortcuts (4 columns, 56px tiles, 12px labels) */}
-          <div className="gf-shortcut-grid">
-            {shortcuts.map((sc) => (
-              <button key={sc.id} id={sc.id} type="button" className="gf-shortcut-btn pressable" onClick={sc.action}>
-                <div className={`gf-shortcut-tile ${sc.green ? 'is-green' : ''}`}>{sc.icon}</div>
-                <span className="gf-shortcut-label">{sc.label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Live System Overview Carousel */}
-          <div>
-            <div className="gf-promo-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <StatusBadge label={activeOverview.tag} tone="blue" />
-                <Car size={28} style={{ color: '#0072de', opacity: 0.85 }} />
-              </div>
-              <div>
-                <div className="type-section">{activeOverview.title}</div>
-                <p className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-                  {activeOverview.body}
-                </p>
-              </div>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '10px' }}>
-              {liveOverviewCards.map((item, idx) => (
-                <button
-                  key={item.title}
-                  type="button"
-                  aria-label={`Slide ${idx + 1}: ${item.title}`}
-                  onClick={() => setCarouselIdx(idx)}
-                  style={{
-                    width: carouselIdx === idx ? '20px' : '8px',
-                    height: '8px',
-                    padding: 0,
-                    border: 'none',
-                    borderRadius: '9999px',
-                    background: carouselIdx === idx ? '#0072de' : 'var(--color-border)',
-                    cursor: 'pointer',
-                    transition: 'width 200ms ease',
-                  }}
-                />
-              ))}
             </div>
           </div>
         </div>
@@ -9458,57 +9322,37 @@ export function App() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {feedbackBanner}
 
-          {/* GoCar Reference Screen 5: Floating Top Route Pill + Corporate Banner */}
-          <div
-            style={{
-              borderRadius: '18px',
-              background: 'linear-gradient(135deg, #0a0a0a 0%, #0f172a 65%, #0072de 100%)',
-              color: '#ffffff',
-              padding: '12px 14px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '10px',
-              boxShadow: '0 8px 20px rgba(10, 10, 10, 0.14)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                <span className="gf-pickup-up-circle" style={{ width: '18px', height: '18px' }}>
-                  <ArrowUp size={11} strokeWidth={3} />
-                </span>
-                <span style={{ fontSize: '12.5px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {bookOrigin || 'Pickup'}
-                </span>
-                <span style={{ opacity: 0.6 }}>→</span>
-                <span style={{ fontSize: '12.5px', fontWeight: 800, color: '#93c5fd', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {bookDest || 'Destination'}
-                </span>
-              </div>
+          {/* Prototype Vehicle Route Card (.gf-proto-rc) & Corporate Fleet Strip (.gf-proto-ban) */}
+          <div className="gf-proto-rc">
+            <div className="gf-proto-rc-row">
+              <span className="gf-proto-pn" />
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {bookOrigin || t('Pickup Location')}
+              </span>
               <button
                 type="button"
+                className="gf-proto-btn gf-proto-btn-o gf-proto-btn-s pressable"
+                style={{ height: '26px', padding: '0 10px', fontSize: '11px' }}
                 onClick={() => setBookingStep('ROUTE')}
-                style={{
-                  border: '1px solid rgba(255,255,255,0.28)',
-                  background: 'rgba(255,255,255,0.12)',
-                  color: '#ffffff',
-                  borderRadius: '9999px',
-                  padding: '3px 10px',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                }}
               >
-                Edit
+                {t('Edit')}
               </button>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11.5px', color: 'rgba(255,255,255,0.86)' }}>
-              <span>✓ Internal Work Fleet • Chauffeur Included</span>
-              <span style={{ fontWeight: 800 }}>{currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min</span>
+            <div className="gf-proto-rc-row">
+              <span className="gf-proto-od" />
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {bookDest || t('Destination')}
+              </span>
+            </div>
+            <div className="gf-proto-ban">
+              <span>✓ {t('Internal Work Fleet • Chauffeur Included')}</span>
+              <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
+                {currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min
+              </span>
             </div>
           </div>
 
-          {/* GoCar Reference Screen 6: Service Category Underline Tabs */}
+          {/* Service Category Underline Tabs (incl. Shuttle Dev tab per prototype) */}
           <div className="gf-underline-tabs" role="tablist" aria-label="Vehicle category tabs">
             {([
               { id: 'ALL', label: 'All Fleet' },
@@ -9525,10 +9369,24 @@ export function App() {
                   className={`gf-underline-tab ${active ? 'is-active' : ''}`}
                   onClick={() => setVehicleFilter(tab.id)}
                 >
-                  {tab.label}
+                  {t(tab.label)}
                 </button>
               );
             })}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={false}
+              className="gf-underline-tab"
+              onClick={() =>
+                setStatusBanner({
+                  type: 'info',
+                  text: t('Shuttle Bus service is currently under development.'),
+                })
+              }
+            >
+              {t('Shuttle (Dev)')}
+            </button>
           </div>
 
           {/* Active Schedule Banner (Gojek Scheduled Mode) or Instant Dispatch Pill */}
@@ -10046,15 +9904,28 @@ export function App() {
               }
             />
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div className="gf-proto-svc">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px' }}>
+                <div style={{ width: '42px', height: '28px', borderRadius: '8px', background: '#0072de', color: '#ffffff', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                  <Car size={18} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>{t('Operational Car')}</span>
+                  </div>
+                  <div className="type-caption" style={{ fontSize: '11.5px' }}>
+                    {selectedVehicle?.seats ? `${selectedVehicle.seats} ${t('Seats')}` : `4-7 ${t('Seats')}`} • {t('Free Corporate Facility')}
+                  </div>
+                </div>
+              </div>
               {filteredVehicles.map((v, vIdx) => {
                 const isAvail = v.isAvailable !== false && v.status === 'Available';
                 const isSelected = Number(selectedVehicle?.id) === v.id;
                 const isEv = v.energy_type === 'Electric';
                 const pct = isEv ? Number(v.battery_percent ?? 100) : 85;
-                const waitRange = isAvail ? `${3 + (vIdx % 3)}-${6 + (vIdx % 3)} min` : 'Busy';
+                const waitRange = isAvail ? `${3 + (vIdx % 3)}-${6 + (vIdx % 3)} min` : t('Busy');
                 const availText = isAvail
-                  ? `Available • ${v.registration_plate} • Chauffeur included`
+                  ? `${t('Available')} • ${v.registration_plate} • Chauffeur included`
                   : v.status !== 'Available'
                   ? `${v.status}${v.standby_reason ? ` • ${v.standby_reason}` : ''}`
                   : v.conflictReason || 'Booked for this slot';
@@ -10100,9 +9971,9 @@ export function App() {
                     }
                     subtitle={availText}
                     rightMetric={
-                      <div style={{ textAlign: 'right', minWidth: '68px' }}>
+                      <div style={{ textAlign: 'right', minWidth: '64px' }}>
                         <div style={{ fontSize: '12.5px', fontWeight: 800, color: !isAvail ? '#9ca3af' : isSelected ? '#0072de' : 'var(--color-text-primary)' }}>
-                          {isAvail ? 'Ready' : 'Busy'}
+                          {isAvail ? t('Ready') : t('Busy')}
                         </div>
                         <div style={{ fontSize: '10.5px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
                           {v.car_type || (isEv ? 'EV Fleet' : 'Fleet')}
@@ -10186,25 +10057,23 @@ export function App() {
           {feedbackBanner}
           <h1 className="type-title">{t('Almost there')}</h1>
 
-          {/* Compact route card with Edit link (GoCar Reference Up-Arrow & Target Ring-Dot) */}
-          <div style={{ padding: '14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
-            <div style={{ display: 'flex', gap: '10px', minWidth: 0 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '3px 0', gap: '4px' }}>
-                <span className="gf-pickup-up-circle" style={{ width: '18px', height: '18px' }}>
-                  <ArrowUp size={11} strokeWidth={3} />
-                </span>
+          {/* Compact prototype route card with Edit pill */}
+          <div className="gf-proto-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '10px', minWidth: 0, flex: 1 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 0', gap: '4px' }}>
+                <span className="gf-proto-pn" />
                 <span style={{ width: 0, height: '14px', borderLeft: '2px dotted var(--color-border)' }} />
-                <span className="gf-dest-ring-dot" style={{ width: '16px', height: '16px' }} />
+                <span className="gf-proto-od" />
               </div>
-              <div style={{ minWidth: 0 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
                 <div className="type-body" style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bookOrigin}</div>
                 <div className="type-body" style={{ fontWeight: 700, marginTop: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bookDest}</div>
                 <div className="type-caption" style={{ marginTop: '4px' }}>
-                  {currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min ride • ETA {currentMetrics.etaText}
+                  {currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} {t('min ride')} • ETA {currentMetrics.etaText}
                 </div>
               </div>
             </div>
-            <button type="button" className="gf-btn gf-btn-ghost" onClick={() => setBookingStep('ROUTE')}>
+            <button type="button" className="gf-proto-btn gf-proto-btn-o gf-proto-btn-s pressable" onClick={() => setBookingStep('ROUTE')}>
               {t('Edit')}
             </button>
           </div>
@@ -10975,7 +10844,7 @@ export function App() {
         onSelectNav={(n) => {
           const target = isDriverOnly && n === 'HOME' ? 'DRIVER' : n;
           setNavSection(target);
-          if (target === 'HOME') {
+          if (target === 'HOME' || target === 'DRIVER') {
             setBookingStep('HOME');
             setSheetSnap('half');
           } else {
@@ -10993,7 +10862,10 @@ export function App() {
         pendingAdminCount={pendingTrips.length + pendingUsers.length}
         userNickname={user?.nickname}
         departmentName={user?.department_name}
-        onSwitchToDriverDispatch={() => setNavSection('DRIVER')}
+        onSwitchToDriverDispatch={() => {
+          setNavSection('DRIVER');
+          setSheetSnap('half');
+        }}
         onSwitchToAdmin={() => setNavSection('ADMIN')}
         mapStage={
           <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -11024,14 +10896,18 @@ export function App() {
                 >
                   <span
                     style={{
-                      width: '8px',
-                      height: '8px',
+                      width: '10px',
+                      height: '10px',
                       borderRadius: '50%',
-                      background: gpsNoticeAccepted && gpsReportingActive ? '#60a5fa' : '#94a3b8',
-                      boxShadow: gpsNoticeAccepted && gpsReportingActive ? '0 0 8px #60a5fa' : 'none',
+                      background: gpsNoticeAccepted && gpsReportingActive ? '#E25C09' : '#94a3b8',
+                      boxShadow: gpsNoticeAccepted && gpsReportingActive ? '0 0 0 2px rgba(255,255,255,0.85)' : 'none',
                     }}
                   />
-                  <span>{gpsNoticeAccepted && gpsReportingActive ? `${t('Online')} • ${t('Siap Tugas')}` : `${t('Offline')} ▾`}</span>
+                  <span>
+                    {gpsNoticeAccepted && gpsReportingActive
+                      ? `${t('Online')} • ${trips.filter((tr) => (tr.assigned_driver_user_id === user.id || tr.assigned_driver_name === user.nickname) && (tr.status === 'COMPLETED' || tr.trip_status === 'COMPLETED')).length} ${t('Trips Completed')}`
+                      : `${t('Offline')} ▾`}
+                  </span>
                 </button>
 
                 {/* Top-right: 48dp Circular Power Button */}
@@ -11043,19 +10919,19 @@ export function App() {
                     if (gpsNoticeAccepted && gpsReportingActive) {
                       setGpsReportingActive(false);
                       setGpsNoticeAccepted(false);
-                      setDriverActivatingToast('Status berubah ke Offline');
+                      setDriverActivatingToast(t('Status updated to Offline'));
                       setTimeout(() => setDriverActivatingToast(null), 3000);
                     } else {
-                      setDriverActivatingToast(t('Mengubah jadi online...'));
+                      setDriverActivatingToast(t('Switching to online...'));
                       setGpsNoticeAccepted(true);
                       setGpsReportingActive(true);
                       detectAndReportUserLocation(true);
                       await sendDriverLocationReport('GRANTED');
-                      setDriverActivatingToast(`${t('Anda sekarang online')} • ${t('Siap Tugas')}`);
+                      setDriverActivatingToast(`${t('You are now online')} • ${t('Ready for Duty')}`);
                       setTimeout(() => setDriverActivatingToast(null), 3500);
                     }
                   }}
-                  title={gpsNoticeAccepted && gpsReportingActive ? 'Go Offline' : 'Go Online'}
+                  title={gpsNoticeAccepted && gpsReportingActive ? t('Go Offline') : t('Online')}
                 >
                   <Power size={22} />
                 </button>

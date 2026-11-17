@@ -566,7 +566,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
               <div className="type-section" style={{ fontSize: '18px', fontWeight: 800 }}>
                 {t('GalaxyFleet Admin Console')}
               </div>
-              <div className="type-caption" style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+              <div className="type-caption gf-admin-subtitle-desktop" style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
                 {vehicleCount} {t('Operational Vehicles')} • {groupCount} {t('Groups')} • {t('Currency: IDR (Rp)')}
               </div>
             </div>
@@ -608,6 +608,37 @@ export const AdminShell: React.FC<AdminShellProps> = ({
         )}
 
         <main className="gf-admin-content">{children}</main>
+
+        <nav className="gf-admin-bottom-nav" aria-label="Admin mobile tabs">
+          {[
+            { id: 'ADMIN_DISPATCH' as const, label: 'Dispatch', icon: <FileCheck size={20} />, badge: pendingCount },
+            { id: 'FLEET_MAP' as const, label: 'Map', icon: <Map size={20} /> },
+            { id: 'FLEET_OPS' as const, label: 'Fleet', icon: <Car size={20} /> },
+            { id: 'ANALYTICS_REPORT' as const, label: 'Reports', icon: <BarChart3 size={20} /> },
+            { id: 'AUDIT' as const, label: 'Audit', icon: <ScrollText size={20} /> },
+          ].map((tab) => {
+            const isActive = activeModule === tab.id;
+            return (
+              <button
+                key={tab.id}
+                id={`admin-mobile-tab-${tab.id.toLowerCase()}`}
+                type="button"
+                className={`gf-admin-bottom-btn pressable ${isActive ? 'is-active' : ''}`}
+                onClick={() => {
+                  onSelectModule(tab.id);
+                  setMobileMenuOpen(false);
+                }}
+                aria-current={isActive ? 'page' : undefined}
+              >
+                {tab.icon}
+                <span>{t(tab.label)}</span>
+                {tab.badge !== undefined && tab.badge > 0 && (
+                  <span className="gf-admin-bottom-badge">{tab.badge}</span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
       </div>
     </div>
   );
