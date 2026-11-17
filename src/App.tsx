@@ -368,6 +368,7 @@ export function App() {
   const [vehicleFilter, setVehicleFilter] = useState<'ALL' | 'Electric' | 'MPV'>('ALL');
   const [activityTab, setActivityTab] = useState<'ONGOING' | 'HISTORY'>('ONGOING');
   const [summaryPicker, setSummaryPicker] = useState<'PURPOSE' | 'PAX' | 'NOTES' | 'CHARGE' | null>(null);
+  const [pickerValidationError, setPickerValidationError] = useState<string | null>(null);
   const [focusedTripId, setFocusedTripId] = useState<number | null>(null);
   const [driverSectionTab, setDriverSectionTab] = useState<'DISPATCH' | 'SCHEDULE'>('DISPATCH');
 
@@ -1558,6 +1559,27 @@ export function App() {
     }
   };
 
+  const handleDoneSummaryPicker = () => {
+    if (summaryPicker === 'PURPOSE') {
+      if (!bookPurpose.trim()) {
+        setPickerValidationError('Tujuan perjalanan (Purpose) wajib diisi.');
+        return;
+      }
+    } else if (summaryPicker === 'PAX') {
+      const emptyIdx = bookPassengers.findIndex((p) => !p.nickname.trim());
+      if (bookPassengers.length === 0) {
+        setPickerValidationError('Minimal 1 penumpang wajib diisi.');
+        return;
+      }
+      if (emptyIdx >= 0) {
+        setPickerValidationError(`Nama panggilan untuk Penumpang ${emptyIdx + 1} wajib diisi.`);
+        return;
+      }
+    }
+    setPickerValidationError(null);
+    setSummaryPicker(null);
+  };
+
   const handleCreateTripBooking = async () => {
     setStatusBanner(null);
     if (!selectedVehicle) {
@@ -1606,9 +1628,40 @@ export function App() {
       returnPickupIso = new Date(rpMs).toISOString();
     }
 
+    // 1. Mandatory Purpose Check: Cannot proceed without Purpose
+    if (!bookPurpose.trim()) {
+      setStatusBanner({
+        type: 'danger',
+        text: 'Tujuan perjalanan (Purpose) wajib diisi. Silakan pilih atau ketik tujuan perjalanan Anda sebelum memesan.',
+      });
+      setPickerValidationError('Tujuan perjalanan (Purpose) wajib diisi.');
+      setSummaryPicker('PURPOSE');
+      return;
+    }
+
+    // 2. Mandatory Passenger Check: Cannot proceed without Passenger nickname(s)
+    const cleanPassengers = bookPassengers
+      .map((p, idx) => ({ id: idx + 1, nickname: p.nickname.trim() }))
+      .filter((p) => Boolean(p.nickname));
+
+    if (cleanPassengers.length === 0 || bookPassengers.some((p) => !p.nickname.trim())) {
+      const emptyIdx = bookPassengers.findIndex((p) => !p.nickname.trim());
+      const paxErr =
+        bookPassengers.length === 0 || cleanPassengers.length === 0
+          ? 'Data penumpang (Passengers) wajib diisi. Masukkan minimal 1 nama panggilan penumpang.'
+          : `Nama panggilan untuk Penumpang ${emptyIdx + 1} wajib diisi.`;
+      setStatusBanner({
+        type: 'danger',
+        text: paxErr,
+      });
+      setPickerValidationError(paxErr);
+      setSummaryPicker('PAX');
+      return;
+    }
+
     const leadTimeMin = Math.round((startMs - nowMs) / 60000);
     const isUrgent = leadTimeMin < 120;
-    const effectivePurpose = bookPurpose.trim() || 'Company Business Trip';
+    const effectivePurpose = bookPurpose.trim();
 
     if (isUrgent && !bookUrgentReason.trim() && !bookNotes.trim() && effectivePurpose.length < 5) {
       setStatusBanner({
@@ -1621,9 +1674,6 @@ export function App() {
     const startIso = new Date(bookStart).toISOString();
     const endIso = new Date(bookEnd).toISOString();
 
-    const cleanPassengers = bookPassengers
-      .map((p, idx) => ({ id: idx + 1, nickname: p.nickname.trim() }))
-      .filter((p) => Boolean(p.nickname));
     const formattedPaxNickname =
       cleanPassengers.length > 0
         ? cleanPassengers.map((p) => `${p.id}. ${p.nickname}`).join(', ')
@@ -6083,6 +6133,10 @@ export function App() {
         </StickyActionBar>
       );
     } else if (bookingStep === 'SUMMARY' && selectedVehicle) {
+      const isPurposeFilled = Boolean(bookPurpose.trim());
+      const isPassengerFilled = bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim()));
+      const canProceedBooking = isPurposeFilled && isPassengerFilled;
+
       stickyFooter = (
         <StickyActionBar>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -6099,18 +6153,35 @@ export function App() {
               id="submit-booking-btn"
               type="button"
               className="gf-gocar-book-cta pressable"
-              style={{ width: '100%' }}
+              style={{
+                width: '100%',
+                opacity: canProceedBooking ? 1 : 0.88,
+              }}
               disabled={isOffline}
               onClick={handleCreateTripBooking}
+              title={!canProceedBooking ? 'Lengkapi Purpose dan Passengers sebelum memesan' : 'Kirim Permintaan Booking'}
             >
-              <span style={{ fontSize: '15.5px', fontWeight: 800 }}>Request GalaxyFleet</span>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <span style={{ fontSize: '15.5px', fontWeight: 800 }}>Request GalaxyFleet</span>
+                {!canProceedBooking && (
+                  <span style={{ fontSize: '11px', color: '#fca5a5', fontWeight: 700 }}>
+                    {!isPurposeFilled && !isPassengerFilled
+                      ? '⚠️ Wajib isi Purpose & Passengers'
+                      : !isPurposeFilled
+                      ? '⚠️ Wajib isi Purpose'
+                      : '⚠️ Wajib isi Passengers'}
+                  </span>
+                )}
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ fontSize: '12.5px', fontWeight: 800 }}>
                   {bookReservationType === 'FULL_DAY'
                     ? 'Full Day'
                     : bookReservationType === 'DROP_AND_PICKUP'
                     ? 'Drop & Pick Up'
-                    : 'Confirm'}
+                    : canProceedBooking
+                    ? 'Confirm'
+                    : 'Lengkapi Data'}
                 </span>
                 <span className="gf-gocar-book-arrow">
                   <ArrowRight size={17} strokeWidth={2.75} />
@@ -9477,6 +9548,30 @@ export function App() {
             </div>
           )}
 
+          {/* Mandatory Data Missing Banner */}
+          {(!bookPurpose.trim() || bookPassengers.length === 0 || bookPassengers.some((p) => !p.nickname.trim())) && (
+            <div
+              style={{
+                padding: '10px 14px',
+                borderRadius: '10px',
+                background: '#fef2f2',
+                border: '1.5px solid #fecaca',
+                display: 'flex',
+                gap: '10px',
+                alignItems: 'center',
+              }}
+            >
+              <AlertTriangle size={18} style={{ color: '#dc2626', flexShrink: 0 }} />
+              <div style={{ fontSize: '12px', color: '#991b1b', lineHeight: 1.4 }}>
+                <strong>Data Wajib Belum Lengkap:</strong> Harap lengkapi{' '}
+                {!bookPurpose.trim() && <strong>Tujuan Perjalanan (Purpose)</strong>}
+                {!bookPurpose.trim() && (bookPassengers.length === 0 || bookPassengers.some((p) => !p.nickname.trim())) && ' dan '}
+                {(bookPassengers.length === 0 || bookPassengers.some((p) => !p.nickname.trim())) && <strong>Nama Penumpang (Passengers)</strong>}{' '}
+                sebelum melanjutkan pemesanan armada.
+              </div>
+            </div>
+          )}
+
           {/* Plain ListRow Pickers */}
           <div>
             <ListRow
@@ -9489,26 +9584,75 @@ export function App() {
             />
             <ListRow
               id="summary-purpose-row"
-              icon={<Briefcase size={18} />}
-              title="Purpose"
-              subtitle={bookPurpose || 'Tap to select trip purpose'}
+              icon={<Briefcase size={18} style={{ color: bookPurpose.trim() ? '#0072de' : '#dc2626' }} />}
+              title={
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>Purpose</span>
+                  <span
+                    style={{
+                      fontSize: '10.5px',
+                      fontWeight: 800,
+                      padding: '2px 7px',
+                      borderRadius: '4px',
+                      background: bookPurpose.trim() ? '#ebf5ff' : '#fef2f2',
+                      color: bookPurpose.trim() ? '#0072de' : '#dc2626',
+                    }}
+                  >
+                    {bookPurpose.trim() ? '✓ Terisi' : '* Wajib'}
+                  </span>
+                </div>
+              }
+              subtitle={
+                bookPurpose.trim() ? (
+                  bookPurpose.trim()
+                ) : (
+                  <span style={{ color: '#dc2626', fontWeight: 600 }}>
+                    ⚠️ Wajib diisi • Ketuk untuk pilih atau ketik tujuan
+                  </span>
+                )
+              }
               showChevron
-              onClick={() => setSummaryPicker('PURPOSE')}
+              onClick={() => {
+                setPickerValidationError(null);
+                setSummaryPicker('PURPOSE');
+              }}
             />
             <ListRow
               id="summary-pax-row"
-              icon={<Users size={18} />}
-              title="Passengers"
+              icon={<Users size={18} style={{ color: bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim())) ? '#0072de' : '#dc2626' }} />}
+              title={
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>Passengers</span>
+                  <span
+                    style={{
+                      fontSize: '10.5px',
+                      fontWeight: 800,
+                      padding: '2px 7px',
+                      borderRadius: '4px',
+                      background: bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim())) ? '#ebf5ff' : '#fef2f2',
+                      color: bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim())) ? '#0072de' : '#dc2626',
+                    }}
+                  >
+                    {bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim()))
+                      ? `✓ ${bookPassengers.length} Orang`
+                      : '* Wajib'}
+                  </span>
+                </div>
+              }
               subtitle={
-                bookPassengers.some((p) => p.nickname.trim())
-                  ? bookPassengers
-                      .filter((p) => p.nickname.trim())
-                      .map((p) => `${p.id}. ${p.nickname.trim()}`)
-                      .join(', ')
-                  : `${bookPax} passenger${bookPax > 1 ? 's' : ''}`
+                bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim())) ? (
+                  bookPassengers.map((p) => `${p.id}. ${p.nickname.trim()}`).join(', ')
+                ) : (
+                  <span style={{ color: '#dc2626', fontWeight: 600 }}>
+                    ⚠️ Wajib diisi • Ketuk untuk masukkan nama panggilan (nickname)
+                  </span>
+                )
               }
               showChevron
-              onClick={() => setSummaryPicker('PAX')}
+              onClick={() => {
+                setPickerValidationError(null);
+                setSummaryPicker('PAX');
+              }}
             />
             <ListRow
               id="summary-notes-row"
@@ -9533,34 +9677,98 @@ export function App() {
             <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label={`Edit ${summaryPicker.toLowerCase()}`}>
               <div className="gf-modal-card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                  <h3 className="type-section">
-                    {summaryPicker === 'PURPOSE' && 'Trip purpose'}
-                    {summaryPicker === 'PAX' && 'Passenger details'}
-                    {summaryPicker === 'NOTES' && 'Dispatch notes'}
-                    {summaryPicker === 'CHARGE' && 'Group & driver'}
+                  <h3 className="type-section" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>
+                      {summaryPicker === 'PURPOSE' && 'Trip Purpose'}
+                      {summaryPicker === 'PAX' && 'Passenger Details'}
+                      {summaryPicker === 'NOTES' && 'Dispatch Notes'}
+                      {summaryPicker === 'CHARGE' && 'Group & Driver'}
+                    </span>
+                    {(summaryPicker === 'PURPOSE' || summaryPicker === 'PAX') && (
+                      <span style={{ fontSize: '11px', fontWeight: 800, color: '#dc2626', background: '#fef2f2', padding: '2px 8px', borderRadius: '4px' }}>
+                        * Wajib Diisi
+                      </span>
+                    )}
                   </h3>
-                  <button type="button" className="gf-btn gf-btn-primary" style={{ minHeight: '40px' }} onClick={() => setSummaryPicker(null)}>
-                    Done
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      className="gf-btn gf-btn-ghost"
+                      style={{ minHeight: '36px', height: '36px', padding: '0 10px', fontSize: '12px' }}
+                      onClick={() => {
+                        setPickerValidationError(null);
+                        setSummaryPicker(null);
+                      }}
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="button"
+                      className="gf-btn gf-btn-primary"
+                      style={{ minHeight: '36px', height: '36px', padding: '0 16px', fontSize: '12.5px', fontWeight: 700 }}
+                      onClick={handleDoneSummaryPicker}
+                    >
+                      Done
+                    </button>
+                  </div>
                 </div>
+
+                {pickerValidationError && (
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      background: '#fef2f2',
+                      border: '1px solid #fecaca',
+                      display: 'flex',
+                      gap: '8px',
+                      alignItems: 'center',
+                      marginBottom: '10px',
+                    }}
+                  >
+                    <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
+                    <span style={{ fontSize: '12px', color: '#991b1b', fontWeight: 600 }}>
+                      {pickerValidationError}
+                    </span>
+                  </div>
+                )}
 
                 {summaryPicker === 'PURPOSE' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-secondary)' }}>
+                      Pilih tujuan operasional atau masukkan tujuan khusus:
+                    </div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                       {['Client visit', 'Site audit', 'Airport transfer', 'Executive briefing'].map((preset) => (
-                        <Chip key={preset} active={bookPurpose === preset} onClick={() => setBookPurpose(preset)}>
+                        <Chip
+                          key={preset}
+                          active={bookPurpose === preset}
+                          onClick={() => {
+                            setBookPurpose(preset);
+                            setPickerValidationError(null);
+                          }}
+                        >
                           {preset}
                         </Chip>
                       ))}
                     </div>
-                    <input
-                      type="text"
-                      className="gf-input"
-                      placeholder="Or enter custom purpose"
-                      value={bookPurpose}
-                      onChange={(e) => setBookPurpose(e.target.value)}
-                      autoFocus
-                    />
+                    <div>
+                      <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                        Tujuan Perjalanan *
+                      </label>
+                      <input
+                        type="text"
+                        className="gf-input"
+                        placeholder="Contoh: Kunjungan Pabrik Cikarang..."
+                        value={bookPurpose}
+                        required
+                        onChange={(e) => {
+                          setBookPurpose(e.target.value);
+                          if (e.target.value.trim()) setPickerValidationError(null);
+                        }}
+                        autoFocus
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -9576,59 +9784,64 @@ export function App() {
                         lineHeight: 1.4,
                       }}
                     >
-                      ⚠️ <strong>Privacy Notice:</strong> Group Admin must fill passenger names who will ride the operational car. Enter <strong>nickname only</strong> (e.g. Budi, Sarah). Do NOT enter full names.
+                      ⚠️ <strong>Kebijakan Privasi:</strong> Wajib mengisi nama panggilan penumpang yang menaiki kendaraan operasional. Masukkan <strong>hanya nama panggilan (nickname)</strong> (contoh: Budi, Sarah). Dilarang memasukkan nama lengkap.
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {bookPassengers.map((passenger, index) => (
-                        <div
-                          key={passenger.id}
-                          style={{
-                            padding: '10px 12px',
-                            borderRadius: 'var(--radius-control)',
-                            border: '1px solid var(--color-border)',
-                            background: 'var(--color-surface)',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '6px',
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <label className="type-caption" style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
-                              {index === 0 ? '1. Passenger 1 (Lead Passenger)' : `${index + 1}. Passenger ${index + 1}`}
-                            </label>
-                            {bookPassengers.length > 1 && (
-                              <button
-                                type="button"
-                                className="gf-btn gf-btn-outline-danger"
-                                style={{ minHeight: '26px', padding: '0 8px', fontSize: '11px' }}
-                                onClick={() => {
-                                  const filtered = bookPassengers.filter((p) => p.id !== passenger.id);
-                                  const renumbered = filtered.map((p, idx) => ({ ...p, id: idx + 1 }));
-                                  setBookPassengers(renumbered);
-                                  setBookPax(renumbered.length);
-                                  if (renumbered[0]) setBookPassengerNickname(renumbered[0].nickname);
-                                }}
-                              >
-                                ✕ Remove
-                              </button>
-                            )}
-                          </div>
-                          <input
-                            type="text"
-                            className="gf-input"
-                            placeholder={index === 0 ? 'e.g. Budi (Nickname)' : `e.g. Sarah (Nickname)`}
-                            value={passenger.nickname}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setBookPassengers((prev) =>
-                                prev.map((p) => (p.id === passenger.id ? { ...p, nickname: val } : p))
-                              );
-                              if (index === 0) setBookPassengerNickname(val);
+                      {bookPassengers.map((passenger, index) => {
+                        const isMissing = !passenger.nickname.trim();
+                        return (
+                          <div
+                            key={passenger.id}
+                            style={{
+                              padding: '10px 12px',
+                              borderRadius: 'var(--radius-control)',
+                              border: isMissing ? '1.5px solid #f87171' : '1px solid var(--color-border)',
+                              background: 'var(--color-surface)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '6px',
                             }}
-                          />
-                        </div>
-                      ))}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <label className="type-caption" style={{ fontWeight: 700, color: isMissing ? '#dc2626' : 'var(--color-primary)' }}>
+                                {index === 0 ? '1. Penumpang 1 (Lead Passenger) *' : `${index + 1}. Penumpang ${index + 1} *`}
+                              </label>
+                              {bookPassengers.length > 1 && (
+                                <button
+                                  type="button"
+                                  className="gf-btn gf-btn-outline-danger"
+                                  style={{ minHeight: '26px', padding: '0 8px', fontSize: '11px' }}
+                                  onClick={() => {
+                                    const filtered = bookPassengers.filter((p) => p.id !== passenger.id);
+                                    const renumbered = filtered.map((p, idx) => ({ ...p, id: idx + 1 }));
+                                    setBookPassengers(renumbered);
+                                    setBookPax(renumbered.length);
+                                    if (renumbered[0]) setBookPassengerNickname(renumbered[0].nickname);
+                                  }}
+                                >
+                                  ✕ Hapus
+                                </button>
+                              )}
+                            </div>
+                            <input
+                              type="text"
+                              className="gf-input"
+                              required
+                              placeholder={index === 0 ? 'contoh: Budi (Nickname)' : `contoh: Sarah (Nickname)`}
+                              value={passenger.nickname}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setBookPassengers((prev) =>
+                                  prev.map((p) => (p.id === passenger.id ? { ...p, nickname: val } : p))
+                                );
+                                if (index === 0) setBookPassengerNickname(val);
+                                if (val.trim()) setPickerValidationError(null);
+                              }}
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '4px' }}>
