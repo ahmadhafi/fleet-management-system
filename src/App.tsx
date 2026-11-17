@@ -46,7 +46,6 @@ import {
   ArrowRight,
   ArrowLeft,
   Bus,
-  Truck,
   X,
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
@@ -139,6 +138,9 @@ function getWhatsAppUrl(phone: string, text?: string): string {
   const baseUrl = `https://wa.me/+${clean}`;
   return text ? `${baseUrl}?text=${encodeURIComponent(text)}` : baseUrl;
 }
+
+export const FLEET_HELPDESK_WHATSAPP_URL = 'https://wa.me/6281381016286';
+export const FLEET_HELPDESK_PIC_LABEL = 'Riza (+62 813-8101-6286)';
 
 export function getTimeGreeting(): string {
   const hr = new Date().getHours();
@@ -8484,17 +8486,24 @@ export function App() {
                 <button
                   type="button"
                   className="gf-pic1-facility-btn pressable"
-                  onClick={() => setNavSection(isPrivileged ? 'ADMIN' : 'DRIVER')}
+                  onClick={() => {
+                    if (isPrivileged) {
+                      setNavSection('ADMIN');
+                    } else {
+                      window.open(FLEET_HELPDESK_WHATSAPP_URL, '_blank');
+                    }
+                  }}
+                  title={isPrivileged ? t('Admin') : `Fleet Helpdesk: ${FLEET_HELPDESK_PIC_LABEL}`}
                 >
                   <div className="gf-pic1-facility-btn-icon">
-                    {isPrivileged ? <ShieldCheck size={18} /> : <Navigation size={18} />}
+                    {isPrivileged ? <ShieldCheck size={18} /> : <Phone size={18} />}
                   </div>
-                  <span style={{ fontSize: '11px', fontWeight: 700 }}>{isPrivileged ? t('Admin') : t('Driver Dispatch')}</span>
+                  <span style={{ fontSize: '11px', fontWeight: 700 }}>{isPrivileged ? t('Admin') : t('Fleet Helpdesk')}</span>
                 </button>
               </div>
             </div>
 
-            {/* 4x2 Service Grid (Pic 1 Reference: 8 corporate mobility icons) */}
+            {/* Corporate Mobility Services Grid */}
             <div className="gf-pic1-service-grid">
               <button
                 type="button"
@@ -8511,48 +8520,34 @@ export function App() {
                 type="button"
                 className="gf-pic1-service-item pressable"
                 onClick={() => {
-                  setBookingStep('SCHEDULE_VIEW');
-                  setSheetSnap('full');
+                  setStatusBanner({
+                    type: 'info',
+                    text: t('Bus Jemputan sedang dalam tahap pengembangan (Under Development).'),
+                  });
                 }}
+                title={t('Under Development')}
               >
-                <div className="gf-pic1-service-circle">
+                <div className="gf-pic1-service-circle" style={{ position: 'relative' }}>
                   <Bus size={24} />
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: '-4px',
+                      right: '-8px',
+                      background: '#0a0a0a',
+                      color: '#ffffff',
+                      fontSize: '8.5px',
+                      fontWeight: 800,
+                      padding: '1px 5px',
+                      borderRadius: '9999px',
+                      whiteSpace: 'nowrap',
+                      letterSpacing: '0.02em',
+                    }}
+                  >
+                    Dev
+                  </span>
                 </div>
                 <span className="gf-pic1-service-label">{t('Shuttle Bus')}</span>
-              </button>
-
-              <button
-                type="button"
-                className="gf-pic1-service-item pressable"
-                onClick={() =>
-                  requireLocationBeforeCarUse(() => {
-                    setVehicleFilter('MPV');
-                    setBookingStep('ROUTE');
-                    setSheetSnap('full');
-                  })
-                }
-              >
-                <div className="gf-pic1-service-circle">
-                  <ShieldCheck size={24} />
-                </div>
-                <span className="gf-pic1-service-label">{t('VIP / Executive')}</span>
-              </button>
-
-              <button
-                type="button"
-                className="gf-pic1-service-item pressable"
-                onClick={() =>
-                  requireLocationBeforeCarUse(() => {
-                    setBookPurpose('Logistics Transport');
-                    setBookingStep('ROUTE');
-                    setSheetSnap('full');
-                  })
-                }
-              >
-                <div className="gf-pic1-service-circle">
-                  <Truck size={24} />
-                </div>
-                <span className="gf-pic1-service-label">{t('Logistics Transport')}</span>
               </button>
 
               <button
@@ -8586,23 +8581,27 @@ export function App() {
                 <span className="gf-pic1-service-label">{t('Favorite Routes')}</span>
               </button>
 
-              <button
-                type="button"
-                className="gf-pic1-service-item pressable"
-                onClick={() => setNavSection(isPrivileged ? 'ADMIN' : 'DRIVER')}
-              >
-                <div className="gf-pic1-service-circle">
-                  <Navigation size={24} />
-                </div>
-                <span className="gf-pic1-service-label">{t('Driver Dispatch')}</span>
-              </button>
+              {isPrivileged && (
+                <button
+                  type="button"
+                  className="gf-pic1-service-item pressable"
+                  onClick={() => setNavSection('ADMIN')}
+                  title={t('Admin Command Console')}
+                >
+                  <div className="gf-pic1-service-circle">
+                    <ShieldCheck size={24} />
+                  </div>
+                  <span className="gf-pic1-service-label">{t('Admin')}</span>
+                </button>
+              )}
 
               <button
                 type="button"
                 className="gf-pic1-service-item pressable"
                 onClick={() => {
-                  alert('GalaxyFleet Operations Hotline: 021-500-SAMSUNG (Ext. 4421)');
+                  window.open(FLEET_HELPDESK_WHATSAPP_URL, '_blank');
                 }}
+                title={`Fleet Helpdesk: ${FLEET_HELPDESK_PIC_LABEL}`}
               >
                 <div className="gf-pic1-service-circle">
                   <Phone size={24} />
@@ -8717,20 +8716,9 @@ export function App() {
               </div>
             </div>
 
-            <h1 className="type-title" style={{ fontSize: '20px', margin: 0 }}>
-              Ciao, {user.nickname || 'Team'}~
+            <h1 className="type-title" style={{ fontSize: '20px', margin: '6px 0 2px 0', fontWeight: 800 }}>
+              {t('Where to today?')}
             </h1>
-            <p className="type-caption" style={{ color: 'var(--color-text-secondary)', margin: 0 }}>
-              {t('Pergi dinas operasional mudah dengan GalaxyFleet')}
-            </p>
-          </div>
-
-          {/* Pic 2: Corporate info banner */}
-          <div className="gf-pic2-info-banner">
-            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#0072de', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <Car size={16} />
-            </div>
-            <span>{t('Pergi dinas bersama tim • Fasilitas kendaraan dinas bebas biaya')}</span>
           </div>
 
           {/* Pic 2: Floating Card with Where to? pill & saved chips */}
@@ -11054,7 +11042,7 @@ export function App() {
                       setGpsReportingActive(true);
                       detectAndReportUserLocation(true);
                       await sendDriverLocationReport('GRANTED');
-                      setDriverActivatingToast(`${t('Anda sekarang online')} • ${t('Mulai kerja, yuk!')}`);
+                      setDriverActivatingToast(`${t('Anda sekarang online')} • ${t('Siap Tugas')}`);
                       setTimeout(() => setDriverActivatingToast(null), 3500);
                     }
                   }}
