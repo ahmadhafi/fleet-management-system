@@ -3,7 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { ArrowLeft, Crosshair, LocateFixed, Navigation2, Users, WifiOff, Layers, Map as MapIcon, Mountain } from 'lucide-react';
 import { apiRequest } from '../api';
-import { resolveCarAvatarKey, getCarFrontAvatarSvg, getDriverAvatarDataUri } from './CarAvatarArt';
+import { getDriverAvatarDataUri } from './CarAvatarArt';
 import { useAppLanguage } from '../utils/i18n';
 
 export interface GeoPlace {
@@ -250,6 +250,8 @@ interface MapViewProps {
   focusedVehicleId?: number | null;
   onSelectVehicle?: (vehicle: FleetVehiclePosition) => void;
   hasDriverTopbar?: boolean;
+  driverMapMode?: boolean;
+  driverOnline?: boolean;
 }
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -279,6 +281,8 @@ export const MapView: React.FC<MapViewProps> = ({
   focusedVehicleId,
   onSelectVehicle,
   hasDriverTopbar = false,
+  driverMapMode = false,
+  driverOnline = false,
 }) => {
   const { t } = useAppLanguage();
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -636,7 +640,35 @@ export const MapView: React.FC<MapViewProps> = ({
       );
     }
 
-    if (myCoords && (!currentUserId || !renderedIds.has(currentUserId))) {
+    if (driverMapMode) {
+      const drvLat = myCoords && Number.isFinite(myCoords.lat) ? myCoords.lat : effOrigin[0];
+      const drvLon = myCoords && Number.isFinite(myCoords.lon) ? myCoords.lon : effOrigin[1];
+      if (driverOnline) {
+        L.circle([drvLat, drvLon], {
+          radius: Math.min(260, Math.max(45, Number(myCoords?.accuracy || 60))),
+          color: '#0072de',
+          weight: 1.5,
+          fillColor: '#0072de',
+          fillOpacity: 0.14,
+        }).addTo(pinsLayer);
+      }
+
+      const driverSelfCarIcon = L.divIcon({
+        className: 'gf-leaflet-marker',
+        html: `
+          <div class="gf-driver-map-car-marker ${driverOnline ? 'is-online' : ''}" style="position:relative;display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
+            ${driverOnline ? `<div style="position:absolute;inset:-8px;border-radius:50%;background:rgba(0,114,222,0.22);animation:gfDriverCarPulse 2s ease-out infinite;"></div>` : ''}
+            <div style="width:46px;height:46px;border-radius:50%;background:#ffffff;border:3px solid ${driverOnline ? '#0072de' : '#64748b'};box-shadow:0 4px 14px rgba(0,0,0,0.24);display:flex;align-items:center;justify-content:center;position:relative;z-index:2;padding:5px;">
+              <img src="/icons/company-car-transparent.png" alt="Driver Vehicle" style="width:32px;height:20px;object-fit:contain;display:block;" />
+            </div>
+            <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid ${driverOnline ? '#0072de' : '#64748b'};margin-top:-2px;position:relative;z-index:2;"></div>
+          </div>
+        `,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
+      });
+      L.marker([drvLat, drvLon], { icon: driverSelfCarIcon, zIndexOffset: 900 }).addTo(pinsLayer);
+    } else if (myCoords && (!currentUserId || !renderedIds.has(currentUserId))) {
       L.circle([myCoords.lat, myCoords.lon], {
         radius: Math.min(250, Math.max(25, Number(myCoords.accuracy || 40))),
         color: '#0072de',
@@ -660,7 +692,7 @@ export const MapView: React.FC<MapViewProps> = ({
       });
       L.marker([myCoords.lat, myCoords.lon], { icon: meIcon }).addTo(pinsLayer);
     }
-  }, [userPins, currentUserId, myCoords, originCoords]);
+  }, [userPins, currentUserId, myCoords, originCoords, driverMapMode, driverOnline, effOrigin]);
 
   // Render Operational Fleet Vehicles (Admin Fleet Live Map)
   useEffect(() => {
@@ -683,8 +715,6 @@ export const MapView: React.FC<MapViewProps> = ({
       const isInTrip = v.status === 'IN_TRIP';
       const mainColor = isEv ? '#0072de' : '#0a0a0a';
 
-      const avatarKey = resolveCarAvatarKey(v.model, v.make, v.energy_type);
-      const carFrontSvg = getCarFrontAvatarSvg(avatarKey, isInTrip);
       const driverPhoto = getDriverAvatarDataUri(v.driver_name || 'Driver', v.driver_photo_url);
 
       const isFollowing = Boolean(v.is_following_driver);
@@ -692,22 +722,22 @@ export const MapView: React.FC<MapViewProps> = ({
         className: 'gf-leaflet-marker',
         html: `
           <div class="gf-fleet-marker-wrap ${isInTrip ? 'is-driving' : ''}" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
-            <div style="background:#ffffff;color:#0f172a;padding:2px 8px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.24);margin-bottom:2px;border:1.5px solid ${isFollowing ? '#0072de' : mainColor};display:flex;align-items:center;gap:4px;">
+            <div style="background:#ffffff;color:#0f172a;padding:2px 8px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.24);margin-bottom:3px;border:1.5px solid ${isFollowing ? '#0072de' : mainColor};display:flex;align-items:center;gap:4px;">
               <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${isInTrip || isFollowing ? '#258cfb' : '#0072de'};"></span>
               <span>${escapeHtml(v.registration_plate)}</span>
               <span style="color:#64748b;font-weight:600;font-size:10px;">• ${escapeHtml(v.driver_name?.split(' ')[0] || 'Driver')}</span>
               <span style="font-size:10px;">${isEv ? '⚡' : '⛽'}</span>
             </div>
 
-            <!-- Model-Specific Car Front Avatar -->
-            <div style="position:relative;width:58px;height:42px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 4px 10px rgba(0,0,0,0.32));">
-              ${carFrontSvg}
+            <!-- Unified Company Car Icon Badge -->
+            <div style="position:relative;width:44px;height:44px;border-radius:50%;background:#ffffff;border:2.5px solid ${isInTrip || isFollowing ? '#0072de' : '#334155'};display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.28);padding:5px;">
+              <img src="/icons/company-car-transparent.png" alt="${escapeHtml(v.model)}" style="width:30px;height:18px;object-fit:contain;display:block;" />
               ${isInTrip ? `
-                <div style="position:absolute;top:-4px;right:-4px;background:#258cfb;color:#ffffff;border-radius:9999px;padding:1px 5px;font-size:8px;font-weight:900;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(37,140,251,0.5);border:1px solid #ffffff;">
+                <div style="position:absolute;top:-5px;right:-8px;background:#258cfb;color:#ffffff;border-radius:9999px;padding:1px 5px;font-size:8px;font-weight:900;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(37,140,251,0.5);border:1px solid #ffffff;">
                   DRIVING
                 </div>
               ` : isFollowing ? `
-                <div style="position:absolute;top:-4px;right:-4px;background:#0072de;color:#ffffff;border-radius:9999px;padding:1px 5px;font-size:8px;font-weight:900;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(0,114,222,0.5);border:1px solid #ffffff;">
+                <div style="position:absolute;top:-5px;right:-8px;background:#0072de;color:#ffffff;border-radius:9999px;padding:1px 5px;font-size:8px;font-weight:900;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(0,114,222,0.5);border:1px solid #ffffff;">
                   GPS LIVE
                 </div>
               ` : ''}
@@ -937,7 +967,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
     group.clearLayers();
 
-    if (showRoute || Boolean(origin && origin.trim())) {
+    if (showRoute || (!driverMapMode && Boolean(origin && origin.trim()))) {
       const pickupIcon = L.divIcon({
         className: 'gf-leaflet-marker',
         html: `
@@ -1017,19 +1047,16 @@ export const MapView: React.FC<MapViewProps> = ({
           ? routeGeometry![Math.floor(routeGeometry!.length / 2)]
           : ([mid1Lat, mid1Lon] as [number, number]);
 
-        const avatarKey = resolveCarAvatarKey(activeVehicleModel || 'Stargazer', 'Hyundai', 'Gasoline');
-        const carSvg = getCarFrontAvatarSvg(avatarKey, true);
-
         const drvIcon = L.divIcon({
           className: 'gf-leaflet-marker',
           html: `
             <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
-              <div style="background:#0f172a;color:#ffffff;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 3px 8px rgba(0,0,0,0.3);margin-bottom:2px;display:flex;align-items:center;gap:4px;border:1.5px solid #258cfb;">
+              <div style="background:#0f172a;color:#ffffff;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 3px 8px rgba(0,0,0,0.3);margin-bottom:3px;display:flex;align-items:center;gap:4px;border:1.5px solid #258cfb;">
                 <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#258cfb;animation:pulse 1.5s infinite;"></span>
                 <span>${escapeHtml(driverName || 'Driver')} (Live Car)</span>
               </div>
-              <div style="width:54px;height:38px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 4px 8px rgba(0,0,0,0.3));">
-                ${carSvg}
+              <div style="width:44px;height:44px;border-radius:50%;background:#ffffff;border:2.5px solid #0072de;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,114,222,0.35);padding:5px;">
+                <img src="/icons/company-car-transparent.png" alt="Live Car" style="width:30px;height:18px;object-fit:contain;display:block;" />
               </div>
             </div>
           `,
@@ -1056,7 +1083,7 @@ export const MapView: React.FC<MapViewProps> = ({
     } else if (Boolean(origin && origin.trim()) && !pinMode) {
       map.setView(effOrigin, 15, { animate: false });
     }
-  }, [effOrigin, effDest, routeGeometry, metrics.etaText, metrics.durationMin, showRoute, pinMode, driverActive, origin, driverCoords, driverName, activeVehicleModel]);
+  }, [effOrigin, effDest, routeGeometry, metrics.etaText, metrics.durationMin, showRoute, pinMode, driverActive, origin, driverCoords, driverName, activeVehicleModel, driverMapMode]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!pinMode || !mapInstanceRef.current) return;
@@ -1078,7 +1105,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
   return (
     <div
-      className={`gf-map-stage ${hasDriverTopbar ? 'has-driver-topbar' : ''}`}
+      className={`gf-map-stage ${hasDriverTopbar ? 'has-driver-topbar' : ''} ${driverMapMode ? 'is-driver-map-mode' : ''}`}
       tabIndex={pinMode ? 0 : -1}
       role={pinMode ? 'application' : undefined}
       aria-label={pinMode ? 'Interactive map. Drag or use arrow keys to position the pin.' : 'Route and live vehicle position view'}
@@ -1086,90 +1113,94 @@ export const MapView: React.FC<MapViewProps> = ({
     >
       <div ref={mapContainerRef} id="map-container" style={{ width: '100%', height: '100%', zIndex: 1 }} />
 
-      {/* Floating 3-Layer Map Switcher (Streets, Satellite, Terrain) */}
-      <div className={`gf-map-layer-switcher ${showBackButton ? 'has-back-btn' : ''}`}>
-        <div className="gf-map-layer-pill-group">
-          <button
-            type="button"
-            className={`pressable gf-map-layer-btn ${activeLayer === 'streets' ? 'active' : ''}`}
-            onClick={() => setActiveLayer('streets')}
-            title={t('Streets')}
-          >
-            <MapIcon size={13} />
-            <span className="gf-map-layer-btn-label">{t('Streets')}</span>
-          </button>
-          <button
-            type="button"
-            className={`pressable gf-map-layer-btn ${activeLayer === 'satellite' ? 'active' : ''}`}
-            onClick={() => setActiveLayer('satellite')}
-            title={t('Satellite')}
-          >
-            <Layers size={13} />
-            <span className="gf-map-layer-btn-label">{t('Satellite')}</span>
-          </button>
-          <button
-            type="button"
-            className={`pressable gf-map-layer-btn ${activeLayer === 'terrain' ? 'active' : ''}`}
-            onClick={() => setActiveLayer('terrain')}
-            title={t('Terrain')}
-          >
-            <Mountain size={13} />
-            <span className="gf-map-layer-btn-label">{t('Terrain')}</span>
-          </button>
+      {/* Floating 3-Layer Map Switcher (Streets, Satellite, Terrain) — hidden in clean Gojek Driver Home mode */}
+      {!driverMapMode && (
+        <div className={`gf-map-layer-switcher ${showBackButton ? 'has-back-btn' : ''}`}>
+          <div className="gf-map-layer-pill-group">
+            <button
+              type="button"
+              className={`pressable gf-map-layer-btn ${activeLayer === 'streets' ? 'active' : ''}`}
+              onClick={() => setActiveLayer('streets')}
+              title={t('Streets')}
+            >
+              <MapIcon size={13} />
+              <span className="gf-map-layer-btn-label">{t('Streets')}</span>
+            </button>
+            <button
+              type="button"
+              className={`pressable gf-map-layer-btn ${activeLayer === 'satellite' ? 'active' : ''}`}
+              onClick={() => setActiveLayer('satellite')}
+              title={t('Satellite')}
+            >
+              <Layers size={13} />
+              <span className="gf-map-layer-btn-label">{t('Satellite')}</span>
+            </button>
+            <button
+              type="button"
+              className={`pressable gf-map-layer-btn ${activeLayer === 'terrain' ? 'active' : ''}`}
+              onClick={() => setActiveLayer('terrain')}
+              title={t('Terrain')}
+            >
+              <Mountain size={13} />
+              <span className="gf-map-layer-btn-label">{t('Terrain')}</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Top-Right Metrics / Badges / Locate Me GPS Button */}
-      <div className="gf-map-overlay-actions">
-        {showRoute && effDest && !pinMode && !driverActive && (
-          <div className="gf-map-metrics-pill">
-            <Navigation2 size={13} style={{ color: 'var(--color-green)' }} />
-            <span>
-              {`${metrics.distanceKm} km • ~${metrics.durationMin} ${t('min ride')}${metrics.etaText ? ` • ETA ${metrics.etaText}` : ''}`}
-            </span>
-          </div>
-        )}
-
-        {driverActive && driverName && (
-          <div className="gf-map-driver-pill">
-            {t('Driver assigned')} • {driverName}
-          </div>
-        )}
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {!driverActive && !showRoute && fleetPositions && fleetPositions.length > 0 && (
-            <div className="gf-map-fleet-pill" title="Operational vehicles on live map">
-              <span className="gf-dot-green" />
-              <span>{fleetPositions.length} {t('Cars Live')}</span>
+      {!driverMapMode && (
+        <div className="gf-map-overlay-actions">
+          {showRoute && effDest && !pinMode && !driverActive && (
+            <div className="gf-map-metrics-pill">
+              <Navigation2 size={13} style={{ color: 'var(--color-green)' }} />
+              <span>
+                {`${metrics.distanceKm} km • ~${metrics.durationMin} ${t('min ride')}${metrics.etaText ? ` • ETA ${metrics.etaText}` : ''}`}
+              </span>
             </div>
           )}
 
-          {!driverActive && !showRoute && userPins.length > 0 && (
-            <div className="gf-map-users-pill" title="Active users sharing their live pinpoint on the map">
-              <Users size={13} />
-              <span>{userPins.length} {t('Users')}</span>
+          {driverActive && driverName && (
+            <div className="gf-map-driver-pill">
+              {t('Driver assigned')} • {driverName}
             </div>
           )}
 
-          {onLocateMe && (
-            <button
-              id="map-locate-me-btn"
-              type="button"
-              className={`pressable ${myCoords ? 'is-located' : ''}`}
-              onClick={() => {
-                onLocateMe();
-                if (myCoords && mapInstanceRef.current) {
-                  mapInstanceRef.current.setView([myCoords.lat, myCoords.lon], 16, { animate: true });
-                }
-              }}
-              aria-label={t('Detect & center on my location')}
-              title={locatingUser ? t('Detecting GPS location...') : t('Detect & center on my location')}
-            >
-              <LocateFixed size={20} />
-            </button>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {!driverActive && !showRoute && fleetPositions && fleetPositions.length > 0 && (
+              <div className="gf-map-fleet-pill" title="Operational vehicles on live map">
+                <span className="gf-dot-green" />
+                <span>{fleetPositions.length} {t('Cars Live')}</span>
+              </div>
+            )}
+
+            {!driverActive && !showRoute && userPins.length > 0 && (
+              <div className="gf-map-users-pill" title="Active users sharing their live pinpoint on the map">
+                <Users size={13} />
+                <span>{userPins.length} {t('Users')}</span>
+              </div>
+            )}
+
+            {onLocateMe && (
+              <button
+                id="map-locate-me-btn"
+                type="button"
+                className={`pressable ${myCoords ? 'is-located' : ''}`}
+                onClick={() => {
+                  onLocateMe();
+                  if (myCoords && mapInstanceRef.current) {
+                    mapInstanceRef.current.setView([myCoords.lat, myCoords.lon], 16, { animate: true });
+                  }
+                }}
+                aria-label={t('Detect & center on my location')}
+                title={locatingUser ? t('Detecting GPS location...') : t('Detect & center on my location')}
+              >
+                <LocateFixed size={20} />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Pulsing Green Radar Rings when Waiting for Approval */}
       {waitingRadar && (

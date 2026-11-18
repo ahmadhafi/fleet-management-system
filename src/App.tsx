@@ -46,6 +46,12 @@ import {
   Bus,
   X,
   Sparkles,
+  Award,
+  LocateFixed,
+  ChevronDown,
+  Loader2,
+  ClipboardList,
+  Info,
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
 import { AppShell, AdminShell, type NavSection, type AdminModule } from './components/AppShell';
@@ -480,6 +486,9 @@ export function App() {
   const [customerHomeMode, setCustomerHomeMode] = useState<'SUPER_APP' | 'GOCAR_LANDING'>('SUPER_APP');
   const [driverTripLogTab, setDriverTripLogTab] = useState<'TRIPS' | 'EXPENSES'>('TRIPS');
   const [driverActivatingToast, setDriverActivatingToast] = useState<string | null>(null);
+  const [driverStatusSheetOpen, setDriverStatusSheetOpen] = useState<boolean>(false);
+  const [driverActivatingOnline, setDriverActivatingOnline] = useState<boolean>(false);
+  const [driverDispatchDrawerOpen, setDriverDispatchDrawerOpen] = useState<boolean>(false);
 
   // Live MapTiler Geocoding, User Location Detection, Route Calculation & All-User Pinpoint Dots
   const [originCoords, setOriginCoords] = useState<{ lat: number; lon: number } | null>(null);
@@ -7509,6 +7518,32 @@ export function App() {
               <DisplayModeToggle variant="icon" id="driver-display-mode-toggle" />
               <LanguageSwitcher compact />
               <StatusBadge label={driverCheckedInReady ? t('Online & Checked In') : t('Offline / Standby')} tone={driverCheckedInReady ? 'blue' : 'amber'} />
+              <button
+                type="button"
+                id="driver-close-drawer-btn"
+                className="pressable"
+                onClick={() => {
+                  setDriverSectionTab('DISPATCH');
+                  setDriverDispatchDrawerOpen(false);
+                }}
+                title={t('Back to Full Map')}
+                aria-label={t('Back to Full Map')}
+                style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '50%',
+                  border: '1px solid var(--color-border)',
+                  background: 'var(--color-bg-subtle)',
+                  color: 'var(--color-text-primary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                <X size={18} />
+              </button>
             </div>
           </div>
 
@@ -12645,7 +12680,9 @@ export function App() {
           setNavSection(target);
           if (target === 'DRIVER') {
             setBookingStep('HOME');
-            setSheetSnap('half');
+            setDriverSectionTab('DISPATCH');
+            setDriverDispatchDrawerOpen(false);
+            setSheetSnap('peek');
           } else if (target === 'HOME') {
             setBookingStep('HOME');
             setSheetSnap('full');
@@ -12666,169 +12703,533 @@ export function App() {
         departmentName={user?.department_name}
         onSwitchToDriverDispatch={() => {
           setNavSection('DRIVER');
-          setSheetSnap('half');
+          setDriverSectionTab('DISPATCH');
+          setDriverDispatchDrawerOpen(false);
+          setSheetSnap('peek');
         }}
         onSwitchToAdmin={() => setNavSection('ADMIN')}
         mapStage={
-          showBookingMap ? (
-            <div
-              className="gf-map-stage-host"
-              style={
-                {
-                  '--mobile-map-height':
-                    sheetSnap === 'peek' ? '61dvh' : sheetSnap === 'full' ? '22dvh' : '44dvh',
-                } as React.CSSProperties
+          showBookingMap ? (() => {
+            const isDriverDispatchMap = navSection === 'DRIVER' && driverSectionTab === 'DISPATCH';
+            const isDriverFullMap = isDriverDispatchMap && !driverDispatchDrawerOpen;
+            const isDriverOnline = Boolean(gpsNoticeAccepted && gpsReportingActive);
+            const driverCompletedCount = trips.filter(
+              (tr) =>
+                (tr.assigned_driver_user_id === user.id || tr.assigned_driver_name === user.nickname) &&
+                (tr.status === 'COMPLETED' || tr.trip_status === 'COMPLETED')
+            ).length;
+            const pendingDriverJobsCount = dispatches.filter(
+              (d) => d.trip_status !== 'COMPLETED' && d.trip_status !== 'REJECTED'
+            ).length;
+
+            const handleToggleDriverPower = async () => {
+              if (driverActivatingOnline) return;
+              if (isDriverOnline) {
+                setGpsReportingActive(false);
+                setGpsNoticeAccepted(false);
+                setDriverActivatingToast(t('Status updated to Offline'));
+                setTimeout(() => setDriverActivatingToast(null), 3000);
+              } else {
+                setDriverActivatingOnline(true);
+                detectAndReportUserLocation(true);
+                try {
+                  await sendDriverLocationReport('GRANTED');
+                } catch {}
+                window.setTimeout(() => {
+                  setDriverActivatingOnline(false);
+                  setGpsNoticeAccepted(true);
+                  setGpsReportingActive(true);
+                  setDriverActivatingToast(t('You are now online'));
+                  window.setTimeout(() => setDriverActivatingToast(null), 3500);
+                }, 1100);
               }
-            >
-              {/* Gojek Driver Top Controls (Avatar, Status Pill, Circular Power Button) */}
-              {(isDriverOnly || user?.role === 'DRV') && navSection === 'DRIVER' && (
-                <div className="gf-driver-topbar">
-                  {/* Top-left: Circular Driver Avatar (~44dp) with status ring */}
-                  <button
-                    type="button"
-                    className={`gf-driver-avatar-btn pressable ${gpsNoticeAccepted && gpsReportingActive ? 'is-online' : ''}`}
-                    onClick={handleOpenProfileModal}
-                    title={t('Corporate Driver Profile')}
-                    style={{ width: '44px', height: '44px', flexShrink: 0 }}
-                  >
-                    <img
-                      src={user?.photo_url || getDriverAvatarDataUri(user?.nickname || 'Driver')}
-                      alt={user?.nickname}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
-                  </button>
+            };
 
-                  {/* Top-center: Floating Status Pill */}
-                  <button
-                    type="button"
-                    id="driver-status-pill-btn"
-                    className={`gf-driver-status-pill pressable ${gpsNoticeAccepted && gpsReportingActive ? 'is-online' : ''}`}
-                    onClick={() => setSheetSnap(sheetSnap === 'peek' ? 'half' : 'full')}
-                  >
-                    <span
-                      style={{
-                        width: '10px',
-                        height: '10px',
-                        borderRadius: '50%',
-                        background: gpsNoticeAccepted && gpsReportingActive ? '#E25C09' : '#94a3b8',
-                        boxShadow: gpsNoticeAccepted && gpsReportingActive ? '0 0 0 2px rgba(255,255,255,0.85)' : 'none',
+            return (
+              <div
+                className={`gf-map-stage-host ${isDriverFullMap ? 'is-driver-full-map' : ''}`}
+                style={
+                  {
+                    '--mobile-map-height': isDriverFullMap
+                      ? 'calc(100dvh - 64px)'
+                      : sheetSnap === 'peek'
+                      ? '61dvh'
+                      : sheetSnap === 'full'
+                      ? '22dvh'
+                      : '44dvh',
+                  } as React.CSSProperties
+                }
+              >
+                {/* Reference Page 4: Gojek Driver Top Controls (Avatar, White Status Pill, Circular Power Button) */}
+                {isDriverDispatchMap && (
+                  <div className="gf-driver-topbar">
+                    {/* Top-left: Circular Driver Avatar (44dp) with Samsung Blue online ring */}
+                    <button
+                      type="button"
+                      id="driver-avatar-btn"
+                      className={`gf-driver-avatar-btn pressable ${isDriverOnline ? 'is-online' : ''}`}
+                      onClick={() => setNavSection('PROFILE')}
+                      title={t('Corporate Driver Profile')}
+                      style={{ width: '44px', height: '44px', flexShrink: 0 }}
+                    >
+                      <img
+                        src={user?.photo_url || getDriverAvatarDataUri(user?.nickname || 'Driver')}
+                        alt={user?.nickname}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    </button>
+
+                    {/* Top-center: White Rounded Status Pill (Offline > / Online compact medal + counter) */}
+                    <button
+                      type="button"
+                      id="driver-status-pill-btn"
+                      className={`gf-driver-status-pill pressable ${isDriverOnline ? 'is-online' : ''}`}
+                      onClick={() => setDriverStatusSheetOpen(true)}
+                      aria-label={isDriverOnline ? t('Online') : t('Offline')}
+                    >
+                      {isDriverOnline ? (
+                        <>
+                          <Award size={15} style={{ color: '#E25C09' }} />
+                          <span style={{ fontSize: '13px', fontWeight: 800, lineHeight: 1.1 }}>
+                            {driverCompletedCount}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span>{t('Offline')}</span>
+                          <ChevronRight size={16} style={{ color: '#1f1f1f', marginLeft: '-2px' }} />
+                        </>
+                      )}
+                    </button>
+
+                    {/* Top-right: 48dp Circular Power Button (Black offline / Spinner activating / Samsung Blue online) */}
+                    <button
+                      type="button"
+                      id="driver-power-toggle-btn"
+                      className={`gf-driver-power-btn pressable ${isDriverOnline ? 'is-online' : ''}`}
+                      onClick={handleToggleDriverPower}
+                      title={isDriverOnline ? t('Go Offline') : t('Online')}
+                      aria-label={isDriverOnline ? t('Go Offline') : t('Online')}
+                    >
+                      {driverActivatingOnline ? (
+                        <Loader2 size={22} className="gf-spin" />
+                      ) : (
+                        <Power size={22} />
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* Reference Page 4: Right-edge floating 44dp circular white map buttons */}
+                {isDriverFullMap && !driverActivatingOnline && (
+                  <div className="gf-driver-map-fab-stack">
+                    <button
+                      type="button"
+                      id="driver-fab-dispatches"
+                      className="gf-driver-map-fab pressable"
+                      onClick={() => {
+                        setDriverDispatchDrawerOpen(true);
+                        setSheetSnap('half');
                       }}
-                    />
-                    <span>
-                      {gpsNoticeAccepted && gpsReportingActive
-                        ? `${t('Online')} • ${trips.filter((tr) => (tr.assigned_driver_user_id === user.id || tr.assigned_driver_name === user.nickname) && (tr.status === 'COMPLETED' || tr.trip_status === 'COMPLETED')).length} ${t('Trips Completed')}`
-                        : `${t('Offline')} ▾`}
-                    </span>
-                  </button>
+                      title={t('Duty & Trips')}
+                      aria-label={t('Duty & Trips')}
+                    >
+                      <ClipboardList size={20} style={{ color: '#E25C09' }} />
+                      {pendingDriverJobsCount > 0 && (
+                        <span className="gf-driver-map-fab-badge">{pendingDriverJobsCount}</span>
+                      )}
+                    </button>
 
-                  {/* Top-right: 48dp Circular Power Button */}
+                    <button
+                      type="button"
+                      id="driver-fab-schedule"
+                      className="gf-driver-map-fab pressable"
+                      onClick={() => {
+                        setDriverSectionTab('SCHEDULE');
+                        setDriverDispatchDrawerOpen(false);
+                        setSheetSnap('full');
+                      }}
+                      title={t('Car Timetable & Schedule')}
+                      aria-label={t('Car Timetable & Schedule')}
+                    >
+                      <Calendar size={20} style={{ color: '#0072de' }} />
+                    </button>
+
+                    <button
+                      type="button"
+                      id="driver-fab-locate"
+                      className="gf-driver-map-fab pressable"
+                      onClick={() => detectAndReportUserLocation(false)}
+                      title={t('Detect & center on my location')}
+                      aria-label={t('Detect & center on my location')}
+                    >
+                      <LocateFixed size={20} style={{ color: isDriverOnline ? '#0072de' : '#1f1f1f' }} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Compact Floating Dispatch Bar (keeps ~88% of Driver screen pure unobstructed map) */}
+                {isDriverFullMap && !driverActivatingOnline && (
                   <button
                     type="button"
-                    id="driver-power-toggle-btn"
-                    className={`gf-driver-power-btn pressable ${gpsNoticeAccepted && gpsReportingActive ? 'is-online' : ''}`}
-                    onClick={async () => {
-                      if (gpsNoticeAccepted && gpsReportingActive) {
-                        setGpsReportingActive(false);
-                        setGpsNoticeAccepted(false);
-                        setDriverActivatingToast(t('Status updated to Offline'));
-                        setTimeout(() => setDriverActivatingToast(null), 3000);
-                      } else {
-                        setDriverActivatingToast(t('Switching to online...'));
-                        setGpsNoticeAccepted(true);
-                        setGpsReportingActive(true);
-                        detectAndReportUserLocation(true);
-                        await sendDriverLocationReport('GRANTED');
-                        setDriverActivatingToast(`${t('You are now online')} • ${t('Ready for Duty')}`);
-                        setTimeout(() => setDriverActivatingToast(null), 3500);
-                      }
+                    id="driver-floating-dispatch-bar"
+                    className="gf-driver-floating-dispatch-bar pressable"
+                    onClick={() => {
+                      setDriverDispatchDrawerOpen(true);
+                      setSheetSnap('half');
                     }}
-                    title={gpsNoticeAccepted && gpsReportingActive ? t('Go Offline') : t('Online')}
                   >
-                    <Power size={22} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                      <div
+                        style={{
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '10px',
+                          background: '#ebf5ff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <CompanyCarIcon size={24} />
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#1f1f1f', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {pendingDriverJobsCount > 0
+                            ? `${pendingDriverJobsCount} ${t('Active Dispatches')}`
+                            : isDriverOnline
+                            ? t('Ready for Duty')
+                            : t('Duty & Trips')}
+                        </div>
+                        <div style={{ fontSize: '11.5px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {pendingDriverJobsCount > 0
+                            ? t('Tap to open dispatch console')
+                            : t('Tap to view dispatches & car status')}
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRight size={18} style={{ color: '#0072de', flexShrink: 0 }} />
                   </button>
-                </div>
-              )}
+                )}
 
-              {driverActivatingToast && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '72px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    background: '#0a0a0a',
-                    color: '#ffffff',
-                    padding: '8px 18px',
-                    borderRadius: '9999px',
-                    fontSize: '13px',
-                    fontWeight: 700,
-                    boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
-                    zIndex: 30,
-                    pointerEvents: 'none',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
+                {/* Reference Page 4: Going Online Scrim + Top Dark Banner + White Activation Sheet */}
+                {isDriverDispatchMap && driverActivatingOnline && (
+                  <>
+                    <div className="gf-driver-top-banner">
+                      <CompanyCarIcon size={18} />
+                      <span>GalaxyFleet Driver • {t("Let's start work!")}</span>
+                    </div>
+                    <div className="gf-driver-scrim">
+                      <div className="gf-driver-activating-sheet">
+                        <div style={{ fontSize: '17px', fontWeight: 800, color: '#1f1f1f' }}>
+                          {t('Switching to online...')}
+                        </div>
+                        <div style={{ fontSize: '13.5px', color: '#64748b', lineHeight: 1.45 }}>
+                          {t('Please do not close or leave the app until it finishes.')}
+                        </div>
+                        <div className="gf-driver-progress-track">
+                          <div className="gf-driver-progress-bar" />
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Reference Page 4: Dark Bottom Toast ("Anda sekarang online" / "You are now online") */}
+                {driverActivatingToast && !driverActivatingOnline && !driverStatusSheetOpen && (
+                  <div className="gf-driver-bottom-toast">
+                    <CheckCircle2 size={16} style={{ color: '#258cfb' }} />
+                    <span>{driverActivatingToast}</span>
+                  </div>
+                )}
+
+                <MapView
+                  hasDriverTopbar={isDriverDispatchMap}
+                  driverMapMode={isDriverDispatchMap}
+                  driverOnline={isDriverOnline}
+                  origin={mapOrigin}
+                  destination={mapDest}
+                  originCoords={originCoords}
+                  destCoords={destCoords}
+                  myCoords={myCoords}
+                  userPins={userPins}
+                  fleetPositions={fleetPositions}
+                  currentUserId={user.id}
+                  onLocateMe={() => detectAndReportUserLocation(false)}
+                  locatingUser={locatingUser}
+                  showRoute={showRouteOnMap}
+                  routeGeometry={calculatedRoute?.geometry || null}
+                  routeMetrics={calculatedRoute}
+                  pinMode={navSection === 'HOME' && bookingStep === 'ROUTE' && routeTab === 'PIN'}
+                  onPinMoveAddress={(place: GeoPlace) => {
+                    if (activeRouteField === 'pickup') {
+                      setBookOrigin(place.name);
+                      setOriginCoords({ lat: place.lat, lon: place.lon });
+                    } else {
+                      setBookDest(place.name);
+                      setDestCoords({ lat: place.lat, lon: place.lon });
+                    }
                   }}
-                >
-                  <CheckCircle2 size={16} style={{ color: '#0072de' }} />
-                  <span>{driverActivatingToast}</span>
-                </div>
-              )}
-
-              <MapView
-                hasDriverTopbar={(isDriverOnly || user?.role === 'DRV') && navSection === 'DRIVER'}
-                origin={mapOrigin}
-                destination={mapDest}
-                originCoords={originCoords}
-                destCoords={destCoords}
-                myCoords={myCoords}
-                userPins={userPins}
-                fleetPositions={fleetPositions}
-                currentUserId={user.id}
-                onLocateMe={() => detectAndReportUserLocation(false)}
-                locatingUser={locatingUser}
-                showRoute={showRouteOnMap}
-                routeGeometry={calculatedRoute?.geometry || null}
-                routeMetrics={calculatedRoute}
-                pinMode={navSection === 'HOME' && bookingStep === 'ROUTE' && routeTab === 'PIN'}
-                onPinMoveAddress={(place: GeoPlace) => {
-                  if (activeRouteField === 'pickup') {
-                    setBookOrigin(place.name);
-                    setOriginCoords({ lat: place.lat, lon: place.lon });
-                  } else {
-                    setBookDest(place.name);
-                    setDestCoords({ lat: place.lat, lon: place.lon });
-                  }
-                }}
-                waitingRadar={navSection === 'HOME' && bookingStep === 'WAITING'}
-                driverActive={navSection === 'HOME' && bookingStep === 'IN_TRIP'}
-                driverName={focusedTrip?.assigned_driver_name}
-                driverCoords={activeTripDriverCoords}
-                activeVehicleModel={focusedTrip?.model || 'Stargazer'}
-                showBackButton={inActiveBookingFlow && !isDriverOnly}
-                onBack={handleMapBack}
-                isOffline={isOffline}
-              />
-            </div>
-          ) : null
+                  waitingRadar={navSection === 'HOME' && bookingStep === 'WAITING'}
+                  driverActive={navSection === 'HOME' && bookingStep === 'IN_TRIP'}
+                  driverName={focusedTrip?.assigned_driver_name}
+                  driverCoords={activeTripDriverCoords}
+                  activeVehicleModel={focusedTrip?.model || 'Stargazer'}
+                  showBackButton={inActiveBookingFlow && !isDriverOnly}
+                  onBack={handleMapBack}
+                  isOffline={isOffline}
+                />
+              </div>
+            );
+          })() : null
         }
         sheet={
-          <BottomSheet
-            snap={sheetSnap}
-            onSnapChange={setSheetSnap}
-            onEscape={inActiveBookingFlow ? handleMapBack : undefined}
-            hasBottomNav={!(inActiveBookingFlow || (navSection === 'HOME' && customerHomeMode === 'GOCAR_LANDING'))}
-            fullScreenPage={!showBookingMap}
-            stepKey={`${navSection}:${bookingStep}:${customerHomeMode}`}
-            footer={stickyFooter}
-            topNav={undefined}
-            ariaLabel="GalaxyFleet booking sheet"
-          >
-            {renderSheetContent()}
-          </BottomSheet>
+          navSection === 'DRIVER' && driverSectionTab === 'DISPATCH' && !driverDispatchDrawerOpen ? null : (
+            <BottomSheet
+              snap={sheetSnap}
+              onSnapChange={setSheetSnap}
+              onEscape={
+                navSection === 'DRIVER' && driverDispatchDrawerOpen
+                  ? () => setDriverDispatchDrawerOpen(false)
+                  : inActiveBookingFlow
+                  ? handleMapBack
+                  : undefined
+              }
+              hasBottomNav={!(inActiveBookingFlow || (navSection === 'HOME' && customerHomeMode === 'GOCAR_LANDING'))}
+              fullScreenPage={!showBookingMap}
+              stepKey={`${navSection}:${bookingStep}:${customerHomeMode}:${driverSectionTab}`}
+              footer={stickyFooter}
+              topNav={undefined}
+              ariaLabel="GalaxyFleet booking sheet"
+            >
+              {renderSheetContent()}
+            </BottomSheet>
+          )
         }
       />
+
+      {/* Reference Page 5: Floating Driver Status Sheet over Dimmed Map + Circular White Close (X) Below */}
+      {driverStatusSheetOpen && (() => {
+        const isDriverOnline = Boolean(gpsNoticeAccepted && gpsReportingActive);
+        const myDriverTrips = trips.filter(
+          (tr) => tr.assigned_driver_user_id === user.id || tr.assigned_driver_name === user.nickname
+        );
+        const completedCount = myDriverTrips.filter(
+          (tr) => tr.status === 'COMPLETED' || tr.trip_status === 'COMPLETED'
+        ).length;
+        const dedicatedCar = vehicles.find(
+          (v) =>
+            (v.dedicated_driver_user_id && v.dedicated_driver_user_id === user.id) ||
+            (v.default_driver_name && v.default_driver_name.toLowerCase() === (user.nickname || '').toLowerCase())
+        );
+        const activeJobsCount = dispatches.filter(
+          (d) => d.trip_status !== 'COMPLETED' && d.trip_status !== 'REJECTED'
+        ).length;
+
+        return (
+          <div
+            className="gf-driver-status-sheet-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('Driver Status')}
+            onClick={() => setDriverStatusSheetOpen(false)}
+          >
+            <div
+              className="gf-driver-status-sheet-card"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header: "Offline v" or "Online v" */}
+              <button
+                type="button"
+                className="gf-driver-status-sheet-header"
+                onClick={() => setDriverStatusSheetOpen(false)}
+              >
+                <span>{isDriverOnline ? t('Online') : t('Offline')}</span>
+                <ChevronDown size={18} />
+              </button>
+
+              <div className="gf-driver-status-sheet-body">
+                {/* 1. Today's Summary (Poin hari ini -> Today's Trips) */}
+                <div style={{ padding: '14px 0', borderBottom: '1px solid #f1f5f9' }}>
+                  <div style={{ fontSize: '12.5px', color: '#878787', fontWeight: 500 }}>
+                    {t('Trips Completed')}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                    <Award size={22} style={{ color: '#E25C09' }} />
+                    <span style={{ fontSize: '26px', fontWeight: 800, color: '#1f1f1f', lineHeight: 1 }}>
+                      {completedCount}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '12.5px', color: '#878787', marginTop: '4px' }}>
+                    {completedCount} / {Math.max(completedCount, myDriverTrips.length)} {t('Trips Completed')}
+                  </div>
+                </div>
+
+                {/* 2. Two Stats Side-by-Side (Dispatch Acceptance & Trip Completion) */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '12px',
+                    padding: '14px 0',
+                    borderBottom: '1px solid #f1f5f9',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '12px', color: '#878787', marginBottom: '4px' }}>
+                      {t('Dispatch Acceptance')}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <CheckCircle2 size={18} style={{ color: '#E25C09' }} />
+                      <span style={{ fontSize: '22px', fontWeight: 800, color: '#1f1f1f' }}>100%</span>
+                      <Info size={14} style={{ color: '#94a3b8' }} />
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '12px', color: '#878787', marginBottom: '4px' }}>
+                      {t('Trip Completion')}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <CheckCircle2 size={18} style={{ color: '#E25C09' }} />
+                      <span style={{ fontSize: '22px', fontWeight: 800, color: '#1f1f1f' }}>100%</span>
+                      <Info size={14} style={{ color: '#94a3b8' }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Assigned Dedicated Vehicle Row */}
+                <div className="gf-driver-status-row">
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: '15px', fontWeight: 700, color: '#1f1f1f' }}>
+                      {dedicatedCar ? `${dedicatedCar.make} ${dedicatedCar.model}` : t('Assigned Dedicated Car')}
+                    </div>
+                    <div style={{ fontSize: '12.5px', color: '#878787', marginTop: '2px' }}>
+                      {dedicatedCar ? `${dedicatedCar.registration_plate} • Odo ${dedicatedCar.current_odometer} km` : t('Ready for Duty')}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="gf-driver-outlined-pill pressable"
+                    onClick={() => {
+                      setDriverStatusSheetOpen(false);
+                      setDriverDispatchDrawerOpen(true);
+                      setSheetSnap('half');
+                    }}
+                  >
+                    {t('Details')}
+                  </button>
+                </div>
+
+                {/* 4. Active Dispatches Row */}
+                <div className="gf-driver-status-row">
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: '15px', fontWeight: 700, color: '#1f1f1f' }}>
+                      {t('Duty & Trips')}
+                    </div>
+                    <div style={{ fontSize: '12.5px', color: '#878787', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>{t('Active Dispatches')}:</span>
+                      <span
+                        style={{
+                          background: '#0072de',
+                          color: '#ffffff',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          padding: '1px 7px',
+                          borderRadius: '9999px',
+                        }}
+                      >
+                        {activeJobsCount}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="gf-driver-outlined-pill pressable"
+                    onClick={() => {
+                      setDriverStatusSheetOpen(false);
+                      setDriverDispatchDrawerOpen(true);
+                      setSheetSnap('half');
+                    }}
+                  >
+                    {t('Open')}
+                  </button>
+                </div>
+
+                {/* 5. Operational Schedule Row (Pilihan operasional -> Atur) */}
+                <div className="gf-driver-status-row">
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: '15px', fontWeight: 700, color: '#1f1f1f' }}>
+                      {t('Car Timetable & Schedule')}
+                    </div>
+                    <div style={{ fontSize: '12.5px', color: '#878787', marginTop: '2px' }}>
+                      {t('View your assigned shift & bookings')}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="gf-driver-outlined-pill pressable"
+                    onClick={() => {
+                      setDriverStatusSheetOpen(false);
+                      setDriverSectionTab('SCHEDULE');
+                      setDriverDispatchDrawerOpen(false);
+                      setSheetSnap('full');
+                    }}
+                  >
+                    {t('Manage')}
+                  </button>
+                </div>
+
+                {/* 6. Trip Log & Petty Cash Row */}
+                <div className="gf-driver-status-row">
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: '15px', fontWeight: 700, color: '#1f1f1f' }}>
+                      {t('Trip Log & Petty Cash')}
+                    </div>
+                    <div style={{ fontSize: '12.5px', color: '#878787', marginTop: '2px' }}>
+                      {t('Fuel, toll & parking receipts')}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="gf-driver-outlined-pill pressable"
+                    onClick={() => {
+                      setDriverStatusSheetOpen(false);
+                      setNavSection('ACTIVITY');
+                      setSheetSnap('full');
+                    }}
+                  >
+                    {t('View')}
+                  </button>
+                </div>
+
+                {/* 7. Display Mode & Language Row */}
+                <div className="gf-driver-status-row">
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#1f1f1f' }}>
+                    {t('Appearance & Language')}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <DisplayModeToggle variant="icon" id="driver-status-display-toggle" />
+                    <LanguageSwitcher compact />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Floating Circular White Close (X) Button beneath the card (Reference Page 5) */}
+            <button
+              type="button"
+              id="driver-status-sheet-close-btn"
+              className="gf-driver-status-sheet-close pressable"
+              onClick={() => setDriverStatusSheetOpen(false)}
+              aria-label={t('Close')}
+            >
+              <X size={22} />
+            </button>
+          </div>
+        );
+      })()}
+
       {renderSharedModals()}
     </>
   );
