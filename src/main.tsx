@@ -11,9 +11,6 @@ startDomTranslationObserver();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {/* Scroll viewport inside the #root app frame (fixed UI anchors to the frame, not the browser) */}
-    <div className="gf-app-scroller">
-      <App />
-    </div>
+    <App />
   </StrictMode>,
 )

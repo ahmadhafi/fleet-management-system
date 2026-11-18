@@ -6,32 +6,46 @@ import { DEFAULT_DISPLAY_MODE, DISPLAY_MODE_STORAGE_KEY, MOBILE_FRAME_MAX_WIDTH 
 
 const read = (rel: string) => fs.readFileSync(path.resolve(__dirname, rel), 'utf8');
 
-describe('Display Mode: Mobile appearance ⇄ Web appearance toggle', () => {
+describe('Display Mode & Full-Width Mobile UI/UX System', () => {
   it('defaults to mobile appearance and persists under gf_display_mode', () => {
     expect(DEFAULT_DISPLAY_MODE).toBe('mobile');
     expect(DISPLAY_MODE_STORAGE_KEY).toBe('gf_display_mode');
-    expect(MOBILE_FRAME_MAX_WIDTH).toBe(430);
+    expect(MOBILE_FRAME_MAX_WIDTH).toBe(480);
     const src = read('../src/utils/displayMode.ts');
     expect(src).toContain("setAttribute('data-display-mode'");
-    expect(src).toContain('width=${WEB_VIEWPORT_WIDTH}');
+    expect(src).toContain('width=device-width');
   });
 
-  it('applies the mode before first render and scrolls inside the #root app frame', () => {
+  it('applies the mode before first render and mounts App directly to #root', () => {
     const main = read('../src/main.tsx');
     expect(main).toContain('applyDisplayMode()');
-    expect(main).toContain('gf-app-scroller');
+    expect(main).toContain('<App />');
   });
 
-  it('layout CSS is driven by the #root frame width via container queries', () => {
+  it('layout CSS is 100% full-width on mobile with zero side gaps', () => {
     const css = read('../src/styles/app.css');
     expect(css).toContain('container: gfapp / inline-size');
-    expect(css).toContain('contain: layout');
+    expect(css).toContain('width: 100%');
     expect(css).toContain("html[data-display-mode='mobile'] #root");
-    expect(css).toContain('max-width: 430px');
-    // No viewport-width layout breakpoints remain (only prefers-color-scheme / print / landscape safeguard)
-    const widthMedia = css.match(/@media \((?:min|max)-width:[^{]*\{/g) || [];
-    expect(widthMedia.every((m) => m.includes('orientation') || m.includes("520px"))).toBe(true);
+    // No forbidden greens
     expect(css).not.toMatch(/#0aa211|#09ba11|#0cb417|#059669|#10b981|#16a34a|#065f46|#166534|#f0fdf4|#dcfce7|#ecfdf5|#bbf7d0/i);
+  });
+
+  it('renders Gojek-style full-width hero cards, quick shortcuts and destinations', () => {
+    const css = read('../src/styles/app.css');
+    expect(css).toContain('.gf-gojek-search-bar');
+    expect(css).toContain('.gf-gojek-hero-grid');
+    expect(css).toContain('.gf-gojek-hero-card');
+    expect(css).toContain('.gf-gojek-quick-grid');
+    expect(css).toContain('.gf-gojek-pass-card');
+    expect(css).toContain('.gf-gojek-dest-grid');
+
+    const app = read('../src/App.tsx');
+    expect(app).toContain('gf-gojek-search-bar');
+    expect(app).toContain('gf-gojek-hero-grid');
+    expect(app).toContain('gf-gojek-quick-grid');
+    expect(app).toContain('gf-gojek-pass-card');
+    expect(app).toContain('gf-gojek-dest-grid');
   });
 
   it('toggle is reachable from auth, topbars, admin, driver, home and profile screens', () => {
@@ -49,10 +63,11 @@ describe('Display Mode: Mobile appearance ⇄ Web appearance toggle', () => {
     }
   });
 
-  it('translates toggle labels into Indonesian and Korean', () => {
+  it('translates toggle and super app labels into Indonesian and Korean', () => {
     expect(t('Display Mode', 'id')).toBe('Mode Tampilan');
     expect(t('Mobile View', 'id')).toBe('Tampilan Seluler');
     expect(t('Web View', 'ko')).toBe('웹 보기');
-    expect(t('Switch to Web View', 'id')).toBe('Beralih ke Tampilan Web');
+    expect(t('Quick Destinations', 'id')).toBe('Pilihan cepat buatmu');
+    expect(t('Company Car', 'id')).toBe('Mobil Kantor');
   });
 });

@@ -455,6 +455,17 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
 
   // Prototype Simple Mobile Flow & Admin Mobile Navigation
   { en: 'Search services', id: 'Cari layanan', ko: '서비스 검색' },
+  { en: 'Search services, cars, destinations...', id: 'Cari layanan, mobil, tujuan...', ko: '서비스, 차량, 목적지 검색...' },
+  { en: 'Quick Destinations', id: 'Pilihan cepat buatmu', ko: '빠른 목적지 선택' },
+  { en: 'Ready for official travel', id: 'Siap untuk perjalanan dinas Anda', ko: '업무 출장 준비 완료' },
+  { en: 'Available • 8 Cars', id: 'Tersedia • 8 Unit', ko: '이용 가능 • 8대' },
+  { en: 'Ready for Duty', id: 'Siap Jalan', ko: '운행 준비 완료' },
+  { en: 'Office Route', id: 'Rute Kantor', ko: '사무실 노선' },
+  { en: 'Book in Advance', id: 'Pesan di Depan', ko: '사전 예약' },
+  { en: 'Book Now', id: 'Pesan Sekarang', ko: '지금 예약' },
+  { en: 'Company Car', id: 'Mobil Kantor', ko: '회사 차량' },
+  { en: 'Trip Log', id: 'Riwayat Trip', ko: '운행 기록' },
+  { en: 'Recent Activity', id: 'Aktivitas Terbaru', ko: '최근 활동' },
   { en: 'Car', id: 'Mobil', ko: '차량' },
   { en: 'No bookings yet', id: 'Belum ada booking', ko: '예약 내역이 없습니다' },
   { en: 'Tap Car to start a booking.', id: 'Ketuk Mobil untuk mulai memesan.', ko: '차량을 눌러 예약을 시작하세요.' },

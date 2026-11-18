@@ -45,6 +45,7 @@ import {
   ArrowLeft,
   Bus,
   X,
+  Sparkles,
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
 import { AppShell, AdminShell, type NavSection, type AdminModule } from './components/AppShell';
@@ -9443,18 +9444,18 @@ export function App() {
         );
       })();
 
-      // PROTOTYPE SCREEN 1: SIMPLE EMPLOYEE HOME
+      // PROTOTYPE SCREEN 1: GOJEK-STYLE SUPER-APP HOME (Reference: Screenshot_20261118_193720_Gojek.jpg)
       if (customerHomeMode === 'SUPER_APP') {
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
             {feedbackBanner}
 
-            {/* Clean Search Pill + Profile Circle */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {/* 1. Gojek-Style Search Bar (Preserves id="home-where-to-btn") */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%' }}>
               <button
                 id="home-where-to-btn"
                 type="button"
-                className="gf-proto-sbar pressable"
+                className="gf-gojek-search-bar pressable"
                 onClick={() =>
                   requireLocationBeforeCarUse(() => {
                     setBookReservationType('ONE_WAY');
@@ -9462,11 +9463,11 @@ export function App() {
                     setSheetSnap('half');
                   })
                 }
-                aria-label={t('Search services')}
+                aria-label={t('Search services, cars, destinations...')}
               >
-                <Search size={18} style={{ flexShrink: 0 }} />
-                <span style={{ fontSize: '14px', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {t('Search services')}
+                <Search size={20} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
+                <span style={{ fontSize: '14.5px', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text-secondary)' }}>
+                  {t('Search services, cars, destinations...')}
                 </span>
               </button>
               <DisplayModeToggle variant="icon" id="home-display-mode-toggle" />
@@ -9475,7 +9476,7 @@ export function App() {
                 className="gf-driver-avatar-btn pressable"
                 onClick={handleOpenProfileModal}
                 title={t('Profile')}
-                style={{ width: '40px', height: '40px', flexShrink: 0 }}
+                style={{ width: '42px', height: '42px', flexShrink: 0 }}
               >
                 <img
                   src={user.photo_url || getDriverAvatarDataUri(user.nickname || 'User')}
@@ -9485,25 +9486,32 @@ export function App() {
               </button>
             </div>
 
-            {/* Clean 4-Column Service Grid (Car, Shuttle [Under Development], Schedule, Fleet Helpdesk [+ Admin if privileged]) */}
-            <div className="gf-proto-shortcut-grid">
+            {/* 2. Gojek-Style Primary Hero Service Cards (GoCar, Shuttle, Schedule - Big & Proportional!) */}
+            <div className="gf-gojek-hero-grid">
+              {/* Card 1: Pesan Mobil (Company Car) */}
               <button
                 type="button"
-                className="gf-proto-shortcut-item pressable"
+                className="gf-gojek-hero-card is-featured pressable"
                 onClick={() => {
                   setCustomerHomeMode('GOCAR_LANDING');
                   setSheetSnap('full');
                 }}
+                title={t('Company Car')}
               >
-                <div className="gf-proto-shortcut-tile is-primary">
-                  <Car size={26} />
+                <span className="gf-gojek-hero-tag">{t('Available • 8 Cars')}</span>
+                <div className="gf-gojek-hero-art">
+                  <SamsungBusLogo size={40} />
                 </div>
-                <span style={{ fontSize: '12px', fontWeight: 700 }}>{t('Car')}</span>
+                <div>
+                  <div className="gf-gojek-hero-title">{t('Company Car')}</div>
+                  <div className="gf-gojek-hero-subtitle">{t('Ready for Duty')}</div>
+                </div>
               </button>
 
+              {/* Card 2: Shuttle Bus (Antar-Jemput) */}
               <button
                 type="button"
-                className="gf-proto-shortcut-item pressable"
+                className="gf-gojek-hero-card pressable"
                 onClick={() => {
                   setStatusBanner({
                     type: 'info',
@@ -9512,67 +9520,220 @@ export function App() {
                 }}
                 title={t('Under Development')}
               >
-                <div className="gf-proto-shortcut-tile">
-                  <Bus size={24} />
-                  <span
-                    style={{
-                      position: 'absolute',
-                      top: '-4px',
-                      right: '-6px',
-                      background: '#0a0a0a',
-                      color: '#ffffff',
-                      fontSize: '8.5px',
-                      fontWeight: 800,
-                      padding: '1px 5px',
-                      borderRadius: '9999px',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    Dev
-                  </span>
+                <span className="gf-gojek-hero-tag" style={{ background: '#0a0a0a', color: '#ffffff' }}>Dev</span>
+                <div className="gf-gojek-hero-art">
+                  <Bus size={34} color="#0072de" />
                 </div>
-                <span style={{ fontSize: '12px', fontWeight: 600 }}>{t('Shuttle Bus')}</span>
+                <div>
+                  <div className="gf-gojek-hero-title">{t('Shuttle Bus')}</div>
+                  <div className="gf-gojek-hero-subtitle">{t('Office Route')}</div>
+                </div>
               </button>
 
+              {/* Card 3: Set Schedule (Reservasi Jadwal) */}
               <button
                 type="button"
-                className="gf-proto-shortcut-item pressable"
+                className="gf-gojek-hero-card pressable"
                 onClick={() => {
                   setBookingStep('SCHEDULE_VIEW');
                   setSheetSnap('full');
                 }}
+                title={t('Set Schedule')}
               >
-                <div className="gf-proto-shortcut-tile">
-                  <Calendar size={24} />
+                <span className="gf-gojek-hero-tag">{t('Schedule')}</span>
+                <div className="gf-gojek-hero-art">
+                  <Calendar size={34} color="#0072de" />
                 </div>
-                <span style={{ fontSize: '12px', fontWeight: 600 }}>{t('Set Schedule')}</span>
+                <div>
+                  <div className="gf-gojek-hero-title">{t('Set Schedule')}</div>
+                  <div className="gf-gojek-hero-subtitle">{t('Book in Advance')}</div>
+                </div>
+              </button>
+            </div>
+
+            {/* 3. Gojek-Style Secondary Service Shortcuts (Helpdesk, Trip Log, Dispatch, Admin) */}
+            <div className="gf-gojek-quick-grid">
+              <button
+                type="button"
+                className="gf-gojek-quick-item pressable"
+                onClick={() => window.open(FLEET_HELPDESK_WHATSAPP_URL, '_blank')}
+                title={`Fleet Helpdesk: ${FLEET_HELPDESK_PIC_LABEL}`}
+              >
+                <div className="gf-gojek-quick-tile is-blue">
+                  <Phone size={22} />
+                </div>
+                <span className="gf-gojek-quick-label">{t('Fleet Helpdesk')}</span>
               </button>
 
               <button
                 type="button"
-                className="gf-proto-shortcut-item pressable"
-                onClick={() => window.open(FLEET_HELPDESK_WHATSAPP_URL, '_blank')}
-                title={`Fleet Helpdesk: ${FLEET_HELPDESK_PIC_LABEL}`}
+                className="gf-gojek-quick-item pressable"
+                onClick={() => setNavSection('ACTIVITY')}
+                title={t('Trip Log')}
               >
-                <div className="gf-proto-shortcut-tile">
-                  <Phone size={24} />
+                <div className="gf-gojek-quick-tile">
+                  <Clock size={22} />
                 </div>
-                <span style={{ fontSize: '12px', fontWeight: 600 }}>{t('Fleet Helpdesk')}</span>
+                <span className="gf-gojek-quick-label">{t('Trip Log')}</span>
               </button>
 
-              {isPrivileged && (
+              {(user.role === "DRV" || isPrivileged) ? (
                 <button
                   type="button"
-                  className="gf-proto-shortcut-item pressable"
-                  onClick={() => setNavSection('ADMIN')}
-                  title={t('Admin Command Console')}
+                  className="gf-gojek-quick-item pressable"
+                  onClick={() => setNavSection('DRIVER')}
+                  title={t('Driver Dispatch')}
                 >
-                  <div className="gf-proto-shortcut-tile">
-                    <ShieldCheck size={24} />
+                  <div className="gf-gojek-quick-tile is-blue">
+                    <Navigation size={22} />
                   </div>
-                  <span style={{ fontSize: '12px', fontWeight: 700 }}>{t('Admin')}</span>
+                  <span className="gf-gojek-quick-label">{t('Dispatch')}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="gf-gojek-quick-item pressable"
+                  onClick={() => {
+                    setCustomerHomeMode('GOCAR_LANDING');
+                    setSheetSnap('full');
+                  }}
+                  title={t('Company Car')}
+                >
+                  <div className="gf-gojek-quick-tile">
+                    <Car size={22} />
+                  </div>
+                  <span className="gf-gojek-quick-label">{t('Vehicles')}</span>
                 </button>
               )}
+
+              {isPrivileged ? (
+                <button
+                  type="button"
+                  className="gf-gojek-quick-item pressable"
+                  onClick={() => setNavSection('ADMIN')}
+                  title={t('Admin Console')}
+                >
+                  <div className="gf-gojek-quick-tile is-blue">
+                    <ShieldCheck size={22} />
+                  </div>
+                  <span className="gf-gojek-quick-label">{t('Admin')}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="gf-gojek-quick-item pressable"
+                  onClick={handleOpenProfileModal}
+                  title={t('Profile')}
+                >
+                  <div className="gf-gojek-quick-tile">
+                    <User size={22} />
+                  </div>
+                  <span className="gf-gojek-quick-label">{t('Profile')}</span>
+                </button>
+              )}
+            </div>
+
+            {/* 4. Gojek GoPay-Style Fleet Pass Card */}
+            <div className="gf-gojek-pass-card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: 1 }}>
+                <div
+                  style={{
+                    width: '42px',
+                    height: '42px',
+                    borderRadius: '50%',
+                    background: 'var(--color-samsung-blue-tint, #ebf5ff)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#0072de',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Car size={22} />
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontWeight: 800, fontSize: '14.5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {user.nickname} {user.department_name ? `• ${user.department_name}` : ''}
+                  </div>
+                  <div className="type-caption" style={{ marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span className="gf-badge gf-badge-blue" style={{ fontSize: '10.5px', padding: '1px 6px' }}>
+                      {user.role}
+                    </span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {t('Ready for official travel')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="gf-btn gf-btn-primary gf-btn-sm pressable"
+                style={{ flexShrink: 0, padding: '0 14px', height: '36px', fontSize: '12.5px', borderRadius: '10px' }}
+                onClick={() => {
+                  setCustomerHomeMode('GOCAR_LANDING');
+                  setSheetSnap('full');
+                }}
+              >
+                {t('Book Now')} →
+              </button>
+            </div>
+
+            {/* 5. Gojek "Pilihan cepat buatmu" Quick Destinations */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={16} color="#0072de" />
+                <h3 style={{ fontSize: '15.5px', fontWeight: 800, margin: 0 }}>{t('Quick Destinations')}</h3>
+              </div>
+
+              <div className="gf-gojek-dest-grid">
+                {[
+                  {
+                    poi: QUICK_CORPORATE_POIS[3],
+                    tag: 'Head Office',
+                    title: 'SCBD Head Office',
+                    sub: 'District 8, Sudirman',
+                  },
+                  {
+                    poi: QUICK_CORPORATE_POIS[4],
+                    tag: 'Airport VIP',
+                    title: 'Soekarno-Hatta T3',
+                    sub: 'Terminal 3 Ultimate',
+                  },
+                  {
+                    poi: QUICK_CORPORATE_POIS[0],
+                    tag: 'Plant 1',
+                    title: 'Plant 1 Sunter',
+                    sub: 'Manufacturing Plant',
+                  },
+                  {
+                    poi: QUICK_CORPORATE_POIS[1],
+                    tag: 'Plant 2',
+                    title: 'Plant 2 Karawang',
+                    sub: 'KIIC Industrial Area',
+                  },
+                ].map((item, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    className="gf-gojek-dest-item pressable"
+                    onClick={() =>
+                      requireLocationBeforeCarUse(() => {
+                        setBookDest(item.poi.name);
+                        setDestCoords({ lat: item.poi.lat, lon: item.poi.lon });
+                        setBookReservationType('ONE_WAY');
+                        setBookingStep('VEHICLE');
+                        setSheetSnap('half');
+                      })
+                    }
+                  >
+                    <span className="gf-gojek-dest-tag">{item.tag}</span>
+                    <div style={{ marginTop: '6px' }}>
+                      <div style={{ fontWeight: 800, fontSize: '13.5px', lineHeight: 1.25 }}>{item.title}</div>
+                      <div className="type-caption" style={{ marginTop: '2px', fontSize: '11px' }}>{item.sub}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Prototype Activity Section directly on Home */}

@@ -3,24 +3,22 @@ import { useSyncExternalStore } from 'react';
 /**
  * Display Mode (Mobile Appearance vs Web Appearance)
  * ---------------------------------------------------------------------------
- * - 'mobile' (default): the app renders as a native-feeling phone app. On real
- *   phones it is edge-to-edge; on tablets/desktops it is centered inside a
- *   430px phone frame so the layout always uses the compact mobile proportions.
- * - 'web': the app renders the full responsive web/desktop layout (topbar nav,
- *   sidebar, side-by-side map panel, full data tables). On small phones the
- *   viewport is widened to 1280px (same behaviour as "Request desktop site").
+ * - 'mobile' (default): the app renders as a full-width native-feeling mobile app.
+ *   On mobile phones it is 100% edge-to-edge (no side gaps, no borders, no deadzones).
+ *   Components, hero service cards, touch targets, and typography use comfortable,
+ *   proportional Gojek-style mobile sizing.
+ * - 'web': the app renders the responsive desktop/web layout (topbar navigation,
+ *   admin sidebar, multi-column tables, widescreen panels).
  *
- * Layout CSS uses `@container gfapp (...)` queries against `#root`, so the
- * frame width (not the browser width) decides which layout rules apply.
+ * Switching modes updates <html data-display-mode="mobile|web"> and localStorage.
+ * The viewport meta is kept native (width=device-width, initial-scale=1.0) so
+ * mobile browsers NEVER get trapped in a zoomed-out desktop scale.
  */
 export type DisplayMode = 'mobile' | 'web';
 
 export const DISPLAY_MODE_STORAGE_KEY = 'gf_display_mode';
 export const DEFAULT_DISPLAY_MODE: DisplayMode = 'mobile';
-export const MOBILE_FRAME_MAX_WIDTH = 430;
-export const WEB_VIEWPORT_WIDTH = 1280;
-
-const DEFAULT_VIEWPORT_CONTENT = 'width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5.0';
+export const MOBILE_FRAME_MAX_WIDTH = 480;
 
 const listeners = new Set<() => void>();
 
@@ -39,20 +37,15 @@ export function getDisplayMode(): DisplayMode {
   return currentMode;
 }
 
-/** Applies the mode to <html data-display-mode> and adjusts the viewport meta for phones. */
+/** Applies the mode to <html data-display-mode="mobile|web"> */
 export function applyDisplayMode(mode: DisplayMode = currentMode) {
   if (typeof document === 'undefined') return;
   document.documentElement.setAttribute('data-display-mode', mode);
 
+  // Always enforce proper native mobile viewport scaling with zero zoom distortion
   const meta = document.querySelector('meta[name="viewport"]');
   if (meta) {
-    const screenWidth = typeof window !== 'undefined' ? Math.min(window.screen?.width || 9999, window.screen?.height || 9999) : 9999;
-    const isSmallDevice = screenWidth < 1024;
-    const nextContent =
-      mode === 'web' && isSmallDevice
-        ? `width=${WEB_VIEWPORT_WIDTH}, viewport-fit=cover`
-        : DEFAULT_VIEWPORT_CONTENT;
-    if (meta.getAttribute('content') !== nextContent) meta.setAttribute('content', nextContent);
+    meta.setAttribute('content', 'width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5.0');
   }
 
   // Leaflet maps & other size-aware widgets listen to resize to recompute layout.
@@ -88,7 +81,7 @@ export function useDisplayMode(): { mode: DisplayMode; setMode: (m: DisplayMode)
   return { mode, setMode: setDisplayMode, toggle: toggleDisplayMode, isMobile: mode === 'mobile' };
 }
 
-/** Width of the rendered app frame (#root) — use instead of window.innerWidth for layout decisions. */
+/** Width of the rendered app frame (#root) */
 export function getAppFrameWidth(): number {
   if (typeof document === 'undefined') return 1024;
   const root = document.getElementById('root');
