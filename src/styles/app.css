@@ -1447,6 +1447,8 @@ textarea {
 
 /* Primary Pill Book CTA with Trailing Circular Arrow (Page 7 & Page 10 Spec: 52dp full pill) */
 .gf-gocar-book-cta {
+  flex: 1;
+  min-width: 0;
   width: 100%;
   min-height: 52px;
   height: 52px;
@@ -1454,12 +1456,12 @@ textarea {
   border: none;
   background: var(--color-samsung-blue);
   color: #ffffff;
-  padding: 0 18px 0 22px;
+  padding: 0 12px 0 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  font-size: 15.5px;
+  gap: 8px;
+  font-size: 15px;
   font-weight: 800;
   cursor: pointer;
   box-shadow: 0 6px 20px rgba(0, 114, 222, 0.32);
@@ -3619,3 +3621,125 @@ iframe.goog-te-banner-frame {
   }
 }
 
+/* ============================================================================
+ * FULL-SCREEN MOBILE PAGE MODE (When Map is Hidden — Non-Booking Screens)
+ * ========================================================================== */
+.gf-sheet.is-fullscreen-page {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  top: 0 !important;
+  bottom: 0 !important;
+}
+
+@media (max-width: 767px) {
+  .gf-sheet.is-fullscreen-page {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+    border-top: none !important;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .gf-ride-layout.is-no-map {
+    display: flex;
+    justify-content: center;
+    background: var(--color-bg-subtle);
+  }
+  .gf-sheet.is-fullscreen-page {
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    top: 0 !important;
+    width: min(500px, 100vw) !important;
+    height: calc(100dvh - 64px) !important;
+    max-height: calc(100dvh - 64px) !important;
+    border-radius: 0 !important;
+    border-top: none !important;
+    border-bottom: none !important;
+    border-left: 1px solid var(--color-divider) !important;
+    border-right: 1px solid var(--color-divider) !important;
+    box-shadow: 0 4px 28px rgba(15, 23, 42, 0.06) !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  /* Reduce map proportion on desktop when map IS visible during car booking */
+  .gf-ride-layout:not(.is-no-map) .gf-sheet {
+    width: 500px;
+    min-width: 500px;
+    max-width: 500px;
+  }
+
+  /* When map is NOT visible, center a clean mobile-app column without any map pane */
+  .gf-ride-layout.is-no-map {
+    justify-content: center;
+    background: var(--color-bg-subtle);
+  }
+  .gf-sheet.is-fullscreen-page {
+    width: min(520px, 100vw) !important;
+    min-width: min(520px, 100vw) !important;
+    max-width: 520px !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    margin: 0 auto !important;
+    border-left: 1px solid var(--color-divider) !important;
+    border-right: 1px solid var(--color-divider) !important;
+    box-shadow: 0 4px 32px rgba(15, 23, 42, 0.06) !important;
+  }
+}
+
+/* GoCar Landing Dark/Blue Navy Header & Destination Cards (Reference: 1794990260264.jpg) */
+.gf-gocar-landing-dark-band {
+  background: linear-gradient(180deg, #0d1526 0%, #111c33 100%);
+  padding: 6px 16px 18px;
+  color: #ffffff;
+}
+
+.gf-gocar-dest-card {
+  border-radius: 16px;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-bg-surface);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  transition: border-color 140ms ease, transform 120ms ease, box-shadow 140ms ease;
+}
+
+.gf-gocar-dest-card:hover {
+  border-color: #0072de;
+  box-shadow: 0 4px 14px rgba(0, 114, 222, 0.1);
+}
+
+.gf-gocar-dest-row-card {
+  border-radius: 14px;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-bg-surface);
+  padding: 13px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.gf-gocar-dest-row-card:hover {
+  border-color: #0072de;
+  background: #f8fbff;
+}
+
+:root[data-theme='dark'] .gf-gocar-dest-row-card:hover {
+  background: rgba(37, 140, 251, 0.12);
+}

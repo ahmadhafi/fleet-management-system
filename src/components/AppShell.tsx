@@ -251,11 +251,11 @@ export const AppShell: React.FC<AppShellProps> = ({
         onSwitchToAdmin={onSwitchToAdmin}
       />
 
-      <div className="gf-ride-layout">
-        {/* Full-bleed Map Canvas */}
+      <div className={`gf-ride-layout ${!mapStage ? 'is-no-map' : ''}`}>
+        {/* Full-bleed Map Canvas (only rendered during active car booking / driver duty) */}
         {mapStage}
 
-        {/* Adaptive Sheet / Tablet Floating Card / Desktop Left Panel */}
+        {/* Adaptive Sheet / Full-Screen Mobile Page */}
         {sheet}
 
         {/* Mobile Bottom Tab Bar (hidden during active booking or on desktop) */}

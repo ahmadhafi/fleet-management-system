@@ -41,11 +41,9 @@ import {
   EyeOff,
   User,
   RefreshCw,
-  ArrowUp,
   ArrowRight,
   ArrowLeft,
   Bus,
-  Info,
   X,
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
@@ -733,7 +731,7 @@ export function App() {
         setVapidPublicKey(res.vapidPublicKey || '');
         if (res.user.role === 'DRV') {
           setNavSection('DRIVER');
-          setSheetSnap('half');
+          setSheetSnap('full');
         } else if (['ADM', 'FM', 'HWS'].includes(res.user.role)) {
           setNavSection('ADMIN');
           setAdminModule('ADMIN_DISPATCH');
@@ -953,7 +951,7 @@ export function App() {
       setVapidPublicKey(res.vapidPublicKey || '');
       if (res.user.role === 'DRV') {
         setNavSection('DRIVER');
-        setSheetSnap('half');
+        setSheetSnap('full');
       } else if (['ADM', 'FM', 'HWS'].includes(res.user.role)) {
         setNavSection('ADMIN');
         setAdminModule('ADMIN_DISPATCH');
@@ -6233,6 +6231,20 @@ export function App() {
       bookingStep === 'SUMMARY' ||
       bookingStep === 'IN_TRIP');
 
+  // Map only appears when user is actively booking a car (or compact Driver duty header)
+  const isCarBookingMapStep =
+    navSection === 'HOME' &&
+    (bookingStep === 'VEHICLE' ||
+      bookingStep === 'SUMMARY' ||
+      bookingStep === 'WAITING' ||
+      bookingStep === 'IN_TRIP' ||
+      (bookingStep === 'ROUTE' &&
+        (routeTab === 'PIN' ||
+          routeTab === 'PICKUP' ||
+          (Boolean(bookOrigin.trim()) && Boolean(bookDest.trim())))));
+
+  const showBookingMap = isCarBookingMapStep || (navSection === 'DRIVER' && driverSectionTab === 'DISPATCH');
+
   const handleMapBack = () => {
     if (showSchedulePicker) {
       setShowSchedulePicker(false);
@@ -6245,16 +6257,16 @@ export function App() {
     }
     if (bookingStep === 'ROUTE') {
       setBookingStep('HOME');
-      setSheetSnap('half');
+      setSheetSnap('full');
     } else if (bookingStep === 'VEHICLE') {
       setBookingStep('ROUTE');
-      setSheetSnap('full');
+      setSheetSnap('half');
     } else if (bookingStep === 'SUMMARY') {
       setBookingStep('VEHICLE');
-      setSheetSnap('full');
+      setSheetSnap('half');
     } else if (bookingStep === 'WAITING' || bookingStep === 'IN_TRIP') {
       setBookingStep('HOME');
-      setSheetSnap('half');
+      setSheetSnap('full');
     }
   };
 
@@ -6276,7 +6288,7 @@ export function App() {
                 setRouteTab('RECENT');
                 if (bookDest.trim()) {
                   setBookingStep('VEHICLE');
-                  setSheetSnap('full');
+                  setSheetSnap('half');
                 } else {
                   setActiveRouteField('destination');
                   setSheetSnap('full');
@@ -6304,7 +6316,7 @@ export function App() {
                 }
                 setRouteTab('RECENT');
                 setBookingStep('VEHICLE');
-                setSheetSnap('full');
+                setSheetSnap('half');
               }}
             >
               Confirm location
@@ -6329,7 +6341,7 @@ export function App() {
                 className="gf-btn gf-btn-primary"
                 onClick={() => {
                   setBookingStep('VEHICLE');
-                  setSheetSnap('full');
+                  setSheetSnap('half');
                 }}
               >
                 {t('Continue to Vehicle')}
@@ -6364,20 +6376,20 @@ export function App() {
                 setSheetSnap('half');
               }}
             >
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0 }}>
-                <span style={{ fontSize: '15px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, overflow: 'hidden' }}>
+                <span style={{ width: '100%', textAlign: 'left', fontSize: '14.5px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {scheduleMode === 'SCHEDULE'
                     ? `${t('Schedule')} ${selectedVehicle.make} ${selectedVehicle.model}`
                     : `${t('Book')} ${selectedVehicle.make} ${selectedVehicle.model}`}
                 </span>
-                <span style={{ fontSize: '11.5px', fontWeight: 600, opacity: 0.9 }}>
+                <span style={{ width: '100%', textAlign: 'left', fontSize: '11.5px', fontWeight: 600, opacity: 0.9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {scheduleMode === 'SCHEDULE'
                     ? getScheduleSlotBrief(bookStart, lang)
                     : `${t('Ready to Depart')} • ETA ${currentMetrics.etaText}`}
                 </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-                <span style={{ fontSize: '12.5px', fontWeight: 800 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                <span style={{ fontSize: '12px', fontWeight: 800, whiteSpace: 'nowrap' }}>
                   {bookReservationType === 'FULL_DAY'
                     ? t('Full Day')
                     : bookReservationType === 'DROP_AND_PICKUP'
@@ -8332,8 +8344,6 @@ export function App() {
     // -------------------------------------------------------------------------
     if (bookingStep === 'HOME') {
       const isNightHero = new Date().getHours() >= 18 || new Date().getHours() < 5;
-      const oneTapDest = recentDestinationChips[0] || QUICK_CORPORATE_POIS[0]?.name || 'Sudirman Central Business District (SCBD)';
-      const oneTapAddr = recentPlacesList[0]?.address || QUICK_CORPORATE_POIS[0]?.address || 'Jl. Jend. Sudirman Kav 52-53, Jakarta Selatan';
 
       const myHomeTrips = (isPrivileged
         ? trips.filter((tr) => tr.requester_id === user.id || tr.requester_name === user.nickname)
@@ -8638,38 +8648,101 @@ export function App() {
         );
       }
 
-      // PROTOTYPE SCREEN 2: CAR BOOKING LANDING (Samsung Blue Day/Night Sky Hero + Overlapping Sheet)
+      // PROTOTYPE SCREEN 2: CAR BOOKING LANDING (Reference: 1794990260264.jpg in Samsung Blue)
+      const primaryPoi = QUICK_CORPORATE_POIS[0] || {
+        name: 'Manufacturing Plant 1',
+        label: 'Plant 1 (Sunter)',
+        address: 'Jl. Danau Sunter Barat No. 8, Sunter Jaya, Jakarta Utara',
+        lat: -6.1436,
+        lon: 106.8691,
+      };
+      const secondaryPois = (recentPlacesList.length > 1 ? recentPlacesList.slice(1, 4) : QUICK_CORPORATE_POIS.slice(1, 4));
+
       return (
         <div className="gf-proto-land-shell">
-          <div className="gf-proto-hero">
-            <svg viewBox="0 0 412 205" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <div className="gf-proto-hero" style={{ height: '212px' }}>
+            <svg viewBox="0 0 412 212" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
               <defs>
                 <linearGradient id="gfProtoSkyGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop stopColor={isNightHero ? '#0B1F4D' : '#6FCBEF'} />
-                  <stop offset="1" stopColor={isNightHero ? '#1B3E86' : '#CDEEF8'} />
+                  <stop stopColor={isNightHero ? '#0B1F4D' : '#8FD4F7'} />
+                  <stop offset="1" stopColor={isNightHero ? '#1B3E86' : '#E0F5FE'} />
                 </linearGradient>
               </defs>
-              <rect width="412" height="205" fill="url(#gfProtoSkyGrad)" />
+              <rect width="412" height="212" fill="url(#gfProtoSkyGrad)" />
+
+              {/* Sun / Moon & Clouds */}
               {isNightHero ? (
                 <>
-                  <circle cx="70" cy="48" r="16" fill="#FFE9A8" />
-                  <circle cx="78" cy="42" r="14" fill="#0B1F4D" />
-                  <g fill="#ffffff">
-                    <circle cx="150" cy="30" r="1.5" />
-                    <circle cx="260" cy="50" r="1.5" />
-                    <circle cx="340" cy="26" r="2" />
-                    <circle cx="200" cy="70" r="1.2" />
+                  <circle cx="115" cy="40" r="15" fill="#FFE9A8" />
+                  <circle cx="122" cy="35" r="13" fill="#0B1F4D" />
+                  <g fill="#ffffff" opacity="0.85">
+                    <circle cx="180" cy="28" r="1.5" />
+                    <circle cx="260" cy="44" r="1.5" />
+                    <circle cx="340" cy="24" r="2" />
                   </g>
                 </>
               ) : (
-                <circle cx="340" cy="52" r="24" fill="#FFE27A" />
+                <>
+                  <circle cx="128" cy="36" r="14" fill="#FACC15" />
+                  <path d="M96 46h52a10 10 0 0 0-9-10 13 13 0 0 0-24-3 11 11 0 0 0-19 13z" fill="#ffffff" opacity="0.95" />
+                  <path d="M282 44h58a10 10 0 0 0-10-10 14 14 0 0 0-26-2 11 11 0 0 0-22 12z" fill="#ffffff" opacity="0.95" />
+                </>
               )}
-              <g fill={isNightHero ? '#16306B' : '#9ED8EE'}>
-                <rect x="40" y="105" width="26" height="70" />
-                <rect x="300" y="85" width="30" height="90" />
-                <rect x="340" y="115" width="24" height="60" />
+
+              {/* Cityscape Silhouette */}
+              <g fill={isNightHero ? '#16306B' : '#1282C4'} opacity="0.88">
+                <path d="M0 150 L28 112 L68 145 Z" />
+                <rect x="72" y="102" width="22" height="58" rx="2" />
+                <polygon points="155,148 155,104 192,88 192,148" />
+                <rect x="218" y="114" width="26" height="42" />
+                <rect x="252" y="88" width="20" height="68" />
+                <rect x="348" y="76" width="38" height="80" />
+                <rect x="392" y="100" width="20" height="56" />
               </g>
-              <ellipse cx="206" cy="260" rx="300" ry="100" fill="#0072de" />
+              {/* City Windows */}
+              <g fill="#E0F5FE" opacity="0.7">
+                <rect x="256" y="94" width="4" height="4" />
+                <rect x="264" y="94" width="4" height="4" />
+                <rect x="256" y="102" width="4" height="4" />
+                <rect x="264" y="102" width="4" height="4" />
+                <rect x="256" y="110" width="4" height="4" />
+                <rect x="264" y="110" width="4" height="4" />
+              </g>
+
+              {/* Curved Dark Navy Horizon */}
+              <ellipse cx="206" cy="252" rx="310" ry="96" fill="#0d1526" />
+
+              {/* Left Corporate Van (GalaxyFleet) */}
+              <g transform="translate(34, 108)">
+                <path d="M4 32 L10 12 Q12 6 20 6 L72 6 Q82 6 88 16 L98 30 Q102 34 102 42 L102 52 Q102 56 96 56 L6 56 Q2 56 2 50 Z" fill="#1e293b" stroke="#334155" strokeWidth="1.5" />
+                <path d="M14 12 L42 12 L42 26 L10 26 Z" fill="#38bdf8" opacity="0.45" />
+                <path d="M46 12 L68 12 L74 26 L46 26 Z" fill="#bae6fd" />
+                <path d="M72 12 L84 12 L94 26 L78 26 Z" fill="#e0f2fe" />
+                <rect x="82" y="34" width="12" height="5" rx="2.5" fill="#facc15" />
+                <text x="16" y="42" fill="#cbd5e1" fontSize="9.5" fontWeight="800" fontStyle="italic">GalaxyFleet</text>
+                <circle cx="24" cy="55" r="9" fill="#0f172a" />
+                <circle cx="24" cy="55" r="4.5" fill="#94a3b8" />
+                <circle cx="76" cy="55" r="9" fill="#0f172a" />
+                <circle cx="76" cy="55" r="4.5" fill="#94a3b8" />
+              </g>
+
+              {/* Right Corporate Van (GalaxyFleet with Roof Pin) */}
+              <g transform="translate(262, 92)">
+                {/* Roof Location Pin */}
+                <path d="M54 -8 C48 -8 44 -3 44 2 C44 9 54 17 54 17 C54 17 64 9 64 2 C64 -3 60 -8 54 -8 Z" fill="#0072de" stroke="#ffffff" strokeWidth="1.5" />
+                <circle cx="54" cy="2" r="3.5" fill="#ffffff" />
+                {/* Van Body */}
+                <path d="M6 44 L18 22 Q24 14 36 14 L106 14 Q116 14 120 26 L124 62 Q124 68 118 68 L8 68 Q2 68 2 60 Z" fill="#1e293b" stroke="#334155" strokeWidth="1.5" />
+                <path d="M54 44 L122 46 L122 64 L54 64 Z" fill="#38bdf8" />
+                <path d="M22 20 L54 20 L44 36 L14 36 Z" fill="#e0f2fe" />
+                <path d="M58 20 L88 20 L88 36 L52 36 Z" fill="#7dd3fc" opacity="0.85" />
+                <rect x="26" y="44" width="14" height="6" rx="3" fill="#ffffff" />
+                <text x="72" y="37" fill="#cbd5e1" fontSize="9.5" fontWeight="800" fontStyle="italic">GalaxyFleet</text>
+                <circle cx="44" cy="67" r="10" fill="#0f172a" />
+                <circle cx="44" cy="67" r="5" fill="#94a3b8" />
+                <circle cx="104" cy="67" r="10" fill="#0f172a" />
+                <circle cx="104" cy="67" r="5" fill="#94a3b8" />
+              </g>
             </svg>
 
             <button
@@ -8677,7 +8750,7 @@ export function App() {
               className="gf-proto-hero-back pressable"
               onClick={() => {
                 setCustomerHomeMode('SUPER_APP');
-                setSheetSnap('half');
+                setSheetSnap('full');
               }}
               aria-label={t('Back')}
             >
@@ -8687,24 +8760,91 @@ export function App() {
             <div style={{ position: 'absolute', top: '14px', right: '14px', zIndex: 3, display: 'flex', alignItems: 'center', gap: '6px' }}>
               <LanguageSwitcher compact />
             </div>
-          </div>
 
-          <div className="gf-proto-blue-band" style={{ paddingTop: '4px', paddingBottom: '22px' }}>
-            <div className="gf-proto-gr" style={{ marginTop: '-52px', marginBottom: '12px' }}>
-              <h2>{t('Where to,')} {user.nickname}?</h2>
-              <p>{t('Operational cars ready to roll.')}</p>
-            </div>
-
-            <button
-              type="button"
-              className="gf-proto-promo pressable"
-              onClick={() => setNavSection('ACTIVITY')}
+            {/* Horizon Badges: Group Order & Work Trip */}
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '44px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 3,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                whiteSpace: 'nowrap',
+              }}
             >
               <span
                 style={{
-                  width: '32px',
-                  height: '32px',
+                  background: '#ffffff',
+                  color: '#0f172a',
+                  fontSize: '11.5px',
+                  fontWeight: 800,
+                  padding: '4px 12px',
+                  borderRadius: '9999px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+                }}
+              >
+                <Users size={13} style={{ color: '#0072de' }} />
+                <span>Group Order</span>
+              </span>
+              <span
+                style={{
+                  background: '#1e3a5f',
+                  color: '#ffffff',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  padding: '4px 12px',
                   borderRadius: '8px',
+                  border: '1px solid rgba(56, 189, 248, 0.45)',
+                  transform: 'rotate(-7deg)',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                }}
+              >
+                Work Trip
+              </span>
+            </div>
+          </div>
+
+          <div className="gf-gocar-landing-dark-band">
+            <div className="gf-proto-gr" style={{ marginTop: '-34px', marginBottom: '14px' }}>
+              <h2 style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {t('Where to,')} {(user.nickname || '').split('(')[0].trim()}?
+              </h2>
+              <p style={{ fontSize: '14px', color: '#cbd5e1', marginTop: '4px' }}>
+                {t('Operational cars ready to roll.')}
+              </p>
+            </div>
+
+            {/* Samsung Blue Review Banner (Reference: 1794990260264.jpg) */}
+            <button
+              type="button"
+              className="pressable"
+              onClick={() => setNavSection('ACTIVITY')}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                background: 'linear-gradient(135deg, #0072de 0%, #0d8bff 100%)',
+                border: 'none',
+                borderRadius: '18px',
+                padding: '14px 16px',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '14px',
+                cursor: 'pointer',
+                boxShadow: '0 6px 20px rgba(0, 114, 222, 0.32)',
+              }}
+            >
+              <span
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '11px',
                   background: '#ffffff',
                   color: '#0072de',
                   display: 'grid',
@@ -8712,17 +8852,20 @@ export function App() {
                   flexShrink: 0,
                 }}
               >
-                <Info size={18} />
+                <ShieldCheck size={22} />
               </span>
               <span style={{ flex: 1, minWidth: 0 }}>
-                <b style={{ display: 'block', fontSize: '13.5px' }}>{t('Booking reviewed before departure')}</b>
-                <span style={{ fontSize: '11.5px', opacity: 0.92 }}>{t('Reviewed by Fleet PIC & Head of WS. Check status here.')}</span>
+                <b style={{ display: 'block', fontSize: '15px', fontWeight: 800, lineHeight: 1.25 }}>
+                  {t('Booking reviewed before departure')}
+                </b>
+                <span style={{ display: 'block', fontSize: '12.5px', opacity: 0.95, marginTop: '3px', lineHeight: 1.35 }}>
+                  {t('Reviewed by Fleet PIC & Head of WS. Check status here.')} ›
+                </span>
               </span>
-              <ChevronRight size={18} style={{ flexShrink: 0 }} />
             </button>
           </div>
 
-          <div className="gf-proto-wc" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div className="gf-proto-wc" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '-8px' }}>
             {statusBanner && (
               <div
                 style={{
@@ -8746,16 +8889,87 @@ export function App() {
                 </button>
               </div>
             )}
-            <svg viewBox="0 0 380 86" style={{ width: '100%', height: '86px', borderRadius: '12px', display: 'block' }} aria-hidden="true">
-              <rect width="380" height="86" fill="#edf1f7" />
-              <path d="M0 64C100 18 200 78 380 26" stroke="#ffffff" strokeWidth="8" fill="none" />
-              <circle cx="190" cy="44" r="6" fill="#0072de" stroke="#ffffff" strokeWidth="2" />
-            </svg>
 
+            {/* Compact Rounded Inline Map Preview Card (Reference: 1794990260264.jpg — ~112px tall, NOT full-screen) */}
+            <button
+              type="button"
+              className="pressable"
+              onClick={() =>
+                requireLocationBeforeCarUse(() => {
+                  setBookReservationType('ONE_WAY');
+                  setBookingStep('ROUTE');
+                  setSheetSnap('full');
+                })
+              }
+              aria-label={t('Where to?')}
+              style={{
+                padding: 0,
+                border: '1px solid var(--color-border)',
+                borderRadius: '18px',
+                overflow: 'hidden',
+                width: '100%',
+                height: '112px',
+                display: 'block',
+                cursor: 'pointer',
+                position: 'relative',
+                boxShadow: '0 2px 10px rgba(15, 23, 42, 0.08)',
+              }}
+            >
+              <svg viewBox="0 0 380 112" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: '100%', display: 'block' }} aria-hidden="true">
+                {/* Bay / Water Background */}
+                <rect width="380" height="112" fill="#9ed8f5" />
+                {/* Landmasses */}
+                <path d="M0 14 Q45 8 72 28 T128 38 L145 26 L185 38 L245 30 L315 36 L380 42 L380 112 L0 112 Z" fill="#f5efe4" />
+                <path d="M52 0 L108 0 L114 24 L82 28 L56 12 Z" fill="#f5efe4" />
+                {/* Subtle District Blocks & Parks */}
+                <path d="M18 56 L86 48 L94 88 L14 96 Z" fill="#efe7d8" />
+                <path d="M198 48 L290 42 L302 92 L192 98 Z" fill="#efe7d8" />
+                {/* Road Network */}
+                <path d="M0 82 Q90 66 175 56 T355 88 L380 94" stroke="#cbd5e1" strokeWidth="5" fill="none" />
+                <path d="M0 82 Q90 66 175 56 T355 88 L380 94" stroke="#ffffff" strokeWidth="2.5" fill="none" />
+                <path d="M68 28 L88 112 M156 36 L142 112 M248 34 L236 112 M312 38 L328 112" stroke="#ffffff" strokeWidth="2" fill="none" opacity="0.85" />
+                {/* Map Labels */}
+                <text x="38" y="34" fill="#334155" fontSize="10.5" fontWeight="600" stroke="#ffffff" strokeWidth="2.5" paintOrder="stroke">Muara Gembong</text>
+                <text x="36" y="70" fill="#475569" fontSize="10" fontWeight="600" stroke="#ffffff" strokeWidth="2.5" paintOrder="stroke">Sunter</text>
+                <text x="124" y="70" fill="#334155" fontSize="10" fontWeight="700" stroke="#ffffff" strokeWidth="2.5" paintOrder="stroke">Jl. Jababeka Raya</text>
+                <text x="246" y="68" fill="#475569" fontSize="10" fontWeight="600" stroke="#ffffff" strokeWidth="2.5" paintOrder="stroke">Sunter</text>
+
+                {/* Center Samsung Blue Location Pin */}
+                <g transform="translate(186, 42)">
+                  <ellipse cx="0" cy="18" rx="6" ry="2.5" fill="rgba(0,0,0,0.22)" />
+                  <path d="M0 -12 C-8 -12 -13 -6 -13 1 C-13 9 0 18 0 18 C0 18 13 9 13 1 C13 -6 8 -12 0 -12 Z" fill="#0072de" stroke="#ffffff" strokeWidth="2" />
+                  <circle cx="0" cy="0" r="4.5" fill="#ffffff" />
+                </g>
+
+                {/* Left Top-Down Corporate Car Icon */}
+                <g transform="translate(108, 90) rotate(-8)">
+                  <rect x="-15" y="-8" width="30" height="16" rx="5" fill="#0072de" stroke="#ffffff" strokeWidth="1.5" />
+                  <rect x="-8" y="-6" width="16" height="12" rx="2.5" fill="#e0f2fe" />
+                  <rect x="-5" y="-5" width="9" height="10" rx="1.5" fill="#0284c7" />
+                </g>
+
+                {/* Right Top-Down Corporate Car Icon */}
+                <g transform="translate(306, 90)">
+                  <rect x="-8" y="-15" width="16" height="30" rx="5" fill="#0072de" stroke="#ffffff" strokeWidth="1.5" />
+                  <rect x="-6" y="-8" width="12" height="16" rx="2.5" fill="#e0f2fe" />
+                  <rect x="-5" y="-4" width="10" height="9" rx="1.5" fill="#0284c7" />
+                </g>
+              </svg>
+            </button>
+
+            {/* White Pill Search Bar ("Mau ke mana?" / "Where to?") */}
             <button
               id="home-where-to-btn"
               type="button"
               className="gf-proto-sbar pressable"
+              style={{
+                minHeight: '52px',
+                borderRadius: '9999px',
+                padding: '0 18px',
+                background: 'var(--color-bg-surface)',
+                border: '1.5px solid var(--color-border)',
+                boxShadow: '0 4px 14px rgba(15, 23, 42, 0.06)',
+              }}
               onClick={() =>
                 requireLocationBeforeCarUse(() => {
                   setBookReservationType('ONE_WAY');
@@ -8764,13 +8978,25 @@ export function App() {
                 })
               }
             >
-              <span className="gf-proto-od" style={{ width: '16px', height: '16px' }} aria-hidden="true" />
-              <span style={{ flex: 1, fontWeight: 700, color: 'var(--color-text-primary)', fontSize: '14px' }}>
+              <span
+                style={{
+                  width: '22px',
+                  height: '22px',
+                  borderRadius: '50%',
+                  border: '4.5px solid #0072de',
+                  borderTopColor: '#EA580C',
+                  borderLeftColor: '#EA580C',
+                  flexShrink: 0,
+                }}
+                aria-hidden="true"
+              />
+              <span style={{ flex: 1, fontWeight: 700, color: 'var(--color-text-primary)', fontSize: '15px', textAlign: 'left' }}>
                 {t('Where to?')}
               </span>
-              <Search size={18} />
+              <Search size={20} style={{ color: 'var(--color-text-secondary)' }} />
             </button>
 
+            {/* Saved / Bookmark Quick Chips */}
             <div className="gf-proto-chips" style={{ margin: 0 }}>
               {(recentDestinationChips.length > 0 ? recentDestinationChips : QUICK_CORPORATE_POIS.map((p) => p.label)).map((dest) => (
                 <button
@@ -8781,8 +9007,8 @@ export function App() {
                       const matchedPoi = QUICK_CORPORATE_POIS.find((p) => p.label === dest || p.name === dest);
                       setBookDest(matchedPoi ? matchedPoi.name : dest);
                       if (matchedPoi) setDestCoords({ lat: matchedPoi.lat, lon: matchedPoi.lon });
-                      setBookingStep('ROUTE');
-                      setSheetSnap('full');
+                      setBookingStep('VEHICLE');
+                      setSheetSnap('half');
                     })
                   }
                 >
@@ -8794,115 +9020,106 @@ export function App() {
 
             {ongoingTripCard}
 
-            {/* OneTap Quick Booking Card */}
-            <div className="gf-gocar-onetap-card">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                  <span style={{ background: '#0072de', color: '#ffffff', fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '9999px' }}>
+            {/* Primary Destination Card with OneTap, GalaxyFleet, PRIORITY, Work Trip Badges (Reference: 1794990260264.jpg) */}
+            <div
+              className="gf-gocar-dest-card pressable"
+              role="button"
+              tabIndex={0}
+              aria-label={`OneTap book to ${primaryPoi.name}`}
+              onClick={() =>
+                requireLocationBeforeCarUse(() => {
+                  setBookDest(primaryPoi.name);
+                  setDestCoords({ lat: primaryPoi.lat, lon: primaryPoi.lon });
+                  setBookReservationType('ONE_WAY');
+                  setBookingStep('VEHICLE');
+                  setSheetSnap('half');
+                })
+              }
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  requireLocationBeforeCarUse(() => {
+                    setBookDest(primaryPoi.name);
+                    setDestCoords({ lat: primaryPoi.lat, lon: primaryPoi.lon });
+                    setBookReservationType('ONE_WAY');
+                    setBookingStep('VEHICLE');
+                    setSheetSnap('half');
+                  });
+                }
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <MapPin size={20} style={{ color: '#0072de', flexShrink: 0 }} />
+                  <span style={{ fontSize: '15.5px', fontWeight: 800, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {primaryPoi.name}
+                  </span>
+                </div>
+                <Bookmark size={16} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', paddingLeft: '28px', flexWrap: 'nowrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'nowrap', minWidth: 0 }}>
+                  <span style={{ background: '#0072de', color: '#ffffff', fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '9999px', whiteSpace: 'nowrap' }}>
                     OneTap
                   </span>
-                  <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                  <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--color-text-primary)', whiteSpace: 'nowrap' }}>
                     GalaxyFleet
                   </span>
-                  <span style={{ fontSize: '10px', fontWeight: 800, fontStyle: 'italic', padding: '2px 6px', borderRadius: '4px', background: '#0a0a0a', color: '#ffffff' }}>
+                  <span style={{ fontSize: '9.5px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: '#0a0a0a', color: '#ffffff', letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>
                     PRIORITY
                   </span>
                 </div>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: '#0072de', padding: '2px 8px', borderRadius: '9999px', background: '#ebf5ff' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: '#005bb5', padding: '2px 8px', borderRadius: '9999px', background: '#dbeafe', whiteSpace: 'nowrap', flexShrink: 0 }}>
                   Work Trip
                 </span>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: '14.5px', fontWeight: 800, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {oneTapDest}
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }}>
-                    {oneTapAddr}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="pressable"
-                  aria-label={`OneTap book to ${oneTapDest}`}
-                  onClick={() =>
-                    requireLocationBeforeCarUse(() => {
-                      setBookDest(oneTapDest);
-                      setBookReservationType('ONE_WAY');
-                      setBookingStep('VEHICLE');
-                      setSheetSnap('full');
-                    })
-                  }
-                  style={{
-                    width: '38px',
-                    height: '38px',
-                    borderRadius: '9999px',
-                    border: 'none',
-                    background: '#0072de',
-                    color: '#ffffff',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    flexShrink: 0,
-                  }}
-                >
-                  <ArrowRight size={18} strokeWidth={2.5} />
-                </button>
-              </div>
-
-              <div style={{ borderTop: '1.5px dashed var(--color-border)', paddingTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className="gf-pickup-up-circle" style={{ width: '18px', height: '18px' }}>
-                  <ArrowUp size={11} strokeWidth={3} />
-                </span>
-                <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  Pickup: {bookOrigin || 'Current GPS Location'}
-                </span>
+              <div style={{ paddingLeft: '28px', fontSize: '12.5px', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>
+                {primaryPoi.address}
               </div>
             </div>
 
-            {/* Clean Recent / Corporate Locations List */}
-            <div style={{ borderRadius: '16px', border: '1px solid var(--color-divider)', background: 'var(--color-bg-surface)', padding: '0 12px' }}>
-              {(recentPlacesList.length > 0 ? recentPlacesList : QUICK_CORPORATE_POIS).slice(0, 3).map((place, i) => {
-                const isSaved = savedPlaces.some((sp) => sp.name === place.name);
-                return (
-                  <ListRow
-                    key={`${place.name}-${i}`}
-                    icon={<Clock size={18} />}
-                    title={place.name}
-                    subtitle={place.address}
-                    trailing={
-                      <button
-                        type="button"
-                        aria-label={isSaved ? 'Remove bookmark' : 'Bookmark place'}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleSavePlace(place);
-                        }}
-                        style={{
-                          border: 'none',
-                          background: 'transparent',
-                          color: isSaved ? '#0072de' : 'var(--color-text-muted)',
-                          cursor: 'pointer',
-                          padding: '6px',
-                        }}
-                      >
-                        <Bookmark size={16} />
-                      </button>
-                    }
-                    onClick={() =>
-                      requireLocationBeforeCarUse(() => {
-                        setBookDest(place.name);
-                        setDestCoords({ lat: place.lat, lon: place.lon });
-                        setBookReservationType('ONE_WAY');
-                        setBookingStep('VEHICLE');
-                        setSheetSnap('full');
-                      })
-                    }
+            {/* Secondary Corporate Destination Row Cards (Reference: Manufacturing Plant 2, Central Fleet Pool & Operations Base) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {secondaryPois.map((place, i) => (
+                <button
+                  key={`${place.name}-${i}`}
+                  type="button"
+                  className="gf-gocar-dest-row-card pressable"
+                  onClick={() =>
+                    requireLocationBeforeCarUse(() => {
+                      setBookDest(place.name);
+                      setDestCoords({ lat: place.lat, lon: place.lon });
+                      setBookReservationType('ONE_WAY');
+                      setBookingStep('VEHICLE');
+                      setSheetSnap('half');
+                    })
+                  }
+                >
+                  <span
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '50%',
+                      border: '4px solid var(--color-text-muted)',
+                      flexShrink: 0,
+                    }}
+                    aria-hidden="true"
                   />
-                );
-              })}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {place.name}
+                    </div>
+                    {place.address && (
+                      <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }}>
+                        {place.address}
+                      </div>
+                    )}
+                  </div>
+                  <ChevronRight size={18} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+                </button>
+              ))}
             </div>
           </div>
         </div>
@@ -9015,7 +9232,7 @@ export function App() {
               className={`gf-action-pill-outlined pressable ${routeTab === 'PICKUP' ? 'is-active' : ''}`}
               onClick={() => {
                 setRouteTab(routeTab === 'PICKUP' ? 'RECENT' : 'PICKUP');
-                setSheetSnap('full');
+                setSheetSnap(routeTab === 'PICKUP' ? 'full' : 'half');
               }}
             >
               <Navigation size={15} style={{ color: routeTab === 'PICKUP' ? '#ffffff' : '#0a0a0a' }} />
@@ -9055,7 +9272,7 @@ export function App() {
                 <span className="type-body" style={{ fontWeight: 700, color: '#005bb5' }}>
                   {calculatingRoute
                     ? 'Calculating route path & ETA...'
-                    : `${currentMetrics.distanceKm} km • ~${currentMetrics.durationMin} min ride`}
+                    : `${currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min ride`}
                 </span>
               </div>
               <StatusBadge label={`ETA ${currentMetrics.etaText}`} tone="blue" />
@@ -9099,6 +9316,7 @@ export function App() {
                       } else {
                         setBookDest(poi.name);
                         setDestCoords({ lat: poi.lat, lon: poi.lon });
+                        setSheetSnap('half');
                       }
                     }}
                     style={{
@@ -9282,6 +9500,7 @@ export function App() {
                         } else {
                           setBookDest(p.name);
                           setDestCoords({ lat: p.lat, lon: p.lon });
+                          setSheetSnap('half');
                         }
                       }}
                     />
@@ -9297,6 +9516,7 @@ export function App() {
                           } else {
                             setBookDest(gateName);
                             setDestCoords({ lat: p.lat, lon: p.lon });
+                            setSheetSnap('half');
                           }
                         }}
                       >
@@ -10881,14 +11101,14 @@ export function App() {
           setNavSection(target);
           if (target === 'HOME' || target === 'DRIVER') {
             setBookingStep('HOME');
-            setSheetSnap('half');
+            setSheetSnap('full');
           } else {
             setSheetSnap('full');
           }
         }}
         onSignOut={handleLogout}
         onOpenProfile={handleOpenProfileModal}
-        hideChromeDuringBooking={inActiveBookingFlow && !isDriverOnly}
+        hideChromeDuringBooking={(inActiveBookingFlow || (navSection === 'HOME' && customerHomeMode === 'GOCAR_LANDING')) && !isDriverOnly}
         isDriverOrPrivileged={user.role === 'DRV' || Boolean(isPrivileged)}
         isPrivileged={Boolean(isPrivileged)}
         isDriverOnly={isDriverOnly}
@@ -10899,150 +11119,153 @@ export function App() {
         departmentName={user?.department_name}
         onSwitchToDriverDispatch={() => {
           setNavSection('DRIVER');
-          setSheetSnap('half');
+          setSheetSnap('full');
         }}
         onSwitchToAdmin={() => setNavSection('ADMIN')}
         mapStage={
-          <div className="gf-map-stage-host">
-            {/* Gojek Driver Top Controls (Avatar, Status Pill, Circular Power Button) */}
-            {(isDriverOnly || user?.role === 'DRV') && navSection === 'DRIVER' && (
-              <div className="gf-driver-topbar">
-                {/* Top-left: Circular Driver Avatar (~44dp) with status ring */}
-                <button
-                  type="button"
-                  className={`gf-driver-avatar-btn pressable ${gpsNoticeAccepted && gpsReportingActive ? 'is-online' : ''}`}
-                  onClick={handleOpenProfileModal}
-                  title={t('Corporate Driver Profile')}
-                  style={{ width: '44px', height: '44px', flexShrink: 0 }}
-                >
-                  <img
-                    src={user?.photo_url || getDriverAvatarDataUri(user?.nickname || 'Driver')}
-                    alt={user?.nickname}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                </button>
+          showBookingMap ? (
+            <div className="gf-map-stage-host">
+              {/* Gojek Driver Top Controls (Avatar, Status Pill, Circular Power Button) */}
+              {(isDriverOnly || user?.role === 'DRV') && navSection === 'DRIVER' && (
+                <div className="gf-driver-topbar">
+                  {/* Top-left: Circular Driver Avatar (~44dp) with status ring */}
+                  <button
+                    type="button"
+                    className={`gf-driver-avatar-btn pressable ${gpsNoticeAccepted && gpsReportingActive ? 'is-online' : ''}`}
+                    onClick={handleOpenProfileModal}
+                    title={t('Corporate Driver Profile')}
+                    style={{ width: '44px', height: '44px', flexShrink: 0 }}
+                  >
+                    <img
+                      src={user?.photo_url || getDriverAvatarDataUri(user?.nickname || 'Driver')}
+                      alt={user?.nickname}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  </button>
 
-                {/* Top-center: Floating Status Pill */}
-                <button
-                  type="button"
-                  id="driver-status-pill-btn"
-                  className={`gf-driver-status-pill pressable ${gpsNoticeAccepted && gpsReportingActive ? 'is-online' : ''}`}
-                  onClick={() => setSheetSnap(sheetSnap === 'peek' ? 'half' : 'full')}
-                >
-                  <span
-                    style={{
-                      width: '10px',
-                      height: '10px',
-                      borderRadius: '50%',
-                      background: gpsNoticeAccepted && gpsReportingActive ? '#E25C09' : '#94a3b8',
-                      boxShadow: gpsNoticeAccepted && gpsReportingActive ? '0 0 0 2px rgba(255,255,255,0.85)' : 'none',
+                  {/* Top-center: Floating Status Pill */}
+                  <button
+                    type="button"
+                    id="driver-status-pill-btn"
+                    className={`gf-driver-status-pill pressable ${gpsNoticeAccepted && gpsReportingActive ? 'is-online' : ''}`}
+                    onClick={() => setSheetSnap(sheetSnap === 'peek' ? 'half' : 'full')}
+                  >
+                    <span
+                      style={{
+                        width: '10px',
+                        height: '10px',
+                        borderRadius: '50%',
+                        background: gpsNoticeAccepted && gpsReportingActive ? '#E25C09' : '#94a3b8',
+                        boxShadow: gpsNoticeAccepted && gpsReportingActive ? '0 0 0 2px rgba(255,255,255,0.85)' : 'none',
+                      }}
+                    />
+                    <span>
+                      {gpsNoticeAccepted && gpsReportingActive
+                        ? `${t('Online')} • ${trips.filter((tr) => (tr.assigned_driver_user_id === user.id || tr.assigned_driver_name === user.nickname) && (tr.status === 'COMPLETED' || tr.trip_status === 'COMPLETED')).length} ${t('Trips Completed')}`
+                        : `${t('Offline')} ▾`}
+                    </span>
+                  </button>
+
+                  {/* Top-right: 48dp Circular Power Button */}
+                  <button
+                    type="button"
+                    id="driver-power-toggle-btn"
+                    className={`gf-driver-power-btn pressable ${gpsNoticeAccepted && gpsReportingActive ? 'is-online' : ''}`}
+                    onClick={async () => {
+                      if (gpsNoticeAccepted && gpsReportingActive) {
+                        setGpsReportingActive(false);
+                        setGpsNoticeAccepted(false);
+                        setDriverActivatingToast(t('Status updated to Offline'));
+                        setTimeout(() => setDriverActivatingToast(null), 3000);
+                      } else {
+                        setDriverActivatingToast(t('Switching to online...'));
+                        setGpsNoticeAccepted(true);
+                        setGpsReportingActive(true);
+                        detectAndReportUserLocation(true);
+                        await sendDriverLocationReport('GRANTED');
+                        setDriverActivatingToast(`${t('You are now online')} • ${t('Ready for Duty')}`);
+                        setTimeout(() => setDriverActivatingToast(null), 3500);
+                      }
                     }}
-                  />
-                  <span>
-                    {gpsNoticeAccepted && gpsReportingActive
-                      ? `${t('Online')} • ${trips.filter((tr) => (tr.assigned_driver_user_id === user.id || tr.assigned_driver_name === user.nickname) && (tr.status === 'COMPLETED' || tr.trip_status === 'COMPLETED')).length} ${t('Trips Completed')}`
-                      : `${t('Offline')} ▾`}
-                  </span>
-                </button>
+                    title={gpsNoticeAccepted && gpsReportingActive ? t('Go Offline') : t('Online')}
+                  >
+                    <Power size={22} />
+                  </button>
+                </div>
+              )}
 
-                {/* Top-right: 48dp Circular Power Button */}
-                <button
-                  type="button"
-                  id="driver-power-toggle-btn"
-                  className={`gf-driver-power-btn pressable ${gpsNoticeAccepted && gpsReportingActive ? 'is-online' : ''}`}
-                  onClick={async () => {
-                    if (gpsNoticeAccepted && gpsReportingActive) {
-                      setGpsReportingActive(false);
-                      setGpsNoticeAccepted(false);
-                      setDriverActivatingToast(t('Status updated to Offline'));
-                      setTimeout(() => setDriverActivatingToast(null), 3000);
-                    } else {
-                      setDriverActivatingToast(t('Switching to online...'));
-                      setGpsNoticeAccepted(true);
-                      setGpsReportingActive(true);
-                      detectAndReportUserLocation(true);
-                      await sendDriverLocationReport('GRANTED');
-                      setDriverActivatingToast(`${t('You are now online')} • ${t('Ready for Duty')}`);
-                      setTimeout(() => setDriverActivatingToast(null), 3500);
-                    }
+              {driverActivatingToast && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '72px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    background: '#0a0a0a',
+                    color: '#ffffff',
+                    padding: '8px 18px',
+                    borderRadius: '9999px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+                    zIndex: 30,
+                    pointerEvents: 'none',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
                   }}
-                  title={gpsNoticeAccepted && gpsReportingActive ? t('Go Offline') : t('Online')}
                 >
-                  <Power size={22} />
-                </button>
-              </div>
-            )}
+                  <CheckCircle2 size={16} style={{ color: '#0072de' }} />
+                  <span>{driverActivatingToast}</span>
+                </div>
+              )}
 
-            {driverActivatingToast && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '72px',
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  background: '#0a0a0a',
-                  color: '#ffffff',
-                  padding: '8px 18px',
-                  borderRadius: '9999px',
-                  fontSize: '13px',
-                  fontWeight: 700,
-                  boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
-                  zIndex: 30,
-                  pointerEvents: 'none',
-                  border: '1px solid rgba(255,255,255,0.2)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
+              <MapView
+                hasDriverTopbar={(isDriverOnly || user?.role === 'DRV') && navSection === 'DRIVER'}
+                origin={mapOrigin}
+                destination={mapDest}
+                originCoords={originCoords}
+                destCoords={destCoords}
+                myCoords={myCoords}
+                userPins={userPins}
+                fleetPositions={fleetPositions}
+                currentUserId={user.id}
+                onLocateMe={() => detectAndReportUserLocation(false)}
+                locatingUser={locatingUser}
+                showRoute={showRouteOnMap}
+                routeGeometry={calculatedRoute?.geometry || null}
+                routeMetrics={calculatedRoute}
+                pinMode={navSection === 'HOME' && bookingStep === 'ROUTE' && routeTab === 'PIN'}
+                onPinMoveAddress={(place: GeoPlace) => {
+                  if (activeRouteField === 'pickup') {
+                    setBookOrigin(place.name);
+                    setOriginCoords({ lat: place.lat, lon: place.lon });
+                  } else {
+                    setBookDest(place.name);
+                    setDestCoords({ lat: place.lat, lon: place.lon });
+                  }
                 }}
-              >
-                <CheckCircle2 size={16} style={{ color: '#0072de' }} />
-                <span>{driverActivatingToast}</span>
-              </div>
-            )}
-
-            <MapView
-              hasDriverTopbar={(isDriverOnly || user?.role === 'DRV') && navSection === 'DRIVER'}
-              origin={mapOrigin}
-              destination={mapDest}
-              originCoords={originCoords}
-              destCoords={destCoords}
-              myCoords={myCoords}
-              userPins={userPins}
-              fleetPositions={fleetPositions}
-              currentUserId={user.id}
-              onLocateMe={() => detectAndReportUserLocation(false)}
-              locatingUser={locatingUser}
-              showRoute={showRouteOnMap}
-              routeGeometry={calculatedRoute?.geometry || null}
-              routeMetrics={calculatedRoute}
-              pinMode={navSection === 'HOME' && bookingStep === 'ROUTE' && routeTab === 'PIN'}
-              onPinMoveAddress={(place: GeoPlace) => {
-                if (activeRouteField === 'pickup') {
-                  setBookOrigin(place.name);
-                  setOriginCoords({ lat: place.lat, lon: place.lon });
-                } else {
-                  setBookDest(place.name);
-                  setDestCoords({ lat: place.lat, lon: place.lon });
-                }
-              }}
-              waitingRadar={navSection === 'HOME' && bookingStep === 'WAITING'}
-              driverActive={navSection === 'HOME' && bookingStep === 'IN_TRIP'}
-              driverName={focusedTrip?.assigned_driver_name}
-              driverCoords={activeTripDriverCoords}
-              activeVehicleModel={focusedTrip?.model || 'Stargazer'}
-              showBackButton={inActiveBookingFlow && !isDriverOnly}
-              onBack={handleMapBack}
-              isOffline={isOffline}
-            />
-          </div>
+                waitingRadar={navSection === 'HOME' && bookingStep === 'WAITING'}
+                driverActive={navSection === 'HOME' && bookingStep === 'IN_TRIP'}
+                driverName={focusedTrip?.assigned_driver_name}
+                driverCoords={activeTripDriverCoords}
+                activeVehicleModel={focusedTrip?.model || 'Stargazer'}
+                showBackButton={inActiveBookingFlow && !isDriverOnly}
+                onBack={handleMapBack}
+                isOffline={isOffline}
+              />
+            </div>
+          ) : null
         }
         sheet={
           <BottomSheet
             snap={sheetSnap}
             onSnapChange={setSheetSnap}
             onEscape={inActiveBookingFlow ? handleMapBack : undefined}
-            hasBottomNav={!inActiveBookingFlow}
-            stepKey={`${navSection}:${bookingStep}`}
+            hasBottomNav={!(inActiveBookingFlow || (navSection === 'HOME' && customerHomeMode === 'GOCAR_LANDING'))}
+            fullScreenPage={!showBookingMap}
+            stepKey={`${navSection}:${bookingStep}:${customerHomeMode}`}
             footer={stickyFooter}
             topNav={undefined}
             ariaLabel="GalaxyFleet booking sheet"

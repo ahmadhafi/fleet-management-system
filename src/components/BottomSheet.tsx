@@ -5,9 +5,9 @@ import { useAppLanguage } from '../utils/i18n';
 export type SnapPoint = 'peek' | 'half' | 'full';
 
 const SNAP_PERCENT: Record<SnapPoint, number> = {
-  peek: 20,
-  half: 60,
-  full: 92,
+  peek: 42,
+  half: 70,
+  full: 86,
 };
 
 interface BottomSheetProps {
@@ -15,6 +15,7 @@ interface BottomSheetProps {
   onSnapChange: (snap: SnapPoint) => void;
   onEscape?: () => void;
   hasBottomNav?: boolean;
+  fullScreenPage?: boolean;
   stepKey?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
@@ -28,6 +29,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   onSnapChange,
   onEscape,
   hasBottomNav = false,
+  fullScreenPage = false,
   stepKey,
   children,
   footer,
@@ -180,12 +182,16 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
     }
   };
 
-  const computedHeight = dragHeightPx !== null ? `${Math.round(dragHeightPx)}px` : `${SNAP_PERCENT[snap]}dvh`;
+  const computedHeight = fullScreenPage
+    ? '100dvh'
+    : dragHeightPx !== null
+    ? `${Math.round(dragHeightPx)}px`
+    : `${SNAP_PERCENT[snap]}dvh`;
 
   return (
     <>
       {/* Floating Expand Pill / Button when container is collapsed to maximize map */}
-      {isCollapsed && (
+      {isCollapsed && !fullScreenPage && (
         <button
           type="button"
           id="gf-floating-expand-btn"
@@ -209,77 +215,81 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
         ref={sheetRef}
         role="region"
         aria-label={ariaLabel}
-        className={`gf-sheet ${isCollapsed ? 'is-collapsed' : ''} ${dragHeightPx !== null ? 'is-dragging' : ''}`}
+        className={`gf-sheet ${fullScreenPage ? 'is-fullscreen-page' : ''} ${isCollapsed && !fullScreenPage ? 'is-collapsed' : ''} ${dragHeightPx !== null ? 'is-dragging' : ''}`}
         style={{ height: computedHeight }}
       >
         {/* Top Controls Header on Desktop & Tablet: flexible collapse button */}
-        <div className="gf-sheet-top-controls">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-green)' }} />
-            <span className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-secondary)' }}>
-              {t('Operations & Booking')}
-            </span>
+        {!fullScreenPage && (
+          <div className="gf-sheet-top-controls">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-green)' }} />
+              <span className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-secondary)' }}>
+                {t('Operations & Booking')}
+              </span>
+            </div>
+            <button
+              type="button"
+              id="gf-container-collapse-btn"
+              className="gf-btn gf-btn-secondary gf-btn-sm pressable"
+              onClick={handleCollapse}
+              title={t('Collapse container to view full map')}
+              aria-label={t('Collapse container to view full map')}
+              style={{ minHeight: '30px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
+            >
+              <Minimize2 size={13} />
+              <span>{t('Collapse to Map')}</span>
+              <ChevronLeft size={14} />
+            </button>
           </div>
-          <button
-            type="button"
-            id="gf-container-collapse-btn"
-            className="gf-btn gf-btn-secondary gf-btn-sm pressable"
-            onClick={handleCollapse}
-            title={t('Collapse container to view full map')}
-            aria-label={t('Collapse container to view full map')}
-            style={{ minHeight: '30px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
-          >
-            <Minimize2 size={13} />
-            <span>{t('Collapse to Map')}</span>
-            <ChevronLeft size={14} />
-          </button>
-        </div>
+        )}
 
         {/* Mobile Handle Area with Quick Collapse Button */}
-        <div className="gf-sheet-handle-area">
-          <button
-            type="button"
-            className="gf-sheet-handle-pressable"
-            aria-label={`Adjust sheet height (current: ${snap}). Press Up or Down arrow, or drag.`}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-            onKeyDown={handleHandleKeyDown}
-            onClick={() => {
-              if (snap === 'peek') handleExpand();
-            }}
-          >
-            <span className="gf-sheet-handle" />
-          </button>
-          {snap !== 'peek' ? (
+        {!fullScreenPage && (
+          <div className="gf-sheet-handle-area">
             <button
               type="button"
-              className="gf-sheet-quick-collapse-btn pressable"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCollapse();
+              className="gf-sheet-handle-pressable"
+              aria-label={`Adjust sheet height (current: ${snap}). Press Up or Down arrow, or drag.`}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              onKeyDown={handleHandleKeyDown}
+              onClick={() => {
+                if (snap === 'peek') handleExpand();
               }}
-              title="Collapse sheet to see full map"
-              aria-label="Collapse sheet to see full map"
             >
-              <ChevronDown size={18} />
+              <span className="gf-sheet-handle" />
             </button>
-          ) : (
-            <button
-              type="button"
-              className="gf-sheet-quick-collapse-btn pressable"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleExpand();
-              }}
-              title="Expand sheet"
-              aria-label="Expand sheet"
-            >
-              <ChevronUp size={18} />
-            </button>
-          )}
-        </div>
+            {snap !== 'peek' ? (
+              <button
+                type="button"
+                className="gf-sheet-quick-collapse-btn pressable"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCollapse();
+                }}
+                title="Collapse sheet to see full map"
+                aria-label="Collapse sheet to see full map"
+              >
+                <ChevronDown size={18} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="gf-sheet-quick-collapse-btn pressable"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleExpand();
+                }}
+                title="Expand sheet"
+                aria-label="Expand sheet"
+              >
+                <ChevronUp size={18} />
+              </button>
+            )}
+          </div>
+        )}
 
         {topNav}
 
