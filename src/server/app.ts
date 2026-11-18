@@ -179,21 +179,21 @@ export function createApp() {
     const candidateUrls: string[] =
       layer === 'satellite'
         ? [
-            ...(customKey ? [`https://api.maptiler.com/maps/hybrid/256/${z}/${x}/${y}.jpg?key=${encodeURIComponent(customKey)}`] : []),
             `https://mt${subGoogle}.google.com/vt/lyrs=y&x=${x}&y=${y}&z=${z}`,
             `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
+            ...(customKey && customKey !== DEFAULT_MAPTILER_API_KEY ? [`https://api.maptiler.com/maps/hybrid/256/${z}/${x}/${y}.jpg?key=${encodeURIComponent(customKey)}`] : []),
           ]
         : layer === 'terrain'
         ? [
-            ...(customKey ? [`https://api.maptiler.com/maps/outdoor-v2/256/${z}/${x}/${y}.png?key=${encodeURIComponent(customKey)}`] : []),
             `https://mt${subGoogle}.google.com/vt/lyrs=p&x=${x}&y=${y}&z=${z}`,
             `https://${subOsm}.tile.openstreetmap.org/${z}/${x}/${y}.png`,
+            ...(customKey && customKey !== DEFAULT_MAPTILER_API_KEY ? [`https://api.maptiler.com/maps/outdoor-v2/256/${z}/${x}/${y}.png?key=${encodeURIComponent(customKey)}`] : []),
           ]
         : [
-            ...(customKey ? [`https://api.maptiler.com/maps/streets-v2/256/${z}/${x}/${y}.png?key=${encodeURIComponent(customKey)}`] : []),
-            `https://${subCarto}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`,
             `https://mt${subGoogle}.google.com/vt/lyrs=m&x=${x}&y=${y}&z=${z}`,
+            `https://${subCarto}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`,
             `https://${subOsm}.tile.openstreetmap.org/${z}/${x}/${y}.png`,
+            ...(customKey && customKey !== DEFAULT_MAPTILER_API_KEY ? [`https://api.maptiler.com/maps/streets-v2/256/${z}/${x}/${y}.png?key=${encodeURIComponent(customKey)}`] : []),
           ];
 
     for (const url of candidateUrls) {

@@ -74,50 +74,75 @@ const DEFAULT_CENTER: [number, number] = [-6.19834, 106.88873];
 
 export type MapLayerKey = 'streets' | 'satellite' | 'terrain';
 
-export const DEFAULT_MAPTILER_KEY = 'KHmsrWcJhgdZjirijNbw';
+export const GOOGLE_MAPS_STREETS_URL = 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
+export const GOOGLE_MAPS_SATELLITE_URL = 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}';
+export const GOOGLE_MAPS_TERRAIN_URL = 'https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}';
+export const CARTO_VOYAGER_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 export const OSM_FALLBACK_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 export const SATELLITE_FALLBACK_TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 export const TERRAIN_FALLBACK_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
-export const MAP_LAYERS: Record<MapLayerKey, { name: string; url: string; proxyUrl: string; options: L.TileLayerOptions }> = {
+export const MAP_LAYERS: Record<MapLayerKey, { name: string; url: string; fallbackUrl: string; options: L.TileLayerOptions; fallbackOptions: L.TileLayerOptions }> = {
   streets: {
     name: 'Streets',
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    proxyUrl: '/api/maps/tiles/streets/{z}/{x}/{y}',
-    options: {
-      maxZoom: 20,
-      subdomains: ['a', 'b', 'c', 'd'],
-      updateWhenZooming: false,
-      updateWhenIdle: false,
-      keepBuffer: 4,
-      attribution:
-        '&copy; <a href="https://www.maptiler.com/copyright/" target="_blank" rel="noreferrer">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions" target="_blank" rel="noreferrer">CARTO</a>',
-    },
-  },
-  satellite: {
-    name: 'Satellite',
-    url: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-    proxyUrl: '/api/maps/tiles/satellite/{z}/{x}/{y}',
+    url: GOOGLE_MAPS_STREETS_URL,
+    fallbackUrl: CARTO_VOYAGER_URL,
     options: {
       maxZoom: 21,
       subdomains: ['0', '1', '2', '3'],
       updateWhenZooming: false,
       updateWhenIdle: false,
       keepBuffer: 4,
-      attribution: 'Map &copy; MapTiler &amp; Google Maps &mdash; Satellite Hybrid',
+      attribution: '&copy; <a href="https://www.google.com/maps" target="_blank" rel="noreferrer">Google Maps</a> &copy; <a href="https://carto.com/" target="_blank" rel="noreferrer">CARTO</a>',
+    },
+    fallbackOptions: {
+      maxZoom: 20,
+      subdomains: ['a', 'b', 'c', 'd'],
+      updateWhenZooming: false,
+      updateWhenIdle: false,
+      keepBuffer: 4,
+      attribution: '&copy; <a href="https://carto.com/attributions" target="_blank" rel="noreferrer">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>',
+    },
+  },
+  satellite: {
+    name: 'Satellite',
+    url: GOOGLE_MAPS_SATELLITE_URL,
+    fallbackUrl: SATELLITE_FALLBACK_TILE_URL,
+    options: {
+      maxZoom: 21,
+      subdomains: ['0', '1', '2', '3'],
+      updateWhenZooming: false,
+      updateWhenIdle: false,
+      keepBuffer: 4,
+      attribution: '&copy; <a href="https://www.google.com/maps" target="_blank" rel="noreferrer">Google Maps</a> &mdash; Satellite Hybrid',
+    },
+    fallbackOptions: {
+      maxZoom: 19,
+      updateWhenZooming: false,
+      updateWhenIdle: false,
+      keepBuffer: 4,
+      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
     },
   },
   terrain: {
     name: 'Terrain',
-    url: 'https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
-    proxyUrl: '/api/maps/tiles/terrain/{z}/{x}/{y}',
+    url: GOOGLE_MAPS_TERRAIN_URL,
+    fallbackUrl: TERRAIN_FALLBACK_TILE_URL,
     options: {
       maxZoom: 20,
       subdomains: ['0', '1', '2', '3'],
       updateWhenZooming: false,
       updateWhenIdle: false,
       keepBuffer: 4,
-      attribution: 'Map &copy; MapTiler &amp; Google Maps &mdash; Topographic Terrain',
+      attribution: '&copy; <a href="https://www.google.com/maps" target="_blank" rel="noreferrer">Google Maps</a> &mdash; Topographic Terrain',
+    },
+    fallbackOptions: {
+      maxZoom: 19,
+      subdomains: ['a', 'b', 'c'],
+      updateWhenZooming: false,
+      updateWhenIdle: false,
+      keepBuffer: 4,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
     },
   },
 };
@@ -341,16 +366,15 @@ export const MapView: React.FC<MapViewProps> = ({
     setTilesLoading(true);
     resetSafetyTimer();
 
-    const customKey =
-      (typeof window !== 'undefined' && window.localStorage?.getItem('gf_map_api_key')?.trim()) || DEFAULT_MAPTILER_KEY;
-    const primaryTileUrl = `${config.proxyUrl}?key=${encodeURIComponent(customKey)}`;
+    // Primary tile source: High-speed, 100% free Google Maps raster tiles (zero API key, zero cost)
+    const primaryTileUrl = config.url;
 
     const layer = L.tileLayer(primaryTileUrl, {
+      ...config.options,
       maxZoom: config.options.maxZoom || 20,
       updateWhenZooming: false,
       updateWhenIdle: false,
       keepBuffer: 4,
-      attribution: config.options.attribution,
     });
     layer.on('loading', () => {
       setTilesLoading(true);
@@ -364,44 +388,16 @@ export const MapView: React.FC<MapViewProps> = ({
     });
     layer.on('tileerror', () => {
       tileErrorCount += 1;
-      if (!didFailover && tileErrorCount >= 2 && baseTileLayerRef.current === layer) {
+      if (!didFailover && tileErrorCount >= 3 && baseTileLayerRef.current === layer) {
         didFailover = true;
         map.removeLayer(layer);
 
-        let fallbackUrl = config.url || OSM_FALLBACK_TILE_URL;
-        let fallbackOptions: L.TileLayerOptions = {
-          maxZoom: 19,
-          subdomains: config.options.subdomains || ['a', 'b', 'c'],
+        const fallbackLayer = L.tileLayer(config.fallbackUrl, {
+          ...config.fallbackOptions,
           updateWhenZooming: false,
           updateWhenIdle: false,
           keepBuffer: 4,
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
-        };
-
-        if (layerKey === 'satellite') {
-          fallbackUrl = SATELLITE_FALLBACK_TILE_URL;
-          fallbackOptions = {
-            maxZoom: 19,
-            updateWhenZooming: false,
-            updateWhenIdle: false,
-            keepBuffer: 4,
-            attribution: 'Tiles &copy; Esri &mdash; World Imagery',
-          };
-        } else if (layerKey === 'terrain') {
-          fallbackUrl = TERRAIN_FALLBACK_TILE_URL;
-          fallbackOptions = {
-            maxZoom: 19,
-            subdomains: ['a', 'b', 'c'],
-            updateWhenZooming: false,
-            updateWhenIdle: false,
-            keepBuffer: 4,
-            attribution:
-              '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
-          };
-        }
-
-        const fallbackLayer = L.tileLayer(fallbackUrl, fallbackOptions);
+        });
         fallbackLayer.on('load', () => {
           if (tileLoadSafetyTimerRef.current) {
             window.clearTimeout(tileLoadSafetyTimerRef.current);
@@ -419,7 +415,7 @@ export const MapView: React.FC<MapViewProps> = ({
     return layer;
   };
 
-  // Initialize Leaflet Map with Canvas renderer, ResizeObserver & automatic tile failover
+  // Initialize Leaflet Map with SVG renderer (immune to canvas clearRect crashes), ResizeObserver & automatic tile failover
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
@@ -428,7 +424,7 @@ export const MapView: React.FC<MapViewProps> = ({
       zoom: 12,
       zoomControl: false,
       attributionControl: true,
-      preferCanvas: true,
+      preferCanvas: false,
     });
 
     baseTileLayerRef.current = attachManagedTileLayer(activeLayer, map);
@@ -980,36 +976,46 @@ export const MapView: React.FC<MapViewProps> = ({
       L.marker(effDest, { icon: destIcon }).addTo(group);
 
       const hasFullGeometry = Array.isArray(routeGeometry) && routeGeometry.length >= 2;
-      const midLat = (effOrigin[0] + effDest[0]) / 2 + (effDest[1] - effOrigin[1]) * 0.12;
-      const midLon = (effOrigin[1] + effDest[1]) / 2 - (effDest[0] - effOrigin[0]) * 0.12;
-      const latlngs: L.LatLngExpression[] = hasFullGeometry
-        ? (routeGeometry as L.LatLngExpression[])
-        : [effOrigin, [midLat, midLon], effDest];
+      const mid1Lat = effOrigin[0] * 0.7 + effDest[0] * 0.3 + (effDest[1] - effOrigin[1]) * 0.08;
+      const mid1Lon = effOrigin[1] * 0.7 + effDest[1] * 0.3 - (effDest[0] - effOrigin[0]) * 0.08;
+      const mid2Lat = effOrigin[0] * 0.3 + effDest[0] * 0.7 + (effDest[1] - effOrigin[1]) * 0.06;
+      const mid2Lon = effOrigin[1] * 0.3 + effDest[1] * 0.7 - (effDest[0] - effOrigin[0]) * 0.06;
+      const rawPoints: Array<[number, number]> = hasFullGeometry
+        ? (routeGeometry as Array<[number, number]>)
+        : [effOrigin, [mid1Lat, mid1Lon], [mid2Lat, mid2Lon], effDest];
 
-      // Route Outer Glow Halo
-      L.polyline(latlngs, {
-        color: '#ffffff',
-        weight: 9,
-        opacity: 0.95,
-        lineCap: 'round',
-        lineJoin: 'round',
-      }).addTo(group);
+      const latlngs: L.LatLngExpression[] = rawPoints.filter(
+        (p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])
+      ) as L.LatLngExpression[];
 
-      // Signature Samsung Blue Route Line
-      L.polyline(latlngs, {
-        color: '#0072de',
-        weight: 5,
-        opacity: 1,
-        lineCap: 'round',
-        lineJoin: 'round',
-      }).addTo(group);
+      if (latlngs.length >= 2) {
+        // Route Outer White Glow Halo (high contrast on all tile providers)
+        L.polyline(latlngs, {
+          color: '#ffffff',
+          weight: 9,
+          opacity: 0.95,
+          lineCap: 'round',
+          lineJoin: 'round',
+          pane: 'overlayPane',
+        }).addTo(group);
+
+        // Signature Samsung Blue Route Line
+        L.polyline(latlngs, {
+          color: '#0072de',
+          weight: 5,
+          opacity: 1,
+          lineCap: 'round',
+          lineJoin: 'round',
+          pane: 'overlayPane',
+        }).addTo(group);
+      }
 
       if (driverActive) {
         const carPoint = (driverCoords && Number.isFinite(driverCoords.lat) && Number.isFinite(driverCoords.lon))
           ? [driverCoords.lat, driverCoords.lon] as [number, number]
           : hasFullGeometry
           ? routeGeometry![Math.floor(routeGeometry!.length / 2)]
-          : ([midLat, midLon] as [number, number]);
+          : ([mid1Lat, mid1Lon] as [number, number]);
 
         const avatarKey = resolveCarAvatarKey(activeVehicleModel || 'Stargazer', 'Hyundai', 'Gasoline');
         const carSvg = getCarFrontAvatarSvg(avatarKey, true);
@@ -1078,7 +1084,7 @@ export const MapView: React.FC<MapViewProps> = ({
       aria-label={pinMode ? 'Interactive map. Drag or use arrow keys to position the pin.' : 'Route and live vehicle position view'}
       onKeyDown={handleKeyDown}
     >
-      <div ref={mapContainerRef} style={{ width: '100%', height: '100%', zIndex: 1 }} />
+      <div ref={mapContainerRef} id="map-container" style={{ width: '100%', height: '100%', zIndex: 1 }} />
 
       {/* Floating 3-Layer Map Switcher (Streets, Satellite, Terrain) */}
       <div className={`gf-map-layer-switcher ${showBackButton ? 'has-back-btn' : ''}`}>

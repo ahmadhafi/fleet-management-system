@@ -156,6 +156,25 @@ export const ListRow: React.FC<ListRowProps> = ({
   );
 
   if (onClick) {
+    if (trailing) {
+      return (
+        <div
+          id={id}
+          role="button"
+          tabIndex={0}
+          onClick={onClick}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onClick();
+            }
+          }}
+          className={`gf-list-row pressable ${tall ? 'gf-list-row-64' : ''}`}
+        >
+          {content}
+        </div>
+      );
+    }
     return (
       <button
         id={id}

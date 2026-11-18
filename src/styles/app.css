@@ -3798,7 +3798,7 @@ iframe.goog-te-banner-frame {
     top: 0;
     left: 0;
     right: 0;
-    height: var(--mobile-map-height, 34dvh);
+    height: var(--mobile-map-height, 44dvh);
     z-index: var(--z-map);
     overflow: hidden;
   }

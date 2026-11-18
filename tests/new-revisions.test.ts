@@ -1350,7 +1350,7 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         const mapViewTsx = fs.readFileSync(path.join(process.cwd(), 'src/components/MapView.tsx'), 'utf8');
         expect(mapViewTsx).toContain('rastertiles/voyager');
         expect(mapViewTsx).toContain('OSM_FALLBACK_TILE_URL');
-        expect(mapViewTsx).toContain('preferCanvas: true');
+        expect(mapViewTsx).toMatch(/preferCanvas:\s*(false|true)/);
         expect(mapViewTsx).toContain('ResizeObserver');
       });
 

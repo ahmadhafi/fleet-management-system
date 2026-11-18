@@ -7,7 +7,7 @@ export type SnapPoint = 'peek' | 'half' | 'full';
 
 const SNAP_PERCENT: Record<SnapPoint, number> = {
   peek: 42,
-  half: 70,
+  half: 58,
   full: 86,
 };
 

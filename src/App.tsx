@@ -1006,7 +1006,7 @@ export function App() {
   // Periodic 20-Minute GPS Reporting + Screen WakeLock for Driver PWA
   const sendDriverLocationReport = useCallback(
     async (explicitState?: 'GRANTED' | 'DENIED' | 'UNAVAILABLE') => {
-      if (!user) return;
+      if (!user || !['DRV', 'ADM', 'FM'].includes(user.role)) return;
       const targetState = explicitState || gpsPermissionState;
 
       if (targetState !== 'GRANTED') {
@@ -2910,8 +2910,8 @@ export function App() {
                   width: '48px',
                   height: '48px',
                   borderRadius: '9999px',
-                  background: 'var(--color-green-tint)',
-                  color: 'var(--color-green)',
+                  background: 'rgba(0, 114, 222, 0.12)',
+                  color: '#0072de',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -7155,6 +7155,7 @@ export function App() {
     ((bookingStep === 'ROUTE' && Boolean(bookDest.trim()) && routeTab !== 'PIN') ||
       bookingStep === 'VEHICLE' ||
       bookingStep === 'SUMMARY' ||
+      bookingStep === 'WAITING' ||
       bookingStep === 'IN_TRIP');
 
   // Map only appears when user is actively booking a car (or compact Driver duty header)
@@ -12674,7 +12675,7 @@ export function App() {
               style={
                 {
                   '--mobile-map-height':
-                    sheetSnap === 'peek' ? '61dvh' : sheetSnap === 'full' ? '22dvh' : '34dvh',
+                    sheetSnap === 'peek' ? '61dvh' : sheetSnap === 'full' ? '22dvh' : '44dvh',
                 } as React.CSSProperties
               }
             >
