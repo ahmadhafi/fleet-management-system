@@ -598,6 +598,14 @@ export function t(text: string, targetLang?: SupportedLang): string {
  */
 function setGoogTransCookie(lang: SupportedLang) {
   try {
+    if (lang === 'en') {
+      document.cookie = 'googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax';
+      const host = window.location.hostname;
+      if (host && host.includes('.')) {
+        document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${host}; SameSite=Lax`;
+      }
+      return;
+    }
     const cookieVal = `/en/${lang}`;
     document.cookie = `googtrans=${cookieVal}; path=/; SameSite=Lax`;
     const host = window.location.hostname;

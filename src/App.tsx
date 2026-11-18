@@ -3876,31 +3876,31 @@ export function App() {
               style={{
                 background: 'linear-gradient(135deg, #0072de, #0052b4)',
                 color: '#ffffff',
-                padding: '12px 16px',
-                borderRadius: '12px',
+                padding: '9px 12px',
+                borderRadius: '11px',
                 display: 'flex',
                 flexWrap: 'wrap',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                gap: '12px',
-                boxShadow: '0 4px 12px rgba(0, 114, 222, 0.25)',
-                marginBottom: '12px',
+                gap: '8px',
+                boxShadow: '0 2px 10px rgba(0, 114, 222, 0.2)',
+                marginBottom: '6px',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 210px', minWidth: 0 }}>
-                <Bell size={20} style={{ flexShrink: 0 }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 180px', minWidth: 0 }}>
+                <Bell size={16} style={{ flexShrink: 0 }} />
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 800, fontSize: '13px' }}>{t('Enable Real-Time Notifications')}</div>
-                  <div style={{ fontSize: '11.5px', opacity: 0.9, lineHeight: 1.35 }}>
+                  <div style={{ fontWeight: 800, fontSize: '12px', lineHeight: 1.2 }}>{t('Enable Real-Time Notifications')}</div>
+                  <div style={{ fontSize: '11px', opacity: 0.9, lineHeight: 1.25 }}>
                     {t('Get instant push alerts for car approvals, driver dispatches, and operations.')}
                   </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                 <button
                   type="button"
                   className="gf-btn gf-alert-btn"
-                  style={{ background: '#ffffff', color: '#0072de', fontWeight: 800, border: 'none', padding: '6px 12px', fontSize: '12px', minHeight: '34px' }}
+                  style={{ background: '#ffffff', color: '#0072de', fontWeight: 800, border: 'none', padding: '4px 10px', fontSize: '11.5px', minHeight: '28px', borderRadius: '8px' }}
                   onClick={() => handleEnablePushNotifications(false)}
                 >
                   {t('Allow Alerts')}
@@ -3908,7 +3908,7 @@ export function App() {
                 <button
                   type="button"
                   className="gf-btn gf-alert-btn"
-                  style={{ background: 'transparent', color: '#ffffff', border: '1px solid rgba(255,255,255,0.45)', padding: '6px 12px', fontSize: '11.5px', minHeight: '34px' }}
+                  style={{ background: 'transparent', color: '#ffffff', border: '1px solid rgba(255,255,255,0.45)', padding: '4px 10px', fontSize: '11px', minHeight: '28px', borderRadius: '8px' }}
                   onClick={() => setShowNotificationPromptBanner(false)}
                 >
                   {t('Dismiss')}
@@ -3918,20 +3918,27 @@ export function App() {
           )}
           {statusBanner && (
             <div
+              className="gf-status-banner-compact"
               style={{
-                padding: '12px 16px',
-                borderRadius: 'var(--radius-control)',
+                padding: '8px 12px',
+                borderRadius: '10px',
                 background: statusBanner.type === 'danger' ? 'var(--color-status-red-bg)' : 'var(--color-status-green-bg)',
                 color: statusBanner.type === 'danger' ? 'var(--color-status-red-fg)' : 'var(--color-status-green-fg)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                gap: '12px',
+                gap: '8px',
+                fontSize: '12.5px',
               }}
             >
-              <span className="type-body" style={{ fontWeight: 600 }}>{statusBanner.text}</span>
-              <button type="button" className="gf-btn gf-btn-secondary" style={{ minHeight: '36px', padding: '0 12px' }} onClick={() => setStatusBanner(null)}>
-                Dismiss
+              <span style={{ fontWeight: 600, lineHeight: 1.35, flex: 1, minWidth: 0 }}>{statusBanner.text}</span>
+              <button
+                type="button"
+                className="gf-btn gf-btn-secondary gf-btn-sm"
+                style={{ minHeight: '26px', height: '26px', padding: '0 10px', fontSize: '11.5px', borderRadius: '99px', flexShrink: 0 }}
+                onClick={() => setStatusBanner(null)}
+              >
+                OK
               </button>
             </div>
           )}
@@ -4220,7 +4227,7 @@ export function App() {
                 )}
 
                 {/* Live Fleet Map Canvas */}
-                <div id="admin-fleet-map-canvas" style={{ height: '560px', width: '100%', borderRadius: '16px', overflow: 'hidden', position: 'relative', border: '1px solid var(--color-border)', boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
+                <div id="admin-fleet-map-canvas" className="gf-admin-map-canvas" style={{ height: '560px', width: '100%', borderRadius: '16px', overflow: 'hidden', position: 'relative', border: '1px solid var(--color-border)', boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
                   <MapView
                     origin=""
                     destination=""
@@ -4237,106 +4244,167 @@ export function App() {
 
                 {/* Quick Fleet Position Directory Table */}
                 <div className="gf-card-flat">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '6px' }}>
                     <h3 className="type-title" style={{ fontSize: '15px' }}>Live Vehicle Status Directory</h3>
                     <span className="type-caption">Showing {filteredFleetPositions.length} of {fleetPositions.length} vehicles</span>
                   </div>
-                  <div className="gf-table-wrap">
-                    <table className="gf-table">
-                      <thead>
-                        <tr>
-                          <th>Plate & Model</th>
-                          <th>Energy / Battery</th>
-                          <th>Assigned Driver</th>
-                          <th>Status / Pax</th>
-                          <th>Current Location / Pool</th>
-                          <th>Locate & Contact</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredFleetPositions.map((pos) => {
-                          const driverPhoto = getDriverAvatarDataUri(pos.driver_name || 'Driver', pos.driver_photo_url);
+                  <div className="gf-desktop-only-table">
+                    <div className="gf-table-wrap">
+                      <table className="gf-table">
+                        <thead>
+                          <tr>
+                            <th>Plate & Model</th>
+                            <th>Energy / Battery</th>
+                            <th>Assigned Driver</th>
+                            <th>Status / Pax</th>
+                            <th>Current Location / Pool</th>
+                            <th>Locate & Contact</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredFleetPositions.map((pos) => {
+                            const driverPhoto = getDriverAvatarDataUri(pos.driver_name || 'Driver', pos.driver_photo_url);
 
-                          return (
-                            <tr key={pos.id} style={{ background: focusedVehicleId === pos.id ? '#f0f7ff' : undefined }}>
-                              <td>
-                                <div style={{ fontWeight: 800 }}>{pos.registration_plate}</div>
-                                <div className="type-caption">{pos.make} {pos.model} ({pos.car_type})</div>
-                              </td>
-                              <td>
-                                <StatusBadge
-                                  label={pos.energy_type === 'Electric' ? `EV ${pos.battery_percent ?? 100}%` : 'Gasoline'}
-                                  tone={pos.energy_type === 'Electric' ? 'green' : 'neutral'}
-                                />
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  <div style={{ width: '32px', height: '32px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: '1px solid #cbd5e1' }}>
-                                    <img src={driverPhoto} alt={pos.driver_name || 'Driver'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            return (
+                              <tr key={pos.id} style={{ background: focusedVehicleId === pos.id ? '#f0f7ff' : undefined }}>
+                                <td>
+                                  <div style={{ fontWeight: 800 }}>{pos.registration_plate}</div>
+                                  <div className="type-caption">{pos.make} {pos.model} ({pos.car_type})</div>
+                                </td>
+                                <td>
+                                  <StatusBadge
+                                    label={pos.energy_type === 'Electric' ? `EV ${pos.battery_percent ?? 100}%` : 'Gasoline'}
+                                    tone={pos.energy_type === 'Electric' ? 'green' : 'neutral'}
+                                  />
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: '1px solid #cbd5e1' }}>
+                                      <img src={driverPhoto} alt={pos.driver_name || 'Driver'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    </div>
+                                    <div>
+                                      <div style={{ fontWeight: 700 }}>{pos.driver_name}</div>
+                                      {pos.driver_licence_number && <div className="type-caption mono">SIM: {pos.driver_licence_number}</div>}
+                                    </div>
                                   </div>
-                                  <div>
-                                    <div style={{ fontWeight: 700 }}>{pos.driver_name}</div>
-                                    {pos.driver_licence_number && <div className="type-caption mono">SIM: {pos.driver_licence_number}</div>}
-                                  </div>
-                                </div>
-                              </td>
-                              <td>
-                                <StatusBadge
-                                  label={pos.status}
-                                  tone={pos.status === 'IN_TRIP' ? 'blue' : pos.status === 'Active' ? 'green' : 'amber'}
-                                />
-                                {pos.active_trip && (
-                                  <div className="type-caption" style={{ color: '#005bb5', marginTop: '2px' }}>
-                                    Pax: <b>{pos.active_trip.passenger_nickname || 'Employee'}</b>
-                                    <br />
-                                    To: {pos.active_trip.destination}
-                                  </div>
-                                )}
-                              </td>
-                              <td style={{ fontSize: '13px' }}>{pos.location_label}</td>
-                              <td>
-                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                  <button
-                                    type="button"
-                                    className="gf-btn gf-btn-primary"
-                                    style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px' }}
-                                    onClick={() => {
-                                      setFocusedVehicleId(pos.id);
-                                      document.getElementById('admin-fleet-map-canvas')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                    }}
-                                    title="Locate Position on Map"
-                                  >
-                                    <Navigation size={12} style={{ marginRight: '4px' }} /> Locate
-                                  </button>
-                                  {pos.driver_phone && (
-                                    <>
-                                      <a
-                                        href={formatWhatsAppUrl(pos.driver_phone)}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="gf-btn gf-btn-secondary"
-                                        style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px', background: '#ebf5ff', color: '#005bb5', textDecoration: 'none' }}
-                                        title="WhatsApp Chat"
-                                      >
-                                        WhatsApp
-                                      </a>
-                                      <a
-                                        href={formatPhoneCallUrl(pos.driver_phone)}
-                                        className="gf-btn gf-btn-secondary"
-                                        style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px', textDecoration: 'none' }}
-                                        title="Phone Call"
-                                      >
-                                        Call
-                                      </a>
-                                    </>
+                                </td>
+                                <td>
+                                  <StatusBadge
+                                    label={pos.status}
+                                    tone={pos.status === 'IN_TRIP' ? 'blue' : pos.status === 'Active' ? 'green' : 'amber'}
+                                  />
+                                  {pos.active_trip && (
+                                    <div className="type-caption" style={{ color: '#005bb5', marginTop: '2px' }}>
+                                      Pax: <b>{pos.active_trip.passenger_nickname || 'Employee'}</b>
+                                      <br />
+                                      To: {pos.active_trip.destination}
+                                    </div>
                                   )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                                </td>
+                                <td style={{ fontSize: '13px' }}>{pos.location_label}</td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                    <button
+                                      type="button"
+                                      className="gf-btn gf-btn-primary"
+                                      style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px' }}
+                                      onClick={() => {
+                                        setFocusedVehicleId(pos.id);
+                                        document.getElementById('admin-fleet-map-canvas')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                      }}
+                                      title="Locate Position on Map"
+                                    >
+                                      <Navigation size={12} style={{ marginRight: '4px' }} /> Locate
+                                    </button>
+                                    {pos.driver_phone && (
+                                      <>
+                                        <a
+                                          href={formatWhatsAppUrl(pos.driver_phone)}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="gf-btn gf-btn-secondary"
+                                          style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px', background: '#ebf5ff', color: '#005bb5', textDecoration: 'none' }}
+                                          title="WhatsApp Chat"
+                                        >
+                                          WhatsApp
+                                        </a>
+                                        <a
+                                          href={formatPhoneCallUrl(pos.driver_phone)}
+                                          className="gf-btn gf-btn-secondary"
+                                          style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px', textDecoration: 'none' }}
+                                          title="Phone Call"
+                                        >
+                                          Call
+                                        </a>
+                                      </>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div className="gf-mobile-only-cards">
+                    {filteredFleetPositions.map((pos) => (
+                      <div key={pos.id} className="gf-proto-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: focusedVehicleId === pos.id ? '#f0f7ff' : undefined }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                          <div>
+                            <span className="mono" style={{ fontWeight: 800, fontSize: '13.5px' }}>{pos.registration_plate}</span>
+                            <div className="type-caption">{pos.make} {pos.model} ({pos.car_type})</div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            <StatusBadge
+                              label={pos.energy_type === 'Electric' ? `EV ${pos.battery_percent ?? 100}%` : 'Gas'}
+                              tone={pos.energy_type === 'Electric' ? 'green' : 'neutral'}
+                            />
+                            <StatusBadge
+                              label={pos.status}
+                              tone={pos.status === 'IN_TRIP' ? 'blue' : pos.status === 'Active' ? 'green' : 'amber'}
+                            />
+                          </div>
+                        </div>
+                        <div className="type-caption" style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                          <span>Driver: <b>{pos.driver_name || 'Pool'}</b></span>
+                          <span>📍 {pos.location_label}</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', paddingTop: '6px', borderTop: '1px solid var(--color-divider)' }}>
+                          <button
+                            type="button"
+                            className="gf-proto-btn gf-proto-btn-s pressable"
+                            style={{ flex: 1 }}
+                            onClick={() => {
+                              setFocusedVehicleId(pos.id);
+                              document.getElementById('admin-fleet-map-canvas')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }}
+                          >
+                            Locate on Map
+                          </button>
+                          {pos.driver_phone && (
+                            <>
+                              <a
+                                href={formatWhatsAppUrl(pos.driver_phone)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="gf-proto-btn gf-proto-btn-o gf-proto-btn-s pressable"
+                                style={{ textDecoration: 'none' }}
+                              >
+                                WA
+                              </a>
+                              <a
+                                href={formatPhoneCallUrl(pos.driver_phone)}
+                                className="gf-proto-btn gf-proto-btn-g gf-proto-btn-s pressable"
+                                style={{ textDecoration: 'none' }}
+                              >
+                                Call
+                              </a>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -4346,20 +4414,21 @@ export function App() {
           {adminModule === 'ADMIN_DISPATCH' && (
             <>
               <section className="gf-card-flat">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
-                  <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <UserCheck size={18} /> {t('Pending Account Registrations')} ({pendingUsers.length})
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                  <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14.5px' }}>
+                    <UserCheck size={16} /> {t('Pending Account Registrations')} ({pendingUsers.length})
                   </h2>
                   <button
                     type="button"
-                    className="gf-btn gf-btn-primary"
+                    className="gf-btn gf-btn-primary gf-btn-sm"
+                    style={{ minHeight: '30px', padding: '4px 10px', fontSize: '11.5px', borderRadius: '8px' }}
                     onClick={async () => {
                       const res = await apiRequest('/api/notifications/send-reminders', { method: 'POST' });
                       setStatusBanner({ type: 'success', text: `Sent ${res.sentCount} booking & dispatch push reminders.` });
                       await loadAllData(user);
                     }}
                   >
-                    <Bell size={16} /> {t('Send Upcoming Push Reminders')}
+                    <Bell size={13} /> {t('Send Upcoming Push Reminders')}
                   </button>
                 </div>
 
@@ -4700,7 +4769,7 @@ export function App() {
                   </div>
                 </div>
 
-                <form onSubmit={handleCreateUserByAdmin} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(165px, 1fr))', gap: '10px', marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid var(--color-divider)' }}>
+                <form onSubmit={handleCreateUserByAdmin} className="gf-admin-compact-form" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px', marginBottom: '14px', paddingBottom: '14px', borderBottom: '1px solid var(--color-divider)' }}>
                   <input
                     type="text"
                     className="gf-input"
@@ -5020,8 +5089,8 @@ export function App() {
 
               {opsSubTab === 'VEHICLES' && (
                 <section className="gf-card-flat">
-                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Register New Vehicle</h2>
-                  <form onSubmit={handleCreateVehicle} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', marginBottom: '20px', paddingBottom: '16px', borderBottom: '1px solid var(--color-divider)' }}>
+                  <h2 className="type-section" style={{ marginBottom: '10px' }}>Register New Vehicle</h2>
+                  <form onSubmit={handleCreateVehicle} className="gf-admin-compact-form" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: '8px', marginBottom: '16px', paddingBottom: '14px', borderBottom: '1px solid var(--color-divider)' }}>
                     <input
                       type="text"
                       className="gf-input"
@@ -5099,6 +5168,7 @@ export function App() {
                     />
                     <select
                       className="gf-select"
+                      style={{ gridColumn: '1 / -1' }}
                       value={newVehicleForm.default_driver_id}
                       onChange={(e) => setNewVehicleForm({ ...newVehicleForm, default_driver_id: e.target.value })}
                     >
@@ -5110,78 +5180,128 @@ export function App() {
                       ))}
                     </select>
                     <button type="submit" className="gf-btn gf-btn-primary">
-                      <Plus size={16} /> Add Vehicle
+                      <Plus size={15} /> Add Vehicle
                     </button>
                   </form>
 
-                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Fleet Register ({vehicles.length} Cars — Edit Plate, Type & Standby)</h2>
+                  <h2 className="type-section" style={{ marginBottom: '10px' }}>Fleet Register ({vehicles.length} Cars — Edit Plate, Type & Standby)</h2>
                   {vehicles.length === 0 ? (
                     <EmptyState message="No vehicles in the fleet yet. Use the form above to add your first car." />
                   ) : (
-                    <div className="gf-table-wrap">
-                      <table className="gf-table">
-                        <thead>
-                          <tr>
-                            <th>Plate</th>
-                            <th>Model</th>
-                            <th>Dedicated Driver</th>
-                            <th>Type</th>
-                            <th>Energy</th>
-                            <th>Odometer</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {vehicles.map((v) => (
-                            <tr key={v.id}>
-                              <td className="mono" style={{ fontWeight: 700 }}>{v.registration_plate}</td>
-                              <td>
-                                <div style={{ fontWeight: 700 }}>{v.make} {v.model}</div>
-                                <div className="type-caption">{v.seats} seats • VIN {v.vin}</div>
-                              </td>
-                              <td>
-                                <div style={{ fontWeight: 600 }}>{v.default_driver_name || 'Pool Driver'}</div>
-                                {v.default_driver_phone && <div className="type-caption mono">{v.default_driver_phone}</div>}
-                              </td>
-                              <td>{v.car_type}</td>
-                              <td>
+                    <>
+                      <div className="gf-desktop-only-table">
+                        <div className="gf-table-wrap">
+                          <table className="gf-table">
+                            <thead>
+                              <tr>
+                                <th>Plate</th>
+                                <th>Model</th>
+                                <th>Dedicated Driver</th>
+                                <th>Type</th>
+                                <th>Energy</th>
+                                <th>Odometer</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {vehicles.map((v) => (
+                                <tr key={v.id}>
+                                  <td className="mono" style={{ fontWeight: 700 }}>{v.registration_plate}</td>
+                                  <td>
+                                    <div style={{ fontWeight: 700 }}>{v.make} {v.model}</div>
+                                    <div className="type-caption">{v.seats} seats • VIN {v.vin}</div>
+                                  </td>
+                                  <td>
+                                    <div style={{ fontWeight: 600 }}>{v.default_driver_name || 'Pool Driver'}</div>
+                                    {v.default_driver_phone && <div className="type-caption mono">{v.default_driver_phone}</div>}
+                                  </td>
+                                  <td>{v.car_type}</td>
+                                  <td>
+                                    <StatusBadge
+                                      label={v.energy_type === 'Electric' ? `EV ${v.battery_percent ?? 100}%` : 'Gasoline'}
+                                      tone={v.energy_type === 'Electric' ? 'green' : 'neutral'}
+                                    />
+                                  </td>
+                                  <td className="mono">{Number(v.current_odometer || 0).toLocaleString()} km</td>
+                                  <td>
+                                    <StatusBadge label={v.status} tone={toneFromStatus(v.status)} />
+                                    {v.standby_reason && <div className="type-caption">{v.standby_reason}</div>}
+                                  </td>
+                                  <td>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                      <button type="button" className="gf-btn gf-btn-secondary" onClick={() => setEditingVehicle({ ...v })}>
+                                        <Edit3 size={15} /> Edit
+                                      </button>
+                                      <button type="button" className="gf-btn gf-btn-primary" onClick={() => openVehicle360(v.id)}>
+                                        360°
+                                      </button>
+                                      <button type="button" className="gf-btn gf-btn-outline-danger" onClick={() => handleDeleteVehicle(v)} title="Delete Vehicle">
+                                        <Trash2 size={15} /> Delete
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="gf-mobile-only-cards">
+                        {vehicles.map((v) => (
+                          <div key={v.id} className="gf-proto-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                  <span className="gf-proto-plt">{v.registration_plate}</span>
+                                  <span style={{ fontWeight: 800, fontSize: '13.5px' }}>{v.make} {v.model}</span>
+                                </div>
+                                <div className="type-caption" style={{ marginTop: '3px' }}>
+                                  {v.car_type} · {v.seats} seats · {Number(v.current_odometer || 0).toLocaleString()} km
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                                 <StatusBadge
-                                  label={v.energy_type === 'Electric' ? `EV ${v.battery_percent ?? 100}%` : 'Gasoline'}
+                                  label={v.energy_type === 'Electric' ? `EV ${v.battery_percent ?? 100}%` : 'Gas'}
                                   tone={v.energy_type === 'Electric' ? 'green' : 'neutral'}
                                 />
-                              </td>
-                              <td className="mono">{Number(v.current_odometer || 0).toLocaleString()} km</td>
-                              <td>
                                 <StatusBadge label={v.status} tone={toneFromStatus(v.status)} />
-                                {v.standby_reason && <div className="type-caption">{v.standby_reason}</div>}
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                  <button type="button" className="gf-btn gf-btn-secondary" onClick={() => setEditingVehicle({ ...v })}>
-                                    <Edit3 size={15} /> Edit
-                                  </button>
-                                  <button type="button" className="gf-btn gf-btn-primary" onClick={() => openVehicle360(v.id)}>
-                                    360°
-                                  </button>
-                                  <button type="button" className="gf-btn gf-btn-outline-danger" onClick={() => handleDeleteVehicle(v)} title="Delete Vehicle">
-                                    <Trash2 size={15} /> Delete
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                              </div>
+                            </div>
+
+                            <div className="type-caption" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                              <span>Driver: <b>{v.default_driver_name || 'Pool Driver'}</b></span>
+                              {v.default_driver_phone && <span className="mono">{v.default_driver_phone}</span>}
+                            </div>
+
+                            {v.standby_reason && (
+                              <div className="type-caption" style={{ color: '#b45309' }}>Note: {v.standby_reason}</div>
+                            )}
+
+                            <div style={{ display: 'flex', gap: '6px', paddingTop: '6px', borderTop: '1px solid var(--color-divider)' }}>
+                              <button type="button" className="gf-proto-btn gf-proto-btn-g gf-proto-btn-s pressable" style={{ flex: 1 }} onClick={() => setEditingVehicle({ ...v })}>
+                                <Edit3 size={13} /> Edit
+                              </button>
+                              <button type="button" className="gf-proto-btn gf-proto-btn-s pressable" style={{ flex: 1 }} onClick={() => openVehicle360(v.id)}>
+                                360° View
+                              </button>
+                              <button type="button" className="gf-proto-btn gf-proto-btn-r gf-proto-btn-s pressable" onClick={() => handleDeleteVehicle(v)} title="Delete Vehicle">
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
                   )}
                 </section>
               )}
 
               {opsSubTab === 'DRIVERS' && (
                 <section className="gf-card-flat">
-                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Register / Update Driver Profile & Group</h2>
-                  <form onSubmit={handleSaveDriverProfile} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', marginBottom: '20px', paddingBottom: '16px', borderBottom: '1px solid var(--color-divider)' }}>
+                  <h2 className="type-section" style={{ marginBottom: '10px' }}>Register / Update Driver Profile & Group</h2>
+                  <form onSubmit={handleSaveDriverProfile} className="gf-admin-compact-form" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px', marginBottom: '16px', paddingBottom: '14px', borderBottom: '1px solid var(--color-divider)' }}>
                     <select
                       className="gf-select"
                       value={newDriverForm.user_id}
@@ -5257,14 +5377,14 @@ export function App() {
                       value={newDriverForm.contact_number}
                       onChange={(e) => setNewDriverForm({ ...newDriverForm, contact_number: e.target.value })}
                     />
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', gridColumn: '1 / -1', background: 'var(--color-bg-subtle)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--color-divider)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', gridColumn: '1 / -1', background: 'var(--color-bg-subtle)', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--color-divider)' }}>
                       <img
                         src={newDriverForm.photo_url || getDriverAvatarDataUri(newDriverForm.full_name || 'Driver')}
                         alt="Driver Preview"
-                        style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--color-samsung-blue)' }}
+                        style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--color-samsung-blue)' }}
                       />
-                      <label className="gf-btn gf-btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0, minHeight: '34px', fontSize: '13px' }}>
-                        <Camera size={14} /> {newDriverForm.photo_url ? 'Change Driver Photo' : 'Upload Driver Photo'}
+                      <label className="gf-btn gf-btn-secondary gf-btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0, minHeight: '30px', fontSize: '12px' }}>
+                        <Camera size={13} /> {newDriverForm.photo_url ? 'Change Photo' : 'Upload Photo'}
                         <input
                           type="file"
                           accept="image/*"
@@ -5284,183 +5404,275 @@ export function App() {
                       {newDriverForm.photo_url && (
                         <button
                           type="button"
-                          className="gf-btn gf-btn-ghost"
-                          style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px', color: 'var(--color-red)' }}
+                          className="gf-btn gf-btn-ghost gf-btn-sm"
+                          style={{ minHeight: '28px', padding: '0 8px', fontSize: '11.5px', color: 'var(--color-red)' }}
                           onClick={() => setNewDriverForm({ ...newDriverForm, photo_url: '' })}
                         >
-                          Remove Photo
+                          Remove
                         </button>
                       )}
-                      <span className="type-caption" style={{ fontSize: '12px' }}>
-                        {newDriverForm.photo_url ? 'Custom photo attached' : 'Default high-resolution avatar will be generated if no photo uploaded'}
+                      <span className="type-caption" style={{ fontSize: '11.5px' }}>
+                        {newDriverForm.photo_url ? 'Custom photo attached' : 'Default avatar used if none uploaded'}
                       </span>
                     </div>
                     <button type="submit" className="gf-btn gf-btn-primary">
-                      <Plus size={16} /> Save Driver
+                      <Plus size={15} /> Save Driver
                     </button>
                   </form>
 
-                  <h2 className="type-section" style={{ marginBottom: '12px' }}>Driver Profiles & Groups ({drivers.length})</h2>
+                  <h2 className="type-section" style={{ marginBottom: '10px' }}>Driver Profiles & Groups ({drivers.length})</h2>
                   {drivers.length === 0 ? (
                     <EmptyState message="No driver profiles registered yet. Approve a driver user or add a driver above." />
                   ) : (
-                    <div className="gf-table-wrap">
-                      <table className="gf-table">
-                        <thead>
-                          <tr>
-                            <th>Photo</th>
-                            <th>Driver</th>
-                            <th>Username</th>
-                            <th>Driver Group</th>
-                            <th>Licence</th>
-                            <th>Expiry</th>
-                            <th>Status</th>
-                            <th>Toggle Status</th>
-                            <th>Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {drivers.map((d) => (
-                            <tr key={d.id}>
-                              <td>
-                                <div style={{ position: 'relative', width: '38px', height: '38px', flexShrink: 0 }}>
-                                  <img
-                                    src={getDriverAvatarDataUri(d.full_name, d.photo_url)}
-                                    alt={d.full_name}
-                                    style={{ width: '38px', height: '38px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--color-divider)' }}
-                                  />
-                                  <label
-                                    title="Upload or change driver photo"
-                                    style={{
-                                      position: 'absolute',
-                                      bottom: '-2px',
-                                      right: '-2px',
-                                      width: '18px',
-                                      height: '18px',
-                                      borderRadius: '50%',
-                                      background: 'var(--color-samsung-blue)',
-                                      color: '#fff',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      cursor: 'pointer',
-                                      boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                                    }}
-                                  >
-                                    <Camera size={10} />
-                                    <input
-                                      type="file"
-                                      accept="image/*"
-                                      style={{ display: 'none' }}
-                                      onChange={(e) => {
-                                        const file = e.target.files?.[0];
-                                        if (file) {
-                                          const reader = new FileReader();
-                                          reader.onload = async (ev) => {
-                                            const base64 = String(ev.target?.result || '');
-                                            try {
-                                              await apiRequest(`/api/drivers/${d.id}`, {
-                                                method: 'PATCH',
-                                                body: JSON.stringify({ photo_url: base64 }),
-                                              });
-                                              setStatusBanner({ type: 'success', text: `Photo updated for driver ${d.full_name}.` });
-                                              await loadAllData(user);
-                                            } catch (err: any) {
-                                              setStatusBanner({ type: 'danger', text: err.message });
+                    <>
+                      <div className="gf-desktop-only-table">
+                        <div className="gf-table-wrap">
+                          <table className="gf-table">
+                            <thead>
+                              <tr>
+                                <th>Photo</th>
+                                <th>Driver</th>
+                                <th>Username</th>
+                                <th>Driver Group</th>
+                                <th>Licence</th>
+                                <th>Expiry</th>
+                                <th>Status</th>
+                                <th>Toggle Status</th>
+                                <th>Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {drivers.map((d) => (
+                                <tr key={d.id}>
+                                  <td>
+                                    <div style={{ position: 'relative', width: '38px', height: '38px', flexShrink: 0 }}>
+                                      <img
+                                        src={getDriverAvatarDataUri(d.full_name, d.photo_url)}
+                                        alt={d.full_name}
+                                        style={{ width: '38px', height: '38px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--color-divider)' }}
+                                      />
+                                      <label
+                                        title="Upload or change driver photo"
+                                        style={{
+                                          position: 'absolute',
+                                          bottom: '-2px',
+                                          right: '-2px',
+                                          width: '18px',
+                                          height: '18px',
+                                          borderRadius: '50%',
+                                          background: 'var(--color-samsung-blue)',
+                                          color: '#fff',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          cursor: 'pointer',
+                                          boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                                        }}
+                                      >
+                                        <Camera size={10} />
+                                        <input
+                                          type="file"
+                                          accept="image/*"
+                                          style={{ display: 'none' }}
+                                          onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) {
+                                              const reader = new FileReader();
+                                              reader.onload = async (ev) => {
+                                                const base64 = String(ev.target?.result || '');
+                                                try {
+                                                  await apiRequest(`/api/drivers/${d.id}`, {
+                                                    method: 'PATCH',
+                                                    body: JSON.stringify({ photo_url: base64 }),
+                                                  });
+                                                  setStatusBanner({ type: 'success', text: `Photo updated for driver ${d.full_name}.` });
+                                                  await loadAllData(user);
+                                                } catch (err: any) {
+                                                  setStatusBanner({ type: 'danger', text: err.message });
+                                                }
+                                              };
+                                              reader.readAsDataURL(file);
                                             }
-                                          };
-                                          reader.readAsDataURL(file);
-                                        }
+                                          }}
+                                        />
+                                      </label>
+                                    </div>
+                                  </td>
+                                  <td style={{ fontWeight: 700 }}>{d.full_name}</td>
+                                  <td className="mono">{d.group_username ? `@${d.group_username}` : '—'}</td>
+                                  <td>
+                                    <select
+                                      className="gf-select notranslate"
+                                      translate="no"
+                                      style={{ minHeight: '36px', padding: '0 8px' }}
+                                      aria-label={`Driver group for ${d.full_name}`}
+                                      value={d.department_id || driverGroupId}
+                                      onChange={async (e) => {
+                                        await apiRequest(`/api/drivers/${d.id}`, {
+                                          method: 'PATCH',
+                                          body: JSON.stringify({ department_id: Number(e.target.value) }),
+                                        });
+                                        setStatusBanner({ type: 'success', text: `Updated group for driver ${d.full_name}.` });
+                                        await loadAllData(user);
                                       }}
-                                    />
-                                  </label>
+                                    >
+                                      {activeGroups.map((g) => (
+                                        <option key={g.id} value={g.id} className="notranslate" translate="no">
+                                          {g.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                  <td className="mono">{d.licence_number} (Class {d.licence_class})</td>
+                                  <td className="mono">{d.licence_expiry}</td>
+                                  <td><StatusBadge label={d.availability_status} tone={toneFromStatus(d.availability_status)} /></td>
+                                  <td>
+                                    <select
+                                      className="gf-select"
+                                      style={{ minHeight: '36px', padding: '0 8px' }}
+                                      value={d.availability_status}
+                                      onChange={async (e) => {
+                                        await apiRequest(`/api/drivers/${d.id}`, {
+                                          method: 'PATCH',
+                                          body: JSON.stringify({ availability_status: e.target.value }),
+                                        });
+                                        await loadAllData(user);
+                                      }}
+                                    >
+                                      <option value="Active">Active</option>
+                                      <option value="On Leave">On Leave</option>
+                                      <option value="Unavailable">Unavailable</option>
+                                    </select>
+                                  </td>
+                                  <td>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                      <button
+                                        type="button"
+                                        className="gf-btn gf-btn-secondary"
+                                        style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px' }}
+                                        onClick={() => {
+                                          setNewDriverForm({
+                                            user_id: d.user_id ? String(d.user_id) : '',
+                                            full_name: d.full_name,
+                                            department_id: d.department_id || driverGroupId,
+                                            licence_number: d.licence_number || '',
+                                            licence_class: d.licence_class || 'A',
+                                            licence_expiry: d.licence_expiry || new Date().toISOString().slice(0, 10),
+                                            contact_number: d.contact_number || '',
+                                            availability_status: d.availability_status || 'Active',
+                                            photo_url: d.photo_url || '',
+                                          });
+                                          setStatusBanner({ type: 'info', text: `Loaded driver ${d.full_name} into form above for editing.` });
+                                        }}
+                                      >
+                                        <Edit3 size={13} /> Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="gf-btn gf-btn-outline-danger"
+                                        style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px' }}
+                                        onClick={() => handleDeleteDriver(d)}
+                                        title="Delete Driver Profile"
+                                      >
+                                        <Trash2 size={13} /> Delete
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="gf-mobile-only-cards">
+                        {drivers.map((d) => (
+                          <div key={d.id} className="gf-proto-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <img
+                                  src={getDriverAvatarDataUri(d.full_name, d.photo_url)}
+                                  alt={d.full_name}
+                                  style={{ width: '34px', height: '34px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--color-divider)' }}
+                                />
+                                <div>
+                                  <div style={{ fontWeight: 800, fontSize: '13.5px' }}>{d.full_name}</div>
+                                  <div className="type-caption mono">SIM {d.licence_class}: {d.licence_number}</div>
                                 </div>
-                              </td>
-                              <td style={{ fontWeight: 700 }}>{d.full_name}</td>
-                              <td className="mono">{d.group_username ? `@${d.group_username}` : '—'}</td>
-                              <td>
-                                <select
-                                  className="gf-select notranslate"
-                                  translate="no"
-                                  style={{ minHeight: '36px', padding: '0 8px' }}
-                                  aria-label={`Driver group for ${d.full_name}`}
-                                  value={d.department_id || driverGroupId}
-                                  onChange={async (e) => {
-                                    await apiRequest(`/api/drivers/${d.id}`, {
-                                      method: 'PATCH',
-                                      body: JSON.stringify({ department_id: Number(e.target.value) }),
-                                    });
-                                    setStatusBanner({ type: 'success', text: `Updated group for driver ${d.full_name}.` });
-                                    await loadAllData(user);
-                                  }}
-                                >
-                                  {activeGroups.map((g) => (
-                                    <option key={g.id} value={g.id} className="notranslate" translate="no">
-                                      {g.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </td>
-                              <td className="mono">{d.licence_number} (Class {d.licence_class})</td>
-                              <td className="mono">{d.licence_expiry}</td>
-                              <td><StatusBadge label={d.availability_status} tone={toneFromStatus(d.availability_status)} /></td>
-                              <td>
-                                <select
-                                  className="gf-select"
-                                  style={{ minHeight: '36px', padding: '0 8px' }}
-                                  value={d.availability_status}
-                                  onChange={async (e) => {
-                                    await apiRequest(`/api/drivers/${d.id}`, {
-                                      method: 'PATCH',
-                                      body: JSON.stringify({ availability_status: e.target.value }),
-                                    });
-                                    await loadAllData(user);
-                                  }}
-                                >
-                                  <option value="Active">Active</option>
-                                  <option value="On Leave">On Leave</option>
-                                  <option value="Unavailable">Unavailable</option>
-                                </select>
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', gap: '6px' }}>
-                                  <button
-                                    type="button"
-                                    className="gf-btn gf-btn-secondary"
-                                    style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px' }}
-                                    onClick={() => {
-                                      setNewDriverForm({
-                                        user_id: d.user_id ? String(d.user_id) : '',
-                                        full_name: d.full_name,
-                                        department_id: d.department_id || driverGroupId,
-                                        licence_number: d.licence_number || '',
-                                        licence_class: d.licence_class || 'A',
-                                        licence_expiry: d.licence_expiry || new Date().toISOString().slice(0, 10),
-                                        contact_number: d.contact_number || '',
-                                        availability_status: d.availability_status || 'Active',
-                                        photo_url: d.photo_url || '',
-                                      });
-                                      setStatusBanner({ type: 'info', text: `Loaded driver ${d.full_name} into form above for editing.` });
-                                    }}
-                                  >
-                                    <Edit3 size={13} /> Edit
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="gf-btn gf-btn-outline-danger"
-                                    style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px' }}
-                                    onClick={() => handleDeleteDriver(d)}
-                                    title="Delete Driver Profile"
-                                  >
-                                    <Trash2 size={13} /> Delete
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                              </div>
+                              <StatusBadge label={d.availability_status} tone={toneFromStatus(d.availability_status)} />
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                              <select
+                                className="gf-select notranslate"
+                                translate="no"
+                                aria-label={`Mobile group for ${d.full_name}`}
+                                value={d.department_id || driverGroupId}
+                                onChange={async (e) => {
+                                  await apiRequest(`/api/drivers/${d.id}`, {
+                                    method: 'PATCH',
+                                    body: JSON.stringify({ department_id: Number(e.target.value) }),
+                                  });
+                                  await loadAllData(user);
+                                }}
+                              >
+                                {activeGroups.map((g) => (
+                                  <option key={g.id} value={g.id} className="notranslate" translate="no">
+                                    {g.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                className="gf-select"
+                                aria-label={`Mobile availability for ${d.full_name}`}
+                                value={d.availability_status}
+                                onChange={async (e) => {
+                                  await apiRequest(`/api/drivers/${d.id}`, {
+                                    method: 'PATCH',
+                                    body: JSON.stringify({ availability_status: e.target.value }),
+                                  });
+                                  await loadAllData(user);
+                                }}
+                              >
+                                <option value="Active">Active</option>
+                                <option value="On Leave">On Leave</option>
+                                <option value="Unavailable">Unavailable</option>
+                              </select>
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', paddingTop: '4px', borderTop: '1px solid var(--color-divider)' }}>
+                              <button
+                                type="button"
+                                className="gf-proto-btn gf-proto-btn-g gf-proto-btn-s pressable"
+                                style={{ flex: 1 }}
+                                onClick={() => {
+                                  setNewDriverForm({
+                                    user_id: d.user_id ? String(d.user_id) : '',
+                                    full_name: d.full_name,
+                                    department_id: d.department_id || driverGroupId,
+                                    licence_number: d.licence_number || '',
+                                    licence_class: d.licence_class || 'A',
+                                    licence_expiry: d.licence_expiry || new Date().toISOString().slice(0, 10),
+                                    contact_number: d.contact_number || '',
+                                    availability_status: d.availability_status || 'Active',
+                                    photo_url: d.photo_url || '',
+                                  });
+                                  setStatusBanner({ type: 'info', text: `Loaded driver ${d.full_name} into form above.` });
+                                }}
+                              >
+                                <Edit3 size={13} /> Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="gf-proto-btn gf-proto-btn-r gf-proto-btn-s pressable"
+                                onClick={() => handleDeleteDriver(d)}
+                              >
+                                <Trash2 size={13} /> Delete
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
                   )}
                 </section>
               )}
@@ -5902,40 +6114,40 @@ export function App() {
           {adminModule === 'ANALYTICS_REPORT' && usageAnalytics && (
             <>
               {/* Executive Reports Header Toolbar */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                 <div>
-                  <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <BarChart3 size={20} style={{ color: 'var(--color-samsung-blue)' }} /> Usage Analytics & Executive Briefing
+                  <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <BarChart3 size={18} style={{ color: 'var(--color-samsung-blue)' }} /> Usage Analytics & Executive Briefing
                   </h2>
                   <p className="type-caption">Financial and operational performance summary. All expenditures strictly denominated in Indonesian Rupiah (IDR).</p>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', width: '100%' }}>
                   <a
                     href="/api/reports/executive-pdf"
                     target="_blank"
                     rel="noreferrer"
-                    className="gf-btn gf-btn-primary pressable"
-                    style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    className="gf-btn gf-btn-primary gf-btn-sm pressable"
+                    style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '5px', minHeight: '32px', padding: '4px 10px', fontSize: '12px', flex: '1 1 auto' }}
                   >
-                    <FileDown size={16} /> Open Executive Report (PDF/Print)
+                    <FileDown size={14} /> Open Executive Report (PDF/Print)
                   </a>
                   <button
                     type="button"
-                    className="gf-btn gf-btn-secondary pressable"
+                    className="gf-btn gf-btn-secondary gf-btn-sm pressable"
                     onClick={() => setShowExecutiveReportModal(true)}
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '5px', minHeight: '32px', padding: '4px 10px', fontSize: '12px', flex: '1 1 auto' }}
                   >
-                    <Printer size={16} /> Print Executive Briefing
+                    <Printer size={14} /> Print Executive Briefing
                   </button>
                   {user?.role === 'ADM' && (
                     <button
                       type="button"
-                      className="gf-btn pressable"
+                      className="gf-btn gf-btn-sm pressable"
                       onClick={() => setShowResetModal(true)}
-                      style={{ background: '#fef2f2', color: '#dc2626', border: '1.5px solid #fecaca', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px' }}
+                      style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '5px', minHeight: '32px', padding: '4px 10px', fontSize: '12px', flex: '1 1 auto' }}
                       title="Reset test operational data to insert real data"
                     >
-                      <Trash2 size={16} /> Reset Test Data & Setup Real Fleet
+                      <Trash2 size={13} /> Reset Test Data & Setup Real Fleet
                     </button>
                   )}
                 </div>
@@ -5952,14 +6164,14 @@ export function App() {
                 </div>
                 <div className="gf-card-flat">
                   <div className="type-caption">DRIVER TRIP TIME ELAPSED</div>
-                  <div className="type-title mono" style={{ fontSize: '18px', color: '#005bb5' }}>
+                  <div className="type-title mono" style={{ fontSize: '16px', color: '#005bb5' }}>
                     {usageAnalytics.tripDurationSummary?.totalDurationFormatted || '0 Hours 0 Minutes'}
                   </div>
                   <div className="type-caption">Cumulative driving hours count</div>
                 </div>
                 <div className="gf-card-flat">
                   <div className="type-caption">TOTAL OPERATING COST (IDR)</div>
-                  <div className="type-title mono" style={{ fontSize: '18px', color: '#b45309' }}>
+                  <div className="type-title mono" style={{ fontSize: '16px', color: '#b45309' }}>
                     {formatIdr(usageAnalytics.expensesBreakdownIdr?.total_operational_cost_idr || usageAnalytics.combinedOverall.gasolineSummary.totalFuelCost + usageAnalytics.combinedOverall.electricSummary.totalChargingCost)}
                   </div>
                   <div className="type-caption">Gas, EV, Toll & Parking</div>
@@ -5972,7 +6184,7 @@ export function App() {
               </div>
 
               {/* Energy & Operating Fees Breakdown strictly in IDR */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+              <div className="gf-kpi-grid" style={{ marginBottom: '12px' }}>
                 <div className="gf-card-flat" style={{ borderLeft: '4px solid #0a0a0a' }}>
                   <div className="type-section" style={{ fontSize: '14.5px' }}>Gasoline Fleet Summary</div>
                   <div className="type-title mono" style={{ fontSize: '16.5px', marginTop: '4px' }}>
@@ -6053,8 +6265,8 @@ export function App() {
               )}
 
               {/* Vehicle Usage Summary Table */}
-              <section className="gf-card-flat" style={{ marginBottom: '14px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+              <section className="gf-card-flat" style={{ marginBottom: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
                   <h2 className="type-section">Vehicle Usage & Cost Breakdown (IDR)</h2>
                   <div style={{ display: 'flex', gap: '6px' }}>
                     {(['day', 'week', 'month', 'overall'] as const).map((p) => (
@@ -6062,55 +6274,90 @@ export function App() {
                     ))}
                   </div>
                 </div>
-                <div className="gf-table-wrap">
-                  <table className="gf-table">
-                    <thead>
-                      <tr>
-                        <th>Vehicle</th>
-                        <th>Energy</th>
-                        <th>Day</th>
-                        <th>Week</th>
-                        <th>Month</th>
-                        <th>All-Time</th>
-                        <th>Total Cost (IDR)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {usageAnalytics.perVehicle.map((v: any) => (
-                        <tr key={v.vehicle_id}>
-                          <td><strong>{v.registration_plate}</strong> <div className="type-caption">{v.make} {v.model}</div></td>
-                          <td><StatusBadge label={v.energy_type} tone={v.energy_type === 'Electric' ? 'green' : 'neutral'} /></td>
-                          <td className="mono">{v.day.distanceKm} km ({v.day.trips})</td>
-                          <td className="mono">{v.week.distanceKm} km ({v.week.trips})</td>
-                          <td className="mono">{v.month.distanceKm} km ({v.month.trips})</td>
-                          <td className="mono">{v.overall.distanceKm} km ({v.overall.trips})</td>
-                          <td className="mono" style={{ fontWeight: 700 }}>{formatIdr(v.totalOperatingCost)}</td>
+                <div className="gf-desktop-only-table">
+                  <div className="gf-table-wrap">
+                    <table className="gf-table">
+                      <thead>
+                        <tr>
+                          <th>Vehicle</th>
+                          <th>Energy</th>
+                          <th>Day</th>
+                          <th>Week</th>
+                          <th>Month</th>
+                          <th>All-Time</th>
+                          <th>Total Cost (IDR)</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {usageAnalytics.perVehicle.map((v: any) => (
+                          <tr key={v.vehicle_id}>
+                            <td><strong>{v.registration_plate}</strong> <div className="type-caption">{v.make} {v.model}</div></td>
+                            <td><StatusBadge label={v.energy_type} tone={v.energy_type === 'Electric' ? 'green' : 'neutral'} /></td>
+                            <td className="mono">{v.day.distanceKm} km ({v.day.trips})</td>
+                            <td className="mono">{v.week.distanceKm} km ({v.week.trips})</td>
+                            <td className="mono">{v.month.distanceKm} km ({v.month.trips})</td>
+                            <td className="mono">{v.overall.distanceKm} km ({v.overall.trips})</td>
+                            <td className="mono" style={{ fontWeight: 700 }}>{formatIdr(v.totalOperatingCost)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div className="gf-mobile-only-cards">
+                  {usageAnalytics.perVehicle.map((v: any) => (
+                    <div key={v.vehicle_id} className="gf-proto-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span className="gf-proto-plt">{v.registration_plate}</span>
+                          <span style={{ fontWeight: 700, fontSize: '13px' }}>{v.make} {v.model}</span>
+                        </div>
+                        <div className="type-caption" style={{ marginTop: '3px' }}>
+                          {v[usagePeriod]?.distanceKm ?? v.overall.distanceKm} km ({v[usagePeriod]?.trips ?? v.overall.trips} trips) · {v.energy_type}
+                        </div>
+                      </div>
+                      <div className="mono" style={{ fontWeight: 800, fontSize: '12.5px', color: '#0072de', textAlign: 'right' }}>
+                        {formatIdr(v.totalOperatingCost)}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </section>
 
               {/* Driver Usage Summary Table */}
               <section className="gf-card-flat">
-                <h2 className="type-section" style={{ marginBottom: '12px' }}>Driver Operational Usage Summary</h2>
-                <div className="gf-table-wrap">
-                  <table className="gf-table">
-                    <thead><tr><th>Driver</th><th>Status</th><th>Day</th><th>Week</th><th>Month</th><th>Overall</th></tr></thead>
-                    <tbody>
-                      {usageAnalytics.perDriver.map((d: any) => (
-                        <tr key={d.driver_profile_id}>
-                          <td style={{ fontWeight: 700 }}>{d.driver_name}</td>
-                          <td><StatusBadge label={d.availability_status} tone="green" /></td>
-                          <td className="mono">{d.day.distanceKm} km ({d.day.trips})</td>
-                          <td className="mono">{d.week.distanceKm} km ({d.week.trips})</td>
-                          <td className="mono">{d.month.distanceKm} km ({d.month.trips})</td>
-                          <td className="mono">{d.overall.distanceKm} km ({d.overall.trips})</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <h2 className="type-section" style={{ marginBottom: '10px' }}>Driver Operational Usage Summary</h2>
+                <div className="gf-desktop-only-table">
+                  <div className="gf-table-wrap">
+                    <table className="gf-table">
+                      <thead><tr><th>Driver</th><th>Status</th><th>Day</th><th>Week</th><th>Month</th><th>Overall</th></tr></thead>
+                      <tbody>
+                        {usageAnalytics.perDriver.map((d: any) => (
+                          <tr key={d.driver_profile_id}>
+                            <td style={{ fontWeight: 700 }}>{d.driver_name}</td>
+                            <td><StatusBadge label={d.availability_status} tone="green" /></td>
+                            <td className="mono">{d.day.distanceKm} km ({d.day.trips})</td>
+                            <td className="mono">{d.week.distanceKm} km ({d.week.trips})</td>
+                            <td className="mono">{d.month.distanceKm} km ({d.month.trips})</td>
+                            <td className="mono">{d.overall.distanceKm} km ({d.overall.trips})</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div className="gf-mobile-only-cards">
+                  {usageAnalytics.perDriver.map((d: any) => (
+                    <div key={d.driver_profile_id} className="gf-proto-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '13.5px' }}>{d.driver_name}</div>
+                        <div className="type-caption">
+                          Month: {d.month.distanceKm} km ({d.month.trips}) · Total: {d.overall.distanceKm} km ({d.overall.trips})
+                        </div>
+                      </div>
+                      <StatusBadge label={d.availability_status} tone="green" />
+                    </div>
+                  ))}
                 </div>
               </section>
             </>
@@ -6119,76 +6366,105 @@ export function App() {
           {/* DEDICATED AUDIT TRAIL MODULE (Independent from Analytics) */}
           {adminModule === 'AUDIT' && (
             <section className="gf-card-flat">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                 <div>
-                  <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <ScrollText size={20} style={{ color: 'var(--color-samsung-blue)' }} /> System Audit Trail ({auditEvents.length} Recorded Events)
+                  <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <ScrollText size={18} style={{ color: 'var(--color-samsung-blue)' }} /> System Audit Trail ({auditEvents.length} Recorded Events)
                   </h2>
                   <p className="type-caption">Immutable security log of all system transactions, driver check-ins, trip odometer verifications, and approvals.</p>
                 </div>
                 <input
                   type="search"
                   className="gf-input"
-                  style={{ maxWidth: '280px', minHeight: '38px' }}
+                  style={{ maxWidth: '280px', minHeight: '36px' }}
                   placeholder="Filter by action or actor..."
                   value={auditSearchQuery}
                   onChange={(e) => setAuditSearchQuery(e.target.value)}
                 />
               </div>
 
-              <div className="gf-table-wrap">
-                <table className="gf-table">
-                  <thead>
-                    <tr>
-                      <th>Time (UTC)</th>
-                      <th>Actor</th>
-                      <th>Action</th>
-                      <th>Entity</th>
-                      <th>Audit Details & Payload</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auditEvents
-                      .filter((ev) => {
-                        if (!auditSearchQuery.trim()) return true;
-                        const q = auditSearchQuery.toLowerCase();
-                        return (
-                          (ev.action || '').toLowerCase().includes(q) ||
-                          (ev.actor_username || '').toLowerCase().includes(q) ||
-                          (ev.entity_type || '').toLowerCase().includes(q)
-                        );
-                      })
-                      .slice(0, 50)
-                      .map((ev) => (
-                        <tr key={ev.id}>
-                          <td className="mono type-caption" style={{ whiteSpace: 'nowrap' }}>{ev.created_at}</td>
-                          <td>
-                            <div style={{ fontWeight: 700 }}>{ev.actor_username}</div>
-                            <div className="type-caption">Role: {ev.actor_role} • User #{ev.actor_user_id}</div>
-                          </td>
-                          <td>
-                            <span className="gf-badge" style={{ fontWeight: 700, fontSize: '11px', background: '#f1f5f9', color: '#1e293b' }}>
-                              {ev.action}
-                            </span>
-                          </td>
-                          <td className="mono" style={{ fontSize: '12px' }}>
-                            {ev.entity_type} {ev.entity_id ? `#${ev.entity_id}` : ''}
-                          </td>
-                          <td style={{ fontSize: '11.5px', maxWidth: '380px' }}>
-                            <details>
-                              <summary style={{ cursor: 'pointer', color: '#0072de', fontWeight: 600 }}>Inspect State Payload</summary>
-                              <pre style={{ background: '#f8fafc', padding: '6px', borderRadius: '6px', overflowX: 'auto', fontSize: '10.5px', margin: '4px 0 0 0', maxHeight: '180px' }}>
-                                {JSON.stringify({
-                                  previous: ev.prev_state_json ? JSON.parse(ev.prev_state_json) : null,
-                                  new: ev.new_state_json ? JSON.parse(ev.new_state_json) : null,
-                                }, null, 2)}
-                              </pre>
-                            </details>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
+              <div className="gf-desktop-only-table">
+                <div className="gf-table-wrap">
+                  <table className="gf-table">
+                    <thead>
+                      <tr>
+                        <th>Time (UTC)</th>
+                        <th>Actor</th>
+                        <th>Action</th>
+                        <th>Entity</th>
+                        <th>Audit Details & Payload</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditEvents
+                        .filter((ev) => {
+                          if (!auditSearchQuery.trim()) return true;
+                          const q = auditSearchQuery.toLowerCase();
+                          return (
+                            (ev.action || '').toLowerCase().includes(q) ||
+                            (ev.actor_username || '').toLowerCase().includes(q) ||
+                            (ev.entity_type || '').toLowerCase().includes(q)
+                          );
+                        })
+                        .slice(0, 50)
+                        .map((ev) => (
+                          <tr key={ev.id}>
+                            <td className="mono type-caption" style={{ whiteSpace: 'nowrap' }}>{ev.created_at}</td>
+                            <td>
+                              <div style={{ fontWeight: 700 }}>{ev.actor_username}</div>
+                              <div className="type-caption">Role: {ev.actor_role} • User #{ev.actor_user_id}</div>
+                            </td>
+                            <td>
+                              <span className="gf-badge" style={{ fontWeight: 700, fontSize: '11px', background: '#f1f5f9', color: '#1e293b' }}>
+                                {ev.action}
+                              </span>
+                            </td>
+                            <td className="mono" style={{ fontSize: '12px' }}>
+                              {ev.entity_type} {ev.entity_id ? `#${ev.entity_id}` : ''}
+                            </td>
+                            <td style={{ fontSize: '11.5px', maxWidth: '380px' }}>
+                              <details>
+                                <summary style={{ cursor: 'pointer', color: '#0072de', fontWeight: 600 }}>Inspect State Payload</summary>
+                                <pre style={{ background: '#f8fafc', padding: '6px', borderRadius: '6px', overflowX: 'auto', fontSize: '10.5px', margin: '4px 0 0 0', maxHeight: '180px' }}>
+                                  {JSON.stringify({
+                                    previous: ev.prev_state_json ? JSON.parse(ev.prev_state_json) : null,
+                                    new: ev.new_state_json ? JSON.parse(ev.new_state_json) : null,
+                                  }, null, 2)}
+                                </pre>
+                              </details>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="gf-mobile-only-cards">
+                {auditEvents
+                  .filter((ev) => {
+                    if (!auditSearchQuery.trim()) return true;
+                    const q = auditSearchQuery.toLowerCase();
+                    return (
+                      (ev.action || '').toLowerCase().includes(q) ||
+                      (ev.actor_username || '').toLowerCase().includes(q) ||
+                      (ev.entity_type || '').toLowerCase().includes(q)
+                    );
+                  })
+                  .slice(0, 50)
+                  .map((ev) => (
+                    <div key={ev.id} className="gf-proto-card" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                        <span className="gf-badge" style={{ fontWeight: 700, fontSize: '10.5px', background: '#ebf5ff', color: '#005bb5' }}>
+                          {ev.action}
+                        </span>
+                        <span className="mono type-caption" style={{ fontSize: '10.5px' }}>{ev.created_at}</span>
+                      </div>
+                      <div className="type-caption">
+                        <b>{ev.actor_username}</b> ({ev.actor_role}) · <span className="mono">{ev.entity_type} {ev.entity_id ? `#${ev.entity_id}` : ''}</span>
+                      </div>
+                    </div>
+                  ))}
               </div>
             </section>
           )}

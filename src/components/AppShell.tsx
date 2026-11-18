@@ -553,29 +553,32 @@ export const AdminShell: React.FC<AdminShellProps> = ({
 
       <div className="gf-admin-main">
         <header className="gf-admin-topbar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
             <button
               type="button"
-              className="gf-icon-btn-48 gf-mobile-only-btn"
-              style={{ width: '40px', height: '40px', minWidth: '40px', minHeight: '40px' }}
+              className="gf-icon-btn-48 gf-tablet-only-menu-btn"
+              style={{ width: '34px', height: '34px', minWidth: '34px', minHeight: '34px' }}
               onClick={() => setMobileMenuOpen((v) => !v)}
               aria-label="Toggle admin menu"
             >
-              <Menu size={20} />
+              <Menu size={18} />
             </button>
-            <div style={{ minWidth: 0 }}>
-              <div className="type-section gf-admin-topbar-title" style={{ fontSize: '18px', fontWeight: 800 }}>
-                {t('GalaxyFleet Admin Console')}
+            <div className="gf-admin-mobile-logo" style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              <SamsungBusLogo size={26} />
+            </div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="type-section gf-admin-topbar-title" style={{ fontSize: '15px', fontWeight: 800, lineHeight: 1.2 }}>
+                {t('Admin Console')}
               </div>
-              <div className="type-caption gf-admin-subtitle-desktop" style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+              <div className="type-caption gf-admin-subtitle-desktop" style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
                 {vehicleCount} {t('Operational Vehicles')} • {groupCount} {t('Groups')} • {t('Currency: IDR (Rp)')}
               </div>
             </div>
           </div>
 
-          <div className="gf-admin-topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          <div className="gf-admin-topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
             <div className="gf-topbar-lang-wrap">
-              <LanguageSwitcher compact={false} />
+              <LanguageSwitcher compact />
             </div>
             {onOpenProfile && (
               <button
@@ -583,11 +586,11 @@ export const AdminShell: React.FC<AdminShellProps> = ({
                 type="button"
                 className="gf-btn gf-btn-secondary gf-btn-sm pressable gf-admin-action-btn"
                 onClick={onOpenProfile}
-                style={{ fontSize: '13.5px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                style={{ fontSize: '12.5px', padding: '4px 10px', minHeight: '32px', display: 'flex', alignItems: 'center', gap: '5px' }}
                 title={t('My Account Profile & Change Password')}
                 aria-label={t('Profile')}
               >
-                <User size={15} />
+                <User size={14} />
                 <span className="gf-topbar-btn-text">{t('Profile')}</span>
               </button>
             )}
@@ -596,17 +599,17 @@ export const AdminShell: React.FC<AdminShellProps> = ({
               type="button"
               className="gf-btn gf-btn-outline-danger gf-btn-sm pressable gf-admin-action-btn"
               onClick={onSignOut}
-              style={{ fontSize: '13.5px', padding: '6px 12px' }}
+              style={{ fontSize: '12.5px', padding: '4px 10px', minHeight: '32px' }}
               title={t('Sign Out')}
               aria-label={t('Sign Out')}
             >
-              <LogOut size={15} /> <span className="gf-topbar-btn-text">{t('Sign Out')}</span>
+              <LogOut size={14} /> <span className="gf-topbar-btn-text">{t('Sign Out')}</span>
             </button>
           </div>
         </header>
 
         {mobileMenuOpen && (
-          <div className="gf-card-flat" style={{ margin: '12px 16px 0' }}>
+          <div className="gf-card-flat" style={{ margin: '10px 12px 0' }}>
             {navButtons}
           </div>
         )}
@@ -615,11 +618,11 @@ export const AdminShell: React.FC<AdminShellProps> = ({
 
         <nav className="gf-admin-bottom-nav" aria-label="Admin mobile tabs">
           {[
-            { id: 'ADMIN_DISPATCH' as const, label: 'Dispatch', icon: <FileCheck size={20} />, badge: pendingCount },
-            { id: 'FLEET_MAP' as const, label: 'Map', icon: <Map size={20} /> },
-            { id: 'FLEET_OPS' as const, label: 'Fleet', icon: <Car size={20} /> },
-            { id: 'ANALYTICS_REPORT' as const, label: 'Reports', icon: <BarChart3 size={20} /> },
-            { id: 'AUDIT' as const, label: 'Audit', icon: <ScrollText size={20} /> },
+            { id: 'ADMIN_DISPATCH' as const, label: 'Dispatch', icon: <FileCheck size={18} />, badge: pendingCount },
+            { id: 'FLEET_MAP' as const, label: 'Map', icon: <Map size={18} /> },
+            { id: 'FLEET_OPS' as const, label: 'Fleet', icon: <Car size={18} /> },
+            { id: 'ANALYTICS_REPORT' as const, label: 'Reports', icon: <BarChart3 size={18} /> },
+            { id: 'AUDIT' as const, label: 'Audit', icon: <ScrollText size={18} /> },
           ].map((tab) => {
             const isActive = activeModule === tab.id;
             return (

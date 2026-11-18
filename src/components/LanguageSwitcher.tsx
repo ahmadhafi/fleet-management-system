@@ -25,29 +25,30 @@ export const LanguageSwitcher: React.FC<{ compact?: boolean; darkGlass?: boolean
 
   return (
     <div
-      className="notranslate"
+      className={`gf-lang-switcher notranslate ${compact ? 'is-compact' : ''}`}
       translate="no"
       role="group"
       aria-label="Language selector"
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: '3px',
-        padding: compact ? '3px 4px' : '4px 6px',
+        gap: '2px',
+        padding: compact ? '2px 3px' : '3px 4px',
         borderRadius: 'var(--radius-pill)',
         background: darkGlass ? 'rgba(255, 255, 255, 0.10)' : 'var(--color-bg-subtle)',
         border: darkGlass ? '1px solid rgba(255, 255, 255, 0.18)' : '1px solid var(--color-border)',
         backdropFilter: darkGlass ? 'blur(20px)' : undefined,
         WebkitBackdropFilter: darkGlass ? 'blur(20px)' : undefined,
-        height: compact ? '40px' : '44px',
+        height: compact ? '32px' : '36px',
         flexShrink: 0,
       }}
     >
       <Globe
-        size={15}
+        size={13}
+        className="gf-lang-globe"
         style={{
-          marginLeft: compact ? '6px' : '8px',
-          marginRight: '3px',
+          marginLeft: compact ? '4px' : '6px',
+          marginRight: '2px',
           color: darkGlass ? 'rgba(255, 255, 255, 0.85)' : 'var(--color-text-secondary)',
           flexShrink: 0,
         }}
@@ -60,16 +61,16 @@ export const LanguageSwitcher: React.FC<{ compact?: boolean; darkGlass?: boolean
             type="button"
             onClick={() => handleSelectLanguage(item.code)}
             title={`Translate app to ${item.label}`}
-            className="pressable"
+            className={`gf-lang-btn pressable ${active ? 'is-active' : ''}`}
             style={{
               border: 'none',
               cursor: 'pointer',
-              padding: compact ? '4px 9px' : '6px 12px',
+              padding: compact ? '3px 7px' : '4px 9px',
               borderRadius: 'var(--radius-pill)',
-              fontSize: compact ? '12px' : '13px',
+              fontSize: compact ? '11px' : '12px',
               fontWeight: 800,
               lineHeight: 1.2,
-              minWidth: compact ? '32px' : '40px',
+              minWidth: compact ? '26px' : '32px',
               textAlign: 'center',
               background: active
                 ? 'var(--color-samsung-blue, #0072de)'
@@ -80,7 +81,7 @@ export const LanguageSwitcher: React.FC<{ compact?: boolean; darkGlass?: boolean
                 ? 'rgba(255, 255, 255, 0.85)'
                 : 'var(--color-text-secondary)',
               boxShadow: active
-                ? '0 2px 8px rgba(0, 114, 222, 0.45)'
+                ? '0 2px 6px rgba(0, 114, 222, 0.35)'
                 : 'none',
               transition: 'all 140ms ease',
             }}

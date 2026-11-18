@@ -256,17 +256,20 @@ export const Skeleton: React.FC<{ height?: number; width?: string; radius?: numb
 
 export const EmptyState: React.FC<{ message: string; action?: React.ReactNode }> = ({ message, action }) => (
   <div
+    className="gf-empty-state"
     style={{
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
       textAlign: 'center',
-      padding: 'var(--space-6) var(--space-4)',
-      gap: 'var(--space-3)',
+      padding: '16px 14px',
+      gap: '8px',
     }}
   >
-    <EmptyIllustration />
-    <p className="type-body" style={{ color: 'var(--color-text-secondary)' }}>
+    <div className="gf-empty-illustration-wrap">
+      <EmptyIllustration />
+    </div>
+    <p className="type-body" style={{ color: 'var(--color-text-secondary)', fontSize: '13px' }}>
       {message}
     </p>
     {action}

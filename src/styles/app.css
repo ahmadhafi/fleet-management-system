@@ -647,26 +647,52 @@ textarea {
     padding-bottom: calc(96px + var(--safe-bottom)) !important;
   }
 
-  /* Mobile Touch Targets & Form Inputs */
-  .gf-btn:not(.gf-btn-sm):not(.gf-alert-btn) {
-    min-height: 44px;
+  /* Mobile Touch Targets & Form Inputs — Proportional Mobile App Sizing */
+  .gf-btn:not(.gf-btn-sm):not(.gf-alert-btn):not(.gf-btn-cta) {
+    min-height: 36px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    border-radius: 10px;
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.25;
+  }
+  .gf-btn.gf-btn-cta {
+    min-height: 46px;
     font-size: 14.5px;
-    border-radius: 14px;
+    border-radius: 12px;
   }
   .gf-btn.gf-btn-sm,
   .gf-btn.gf-alert-btn {
-    min-height: 34px;
-    border-radius: 10px;
+    min-height: 30px;
+    padding: 4px 10px;
+    font-size: 11.5px;
+    border-radius: 8px;
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.2;
   }
   .gf-input,
   .gf-select,
   input[type="text"],
   input[type="password"],
   input[type="datetime-local"],
+  input[type="date"],
+  input[type="number"],
+  input[type="search"],
   select {
-    min-height: 48px !important;
-    font-size: 16px !important; /* Critical: prevents iOS Safari auto-zoom */
-    border-radius: 12px !important;
+    min-height: 38px !important;
+    height: 38px;
+    padding: 6px 10px !important;
+    font-size: 13px !important;
+    border-radius: 10px !important;
+  }
+  textarea.gf-input,
+  textarea {
+    min-height: 68px !important;
+    padding: 8px 10px !important;
+    font-size: 13px !important;
+    border-radius: 10px !important;
   }
 
   .gf-topbar-dept {
@@ -3592,32 +3618,151 @@ iframe.goog-te-banner-frame {
   }
 }
 
-@media (max-width: 767px) {
-  .gf-admin-content {
-    padding: 14px 14px calc(84px + var(--safe-bottom)) !important;
-    gap: 14px !important;
+/* Hide tablet hamburger button on mobile (<768px where bottom nav is used) and desktop (>=1024px where sidebar is visible) */
+@media (max-width: 767px), (min-width: 1024px) {
+  .gf-tablet-only-menu-btn {
+    display: none !important;
   }
-  .gf-admin-topbar {
-    padding: 8px 12px !important;
-    flex-wrap: nowrap !important;
+}
+
+@media (max-width: 767px) {
+  /* Proportional Mobile Typography */
+  .type-hero {
+    font-size: 19px !important;
+    line-height: 1.2 !important;
+  }
+  .type-title {
+    font-size: 15.5px !important;
+    line-height: 1.25 !important;
+  }
+  .type-section {
+    font-size: 13.5px !important;
+    line-height: 1.3 !important;
+  }
+  .type-body {
+    font-size: 12.5px !important;
+    line-height: 1.38 !important;
+  }
+  .type-caption {
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+  }
+
+  /* Proportional Mobile Containers & Cards */
+  .gf-admin-content {
+    padding: 10px 10px calc(76px + var(--safe-bottom)) !important;
+    gap: 10px !important;
+    overflow-x: hidden;
+  }
+  .gf-card-flat,
+  .gf-card {
+    padding: 12px !important;
+    border-radius: 14px !important;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .gf-proto-card {
+    padding: 10px 12px !important;
+    border-radius: 12px !important;
+  }
+  .gf-proto-card-lg {
+    padding: 12px 14px !important;
+    border-radius: 14px !important;
+  }
+  .gf-empty-state {
+    padding: 14px 12px !important;
+    border-radius: 12px !important;
+  }
+  .gf-empty-illustration-wrap {
+    transform: scale(0.82);
+    margin-bottom: 4px !important;
+  }
+
+  /* Compact 2-column form layout on mobile instead of giant 10-row vertical stacks */
+  .gf-admin-compact-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 8px !important;
+    margin-bottom: 12px !important;
+    padding-bottom: 12px !important;
+  }
+  .gf-admin-compact-form > button[type="submit"] {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-height: 36px;
+  }
+
+  /* Compact 2x2 KPI grids on mobile */
+  .gf-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    margin-bottom: 10px !important;
+  }
+  .gf-kpi-grid .gf-card-flat {
+    padding: 10px !important;
+  }
+  .gf-kpi-grid .type-title {
+    font-size: 15px !important;
+  }
+
+  /* Admin map canvas height on mobile */
+  .gf-admin-map-canvas {
+    height: 260px !important;
+    border-radius: 12px !important;
+  }
+
+  /* Compact chips & badges on mobile */
+  .gf-chip {
+    min-height: 28px !important;
+    padding: 3px 10px !important;
+    font-size: 11.5px !important;
+  }
+  .gf-badge {
+    font-size: 10px !important;
+    padding: 2px 7px !important;
+  }
+
+  /* Compact fallback tables on mobile (Groups, Fuel/EV, Maintenance, Expenses, Documents) */
+  .gf-table th,
+  .gf-table td {
+    padding: 7px 6px !important;
+    font-size: 11.5px !important;
+  }
+
+  /* Admin Topbar & Language Switcher on mobile */
+  .gf-admin-topbar {
+    padding: 6px 10px !important;
+    min-height: 48px !important;
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
   }
   .gf-admin-topbar-title {
-    font-size: 14px !important;
+    font-size: 13.5px !important;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .gf-admin-action-btn {
-    padding: 6px 8px !important;
-    min-width: 34px !important;
-    min-height: 34px !important;
+    padding: 4px 7px !important;
+    min-width: 30px !important;
+    min-height: 30px !important;
+    height: 30px !important;
+    border-radius: 8px !important;
   }
   .gf-admin-action-btn .gf-topbar-btn-text {
     display: none;
   }
   .gf-admin-subtitle-desktop {
     display: none !important;
+  }
+  .gf-lang-switcher {
+    padding: 2px !important;
+    border-radius: 8px !important;
+  }
+  .gf-lang-btn {
+    height: 26px !important;
+    padding: 0 6px !important;
+    font-size: 10.5px !important;
+    border-radius: 6px !important;
   }
 }
 

@@ -30,6 +30,12 @@ export const SamsungFleetLogo: React.FC<SamsungFleetLogoProps> = ({
   style,
   title = 'GalaxyFleet Corporate Mobility Logo',
 }) => {
+  const uid = React.useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  const gradId = `samsungOneUiGrad_${uid}`;
+  const rimId = `samsungRimGlow_${uid}`;
+  const shadowId = `carShadow_${uid}`;
+  const iconShadowId = `iconOnlyShadow_${uid}`;
+
   if (variant === 'icon-only') {
     return (
       <svg
@@ -45,12 +51,12 @@ export const SamsungFleetLogo: React.FC<SamsungFleetLogoProps> = ({
       >
         <title>{title}</title>
         <defs>
-          <filter id="iconOnlyCarShadow" x="80" y="110" width="352" height="280" filterUnits="userSpaceOnUse">
+          <filter id={iconShadowId} x="80" y="110" width="352" height="280" filterUnits="userSpaceOnUse">
             <feDropShadow dx="0" dy="10" stdDeviation="12" floodColor="#021024" floodOpacity="0.35" />
           </filter>
         </defs>
 
-        <g id="fleetCar" filter="url(#iconOnlyCarShadow)">
+        <g id="fleetCar" filter={`url(#${iconShadowId})`}>
           {/* Ground Contact Shadow */}
           <ellipse cx="256" cy="358" rx="138" ry="14" fill="#04142b" fillOpacity="0.30" />
 
@@ -129,36 +135,36 @@ export const SamsungFleetLogo: React.FC<SamsungFleetLogoProps> = ({
 
       <defs>
         {/* Signature Samsung One UI Vibrant Gradient */}
-        <linearGradient id="samsungOneUiGradFleet" x1="40" y1="40" x2="472" y2="472" gradientUnits="userSpaceOnUse">
+        <linearGradient id={gradId} x1="40" y1="40" x2="472" y2="472" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#2a8eff" />
           <stop offset="50%" stopColor="#0072de" />
           <stop offset="100%" stopColor="#0052b4" />
         </linearGradient>
 
         {/* Ambient Top Rim Highlight */}
-        <linearGradient id="samsungRimGlowFleet" x1="256" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+        <linearGradient id={rimId} x1="256" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#ffffff" stopOpacity="0.45" />
           <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
         </linearGradient>
 
         {/* Drop Shadow on Vehicle Body */}
-        <filter id="carShadowFleet" x="80" y="110" width="352" height="280" filterUnits="userSpaceOnUse">
+        <filter id={shadowId} x="80" y="110" width="352" height="280" filterUnits="userSpaceOnUse">
           <feDropShadow dx="0" dy="12" stdDeviation="14" floodColor="#031633" floodOpacity="0.40" />
         </filter>
       </defs>
 
       {/* Samsung One UI Continuous Curvature Squircle */}
-      <rect width="512" height="512" rx="124" fill="url(#samsungOneUiGradFleet)" />
+      <rect width="512" height="512" rx="124" fill={`url(#${gradId})`} />
 
       {/* Subtle Inner Glass Border / Top Highlight */}
-      <rect x="6" y="6" width="500" height="500" rx="120" stroke="url(#samsungRimGlowFleet)" strokeWidth="6" fill="none" />
+      <rect x="6" y="6" width="500" height="500" rx="120" stroke={`url(#${rimId})`} strokeWidth="6" fill="none" />
 
       {/* Decorative Ambient Tech Wave/Rings (Samsung Mobility DNA) */}
       <circle cx="256" cy="256" r="215" stroke="#ffffff" strokeOpacity="0.08" strokeWidth="3" fill="none" />
       <circle cx="256" cy="256" r="185" stroke="#ffffff" strokeOpacity="0.05" strokeWidth="2" fill="none" />
 
       {/* Center Vehicle Composition */}
-      <g id="fleetCar" filter="url(#carShadowFleet)">
+      <g id="fleetCar" filter={`url(#${shadowId})`}>
         {/* Ground Contact Shadow */}
         <ellipse cx="256" cy="358" rx="138" ry="14" fill="#04142b" fillOpacity="0.45" />
 
