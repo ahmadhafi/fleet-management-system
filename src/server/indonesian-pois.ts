@@ -290,11 +290,129 @@ export const INDONESIAN_POIS: IndonesianPoi[] = [
   { name: 'Jayapura Kota - Taman Imbi & Jembatan Youtefa', address: 'Jl. Ahmad Yani / Abepura, Jayapura Selatan, Kota Jayapura, Papua', lat: -2.53371, lon: 140.71813, keywords: 'jayapura abepura youtefa entrop waena papua' },
   { name: 'Bandara Internasional Sentani (DJJ) Jayapura', address: 'Sentani Kota, Kabupaten Jayapura, Papua', lat: -2.57695, lon: 140.51637, keywords: 'sentani djj jayapura airport danau sentani wamena papua' },
   { name: 'Merauke Kota & Bandara Mopah (MKQ)', address: 'Jl. Raya Mandala, Kabupaten Merauke, Papua Selatan', lat: -8.49322, lon: 140.40184, keywords: 'merauke mopah mkq papua selatan' },
+
+  // -------------------------------------------------------------------------
+  // Major Office Buildings, Towers & Ministries (Jakarta & Jabodetabek)
+  // -------------------------------------------------------------------------
+  { name: 'The Energy Building SCBD', address: 'SCBD Lot 11A, Jl. Jend. Sudirman Kav. 52-53, Senayan, Jakarta Selatan', lat: -6.22561, lon: 106.80745, keywords: 'the energy building scbd gedung office tower sudirman senayan jakarta selatan' },
+  { name: 'Equity Tower SCBD', address: 'SCBD Lot 9, Jl. Jend. Sudirman Kav. 52-53, Senayan, Jakarta Selatan', lat: -6.22489, lon: 106.80892, keywords: 'equity tower scbd gedung office sudirman senayan jakarta selatan' },
+  { name: 'Revenue Tower & District 8 SCBD', address: 'District 8 SCBD Lot 13, Jl. Jend. Sudirman Kav. 52-53, Jakarta Selatan', lat: -6.22785, lon: 106.80791, keywords: 'revenue tower district 8 prosperity eternity scbd sudirman gedung' },
+  { name: 'One Pacific Place & The Ritz-Carlton SCBD', address: 'Jl. Jend. Sudirman Kav. 52-53, Senayan, Jakarta Selatan', lat: -6.22411, lon: 106.80982, keywords: 'one pacific place ritz carlton scbd hotel gedung office sudirman' },
+  { name: 'Gedung Bursa Efek Indonesia (IDX / BEI Tower 1 & 2)', address: 'Jl. Jend. Sudirman Kav. 52-53, Senayan, Kebayoran Baru, Jakarta Selatan', lat: -6.22371, lon: 106.80789, keywords: 'bursa efek indonesia idx bei tower scbd gedung sudirman' },
+  { name: 'Sequis Center & Sequis Tower SCBD', address: 'Jl. Jend. Sudirman Kav. 71, Senayan, Jakarta Selatan', lat: -6.22295, lon: 106.80651, keywords: 'sequis tower center sudirman scbd gedung office' },
+  { name: 'Summitmas I & II Tower Sudirman', address: 'Jl. Jend. Sudirman Kav. 61-62, Senayan, Jakarta Selatan', lat: -6.22512, lon: 106.80415, keywords: 'summitmas 1 2 sudirman senayan gedung office tower' },
+  { name: 'Plaza Mandiri (Gatsoe / Gatot Subroto)', address: 'Jl. Jend. Gatot Subroto Kav. 36-38, Senayan, Jakarta Selatan', lat: -6.22441, lon: 106.81412, keywords: 'plaza mandiri bank mandiri gatot subroto gedung kantor pusat' },
+  { name: 'Telkom Landmark Tower & Graha Merah Putih', address: 'Jl. Jend. Gatot Subroto Kav. 52, Kuningan Barat, Jakarta Selatan', lat: -6.23015, lon: 106.81845, keywords: 'telkom landmark tower tlt graha merah putih gatot subroto gedung' },
+  { name: 'Capital Place & Four Seasons Hotel Gatot Subroto', address: 'Jl. Jend. Gatot Subroto Kav. 18, Kuningan Barat, Jakarta Selatan', lat: -6.23212, lon: 106.82085, keywords: 'capital place four seasons hotel gatot subroto gedung restaurant' },
+  { name: 'Menara Mulia & Hotel Mulia Senayan', address: 'Jl. Jend. Gatot Subroto Kav. 9-11 / Jl. Asia Afrika, Senayan, Jakarta', lat: -6.21652, lon: 106.79812, keywords: 'menara mulia hotel mulia senayan the cafe orient8 table8 edogin il mare restaurant' },
+  { name: 'World Trade Center (WTC 1, 2, 3, 5, 6) Sudirman', address: 'Jl. Jend. Sudirman Kav. 29-31, Karet, Setiabudi, Jakarta Selatan', lat: -6.21512, lon: 106.82114, keywords: 'wtc world trade center 1 2 3 5 6 sudirman karet gedung office' },
+  { name: 'Sampoerna Strategic Square', address: 'Jl. Jend. Sudirman Kav. 45-46, Karet Semanggi, Jakarta Selatan', lat: -6.21741, lon: 106.81852, keywords: 'sampoerna strategic square sudirman semanggi gedung office' },
+  { name: 'Mayapada Tower 1 & 2 Sudirman', address: 'Jl. Jend. Sudirman Kav. 28, Karet, Setiabudi, Jakarta Selatan', lat: -6.21389, lon: 106.82192, keywords: 'mayapada tower sudirman setiabudi gedung office' },
+  { name: 'International Financial Centre (IFC Tower 1 & 2)', address: 'Jl. Jend. Sudirman Kav. 22-23, Karet, Setiabudi, Jakarta Selatan', lat: -6.21215, lon: 106.82241, keywords: 'ifc international financial centre tower sudirman gedung' },
+  { name: 'Sahid Sudirman Center & Grand Sahid Jaya', address: 'Jl. Jend. Sudirman Kav. 86, Karet Tengsin, Jakarta Pusat', lat: -6.21045, lon: 106.82012, keywords: 'sahid sudirman center grand sahid jaya hotel gedung office' },
+  { name: 'Citywalk Sudirman & MidPlaza 1-2 (AYANA Midplaza)', address: 'Jl. K.H. Mas Mansyur / Jl. Jend. Sudirman Kav. 10-11, Jakarta Pusat', lat: -6.20891, lon: 106.81895, keywords: 'citywalk sudirman midplaza ayana hotel gedung restaurant mall' },
+  { name: 'Wisma 46 Kota BNI', address: 'Jl. Jend. Sudirman Kav. 1, Karet Tengsin, Tanah Abang, Jakarta Pusat', lat: -6.20341, lon: 106.82218, keywords: 'wisma 46 bni sudirman dukuh atas gedung tower' },
+  { name: 'UOB Plaza & Thamrin Nine (Autograph Tower / Agora Mall)', address: 'Jl. M.H. Thamrin No. 10, Kebon Melati, Tanah Abang, Jakarta Pusat', lat: -6.19885, lon: 106.82252, keywords: 'uob plaza thamrin nine autograph tower luminary pan pacific gedung mall' },
+  { name: 'Menara BCA Grand Indonesia & Hotel Indonesia Kempinski', address: 'Jl. M.H. Thamrin No. 1, Menteng, Jakarta Pusat', lat: -6.19562, lon: 106.82241, keywords: 'menara bca grand indonesia hotel indonesia kempinski paulaner okaeri bundaran hi' },
+  { name: 'The Plaza Office Tower & Mandarin Oriental Thamrin', address: 'Jl. M.H. Thamrin Kav. 28-30 / Bundaran HI, Jakarta Pusat', lat: -6.19321, lon: 106.82289, keywords: 'the plaza office tower plaza indonesia mandarin oriental grand hyatt thamrin' },
+  { name: 'Sarinah Thamrin Building', address: 'Jl. M.H. Thamrin No. 11, Gondangdia, Menteng, Jakarta Pusat', lat: -6.18751, lon: 106.82392, keywords: 'sarinah thamrin gedung mall kuliner restaurant menteng jakarta pusat' },
+  { name: 'Menara Thamrin & Gedung Jaya', address: 'Jl. M.H. Thamrin Kav. 3 & 12, Menteng, Jakarta Pusat', lat: -6.18421, lon: 106.82315, keywords: 'menara thamrin gedung jaya menteng jakarta pusat' },
+  { name: 'Gedung Kementerian BUMN & Kementerian ESDM', address: 'Jl. Medan Merdeka Selatan No. 13-18, Gambir, Jakarta Pusat', lat: -6.18112, lon: 106.82645, keywords: 'kementerian bumn esdm medan merdeka selatan monas gambir gedung pemerintah' },
+  { name: 'Bank Indonesia (BI Thamrin Complex)', address: 'Jl. M.H. Thamrin No. 2, Gambir, Jakarta Pusat', lat: -6.18178, lon: 106.82261, keywords: 'bank indonesia bi thamrin patung kuda gedung pemerintah' },
+  { name: 'Kementerian Keuangan (Lapangan Banteng)', address: 'Jl. Dr. Wahidin Raya No. 1, Pasar Baru, Sawah Besar, Jakarta Pusat', lat: -6.17045, lon: 106.83712, keywords: 'kementerian keuangan kemenkeu djp bea cukai lapangan banteng hotel borobudur' },
+  { name: 'Kementerian Perindustrian (Kemenperin Gatot Subroto)', address: 'Jl. Jend. Gatot Subroto Kav. 52-53, Kuningan Timur, Jakarta Selatan', lat: -6.23712, lon: 106.82941, keywords: 'kementerian perindustrian kemenperin gatot subroto kuningan gedung pemerintah' },
+  { name: 'Kementerian Investasi / BKPM Gatot Subroto', address: 'Jl. Jend. Gatot Subroto No. 44, Senayan, Jakarta Selatan', lat: -6.22792, lon: 106.81721, keywords: 'kementerian investasi bkpm gatot subroto gedung pemerintah' },
+  { name: 'Gedung DPR / MPR RI Senayan', address: 'Jl. Jend. Gatot Subroto, Senayan, Tanah Abang, Jakarta Pusat', lat: -6.20985, lon: 106.80012, keywords: 'gedung dpr mpr ri senayan gatot subroto parlemen' },
+  { name: 'Menara Kuningan & Cyber 2 Tower Rasuna Said', address: 'Jl. H.R. Rasuna Said Blok X-5 & X-7, Kuningan Timur, Jakarta Selatan', lat: -6.22615, lon: 106.83214, keywords: 'menara kuningan cyber 2 tower rasuna said setiabudi gedung office' },
+  { name: 'Gama Tower & The Westin Jakarta (Rasuna Said)', address: 'Jl. H.R. Rasuna Said Kav. C-22A, Karet Kuningan, Jakarta Selatan', lat: -6.22418, lon: 106.83312, keywords: 'gama tower the westin hotel hensin seasonal tastes rasuna said kuningan' },
+  { name: 'Trinity Tower & Pasar Festival Kuningan', address: 'Jl. H.R. Rasuna Said Kav. C-22, Karet Kuningan, Jakarta Selatan', lat: -6.22112, lon: 106.83341, keywords: 'trinity tower pasar festival plaza festival epiwalk epicentrum kuningan' },
+  { name: 'Menara Karya, Menara Prima & Sun Life Mega Kuningan', address: 'Kawasan Mega Kuningan Blok E3.2, Kuningan Timur, Jakarta Selatan', lat: -6.22745, lon: 106.82681, keywords: 'menara karya menara prima sun life bellagio mall mega kuningan gedung' },
+  { name: 'Raffles Jakarta & Ciputra World 1 (Lotte Shopping Avenue)', address: 'Jl. Prof. DR. Satrio Kav. 3-5, Karet Kuningan, Jakarta Selatan', lat: -6.22412, lon: 106.82351, keywords: 'raffles hotel ciputra world lotte shopping avenue love dbs bank tower satrio kuningan' },
+  { name: 'Tokopedia Tower & Kuningan City Mall', address: 'Jl. Prof. DR. Satrio Kav. 11-18, Karet Kuningan, Jakarta Selatan', lat: -6.22489, lon: 106.82912, keywords: 'tokopedia tower ciputra world 2 kuningan city mall satrio gedung' },
+  { name: 'ITC Kuningan & Mall Ambassador', address: 'Jl. Prof. DR. Satrio, Kuningan, Setiabudi, Jakarta Selatan', lat: -6.22395, lon: 106.82615, keywords: 'itc kuningan mall ambassador jembatan satrio elektronik kuliner' },
+  { name: 'South Quarter Dome TB Simatupang', address: 'Jl. R.A. Kartini Kav. 8, Cilandak Barat, Jakarta Selatan', lat: -6.29245, lon: 106.78489, keywords: 'south quarter sq dome tb simatupang cilandak gedung office restaurant' },
+  { name: 'Talavera Office Park & Cilandak Town Square (Citos)', address: 'Jl. TB Simatupang Kav. 17 & 22-26, Cilandak Barat, Jakarta Selatan', lat: -6.29182, lon: 106.79451, keywords: 'talavera office park citos cilandak town square tb simatupang restaurant cafe' },
+  { name: 'Arkadia Green Park & Nestlé Tower TB Simatupang', address: 'Jl. TB Simatupang Kav. 88, Kebagusan, Pasar Minggu, Jakarta Selatan', lat: -6.30012, lon: 106.83421, keywords: 'arkadia green park nestle phe tower cibis nine tb simatupang pasar minggu' },
+  { name: 'Gandaria City Mall & Sheraton Grand Jakarta', address: 'Jl. Sultan Iskandar Muda, Kebayoran Lama, Jakarta Selatan', lat: -6.24421, lon: 106.78352, keywords: 'gandaria city ganci sheraton grand gandaria 8 tower kebayoran lama' },
+  { name: 'Lippo Mall Puri & St. Moritz Office Tower', address: 'Jl. Puri Indah Raya Blok U1, Kembangan, Jakarta Barat', lat: -6.18791, lon: 106.73851, keywords: 'lippo mall puri st moritz puri indah mall kantor walikota jakarta barat' },
+  { name: 'AEON Mall BSD City & The Breeze BSD', address: 'Jl. BSD Raya Utama, Pagedangan, Kabupaten Tangerang, Banten', lat: -6.30452, lon: 106.64381, keywords: 'aeon mall bsd the breeze bsd city restaurant kuliner tangerang' },
+  { name: 'AEON Mall Deltamas Cikarang', address: 'Jl. Ganesha Boulevard, Kota Deltamas, Cikarang Pusat, Kabupaten Bekasi', lat: -6.35891, lon: 107.17245, keywords: 'aeon mall deltamas cikarang pusat bekasi restaurant shopping' },
+  { name: 'Living World Kota Wisata & Cibubur Junction', address: 'Kota Wisata Cibubur, Gunung Putri, Bogor / Ciracas, Jakarta Timur', lat: -6.37412, lon: 106.95241, keywords: 'living world kota wisata cibubur junction trans studio mall tsm cibubur' },
+  { name: 'Mall of Indonesia (MOI) & Artha Gading', address: 'Jl. Boulevard Barat Raya, Kelapa Gading Barat, Jakarta Utara', lat: -6.15125, lon: 106.89214, keywords: 'moi mall of indonesia artha gading kelapa gading jakarta utara' },
+  { name: 'Green Sedayu Mall & Sedayu Indo Golf PIK', address: 'Taman Palem Lestari Cengkareng / Pantai Indah Kapuk, Jakarta', lat: -6.13812, lon: 106.73115, keywords: 'green sedayu mall cengkareng pik golf island by the sea batavia pik' },
+
+  // -------------------------------------------------------------------------
+  // Popular Restaurants, Dining & Business Meeting Venues (Jabodetabek & Major Cities)
+  // -------------------------------------------------------------------------
+  { name: 'Plataran Menteng Restaurant', address: 'Jl. HOS. Cokroaminoto No. 42, Gondangdia, Menteng, Jakarta Pusat', lat: -6.19389, lon: 106.83045, keywords: 'plataran menteng restaurant fine dining indonesian kuliner jakarta pusat' },
+  { name: 'Hutan Kota by Plataran (GBK Senayan)', address: 'Kompleks Gelora Bung Karno, Jl. Jend. Sudirman, Senayan, Jakarta Pusat', lat: -6.22089, lon: 106.80585, keywords: 'hutan kota by plataran gbk senayan restaurant dining meeting' },
+  { name: 'Plataran Dharmawangsa Restaurant', address: 'Jl. Dharmawangsa Raya No. 6, Kebayoran Baru, Jakarta Selatan', lat: -6.25412, lon: 106.80121, keywords: 'plataran dharmawangsa kebayoran baru restaurant dining jakarta selatan' },
+  { name: 'Seribu Rasa Menteng Restaurant', address: 'Jl. Haji Agus Salim No. 128, Menteng, Jakarta Pusat', lat: -6.19412, lon: 106.83215, keywords: 'seribu rasa menteng gunawarman senopati restaurant seafood indonesian' },
+  { name: 'Bunga Rampai Restaurant Menteng', address: 'Jl. Teuku Cik Ditiro No. 35, Menteng, Jakarta Pusat', lat: -6.19712, lon: 106.83745, keywords: 'bunga rampai menteng restaurant fine dining cik ditiro jakarta pusat' },
+  { name: 'Tugu Kunstkring Paleis Menteng', address: 'Jl. Teuku Umar No. 1, Gondangdia, Menteng, Jakarta Pusat', lat: -6.18952, lon: 106.83315, keywords: 'tugu kunstkring paleis menteng restaurant heritage dining' },
+  { name: 'SKYE Bar & Restaurant (BCA Tower Lt. 56)', address: 'Menara BCA Lt. 56, Jl. M.H. Thamrin No. 1, Menteng, Jakarta Pusat', lat: -6.19551, lon: 106.82245, keywords: 'skye bar restaurant menara bca rooftop thamrin grand indonesia' },
+  { name: 'Senopati & Gunawarman Dining District (Sofia at The Gunawarman / Osteria Gia)', address: 'Jl. Gunawarman No. 3 / Jl. Senopati, Kebayoran Baru, Jakarta Selatan', lat: -6.23451, lon: 106.80815, keywords: 'senopati gunawarman suryo restaurant cafe fine dining sofia le quartier jakarta selatan' },
+  { name: 'Kemang Raya Dining & Lifestyle District', address: 'Jl. Kemang Raya, Bangka, Mampang Prapatan, Jakarta Selatan', lat: -6.26145, lon: 106.81512, keywords: 'kemang raya lippo mall kemang village restaurant cafe bar jakarta selatan' },
+  { name: 'Bandar Djakarta Ancol Seafood Restaurant', address: 'Pintu Timur Taman Impian Jaya Ancol, Pademangan, Jakarta Utara', lat: -6.12115, lon: 106.85421, keywords: 'bandar djakarta ancol baywalk pluit seafood restaurant jakarta utara' },
+  { name: 'Pagi Sore Kemang / Cipete / PIK Padang Restaurant', address: 'Jl. Cipete Raya No. 2 / Jl. Kemang Raya, Jakarta Selatan', lat: -6.27125, lon: 106.80215, keywords: 'pagi sore rumah makan padang restaurant cipete kemang pik sunter' },
+  { name: 'Sederhana Masakan Padang (Bendungan Hilir / Sudirman)', address: 'Jl. Bendungan Hilir No. 1, Tanah Abang, Jakarta Pusat', lat: -6.21245, lon: 106.81241, keywords: 'rm sederhana bendungan hilir benhil rumah makan padang restaurant' },
+  { name: 'Sate Khas Senayan (Pakubuwono / Menteng / Cikarang)', address: 'Jl. Pakubuwono VI No. 6, Kebayoran Baru, Jakarta Selatan', lat: -6.24015, lon: 106.79112, keywords: 'sate khas senayan restaurant indonesian dining kebayoran menteng' },
+  { name: 'Remboelan Indonesian Soulfood (Plaza Senayan / Pondok Indah / Kelapa Gading)', address: 'Plaza Senayan Lt. 3, Jl. Asia Afrika No. 8, Jakarta Pusat', lat: -6.22545, lon: 106.79912, keywords: 'remboelan restaurant indonesian soulfood senayan pim kokas' },
+  { name: 'Talaga Sampireun (Bintaro / Ancol / Puri / Cikarang)', address: 'Jl. Boulevard Bintaro Jaya Blok B7/N1, Pondok Aren, Tangerang Selatan', lat: -6.27812, lon: 106.72345, keywords: 'talaga sampireun sundanese restaurant saung danau bintaro ancol puri cikarang' },
+  { name: 'Mang Engking Gubug Makan (UI Depok / BSD / Cikarang / Surabaya)', address: 'Kampus UI Depok / The Breeze BSD / Jababeka Cikarang', lat: -6.35812, lon: 106.83012, keywords: 'mang engking gubug makan seafood sunda restaurant depok bsd cikarang' },
+  { name: 'Kujukuju Korean BBQ & Singgalang Cikarang (Citywalk Lippo Cikarang)', address: 'Jl. M.H. Thamrin, Lippo Cikarang, Cikarang Selatan, Bekasi', lat: -6.33112, lon: 107.13612, keywords: 'lippo cikarang citywalk maxxbox Trivium korean bbq restaurant japanese hotel sahid jaya cikarang' },
+  { name: 'Hollywood Junction & Jababeka Golf Country Club Restaurant', address: 'Jl. Douwes Dekker No. 2, Mekarmukti, Cikarang Utara, Bekasi', lat: -6.30541, lon: 107.15612, keywords: 'hollywood junction jababeka golf country club president university cikarang utara restaurant' },
+  { name: 'Resinda Hotel & Resinda Park Mall Karawang', address: 'Jl. Resinda Raya No. 1, Purwadana, Telukjambe Timur, Karawang', lat: -6.30125, lon: 107.27841, keywords: 'resinda hotel resinda park mall karawang barat restaurant meeting' },
+  { name: 'Delonix Hotel & Mercure Karawang', address: 'Kompleks Sedana Golf KM 47 / Galuh Mas Raya, Telukjambe Timur, Karawang', lat: -6.34212, lon: 107.27895, keywords: 'delonix hotel mercure karawang galuh mas sedana golf restaurant' },
+  { name: 'Nuanza Hotel & Convention Cikarang', address: 'Jl. Raya Cikarang Cibarusah KM 40, Pasirsari, Cikarang Selatan, Bekasi', lat: -6.31895, lon: 107.13245, keywords: 'nuanza hotel convention cikarang selatan bekasi primebiz harper' },
+  { name: 'Bumi Sampireun & Kampung Sampireun (Vimala Hills Bogor / Garut)', address: 'Vimala Hills, Gadog, Megamendung, Kabupaten Bogor, Jawa Barat', lat: -6.65841, lon: 106.87214, keywords: 'bumi sampireun vimala hills gadog puncak bogor restaurant resort' },
+  { name: 'Cimory Dairyland & Riverside Puncak Bogor', address: 'Jl. Raya Puncak KM 77, Leuwimalang, Cisarua, Kabupaten Bogor', lat: -6.64912, lon: 106.90612, keywords: 'cimory riverside dairyland mountain view puncak cisarua bogor restaurant' },
+  { name: 'The Gaia Hotel & Kampung Daun Lembang Bandung', address: 'Jl. Dr. Setiabudi No. 430, Ledeng, Cidadap, Kota Bandung, Jawa Barat', lat: -6.84312, lon: 107.59741, keywords: 'the gaia hotel kampung daun sapulidi lembang setiabudi bandung restaurant' },
+  { name: 'Paskal 23 Hypersquare & Braga Culinary Night Bandung', address: 'Jl. Pasir Kaliki No. 25-27, Ciroyom, Andir, Kota Bandung', lat: -6.91512, lon: 107.59541, keywords: '23 paskal hypersquare food market pasir kaliki bandung mall restaurant' },
+  { name: 'Layar Seafood & Boncafe Surabaya', address: 'Jl. KH Abdul Wahab Siamin No. 216 / Jl. Manyar Kertoarjo, Surabaya', lat: -7.28512, lon: 112.70541, keywords: 'layar seafood boncafe steak manyar bukit darmo surabaya restaurant' },
+  { name: 'Bebek Tepi Sawah & Potato Head Beach Club Bali', address: 'Jl. Petitenget No. 51B Seminyak / Goa Gajah Ubud, Bali', lat: -8.67951, lon: 115.14941, keywords: 'potato head beach club finns atlas bebek tepi sawah naughty nuris bali restaurant' },
 ];
+
+export function reverseGeocodeIndonesianPoi(lat: number, lon: number): { name: string; address: string; distanceKm: number } | null {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  let best: { poi: IndonesianPoi; distKm: number } | null = null;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  for (const poi of INDONESIAN_POIS) {
+    const dLat = toRad(poi.lat - lat);
+    const dLon = toRad(poi.lon - lon);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat)) * Math.cos(toRad(poi.lat)) * Math.sin(dLon / 2) ** 2;
+    const distKm = 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    if (!best || distKm < best.distKm) {
+      best = { poi, distKm };
+    }
+  }
+  if (!best) return null;
+  if (best.distKm <= 0.35) {
+    return {
+      name: best.poi.name,
+      address: `${best.poi.name} — ${best.poi.address}`,
+      distanceKm: best.distKm,
+    };
+  }
+  if (best.distKm <= 8) {
+    return {
+      name: `Near ${best.poi.name}`,
+      address: `Near ${best.poi.name} (${best.distKm.toFixed(1)} km) — ${best.poi.address}`,
+      distanceKm: best.distKm,
+    };
+  }
+  return {
+    name: `Selected Pin (${lat.toFixed(5)}, ${lon.toFixed(5)})`,
+    address: `Selected Map Location near ${best.poi.name} (${lat.toFixed(5)}, ${lon.toFixed(5)})`,
+    distanceKm: best.distKm,
+  };
+}
 
 export function searchIndonesianPois(
   query: string,
-  limit = 10
+  limit = 12
 ): Array<{ place_id: string; name: string; address: string; lat: number; lon: number; score: number }> {
   const { lower, tokens, expandedTokens } = normalizeIndoQuery(query);
   if (!lower || lower.length < 2) return [];
@@ -343,7 +461,7 @@ export function searchIndonesianPois(
 
     // Require strong concept match so single common words like "jl" don't crowd out specific multi-word searches
     if (score > 0 && (matchedConcepts > 0 || matchedExpandedExtra > 0)) {
-      if (tokens.length >= 2 && matchedConcepts < 2 && score < 60) {
+      if (tokens.length >= 2 && matchedConcepts < Math.min(2, tokens.length) && score < 50) {
         continue;
       }
       matches.push({

@@ -10,7 +10,7 @@ import { ensureVapidKeys, notifyAdmins, notifyRole, sendUserNotification } from 
 import { checkDriverConflict, checkVehicleConflict } from './conflict.ts';
 import { createRateLimiter } from './rate-limit.ts';
 import { liveEvents, type LiveEvent } from './events.ts';
-import { searchIndonesianPois } from './indonesian-pois.ts';
+import { searchIndonesianPois, reverseGeocodeIndonesianPoi } from './indonesian-pois.ts';
 
 export function fetchEnrichedTrip(db: AppDatabase, tripId: number): Record<string, unknown> | null {
   const baseSelect = `
@@ -139,7 +139,8 @@ export function createApp() {
     next();
   });
 
-  app.use(express.json({ limit: '12mb' }));
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // Built-in MapTiler API Key & Multi-Provider Map Tile Proxy (Streets, Satellite, Terrain)
   // Mounted before rate limiter so concurrent Leaflet tile loads never trigger HTTP 429
@@ -793,7 +794,7 @@ export function createApp() {
     }
 
     // 1. Instant Match from Nationwide Indonesian POI Directory
-    const matchedPois = searchIndonesianPois(q, 8);
+    const matchedPois = searchIndonesianPois(q, 12);
     const results: Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }> = matchedPois
       .map(({ score: _s, ...rest }) => rest);
 
@@ -803,7 +804,7 @@ export function createApp() {
     const pushUniqueResult = (candidate: { place_id: string | number; name: string; address: string; lat: number; lon: number }) => {
       if (!isInsideIndonesia(candidate.lat, candidate.lon)) return;
       const duplicate = results.some(
-        (r) => Math.abs(r.lat - candidate.lat) < 0.0015 && Math.abs(r.lon - candidate.lon) < 0.0015
+        (r) => Math.abs(r.lat - candidate.lat) < 0.0008 && Math.abs(r.lon - candidate.lon) < 0.0008
       );
       if (!duplicate) {
         results.push(candidate);
@@ -919,7 +920,7 @@ export function createApp() {
       }
     }
 
-    const finalResults = results.slice(0, 15);
+    const finalResults = results.slice(0, 20);
     if (finalResults.length > 0) {
       setBoundedCache(geocodeSearchCache, cacheKey, {
         expiresAt: Date.now() + 10 * 60_000,
@@ -944,6 +945,23 @@ export function createApp() {
       return;
     }
 
+    const localPoi = reverseGeocodeIndonesianPoi(lat, lon);
+    if (localPoi && localPoi.distanceKm <= 0.25) {
+      const payload = {
+        name: localPoi.name,
+        address: localPoi.address,
+        lat,
+        lon,
+        place: { name: localPoi.name, address: localPoi.address, lat, lon },
+      };
+      setBoundedCache(reverseGeocodeCache, revKey, {
+        expiresAt: Date.now() + 15 * 60_000,
+        payload,
+      });
+      res.json(payload);
+      return;
+    }
+
     try {
       const maptilerUrl = `https://api.maptiler.com/geocoding/${encodeURIComponent(String(lon))},${encodeURIComponent(String(lat))}.json?key=${encodeURIComponent(MAPTILER_API_KEY)}&limit=1&language=id,en`;
       const mtResp = await fetch(maptilerUrl, { signal: AbortSignal.timeout(2200) }).catch(() => null);
@@ -951,8 +969,8 @@ export function createApp() {
         const mtData = (await mtResp.json()) as { features?: Array<any> };
         const feat = mtData.features?.[0];
         if (feat) {
-          const placeName = String(feat.place_name || feat.text || `${lat.toFixed(5)}, ${lon.toFixed(5)}`);
-          const primary = String(feat.text || placeName.split(',')[0] || `${lat.toFixed(5)}, ${lon.toFixed(5)}`).trim();
+          const placeName = String(feat.place_name || feat.text || localPoi?.address || `${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+          const primary = String(feat.text || placeName.split(',')[0] || localPoi?.name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`).trim();
           const payload = {
             name: primary,
             address: placeName,
@@ -979,17 +997,20 @@ export function createApp() {
       }).catch(() => null);
 
       if (!resp || !resp.ok) {
+        const fallbackName = localPoi?.name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+        const fallbackAddr = localPoi?.address || `Coordinates ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
         res.json({
-          name: `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
-          address: `Coordinates ${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+          name: fallbackName,
+          address: fallbackAddr,
           lat,
           lon,
+          place: { name: fallbackName, address: fallbackAddr, lat, lon },
         });
         return;
       }
       const item = (await resp.json()) as any;
-      const display = String(item.display_name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`);
-      const primary = String(item.name || display.split(',')[0] || `${lat.toFixed(5)}, ${lon.toFixed(5)}`).trim();
+      const display = String(item.display_name || localPoi?.address || `${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+      const primary = String(item.name || display.split(',')[0] || localPoi?.name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`).trim();
       const payload = {
         name: primary,
         address: display,
@@ -1003,11 +1024,14 @@ export function createApp() {
       });
       res.json(payload);
     } catch {
+      const fallbackName = localPoi?.name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+      const fallbackAddr = localPoi?.address || `Coordinates ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
       res.json({
-        name: `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
-        address: `Coordinates ${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+        name: fallbackName,
+        address: fallbackAddr,
         lat,
         lon,
+        place: { name: fallbackName, address: fallbackAddr, lat, lon },
       });
     }
   });
@@ -2491,22 +2515,26 @@ export function createApp() {
 
         const tripIsUrgent = Number((trip as any).is_urgent || 0) === 1;
 
-        // APPROVED path: Determine if this is partial approval or final dispatch
+        // APPROVED path: Strict Approval Hierarchy (1. Fleet Operation PIC Consent -> 2. Head Of WS Part Approval)
         if (hasHwsAccount || (tripIsUrgent && !picApprovedPrior)) {
           if (user.role === 'FM') {
             if (picApprovedPrior) {
-              const err = new Error('Fleet Operation PIC has already approved this request. Awaiting Head Of WS Part authorization.');
+              const err = new Error('Fleet Operation PIC has already consented to this request. Awaiting Head Of WS Part authorization.');
               (err as Error & { status?: number }).status = 400;
               throw err;
             }
             if (hasHwsAccount && !hwsApprovedPrior) {
-              // Stage 1: Approved by Fleet Operation PIC, awaiting Head Of WS Part
+              // Stage 1: Consented by Fleet Operation PIC, awaiting Head Of WS Part final approval
+              const baseReason = reason ? String(reason).trim() : 'Consented by Fleet Operation PIC';
+              const stage1Reason = tripIsUrgent
+                ? `${baseReason} [Urgent Request Approved by Fleet Operation PIC]`.trim()
+                : baseReason;
               const decRes = db
                 .prepare(
                   `INSERT INTO approval_decisions (trip_request_id, decider_id, decider_role, decision, reason)
                    VALUES (?, ?, 'FM', 'APPROVED', ?)`
                 )
-                .run(tripId, user.id, reason ? String(reason).trim() : 'Approved by Fleet Operation PIC');
+                .run(tripId, user.id, stage1Reason);
 
               if (vehicle_id || driver_profile_id) {
                 db.prepare(
@@ -2523,26 +2551,19 @@ export function createApp() {
             }
           } else if (user.role === 'HWS') {
             if (hwsApprovedPrior) {
-              const err = new Error('Head Of WS Part has already approved this request. Awaiting Fleet Operation PIC dispatch.');
+              const err = new Error('Head Of WS Part has already approved this request.');
               (err as Error & { status?: number }).status = 400;
               throw err;
             }
             if (!picApprovedPrior) {
-              // Stage 1: Approved by Head Of WS Part, awaiting Fleet Operation PIC (mandatory for urgent trips)
-              const decRes = db
-                .prepare(
-                  `INSERT INTO approval_decisions (trip_request_id, decider_id, decider_role, decision, reason)
-                   VALUES (?, ?, 'HWS', 'APPROVED', ?)`
-                )
-                .run(tripId, user.id, reason ? String(reason).trim() : 'Approved by Head Of WS Part');
-
-              recordAudit(db, user, 'TRIP_STAGE_APPROVED', 'TRIP_REQUEST', tripId, { status: trip.status }, { stage: 'AWAITING_FM', is_urgent: tripIsUrgent });
-              return { status: 'PENDING_APPROVAL', isFinal: false, stage: 'AWAITING_FM', decisionId: Number(decRes.lastInsertRowid) };
+              const err = new Error('Approval Hierarchy: Fleet Operation PIC must consent first before Head Of WS Part can approve.');
+              (err as Error & { status?: number }).status = 400;
+              throw err;
             }
           }
         }
 
-        // Final Approval reached (both approved, or Admin delegation, or non-urgent with single approver)
+        // Final Approval reached (FM consented + HWS approved, or Admin delegation, or single-stage when no HWS account)
         const isDelegated = user.role === 'ADM' && ((hasHwsAccount && (!picApprovedPrior || !hwsApprovedPrior)) || (tripIsUrgent && !picApprovedPrior));
         let finalReason = reason ? String(reason).trim() : 'Approved and dispatched';
         if (isDelegated) {
@@ -2844,6 +2865,154 @@ export function createApp() {
     }
   });
 
+  // Confirm Passenger Boarding / Arrival ("I Am Here / Confirm Boarding") to prevent 20-minute no-show auto-cancel
+  app.post('/api/trips/:id/confirm-boarding', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const user = req.user!;
+    const tripId = Number(req.params.id);
+    const trip = db.prepare('SELECT * FROM trip_requests WHERE id = ?').get(tripId) as
+      | {
+          id: number;
+          requester_id: number;
+          vehicle_id: number;
+          purpose: string;
+          status: string;
+          passenger_boarded_at?: string | null;
+        }
+      | undefined;
+
+    if (!trip) {
+      res.status(404).json({ error: 'Trip request not found' });
+      return;
+    }
+
+    const assigned = db
+      .prepare('SELECT id, driver_profile_id FROM assignments WHERE trip_request_id = ? AND is_current = 1')
+      .get(tripId) as { id: number; driver_profile_id: number } | undefined;
+
+    const isAssignedDriver = Boolean(user.role === 'DRV' && assigned && assigned.driver_profile_id === user.driver_profile_id);
+    if (trip.requester_id !== user.id && !isPrivilegedRole(user) && !isAssignedDriver) {
+      res.status(403).json({ error: 'Only the passenger who booked the car, the assigned driver, or an Admin can confirm boarding' });
+      return;
+    }
+
+    if (!['APPROVED', 'IN_PROGRESS'].includes(trip.status)) {
+      res.status(400).json({ error: 'Boarding can only be confirmed for APPROVED or IN_PROGRESS bookings' });
+      return;
+    }
+
+    const boardedAt = new Date().toISOString();
+    db.prepare("UPDATE trip_requests SET passenger_boarded_at = COALESCE(passenger_boarded_at, ?), updated_at = datetime('now') WHERE id = ?").run(
+      boardedAt,
+      tripId
+    );
+
+    if (assigned) {
+      const drvUser = db.prepare('SELECT user_id FROM driver_profiles WHERE id = ?').get(assigned.driver_profile_id) as { user_id: number } | undefined;
+      if (drvUser?.user_id && drvUser.user_id !== user.id) {
+        sendUserNotification(db, {
+          userId: drvUser.user_id,
+          triggerType: 'PASSENGER_CONFIRMED_BOARDING',
+          title: 'Passenger Ready at Vehicle',
+          body: `${user.nickname} confirmed boarding for "${trip.purpose}". You may proceed to Start Trip.`,
+          relatedEntityType: 'TRIP_REQUEST',
+          relatedEntityId: tripId,
+        });
+      }
+    }
+
+    recordAudit(db, user, 'PASSENGER_BOARDING_CONFIRMED', 'TRIP_REQUEST', tripId, null, { passenger_boarded_at: boardedAt });
+    const enriched = broadcastTripUpdate(db, tripId, 'TRIP_UPDATED', { passenger_boarded_at: boardedAt });
+    res.json({ ok: true, passenger_boarded_at: boardedAt, trip: enriched });
+  });
+
+  // Cancel a trip request (Employee can cancel both PENDING_APPROVAL and APPROVED bookings; frees vehicle & driver slot immediately)
+  app.post('/api/trips/:id/cancel', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const user = req.user!;
+    const tripId = Number(req.params.id);
+    const cancellationReason = req.body?.reason
+      ? String(req.body.reason).trim()
+      : 'Cancelled by passenger (schedule/plan changed)';
+
+    const trip = db.prepare('SELECT * FROM trip_requests WHERE id = ?').get(tripId) as
+      | {
+          id: number;
+          requester_id: number;
+          vehicle_id: number;
+          purpose: string;
+          origin: string;
+          destination: string;
+          start_time: string;
+          status: string;
+        }
+      | undefined;
+
+    if (!trip) {
+      res.status(404).json({ error: 'Trip request not found' });
+      return;
+    }
+
+    if (trip.requester_id !== user.id && !isPrivilegedRole(user)) {
+      res.status(403).json({ error: 'Only the employee who booked the car or an Admin/Fleet PIC can cancel this booking' });
+      return;
+    }
+
+    if (!['PENDING_APPROVAL', 'APPROVED'].includes(trip.status)) {
+      res.status(400).json({ error: `Cannot cancel a trip in ${trip.status} status. Only PENDING_APPROVAL or APPROVED bookings can be cancelled.` });
+      return;
+    }
+
+    const activeAssignment = db
+      .prepare(
+        `SELECT a.id, a.driver_profile_id, dp.user_id as driver_user_id, v.registration_plate
+         FROM trip_requests tr
+         JOIN vehicles v ON v.id = tr.vehicle_id
+         LEFT JOIN assignments a ON a.trip_request_id = tr.id AND a.is_current = 1
+         LEFT JOIN driver_profiles dp ON dp.id = a.driver_profile_id
+         WHERE tr.id = ?`
+      )
+      .get(tripId) as { id: number | null; driver_profile_id: number | null; driver_user_id: number | null; registration_plate: string } | undefined;
+
+    runInTransaction(db, () => {
+      db.prepare("UPDATE trip_requests SET status = 'CANCELLED', notes = COALESCE(notes || ' | ', '') || ?, updated_at = datetime('now') WHERE id = ?").run(
+        `[Cancelled: ${cancellationReason}]`,
+        tripId
+      );
+      db.prepare(
+        "UPDATE bookings SET status = 'CANCELLED', cancellation_reason = ?, updated_at = datetime('now') WHERE trip_request_id = ?"
+      ).run(cancellationReason, tripId);
+      db.prepare('UPDATE assignments SET is_current = 0 WHERE trip_request_id = ?').run(tripId);
+
+      recordAudit(db, user, 'TRIP_REQUEST_CANCELLED', 'TRIP_REQUEST', tripId, { status: trip.status }, {
+        status: 'CANCELLED',
+        cancellation_reason: cancellationReason,
+      });
+    });
+
+    if (activeAssignment?.driver_user_id) {
+      sendUserNotification(db, {
+        userId: activeAssignment.driver_user_id,
+        triggerType: 'DISPATCH_CANCELLED_BY_PASSENGER',
+        title: 'Booking Cancelled by Passenger',
+        body: `Trip "${trip.purpose}" (${activeAssignment.registration_plate}) scheduled for ${trip.start_time} was cancelled by ${user.nickname}. Reason: ${cancellationReason}. Your slot is now free.`,
+        relatedEntityType: 'TRIP_REQUEST',
+        relatedEntityId: tripId,
+      });
+    }
+
+    notifyAdmins(db, {
+      triggerType: 'TRIP_CANCELLED_BY_REQUESTER',
+      title: 'Approved/Pending Booking Cancelled',
+      body: `${user.nickname} cancelled Trip #${tripId} ("${trip.purpose}"). Vehicle and driver slot have been released.`,
+      relatedEntityType: 'TRIP_REQUEST',
+      relatedEntityId: tripId,
+    });
+
+    const enriched = broadcastTripUpdate(db, tripId, 'TRIP_UPDATED', { status: 'CANCELLED', cancellation_reason: cancellationReason });
+    res.json({ ok: true, status: 'CANCELLED', trip: enriched });
+  });
+
   // Protect approval_decisions against any attempt to edit or delete via API (REQ-06, TC-REQ-02)
   app.all('/api/approval-decisions/:id', requireAuth, (req: Request, res: Response) => {
     recordAudit(getDb(), req.user, 'IMMUTABLE_DECISION_EDIT_REFUSED', 'APPROVAL_DECISION', String(req.params.id));
@@ -2851,22 +3020,32 @@ export function createApp() {
   });
 
   // Direct Bookings & Schedule endpoints (BKG-01 to BKG-11)
-  app.get('/api/bookings', requireAuth, (_req: Request, res: Response) => {
+  // Item #10: Drivers (DRV) can only view their own schedule; full schedule of all drivers/vehicles is restricted to ADM, FM, and HWS
+  app.get('/api/bookings', requireAuth, (req: Request, res: Response) => {
     const db = getDb();
-    const bookings = db
-      .prepare(
-        `SELECT b.*, v.registration_plate, v.make, v.model, v.car_type, v.energy_type,
-                u.nickname as booked_by_name,
-                a.driver_profile_id, dp.full_name as driver_name
-         FROM bookings b
-         JOIN vehicles v ON v.id = b.vehicle_id
-         JOIN users u ON u.id = b.booked_by
-         LEFT JOIN assignments a ON (a.booking_id = b.id OR (a.trip_request_id = b.trip_request_id AND b.trip_request_id IS NOT NULL)) AND a.is_current = 1
-         LEFT JOIN driver_profiles dp ON dp.id = a.driver_profile_id
-         ORDER BY b.start_time DESC`
-      )
-      .all();
-    res.json({ bookings });
+    const user = req.user!;
+    const canViewAllSchedules = ['ADM', 'FM', 'HWS'].includes(user.role);
+
+    const baseQuery = `
+      SELECT b.*, v.registration_plate, v.make, v.model, v.car_type, v.energy_type,
+             u.nickname as booked_by_name,
+             a.driver_profile_id, dp.full_name as driver_name
+      FROM bookings b
+      JOIN vehicles v ON v.id = b.vehicle_id
+      JOIN users u ON u.id = b.booked_by
+      LEFT JOIN assignments a ON (a.booking_id = b.id OR (a.trip_request_id = b.trip_request_id AND b.trip_request_id IS NOT NULL)) AND a.is_current = 1
+      LEFT JOIN driver_profiles dp ON dp.id = a.driver_profile_id
+    `;
+
+    let bookings: unknown[];
+    if (user.role === 'DRV') {
+      bookings = db
+        .prepare(`${baseQuery} WHERE a.driver_profile_id = ? ORDER BY b.start_time DESC`)
+        .all(user.driver_profile_id ?? -1);
+    } else {
+      bookings = db.prepare(`${baseQuery} ORDER BY b.start_time DESC`).all();
+    }
+    res.json({ bookings, can_view_all_schedules: canViewAllSchedules });
   });
 
   app.post('/api/bookings', requireAuth, requireRoles(['ADM', 'FM', 'HWS', 'EMP'], true), (req: Request, res: Response) => {
@@ -2983,6 +3162,9 @@ export function createApp() {
         return nextRow;
       });
 
+      if (prev.trip_request_id && nextStatus === 'CANCELLED') {
+        broadcastTripUpdate(db, prev.trip_request_id, 'TRIP_UPDATED', { status: 'CANCELLED' });
+      }
       const history = db.prepare('SELECT * FROM booking_history WHERE booking_id = ? ORDER BY id ASC').all(bookingId);
       res.json({ booking: updated, history });
     } catch (err) {
@@ -3001,6 +3183,7 @@ export function createApp() {
   // Vehicle & Driver Assignments (ASN-01 to ASN-07)
   app.get('/api/assignments', requireAuth, (req: Request, res: Response) => {
     const db = getDb();
+    const user = req.user!;
     const tripRequestId = req.query.trip_request_id ? Number(req.query.trip_request_id) : null;
     const rows = tripRequestId
       ? db
@@ -3011,9 +3194,22 @@ export function createApp() {
              JOIN vehicles v ON v.id = a.vehicle_id
              JOIN users u ON u.id = a.assigned_by
              WHERE a.trip_request_id = ?
+             ${user.role === 'DRV' ? `AND a.driver_profile_id = ${Number(user.driver_profile_id ?? -1)}` : ''}
              ORDER BY a.id ASC`
           )
           .all(tripRequestId)
+      : user.role === 'DRV'
+      ? db
+          .prepare(
+            `SELECT a.*, dp.full_name as driver_name, v.registration_plate, u.nickname as assigned_by_name
+             FROM assignments a
+             JOIN driver_profiles dp ON dp.id = a.driver_profile_id
+             JOIN vehicles v ON v.id = a.vehicle_id
+             JOIN users u ON u.id = a.assigned_by
+             WHERE a.driver_profile_id = ?
+             ORDER BY a.id DESC`
+          )
+          .all(user.driver_profile_id ?? -1)
       : db
           .prepare(
             `SELECT a.*, dp.full_name as driver_name, v.registration_plate, u.nickname as assigned_by_name
@@ -3777,28 +3973,43 @@ export function createApp() {
     res.json({ maintenanceRecord: updated });
   });
 
-  // Expenses (EXP-01 to EXP-08, Driver Reimbursements)
+  // Expenses (EXP-01 to EXP-08, Driver Reimbursements & Petty Cash Mechanism)
   app.get('/api/expenses', requireAuth, (req: Request, res: Response) => {
     const db = getDb();
-    const isPrivileged = isPrivilegedRole(req.user!);
+    const user = req.user!;
+    const isPrivileged = isPrivilegedRole(user);
     const sql = isPrivileged
-      ? `SELECT e.*, v.registration_plate, v.make, v.model, u.nickname as submitted_by_name
+      ? `SELECT e.*, v.registration_plate, v.make, v.model, u.nickname as submitted_by_name,
+                dp.full_name as driver_name, dp.petty_cash_balance as driver_petty_cash_balance
          FROM expenses e
          JOIN vehicles v ON v.id = e.vehicle_id
          JOIN users u ON u.id = e.submitted_by
+         LEFT JOIN driver_profiles dp ON dp.id = COALESCE(e.driver_profile_id, (SELECT id FROM driver_profiles WHERE user_id = e.submitted_by LIMIT 1))
          ORDER BY e.date_time DESC`
-      : `SELECT e.*, v.registration_plate, v.make, v.model, u.nickname as submitted_by_name
+      : `SELECT e.*, v.registration_plate, v.make, v.model, u.nickname as submitted_by_name,
+                dp.full_name as driver_name, dp.petty_cash_balance as driver_petty_cash_balance
          FROM expenses e
          JOIN vehicles v ON v.id = e.vehicle_id
          JOIN users u ON u.id = e.submitted_by
+         LEFT JOIN driver_profiles dp ON dp.id = COALESCE(e.driver_profile_id, (SELECT id FROM driver_profiles WHERE user_id = e.submitted_by LIMIT 1))
          WHERE e.submitted_by = ?
          ORDER BY e.date_time DESC`;
-    const expenses = isPrivileged ? db.prepare(sql).all() : db.prepare(sql).all(req.user!.id);
-    res.json({ expenses });
+    const expenses = isPrivileged ? db.prepare(sql).all() : db.prepare(sql).all(user.id);
+
+    let pettyCashBalance: number | null = null;
+    if (user.role === 'DRV') {
+      const dpRow = db
+        .prepare('SELECT petty_cash_balance FROM driver_profiles WHERE user_id = ? OR id = ? LIMIT 1')
+        .get(user.id, user.driver_profile_id ?? -1) as { petty_cash_balance?: number } | undefined;
+      pettyCashBalance = dpRow?.petty_cash_balance ?? 500000;
+    }
+
+    res.json({ expenses, petty_cash_balance: pettyCashBalance });
   });
 
   app.post('/api/expenses', requireAuth, requireRoles(['ADM', 'FM', 'DRV', 'EMP'], true), (req: Request, res: Response) => {
     const db = getDb();
+    const user = req.user!;
     const {
       vehicle_id,
       trip_request_id,
@@ -3806,6 +4017,7 @@ export function createApp() {
       category,
       amount,
       description,
+      payment_source,
       receipt_document_id,
       receipt_base64,
       receipt_data_url,
@@ -3813,7 +4025,43 @@ export function createApp() {
       receipt_filename,
     } = req.body ?? {};
 
-    if (!vehicle_id || !category || amount === undefined || !description) {
+    // Item #7: For logged-in drivers (DRV), automatically resolve their driver_profile_id and their assigned/dedicated vehicle
+    // so reimbursements can never get mixed up with other drivers' vehicles.
+    let resolvedDriverProfileId: number | null = user.driver_profile_id ?? null;
+    if (!resolvedDriverProfileId && user.role === 'DRV') {
+      const dp = db.prepare('SELECT id FROM driver_profiles WHERE user_id = ?').get(user.id) as { id: number } | undefined;
+      resolvedDriverProfileId = dp?.id ?? null;
+    }
+
+    let resolvedVehicleId: number | null = vehicle_id ? Number(vehicle_id) : null;
+    if (user.role === 'DRV' && resolvedDriverProfileId) {
+      // Find vehicles assigned or dedicated to this logged-in driver
+      const activeAsnVeh = db
+        .prepare('SELECT vehicle_id FROM assignments WHERE driver_profile_id = ? AND is_current = 1 ORDER BY id DESC LIMIT 1')
+        .get(resolvedDriverProfileId) as { vehicle_id: number } | undefined;
+      const dedicatedVehs = db
+        .prepare('SELECT id FROM vehicles WHERE default_driver_id = ? ORDER BY id ASC')
+        .all(resolvedDriverProfileId) as Array<{ id: number }>;
+      const driverAllowedVehicleIds = new Set<number>([
+        ...(activeAsnVeh ? [activeAsnVeh.vehicle_id] : []),
+        ...dedicatedVehs.map((v) => v.id),
+      ]);
+      const primaryDriverVehicleId = activeAsnVeh?.vehicle_id ?? dedicatedVehs[0]?.id ?? null;
+
+      if (!resolvedVehicleId && primaryDriverVehicleId) {
+        resolvedVehicleId = primaryDriverVehicleId;
+      } else if (resolvedVehicleId && driverAllowedVehicleIds.size > 0 && !driverAllowedVehicleIds.has(resolvedVehicleId)) {
+        // Check if the requested vehicle is dedicated to a DIFFERENT driver; if so, enforce the logged-in driver's own vehicle
+        const requestedVeh = db.prepare('SELECT default_driver_id FROM vehicles WHERE id = ?').get(resolvedVehicleId) as
+          | { default_driver_id: number | null }
+          | undefined;
+        if (requestedVeh?.default_driver_id && requestedVeh.default_driver_id !== resolvedDriverProfileId && primaryDriverVehicleId) {
+          resolvedVehicleId = primaryDriverVehicleId;
+        }
+      }
+    }
+
+    if (!resolvedVehicleId || !category || amount === undefined || !description) {
       res.status(400).json({ error: 'vehicle_id, category, amount, and description are mandatory (EXP-02)' });
       return;
     }
@@ -3829,6 +4077,11 @@ export function createApp() {
       res.status(400).json({ error: 'Expense amount must be a positive number (EXP-02)' });
       return;
     }
+
+    const normalizedPaymentSource =
+      payment_source && ['PETTY_CASH', 'PERSONAL_CASH', 'E_TOLL'].includes(String(payment_source).toUpperCase())
+        ? String(payment_source).toUpperCase()
+        : 'PETTY_CASH';
 
     let finalDocId: number | null = receipt_document_id ? Number(receipt_document_id) : null;
     let finalDataUrl: string | null = null;
@@ -3917,18 +4170,20 @@ export function createApp() {
     const result = db
       .prepare(
         `INSERT INTO expenses (
-          vehicle_id, trip_request_id, submitted_by, date_time, category, amount, description,
-          receipt_document_id, receipt_data_url, receipt_filename
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          vehicle_id, trip_request_id, submitted_by, driver_profile_id, date_time, category, amount, description,
+          payment_source, receipt_document_id, receipt_data_url, receipt_filename
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
-        Number(vehicle_id),
+        resolvedVehicleId,
         trip_request_id ? Number(trip_request_id) : null,
-        req.user!.id,
+        user.id,
+        resolvedDriverProfileId,
         date_time || new Date().toISOString(),
         category,
         numAmount,
         String(description).trim(),
+        normalizedPaymentSource,
         finalDocId,
         finalDataUrl,
         finalFilename
@@ -3939,9 +4194,21 @@ export function createApp() {
       db.prepare('UPDATE documents SET entity_id = ? WHERE id = ?').run(expenseId, finalDocId);
     }
 
+    // Item #9: Deduct Petty Cash balance when driver submits a PETTY_CASH expense (e.g. cash parking)
+    let updatedPettyCash: number | null = null;
+    if (resolvedDriverProfileId && normalizedPaymentSource === 'PETTY_CASH') {
+      db.prepare(
+        "UPDATE driver_profiles SET petty_cash_balance = COALESCE(petty_cash_balance, 500000) - ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(numAmount, resolvedDriverProfileId);
+      const dpRow = db.prepare('SELECT petty_cash_balance FROM driver_profiles WHERE id = ?').get(resolvedDriverProfileId) as
+        | { petty_cash_balance: number }
+        | undefined;
+      updatedPettyCash = dpRow?.petty_cash_balance ?? null;
+    }
+
     const created = db.prepare('SELECT * FROM expenses WHERE id = ?').get(expenseId);
     recordAudit(db, req.user, 'EXPENSE_CREATED', 'EXPENSE', expenseId, null, created);
-    res.status(201).json({ expense: created });
+    res.status(201).json({ expense: created, petty_cash_balance: updatedPettyCash });
   });
 
   app.patch('/api/expenses/:id', requireAuth, requireRoles(['ADM', 'FM']), (req: Request, res: Response) => {
@@ -3954,23 +4221,52 @@ export function createApp() {
     }
 
     const { amount, description, approval_status, reimbursement_status, reason } = req.body ?? {};
+    const nextAmount = amount !== undefined ? Number(amount) : Number(prev.amount);
+    const nextDesc = description !== undefined ? String(description) : String(prev.description);
+    const normalizedApproval =
+      approval_status !== undefined
+        ? String(approval_status).toUpperCase() === 'APPROVED'
+          ? 'APPROVED'
+          : String(approval_status).toUpperCase() === 'REJECTED'
+          ? 'REJECTED'
+          : 'PENDING'
+        : String(prev.approval_status);
+    const normalizedReimb =
+      reimbursement_status !== undefined
+        ? String(reimbursement_status).toUpperCase().includes('REIMBURSED')
+          ? 'REIMBURSED'
+          : String(reimbursement_status).toUpperCase() === 'NOT_APPLICABLE'
+          ? 'NOT_APPLICABLE'
+          : 'PENDING'
+        : normalizedApproval === 'APPROVED'
+        ? 'REIMBURSED'
+        : String(prev.reimbursement_status);
+
     db.prepare(
       `UPDATE expenses
        SET amount = ?, description = ?, approval_status = ?, reimbursement_status = ?, updated_at = datetime('now')
        WHERE id = ?`
-    ).run(
-      amount !== undefined ? Number(amount) : Number(prev.amount),
-      description !== undefined ? String(description) : String(prev.description),
-      approval_status !== undefined ? String(approval_status) : String(prev.approval_status),
-      reimbursement_status !== undefined ? String(reimbursement_status) : String(prev.reimbursement_status),
-      id
-    );
+    ).run(nextAmount, nextDesc, normalizedApproval, normalizedReimb, id);
 
-    if (approval_status && approval_status !== prev.approval_status) {
+    // Item #9: Replenish/reimburse driver's Petty Cash float when a PETTY_CASH claim is APPROVED (or refund deduction if REJECTED)
+    const expDriverProfileId =
+      Number(prev.driver_profile_id || 0) ||
+      ((db.prepare('SELECT id FROM driver_profiles WHERE user_id = ?').get(Number(prev.submitted_by)) as { id: number } | undefined)?.id ?? 0);
+
+    if (expDriverProfileId && String(prev.payment_source || 'PETTY_CASH') === 'PETTY_CASH') {
+      const wasApprovedOrRejected = ['APPROVED', 'REJECTED'].includes(String(prev.approval_status).toUpperCase());
+      if (!wasApprovedOrRejected && (normalizedApproval === 'APPROVED' || normalizedApproval === 'REJECTED')) {
+        db.prepare(
+          "UPDATE driver_profiles SET petty_cash_balance = COALESCE(petty_cash_balance, 500000) + ?, updated_at = datetime('now') WHERE id = ?"
+        ).run(nextAmount, expDriverProfileId);
+      }
+    }
+
+    if (approval_status && normalizedApproval !== String(prev.approval_status)) {
       db.prepare('INSERT INTO expense_decisions (expense_id, decider_id, decision, reason) VALUES (?, ?, ?, ?)').run(
         id,
         req.user!.id,
-        approval_status,
+        normalizedApproval,
         reason || 'Reviewed by Admin'
       );
     }
@@ -3978,6 +4274,107 @@ export function createApp() {
     const updated = db.prepare('SELECT * FROM expenses WHERE id = ?').get(id);
     recordAudit(db, req.user, 'EXPENSE_UPDATED', 'EXPENSE', id, prev, updated);
     res.json({ expense: updated });
+  });
+
+  // Item #8: Delete receipt photo from an expense or delete a pending expense claim
+  app.delete('/api/expenses/:id/receipt', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const user = req.user!;
+    const id = Number(req.params.id);
+    const prev = db.prepare('SELECT * FROM expenses WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    if (!prev) {
+      res.status(404).json({ error: 'Expense not found' });
+      return;
+    }
+    if (Number(prev.submitted_by) !== user.id && !isPrivilegedRole(user)) {
+      res.status(403).json({ error: 'Forbidden: cannot modify another user expense receipt' });
+      return;
+    }
+
+    if (prev.receipt_document_id) {
+      try {
+        db.prepare('DELETE FROM documents WHERE id = ?').run(Number(prev.receipt_document_id));
+      } catch {}
+    }
+
+    db.prepare(
+      "UPDATE expenses SET receipt_document_id = NULL, receipt_data_url = NULL, receipt_filename = NULL, updated_at = datetime('now') WHERE id = ?"
+    ).run(id);
+
+    const updated = db.prepare('SELECT * FROM expenses WHERE id = ?').get(id);
+    recordAudit(db, user, 'EXPENSE_RECEIPT_DELETED', 'EXPENSE', id, prev, updated);
+    res.json({ ok: true, expense: updated });
+  });
+
+  app.delete('/api/expenses/:id', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const user = req.user!;
+    const id = Number(req.params.id);
+    const prev = db.prepare('SELECT * FROM expenses WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    if (!prev) {
+      res.status(404).json({ error: 'Expense not found' });
+      return;
+    }
+    if (Number(prev.submitted_by) !== user.id && !isPrivilegedRole(user)) {
+      res.status(403).json({ error: 'Forbidden: cannot delete another user expense claim' });
+      return;
+    }
+    if (String(prev.approval_status) === 'APPROVED' && !isPrivilegedRole(user)) {
+      res.status(400).json({ error: 'Cannot delete an already approved expense claim' });
+      return;
+    }
+
+    const expDriverProfileId =
+      Number(prev.driver_profile_id || 0) ||
+      ((db.prepare('SELECT id FROM driver_profiles WHERE user_id = ?').get(Number(prev.submitted_by)) as { id: number } | undefined)?.id ?? 0);
+
+    if (expDriverProfileId && String(prev.payment_source || 'PETTY_CASH') === 'PETTY_CASH' && String(prev.approval_status) === 'PENDING') {
+      db.prepare(
+        "UPDATE driver_profiles SET petty_cash_balance = COALESCE(petty_cash_balance, 500000) + ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(Number(prev.amount || 0), expDriverProfileId);
+    }
+
+    if (prev.receipt_document_id) {
+      try {
+        db.prepare('DELETE FROM documents WHERE id = ?').run(Number(prev.receipt_document_id));
+      } catch {}
+    }
+    db.prepare('DELETE FROM expense_decisions WHERE expense_id = ?').run(id);
+    db.prepare('DELETE FROM expenses WHERE id = ?').run(id);
+
+    recordAudit(db, user, 'EXPENSE_DELETED', 'EXPENSE', id, prev, null);
+    res.json({ ok: true, deletedId: id });
+  });
+
+  // Item #9: Admin / Fleet PIC Petty Cash Float Top-Up & Adjustment for Drivers
+  app.post('/api/drivers/:id/petty-cash-topup', requireAuth, requireRoles(['ADM', 'FM']), (req: Request, res: Response) => {
+    const db = getDb();
+    const driverId = Number(req.params.id);
+    const { amount, mode } = req.body ?? {};
+    const numAmount = Number(amount);
+    if (Number.isNaN(numAmount) || numAmount < 0) {
+      res.status(400).json({ error: 'Valid petty cash amount is required' });
+      return;
+    }
+
+    const drv = db.prepare('SELECT * FROM driver_profiles WHERE id = ?').get(driverId) as Record<string, unknown> | undefined;
+    if (!drv) {
+      res.status(404).json({ error: 'Driver profile not found' });
+      return;
+    }
+
+    const isSet = String(mode || 'ADD').toUpperCase() === 'SET';
+    if (isSet) {
+      db.prepare("UPDATE driver_profiles SET petty_cash_balance = ?, updated_at = datetime('now') WHERE id = ?").run(numAmount, driverId);
+    } else {
+      db.prepare(
+        "UPDATE driver_profiles SET petty_cash_balance = COALESCE(petty_cash_balance, 500000) + ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(numAmount, driverId);
+    }
+
+    const updated = db.prepare('SELECT * FROM driver_profiles WHERE id = ?').get(driverId);
+    recordAudit(db, req.user, 'DRIVER_PETTY_CASH_TOPUP', 'DRIVER_PROFILE', driverId, drv, updated);
+    res.json({ ok: true, driver: updated });
   });
 
   // Protected Documents (DOC-01 to DOC-08)
@@ -5492,15 +5889,16 @@ export function createApp() {
     res.send(pdfBuffer);
   });
 
-  // Revision: 5-minute reminder & 20-minute auto-cancellation for passenger no-show
+  // Item #1: Constant reminder starting 10 minutes before departure (every 2 minutes) & 20-minute auto-cancellation for passenger no-show
   function checkTripAlertsAndAutoCancellations(db: ReturnType<typeof getDb>) {
     const now = new Date();
     const nowMs = now.getTime();
+    const nowIso = now.toISOString();
 
-    // 1. 20-minute auto-cancellation for approved trips that haven't departed
     const approvedTrips = db
       .prepare(
         `SELECT tr.id, tr.requester_id, tr.purpose, tr.origin, tr.destination, tr.start_time,
+                tr.passenger_boarded_at, tr.last_reminder_sent_at,
                 v.registration_plate, dp.user_id as driver_user_id
          FROM trip_requests tr
          JOIN vehicles v ON v.id = tr.vehicle_id
@@ -5515,11 +5913,16 @@ export function createApp() {
       origin: string;
       destination: string;
       start_time: string;
+      passenger_boarded_at: string | null;
+      last_reminder_sent_at: string | null;
       registration_plate: string;
       driver_user_id: number | null;
     }>;
 
     for (const t of approvedTrips) {
+      if (t.passenger_boarded_at) {
+        continue;
+      }
       const startMs = new Date(t.start_time).getTime();
       if (!Number.isNaN(startMs)) {
         if (nowMs >= startMs + 20 * 60 * 1000) {
@@ -5533,8 +5936,8 @@ export function createApp() {
             sendUserNotification(db, {
               userId: t.requester_id,
               triggerType: 'BOOKING_AUTO_CANCEL_NO_SHOW',
-              title: 'Booking Cancelled (20-Min No Show)',
-              body: `Your booking for "${t.purpose}" (${t.registration_plate}) was automatically cancelled because departure was not initiated within 20 minutes of schedule. The vehicle and driver have been released.`,
+              title: 'Booking Auto-Cancelled (20-Min No Show)',
+              body: `Your booking for "${t.purpose}" (${t.registration_plate}) was automatically cancelled because you did not confirm boarding or depart within 20 minutes of scheduled departure. The vehicle and driver slot are now free.`,
               relatedEntityType: 'TRIP_REQUEST',
               relatedEntityId: t.id,
             });
@@ -5544,32 +5947,58 @@ export function createApp() {
                 userId: t.driver_user_id,
                 triggerType: 'DISPATCH_AUTO_CANCEL_NO_SHOW',
                 title: 'Dispatch Order Cancelled (Passenger No-Show)',
-                body: `Trip "${t.purpose}" was automatically cancelled due to passenger no-show after 20 minutes. Vehicle ${t.registration_plate} is now available.`,
+                body: `Trip "${t.purpose}" was automatically cancelled due to passenger no-show after 20 minutes. Vehicle ${t.registration_plate} and your schedule slot are now free.`,
                 relatedEntityType: 'TRIP_REQUEST',
                 relatedEntityId: t.id,
               });
             }
+
+            broadcastTripUpdate(db, t.id, 'TRIP_UPDATED', {
+              status: 'CANCELLED',
+              cancellation_reason: 'Auto-cancelled: Passenger no-show within 20 minutes',
+            });
           } catch (e) {
             console.error('Error auto-cancelling trip:', e);
           }
         } else {
-          // 5-minute reminder before start time (between 0 and 5 minutes prior)
-          const diffMs = startMs - nowMs;
-          if (diffMs > 0 && diffMs <= 5 * 60 * 1000) {
-            const sent = db
-              .prepare(
-                "SELECT id FROM notifications WHERE user_id = ? AND related_entity_id = ? AND trigger_type = 'TRIP_5MIN_CONFIRMATION'"
-              )
-              .get(t.requester_id, t.id);
+          // Constant reminder starting 10 minutes before start_time up to +20 minutes after start_time (every 2 minutes)
+          const diffToStartMs = startMs - nowMs;
+          if (diffToStartMs <= 10 * 60 * 1000) {
+            const lastRemMs = t.last_reminder_sent_at ? new Date(t.last_reminder_sent_at).getTime() : 0;
+            const shouldSendRepeat = !lastRemMs || Number.isNaN(lastRemMs) || nowMs - lastRemMs >= 2 * 60 * 1000;
 
-            if (!sent) {
+            if (shouldSendRepeat) {
+              db.prepare('UPDATE trip_requests SET last_reminder_sent_at = ? WHERE id = ?').run(nowIso, t.id);
+              const minsToStart = Math.round(diffToStartMs / 60000);
+              const minsUntilCancel = Math.max(1, Math.round((startMs + 20 * 60 * 1000 - nowMs) / 60000));
+              const titleText =
+                minsToStart > 0
+                  ? `⏰ Car Departing in ${minsToStart} Min (${t.registration_plate})`
+                  : `🚨 Car Waiting at Pickup (${minsUntilCancel} Min Until Auto-Cancel)`;
+              const bodyText =
+                minsToStart > 0
+                  ? `Reminder: Your booked car ${t.registration_plate} for "${t.purpose}" departs in ${minsToStart} minutes. Please head to the pickup point and tap "I Am Here / Confirm Boarding" (auto-cancels 20 min after schedule if no-show).`
+                  : `Urgent Reminder: Your booked car ${t.registration_plate} is waiting for "${t.purpose}". Please board now or tap "I Am Here / Confirm Boarding" — slot will auto-cancel in ${minsUntilCancel} minutes if no-show.`;
+
               sendUserNotification(db, {
                 userId: t.requester_id,
-                triggerType: 'TRIP_5MIN_CONFIRMATION',
-                title: 'Trip Starting in 5 Minutes',
-                body: `Your ride with ${t.registration_plate} starts in 5 minutes (${t.start_time.slice(11, 16)}). Please confirm you are ready to depart or let dispatch know if your schedule changed.`,
+                triggerType: 'TRIP_10MIN_DEPARTURE_REMINDER',
+                title: titleText,
+                body: bodyText,
                 relatedEntityType: 'TRIP_REQUEST',
                 relatedEntityId: t.id,
+              });
+
+              liveEvents.broadcast({
+                type: 'DEPARTURE_REMINDER',
+                userId: t.requester_id,
+                data: {
+                  tripId: t.id,
+                  title: titleText,
+                  body: bodyText,
+                  minsToStart,
+                  minsUntilCancel,
+                },
               });
             }
           }

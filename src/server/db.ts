@@ -254,6 +254,7 @@ function initializeSchema(db: AppDatabase) {
       contact_number TEXT NOT NULL,
       availability_status TEXT NOT NULL DEFAULT 'Active' CHECK (availability_status IN ('Active', 'On Leave', 'Inactive')),
       photo_url TEXT,
+      petty_cash_balance REAL NOT NULL DEFAULT 500000,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -288,6 +289,8 @@ function initializeSchema(db: AppDatabase) {
       urgent_reason TEXT,
       reservation_type TEXT NOT NULL DEFAULT 'ONE_WAY',
       return_pickup_time TEXT,
+      passenger_boarded_at TEXT,
+      last_reminder_sent_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -439,10 +442,12 @@ function initializeSchema(db: AppDatabase) {
       vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
       trip_request_id INTEGER REFERENCES trip_requests(id),
       submitted_by INTEGER NOT NULL REFERENCES users(id),
+      driver_profile_id INTEGER REFERENCES driver_profiles(id),
       date_time TEXT NOT NULL,
       category TEXT NOT NULL CHECK (category IN ('Parking', 'Toll', 'Gas', 'Charging', 'Gasoline', 'EV Charging', 'Cleaning', 'Accessories', 'Other')),
       amount REAL NOT NULL CHECK (amount > 0),
       description TEXT NOT NULL,
+      payment_source TEXT NOT NULL DEFAULT 'PETTY_CASH',
       receipt_document_id INTEGER,
       receipt_data_url TEXT,
       receipt_filename TEXT,
@@ -614,6 +619,21 @@ function initializeSchema(db: AppDatabase) {
   } catch {}
   try {
     db.exec('ALTER TABLE trip_requests ADD COLUMN return_pickup_time TEXT;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN passenger_boarded_at TEXT;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN last_reminder_sent_at TEXT;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE driver_profiles ADD COLUMN petty_cash_balance REAL NOT NULL DEFAULT 500000;');
+  } catch {}
+  try {
+    db.exec("ALTER TABLE expenses ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'PETTY_CASH';");
+  } catch {}
+  try {
+    db.exec('ALTER TABLE expenses ADD COLUMN driver_profile_id INTEGER REFERENCES driver_profiles(id);');
   } catch {}
 }
 

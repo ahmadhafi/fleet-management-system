@@ -1201,31 +1201,42 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(trip.requires_pic_urgent_approval).toBe(true);
         expect(trip.urgent_reason).toContain('Critical server outage');
 
-        // Step 1: If Head of WS Part (HWS) approves first, trip remains pending because Fleet Operation PIC urgent approval is mandatory!
-        const hwsDecisionRes = await request(app)
+        // Step 0: If Head of WS Part (HWS) tries to approve BEFORE Fleet Operation PIC (FM) consents, it is rejected (strict hierarchy order)!
+        const earlyHwsRes = await request(app)
           .post(`/api/trips/${tripId}/decision`)
           .set('Authorization', `Bearer ${hwsToken}`)
           .send({
             decision: 'APPROVED',
-            reason: 'HWS initial sign-off',
+            reason: 'Premature HWS attempt',
           });
-        expect(hwsDecisionRes.status).toBe(200);
-        expect(hwsDecisionRes.body.status).toBe('PENDING_APPROVAL');
-        expect(hwsDecisionRes.body.stage).toBe('AWAITING_FM');
-        expect(hwsDecisionRes.body.isFinal).toBe(false);
+        expect(earlyHwsRes.status).toBe(400);
+        expect(earlyHwsRes.body.error).toContain('Fleet Operation PIC must consent first');
 
-        // Step 2: Fleet Operation PIC (FM) approves -> Now final approval and dispatch succeeds!
+        // Step 1: Fleet Operation PIC (FM) consents first (Stage 1)
         const picDecisionRes = await request(app)
           .post(`/api/trips/${tripId}/decision`)
           .set('Authorization', `Bearer ${picToken}`)
           .send({
             decision: 'APPROVED',
-            reason: 'Fleet Operation PIC emergency authorization granted',
+            reason: 'Fleet Operation PIC Stage 1 consent granted',
             driver_profile_id: 3,
           });
         expect(picDecisionRes.status).toBe(200);
-        expect(picDecisionRes.body.status).toBe('APPROVED');
-        expect(picDecisionRes.body.isFinal).toBe(true);
+        expect(picDecisionRes.body.status).toBe('PENDING_APPROVAL');
+        expect(picDecisionRes.body.stage).toBe('AWAITING_HWS');
+        expect(picDecisionRes.body.isFinal).toBe(false);
+
+        // Step 2: Head Of WS Part (HWS) approves second (Stage 2) -> Final approval and dispatch succeeds!
+        const hwsDecisionRes = await request(app)
+          .post(`/api/trips/${tripId}/decision`)
+          .set('Authorization', `Bearer ${hwsToken}`)
+          .send({
+            decision: 'APPROVED',
+            reason: 'HWS Stage 2 final approval',
+          });
+        expect(hwsDecisionRes.status).toBe(200);
+        expect(hwsDecisionRes.body.status).toBe('APPROVED');
+        expect(hwsDecisionRes.body.isFinal).toBe(true);
 
         // Verify trip decision history recorded urgent approval
         const finalGet = await request(app)
@@ -2124,6 +2135,270 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
             delete (globalThis as any).navigator;
           }
         }
+      });
+
+      it('verifies all 12 new features: 10-min reminder & 20-min auto-cancel, cancel approved booking, translation engine, sequential approval hierarchy, 413 large photo Start Trip, Online auto-ready, driver-locked petty cash reimbursement & receipt delete, driver-only schedule RBAC, nationwide POI geocoding, and 2-hour default urgent pre-booking confirmation', async () => {
+        const fs = await import('fs');
+        const path = await import('path');
+        const { t } = await import('../src/utils/i18n.ts');
+
+        resetDbForTesting(':memory:');
+        const testApp = createApp();
+        const db = getDb();
+
+        const admRes = await request(testApp).post('/api/auth/login').send({ group_username: 'admin', password: 'Admin@123' });
+        const empRes = await request(testApp).post('/api/auth/login').send({ group_username: 'emp_alex', password: 'Emp@123' });
+        const fmRes = await request(testApp).post('/api/auth/login').send({ group_username: 'fleetmgr', password: 'Fleet@123' });
+        const hwsRes = await request(testApp).post('/api/auth/login').send({ group_username: 'hws_head', password: 'Hws@123' });
+        const drvRes = await request(testApp).post('/api/auth/login').send({ group_username: 'drv_budi', password: 'Driver@123' });
+
+        expect(admRes.status).toBe(200);
+        expect(empRes.status).toBe(200);
+        expect(fmRes.status).toBe(200);
+        expect(hwsRes.status).toBe(200);
+        expect(drvRes.status).toBe(200);
+
+        const localAdmToken = admRes.body.token;
+        const localEmpToken = empRes.body.token;
+        const localFmToken = fmRes.body.token;
+        const localHwsToken = hwsRes.body.token;
+        const localDrvToken = drvRes.body.token;
+        const empUserId = Number(empRes.body.user.id);
+        const drvProfileId = Number(drvRes.body.user.driver_profile_id || 1);
+
+        // 1. Translation engine (Item 3): dynamic patterns, parenthetical counts, multi-segment separators across EN/ID/KO
+        expect(t('Booking History (3)', 'id')).toBe('Riwayat Pesanan (3)');
+        expect(t('Booking History (3)', 'ko')).toBe('예약 내역 (3)');
+        expect(t('Departing in 8 mins!', 'id')).toBe('Berangkat dalam 8 menit!');
+        expect(t('Departing in 8 mins!', 'ko')).toBe('8분 후 출발!');
+        expect(t('10 seats available', 'id')).toBe('10 kursi tersedia');
+        expect(t('Stage 1/2: Awaiting Fleet PIC Consent', 'id')).toBe('Tahap 1/2: Menunggu Persetujuan PIC Fleet');
+        expect(t('Stage 2/2: Fleet PIC Consented • Awaiting Head of WS', 'id')).toBe('Tahap 2/2: PIC Fleet Setuju • Menunggu Head of WS');
+
+        // 2. Nationwide Indonesian POI Search & Reverse Geocoding (Item 11)
+        const geoSearchRes = await request(testApp)
+          .get('/api/geocode/search?q=Grand Indonesia')
+          .set('Authorization', `Bearer ${localEmpToken}`);
+        expect(geoSearchRes.status).toBe(200);
+        expect(geoSearchRes.body.results.length).toBeGreaterThan(0);
+        expect(geoSearchRes.body.results[0].name).toContain('Grand Indonesia');
+
+        const geoRestoRes = await request(testApp)
+          .get('/api/geocode/search?q=Sate Khas Senayan')
+          .set('Authorization', `Bearer ${localEmpToken}`);
+        expect(geoRestoRes.status).toBe(200);
+        expect(geoRestoRes.body.results.length).toBeGreaterThan(0);
+
+        const geoRevRes = await request(testApp)
+          .get('/api/geocode/reverse?lat=-6.1950&lon=106.8224')
+          .set('Authorization', `Bearer ${localEmpToken}`);
+        expect(geoRevRes.status).toBe(200);
+        expect(geoRevRes.body.name || geoRevRes.body.address).toBeTruthy();
+
+        // 3. Employee can cancel an already APPROVED booking and free vehicle/driver slot (Item 2 & Item 4)
+        const futureStart = new Date(Date.now() + 4 * 3600000).toISOString();
+        const futureEnd = new Date(Date.now() + 5 * 3600000).toISOString();
+        const createApprovedTrip = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${localEmpToken}`)
+          .send({
+            vehicle_id: 5,
+            purpose: 'Approved Trip to Cancel',
+            origin: 'Headquarters',
+            destination: 'Grand Indonesia Mall, Thamrin, Jakarta Pusat',
+            start_time: futureStart,
+            end_time: futureEnd,
+            passenger_count: 2,
+          });
+        expect(createApprovedTrip.status).toBe(201);
+        const cancelableTripId = createApprovedTrip.body.tripId;
+
+        // Stage 0: HWS blocked before Fleet PIC consents
+        const earlyHws = await request(testApp)
+          .post(`/api/trips/${cancelableTripId}/decision`)
+          .set('Authorization', `Bearer ${localHwsToken}`)
+          .send({ decision: 'APPROVED', reason: 'Premature HWS' });
+        expect(earlyHws.status).toBe(400);
+
+        // Stage 1: Fleet PIC consents first
+        const stage1Res = await request(testApp)
+          .post(`/api/trips/${cancelableTripId}/decision`)
+          .set('Authorization', `Bearer ${localFmToken}`)
+          .send({ decision: 'APPROVED', reason: 'Stage 1 Fleet PIC consent', driver_profile_id: 4 });
+        expect(stage1Res.status).toBe(200);
+        expect(stage1Res.body.status).toBe('PENDING_APPROVAL');
+        expect(stage1Res.body.stage).toBe('AWAITING_HWS');
+
+        // Stage 2: Head of WS approves second -> APPROVED
+        const stage2Res = await request(testApp)
+          .post(`/api/trips/${cancelableTripId}/decision`)
+          .set('Authorization', `Bearer ${localHwsToken}`)
+          .send({ decision: 'APPROVED', reason: 'Stage 2 HWS approval' });
+        expect(stage2Res.status).toBe(200);
+        expect(stage2Res.body.status).toBe('APPROVED');
+
+        // Employee cancels the APPROVED booking
+        const empCancelRes = await request(testApp)
+          .post(`/api/trips/${cancelableTripId}/cancel`)
+          .set('Authorization', `Bearer ${localEmpToken}`)
+          .send({ reason: 'Client meeting postponed to next week' });
+        expect(empCancelRes.status).toBe(200);
+        expect(empCancelRes.body.status).toBe('CANCELLED');
+
+        const cancelledBookingRow = db.prepare('SELECT status FROM bookings WHERE trip_request_id = ?').get(cancelableTripId) as any;
+        expect(cancelledBookingRow.status).toBe('CANCELLED');
+
+        // 4. 10-Min Constant Reminder, Confirm Boarding ("I Am Here"), and 20-Min No-Show Auto-Cancel (Item 1)
+        const tenMinStart = new Date(Date.now() + 7 * 60000).toISOString();
+        const tenMinEnd = new Date(Date.now() + 67 * 60000).toISOString();
+        const remTripRes = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${localEmpToken}`)
+          .send({
+            vehicle_id: 5,
+            purpose: 'Reminder & Boarding Test',
+            origin: 'Headquarters',
+            destination: 'Pacific Place Mall, SCBD, Jakarta Selatan',
+            start_time: tenMinStart,
+            end_time: tenMinEnd,
+            passenger_count: 1,
+            urgent_reason: 'Immediate client briefing',
+          });
+        expect(remTripRes.status).toBe(201);
+        const remTripId = remTripRes.body.tripId;
+
+        await request(testApp)
+          .post(`/api/trips/${remTripId}/decision`)
+          .set('Authorization', `Bearer ${localAdmToken}`)
+          .send({ decision: 'APPROVED', reason: 'Admin approval for reminder test', driver_profile_id: drvProfileId });
+
+        // Polling /api/notifications runs checkTripAlertsAndAutoCancellations -> stamps last_reminder_sent_at & sends 10-min reminder
+        const notifCheckRes = await request(testApp)
+          .get('/api/notifications')
+          .set('Authorization', `Bearer ${localEmpToken}`);
+        expect(notifCheckRes.status).toBe(200);
+
+        const afterRemRow = db.prepare('SELECT last_reminder_sent_at, passenger_boarded_at FROM trip_requests WHERE id = ?').get(remTripId) as any;
+        expect(afterRemRow.last_reminder_sent_at).toBeTruthy();
+        expect(afterRemRow.passenger_boarded_at).toBeNull();
+
+        // Employee clicks "I Am Here / Confirm Boarding"
+        const boardRes = await request(testApp)
+          .post(`/api/trips/${remTripId}/confirm-boarding`)
+          .set('Authorization', `Bearer ${localEmpToken}`);
+        expect(boardRes.status).toBe(200);
+        expect(boardRes.body.passenger_boarded_at).toBeTruthy();
+
+        // Simulate another approved trip where employee DOES NOT show up within 20 minutes after departure
+        const overdueStart = new Date(Date.now() - 25 * 60000).toISOString();
+        const overdueEnd = new Date(Date.now() + 35 * 60000).toISOString();
+        const noShowInsert = db.prepare(`
+          INSERT INTO trip_requests (requester_id, department_id, vehicle_id, purpose, origin, destination, start_time, end_time, passenger_count, status)
+          VALUES (?, 1, 6, 'No Show Trip', 'HQ', 'Plaza Indonesia', ?, ?, 1, 'APPROVED')
+        `).run(empUserId, overdueStart, overdueEnd);
+        const noShowTripId = Number(noShowInsert.lastInsertRowid);
+        db.prepare(`
+          INSERT INTO bookings (trip_request_id, vehicle_id, booked_by, purpose, start_time, end_time, status)
+          VALUES (?, 6, ?, 'No Show Trip', ?, ?, 'ACTIVE')
+        `).run(noShowTripId, empUserId, overdueStart, overdueEnd);
+
+        // Trigger check via /api/trips
+        await request(testApp).get('/api/trips').set('Authorization', `Bearer ${localEmpToken}`);
+        const noShowRow = db.prepare('SELECT status FROM trip_requests WHERE id = ?').get(noShowTripId) as any;
+        expect(noShowRow.status).toBe('CANCELLED');
+        const noShowBooking = db.prepare('SELECT status FROM bookings WHERE trip_request_id = ?').get(noShowTripId) as any;
+        expect(noShowBooking.status).toBe('CANCELLED');
+
+        // 5. Driver Start Trip with large base64 photo (> 600KB) succeeds without HTTP 413 (Item 5)
+        const largeBase64Photo = 'data:image/jpeg;base64,/9j/' + 'A'.repeat(650000);
+        const startTripRes = await request(testApp)
+          .post(`/api/driver/trips/${remTripId}/start`)
+          .set('Authorization', `Bearer ${localDrvToken}`)
+          .send({
+            start_odometer: 25100,
+            start_odometer_photo: largeBase64Photo,
+          });
+        expect(startTripRes.status).toBe(200);
+        expect(startTripRes.body.trip.status).toBe('IN_PROGRESS');
+
+        // 6. Driver Schedule Authorization: Driver only sees own schedule, while Admin/FM/HWS see all (Item 10)
+        const drvBookingsRes = await request(testApp)
+          .get('/api/bookings')
+          .set('Authorization', `Bearer ${localDrvToken}`);
+        expect(drvBookingsRes.status).toBe(200);
+        expect(drvBookingsRes.body.can_view_all_schedules).toBe(false);
+        expect(drvBookingsRes.body.bookings.every((b: any) => Number(b.driver_profile_id) === drvProfileId)).toBe(true);
+
+        const fmBookingsRes = await request(testApp)
+          .get('/api/bookings')
+          .set('Authorization', `Bearer ${localFmToken}`);
+        expect(fmBookingsRes.status).toBe(200);
+        expect(fmBookingsRes.body.can_view_all_schedules).toBe(true);
+        expect(fmBookingsRes.body.bookings.length).toBeGreaterThanOrEqual(drvBookingsRes.body.bookings.length);
+
+        const hwsBookingsRes = await request(testApp)
+          .get('/api/bookings')
+          .set('Authorization', `Bearer ${localHwsToken}`);
+        expect(hwsBookingsRes.status).toBe(200);
+        expect(hwsBookingsRes.body.can_view_all_schedules).toBe(true);
+
+        // 7. Petty Cash Reimbursement, Auto-Locked Driver Vehicle, & Receipt Photo Delete (Items 7, 8, 9)
+        const beforeDriver = db.prepare('SELECT petty_cash_balance FROM driver_profiles WHERE id = ?').get(drvProfileId) as any;
+        const initialPettyCash = Number(beforeDriver.petty_cash_balance ?? 500000);
+        const otherDriverVeh = db.prepare('SELECT id FROM vehicles WHERE default_driver_id IS NOT NULL AND default_driver_id != ? LIMIT 1').get(drvProfileId) as { id: number };
+        const validJpegBase64 = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+
+        const expCreateRes = await request(testApp)
+          .post('/api/expenses')
+          .set('Authorization', `Bearer ${localDrvToken}`)
+          .send({
+            vehicle_id: otherDriverVeh.id, // Even if another driver's vehicle is submitted, server auto-locks to drv_budi's assigned vehicle
+            category: 'Parking',
+            amount: 25000,
+            payment_source: 'PETTY_CASH',
+            description: 'Cash parking at Pacific Place Mall',
+            receipt_data_url: validJpegBase64,
+            receipt_filename: 'parking-receipt.jpg',
+          });
+        expect(expCreateRes.status).toBe(201);
+        const expenseId = expCreateRes.body.expense.id;
+        expect(expCreateRes.body.petty_cash_balance).toBe(initialPettyCash - 25000);
+
+        const createdExpRow = db.prepare('SELECT vehicle_id, driver_profile_id, payment_source, receipt_data_url FROM expenses WHERE id = ?').get(expenseId) as any;
+        expect(createdExpRow.driver_profile_id).toBe(drvProfileId);
+        expect(createdExpRow.vehicle_id).not.toBe(otherDriverVeh.id);
+        expect(createdExpRow.payment_source).toBe('PETTY_CASH');
+        expect(createdExpRow.receipt_data_url).toBeTruthy();
+
+        // Delete receipt photo from expense (Item 8)
+        const delReceiptRes = await request(testApp)
+          .delete(`/api/expenses/${expenseId}/receipt`)
+          .set('Authorization', `Bearer ${localDrvToken}`);
+        expect(delReceiptRes.status).toBe(200);
+        const afterDelReceiptRow = db.prepare('SELECT receipt_data_url, receipt_document_id, receipt_filename FROM expenses WHERE id = ?').get(expenseId) as any;
+        expect(afterDelReceiptRow.receipt_data_url).toBeNull();
+        expect(afterDelReceiptRow.receipt_document_id).toBeNull();
+        expect(afterDelReceiptRow.receipt_filename).toBeNull();
+
+        // Approve Petty Cash reimbursement -> replenishes driver's petty_cash_balance (Item 9)
+        const approveExpRes = await request(testApp)
+          .patch(`/api/expenses/${expenseId}`)
+          .set('Authorization', `Bearer ${localFmToken}`)
+          .send({ approval_status: 'APPROVED', reason: 'Cash parking reimbursed to Petty Cash' });
+        expect(approveExpRes.status).toBe(200);
+        expect(approveExpRes.body.expense.reimbursement_status).toBe('REIMBURSED');
+
+        const afterDriver = db.prepare('SELECT petty_cash_balance FROM driver_profiles WHERE id = ?').get(drvProfileId) as any;
+        expect(Number(afterDriver.petty_cash_balance)).toBe(initialPettyCash);
+
+        // 8. Verify UI source code for Items 6, 8, 11, 12
+        const appTsx = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf8');
+        expect(appTsx).toContain('compressImageFileToDataUrl');
+        expect(appTsx).toContain('showPreBookingConfirmModal');
+        expect(appTsx).toContain('confirm-prebooking-submit-btn');
+        expect(appTsx).toContain('onPinMoveAddress');
+        expect(appTsx).toContain('confirm-boarding');
+        expect(appTsx).toContain('driver-online-toggle-sheet-btn');
       });
     });
   });

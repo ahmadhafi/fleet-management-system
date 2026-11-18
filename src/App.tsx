@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   Car,
   ShieldCheck,
@@ -60,7 +60,7 @@ import {
   formatPhoneCallUrl,
 } from './components/MapView';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
-import { useAppLanguage, startDomTranslationObserver, type SupportedLang } from './utils/i18n';
+import { useAppLanguage, startDomTranslationObserver, translateDomTree, type SupportedLang } from './utils/i18n';
 import { SamsungBusLogo } from './components/SamsungBusLogo';
 import { RouteFields } from './components/RouteFields';
 import { VehicleArt } from './components/VehicleArt';
@@ -308,6 +308,52 @@ export function playNotificationChime(): void {
   }
 }
 
+export function compressImageFileToDataUrl(file: File, maxDim = 1200, quality = 0.72): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const rawDataUrl = String(reader.result || '');
+      if (!file.type.startsWith('image/') || file.type === 'image/svg+xml' || typeof document === 'undefined') {
+        resolve(rawDataUrl);
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let width = img.naturalWidth || img.width || 800;
+          let height = img.naturalHeight || img.height || 600;
+          if (width > maxDim || height > maxDim) {
+            if (width >= height) {
+              height = Math.max(1, Math.round((height * maxDim) / width));
+              width = maxDim;
+            } else {
+              width = Math.max(1, Math.round((width * maxDim) / height));
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(rawDataUrl);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/jpeg', quality);
+          resolve(compressed && compressed.length < rawDataUrl.length ? compressed : rawDataUrl);
+        } catch {
+          resolve(rawDataUrl);
+        }
+      };
+      img.onerror = () => resolve(rawDataUrl);
+      img.src = rawDataUrl;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+}
+
 export function App() {
   const { lang, t } = useAppLanguage();
 
@@ -499,11 +545,15 @@ export function App() {
   const [liveAvailability, setLiveAvailability] = useState<{ vehicles: any[]; drivers: any[] } | null>(null);
   const [scheduleFilterTab, setScheduleFilterTab] = useState<'ALL' | 'AVAILABLE' | 'BOOKED'>('ALL');
 
-  // Driver Expense Reimbursement State
+  // Driver Expense Reimbursement & Petty Cash State
   const [showDriverExpenseModal, setShowDriverExpenseModal] = useState<boolean>(false);
+  const [driverPettyCashBalance, setDriverPettyCashBalance] = useState<number>(500000);
+  const driverReceiptInputRef = useRef<HTMLInputElement | null>(null);
+  const [showPreBookingConfirmModal, setShowPreBookingConfirmModal] = useState<boolean>(false);
   const [driverExpenseForm, setDriverExpenseForm] = useState({
     vehicle_id: 0,
-    category: 'Toll',
+    category: 'Parking',
+    payment_source: 'PETTY_CASH' as 'PETTY_CASH' | 'DRIVER_ADVANCE',
     amount: '',
     description: '',
     receipt_name: '',
@@ -571,11 +621,11 @@ export function App() {
   // Admin New Group Form
   const [newGroupName, setNewGroupName] = useState('');
 
-  // Driver PWA GPS & Trip Action State
-  const [gpsNoticeAccepted, setGpsNoticeAccepted] = useState<boolean>(false);
-  const [gpsReportingActive, setGpsReportingActive] = useState<boolean>(false);
+  // Driver PWA GPS & Trip Action State (Online automatically makes driver Ready for Duty)
+  const [gpsNoticeAccepted, setGpsNoticeAccepted] = useState<boolean>(true);
+  const [gpsReportingActive, setGpsReportingActive] = useState<boolean>(true);
   const [gpsPermissionState, setGpsPermissionState] = useState<'GRANTED' | 'DENIED' | 'UNAVAILABLE'>('GRANTED');
-  const [lastDriverGpsReport, setLastDriverGpsReport] = useState<any | null>(null);
+  const [, setLastDriverGpsReport] = useState<any | null>(null);
   const [activeTripOdoInput, setActiveTripOdoInput] = useState<Record<number, string>>({});
   const [activeTripBatteryInput, setActiveTripBatteryInput] = useState<Record<number, string>>({});
   const [activeTripParkingInput, setActiveTripParkingInput] = useState<Record<number, string>>({});
@@ -600,6 +650,34 @@ export function App() {
 
   const isPrivileged = user && ['ADM', 'FM', 'HWS'].includes(user.role);
   const isDriverOnly = Boolean(user && user.role === 'DRV' && !isPrivileged);
+
+  // Re-run DOM translation sweep whenever language or active screen/modal changes
+  useEffect(() => {
+    if (typeof document !== 'undefined' && document.body) {
+      translateDomTree(document.body, lang);
+      const tId = window.setTimeout(() => {
+        if (document.body) translateDomTree(document.body, lang);
+      }, 60);
+      return () => window.clearTimeout(tId);
+    }
+    return undefined;
+  }, [
+    lang,
+    user,
+    navSection,
+    bookingStep,
+    customerHomeMode,
+    adminModule,
+    opsSubTab,
+    driverSectionTab,
+    driverTripLogTab,
+    activityTab,
+    showSchedulePicker,
+    showDriverExpenseModal,
+    showPreBookingConfirmModal,
+    dispatchModalTrip,
+    summaryPicker,
+  ]);
 
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
@@ -652,8 +730,9 @@ export function App() {
         apiRequest('/api/location/pins').catch(() => ({ pins: [] })),
       ]);
       const loadedVehicles = vehRes.vehicles || [];
+      const loadedDrivers = drvRes.drivers || [];
       setVehicles(loadedVehicles);
-      setDrivers(drvRes.drivers || []);
+      setDrivers(loadedDrivers);
       setTrips(trpRes.trips || []);
       setBookings(bkgRes.bookings || []);
       setNotifications(ntfRes.notifications || []);
@@ -676,11 +755,33 @@ export function App() {
         setMaintForm((prev) => ({ ...prev, vehicle_id: prev.vehicle_id || firstId }));
         setExpForm((prev) => ({ ...prev, vehicle_id: prev.vehicle_id || firstId }));
         setDocForm((prev) => ({ ...prev, entity_id: prev.entity_id || firstId }));
+
+        // Auto-fill logged-in driver's assigned vehicle on reimbursement form (Requirement #7)
+        const myDrv = loadedDrivers.find(
+          (d: any) => d.user_id === currentUser.id || String(d.full_name || '').toLowerCase() === String(currentUser.nickname || '').toLowerCase()
+        );
+        if (myDrv && typeof myDrv.petty_cash_balance === 'number') {
+          setDriverPettyCashBalance(myDrv.petty_cash_balance);
+        }
+        const assignedCar =
+          loadedVehicles.find(
+            (v: any) =>
+              (v.dedicated_driver_user_id && v.dedicated_driver_user_id === currentUser.id) ||
+              (myDrv && v.default_driver_id === myDrv.id) ||
+              (v.default_driver_name && String(v.default_driver_name).toLowerCase() === String(currentUser.nickname || '').toLowerCase())
+          ) || loadedVehicles[0];
+        if (assignedCar) {
+          setDriverExpenseForm((prev) => ({ ...prev, vehicle_id: assignedCar.id }));
+        }
       }
 
       if (['DRV', 'ADM', 'FM'].includes(currentUser.role)) {
         const dspRes = await apiRequest('/api/driver/dispatches');
-        setDispatches(dspRes.dispatches || []);
+        const loadedDispatches = dspRes.dispatches || [];
+        setDispatches(loadedDispatches);
+        if (currentUser.role === 'DRV' && loadedDispatches.length > 0 && loadedDispatches[0].vehicle_id) {
+          setDriverExpenseForm((prev) => ({ ...prev, vehicle_id: prev.vehicle_id || loadedDispatches[0].vehicle_id }));
+        }
       }
 
       const [fuelRes, evRes, mntRes, expRes, docRes] = await Promise.all([
@@ -694,6 +795,9 @@ export function App() {
       setEvRecords(evRes.evRecords || []);
       setMaintenanceRecords(mntRes.maintenanceRecords || []);
       setExpenses(expRes.expenses || []);
+      if (typeof expRes.driverPettyCashBalance === 'number') {
+        setDriverPettyCashBalance(expRes.driverPettyCashBalance);
+      }
       setDocuments(docRes.documents || []);
 
       if (['ADM', 'FM', 'HWS'].includes(currentUser.role)) {
@@ -1099,19 +1203,17 @@ export function App() {
     setShowProfileModal(true);
   };
 
-  const handleProfilePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleProfilePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       setProfileStatusBanner({ type: 'danger', text: 'Please select an image file (PNG, JPG, SVG).' });
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      setProfilePhotoUrl(result);
-    };
-    reader.readAsDataURL(file);
+    const compressed = await compressImageFileToDataUrl(file, 900, 0.78);
+    if (compressed) {
+      setProfilePhotoUrl(compressed);
+    }
   };
 
   const handleSaveProfileDetails = async (e: React.FormEvent) => {
@@ -1465,6 +1567,17 @@ export function App() {
                     .catch(() => {});
                 }
               }
+            } else if (payload.type === 'DEPARTURE_REMINDER') {
+              const rem = payload.data || {};
+              playNotificationChime();
+              triggerSystemNotification(rem.title || 'Departure Reminder', {
+                body: rem.body || 'Your operational car departs soon. Please confirm boarding or board within 20 minutes to avoid auto-cancellation.',
+              });
+              setStatusBanner({
+                type: 'warning',
+                text: rem.body || '⏰ Reminder: Your operational car is ready. Please tap "I Am Here / Confirm Boarding" or board within 20 minutes of departure.',
+              });
+              apiRequest('/api/trips').then((r) => { if (r.trips) setTrips(r.trips); }).catch(() => {});
             } else if (payload.type === 'NOTIFICATION') {
               const notif = payload.data;
               if (notif && notif.id) {
@@ -1631,7 +1744,8 @@ export function App() {
     setSummaryPicker(null);
   };
 
-  const handleCreateTripBooking = async () => {
+  const handleCreateTripBooking = async (confirmed?: boolean | React.MouseEvent) => {
+    const isPreBookingConfirmed = confirmed === true;
     setStatusBanner(null);
     if (!selectedVehicle) {
       setStatusBanner({ type: 'danger', text: 'Please select an available vehicle first.' });
@@ -1722,6 +1836,13 @@ export function App() {
       return;
     }
 
+    // Requirement #12: Pre-Booking Confirmation step (reminds passenger of default +2h schedule or urgent < 2h change before submitting)
+    if (!isPreBookingConfirmed) {
+      setShowPreBookingConfirmModal(true);
+      return;
+    }
+    setShowPreBookingConfirmModal(false);
+
     const startIso = new Date(bookStart).toISOString();
     const endIso = new Date(bookEnd).toISOString();
 
@@ -1758,6 +1879,9 @@ export function App() {
       setBookNotes('');
       setBookUrgentReason('');
       setBookReservationType('ONE_WAY');
+      const nextDefaultMs = roundUpTo5MinMs(Date.now() + 2 * 3600000);
+      setBookStart(toLocalDateTimeInput(new Date(nextDefaultMs)));
+      setBookEnd(toLocalDateTimeInput(new Date(nextDefaultMs + 2 * 3600000)));
       setFocusedTripId(created.tripId);
       setBookingStep('WAITING');
       setSheetSnap('half');
@@ -1772,23 +1896,48 @@ export function App() {
   };
 
   const handleCancelBookingRequest = async (trip: any) => {
-    if (!trip?.booking_id) {
+    if (!trip?.id && !trip?.booking_id) {
       setBookingStep('HOME');
       setSheetSnap('half');
       return;
     }
     try {
-      await apiRequest(`/api/bookings/${trip.booking_id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          status: 'CANCELLED',
-          cancellation_reason: 'Cancelled by requester',
-        }),
-      });
+      if (trip?.id) {
+        await apiRequest(`/api/trips/${trip.id}/cancel`, {
+          method: 'POST',
+          body: JSON.stringify({
+            cancellation_reason: 'Cancelled by requester (plan changed)',
+          }),
+        });
+      } else if (trip?.booking_id) {
+        await apiRequest(`/api/bookings/${trip.booking_id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            status: 'CANCELLED',
+            cancellation_reason: 'Cancelled by requester',
+          }),
+        });
+      }
       setFocusedTripId(null);
       setBookingStep('HOME');
       setSheetSnap('half');
-      setStatusBanner({ type: 'info', text: 'Request cancelled and schedule slot released.' });
+      setStatusBanner({ type: 'info', text: t('Booking cancelled and vehicle/driver slot released.') });
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message });
+    }
+  };
+
+  const handleConfirmPassengerBoarding = async (trip: any) => {
+    if (!trip?.id) return;
+    try {
+      await apiRequest(`/api/trips/${trip.id}/confirm-boarding`, {
+        method: 'POST',
+      });
+      setStatusBanner({
+        type: 'success',
+        text: t('Boarding confirmed! Auto-cancellation timer stopped and driver notified.'),
+      });
       await loadAllData(user);
     } catch (err: any) {
       setStatusBanner({ type: 'danger', text: err.message });
@@ -2575,16 +2724,28 @@ export function App() {
 
             {dispatchModalTrip.requires_dual_approval && (
               <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#eff6ff', border: '1.5px solid #bfdbfe', marginBottom: '12px' }}>
-                <div style={{ fontSize: '11px', fontWeight: 800, color: '#1e40af', textTransform: 'uppercase', marginBottom: '4px' }}>Dual-Approval Requirement</div>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '11.5px' }}>
-                  <span style={{ color: dispatchModalTrip.pic_approved ? '#0072de' : '#64748b', fontWeight: 700 }}>
-                    {dispatchModalTrip.pic_approved ? '✓ Fleet Operation PIC: Approved' : '⏳ Fleet Operation PIC: Pending'}
-                  </span>
-                  <span>•</span>
-                  <span style={{ color: dispatchModalTrip.hws_approved ? '#0072de' : '#64748b', fontWeight: 700 }}>
-                    {dispatchModalTrip.hws_approved ? '✓ Head Of WS Part: Approved' : '⏳ Head Of WS Part: Pending'}
-                  </span>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: '#1e40af', textTransform: 'uppercase', marginBottom: '6px' }}>
+                  {t('Strict Sequential Approval Hierarchy (1. Fleet PIC Consent -> 2. Head Of WS Approval)')}
                 </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11.5px' }}>
+                  <div style={{ color: dispatchModalTrip.pic_approved ? '#0072de' : '#0f172a', fontWeight: 700 }}>
+                    {dispatchModalTrip.pic_approved
+                      ? `✓ ${t('Stage 1: Fleet Operation PIC Consent')} — ${t('Consented')}`
+                      : `⏳ ${t('Stage 1: Fleet Operation PIC Consent')} — ${t('Pending Stage 1')}`}
+                  </div>
+                  <div style={{ color: dispatchModalTrip.hws_approved ? '#0072de' : dispatchModalTrip.pic_approved ? '#d97706' : '#64748b', fontWeight: 700 }}>
+                    {dispatchModalTrip.hws_approved
+                      ? `✓ ${t('Stage 2: Head Of WS Part Final Approval')} — ${t('APPROVED')}`
+                      : dispatchModalTrip.pic_approved
+                      ? `⏳ ${t('Stage 2: Head Of WS Part Final Approval')} — ${t('Ready for Stage 2')}`
+                      : `🔒 ${t('Stage 2: Head Of WS Part Final Approval')} — ${t('Locked until Stage 1 (Fleet PIC) consents')}`}
+                  </div>
+                </div>
+                {user.role === 'HWS' && !dispatchModalTrip.pic_approved && (
+                  <div style={{ fontSize: '11px', color: '#b45309', marginTop: '6px', fontWeight: 700 }}>
+                    ⚠️ {t('Approval Hierarchy: Fleet Operation PIC must consent first before Head Of WS Part can approve.')}
+                  </div>
+                )}
                 {user.role === 'ADM' && (
                   <div style={{ fontSize: '11px', color: '#1e3a8a', marginTop: '4px', fontStyle: 'italic' }}>
                     Admin Delegation: Approving now immediately authorizes the trip and delegates for any pending approver.
@@ -2629,17 +2790,21 @@ export function App() {
                 <button type="button" className="gf-btn gf-btn-outline-danger" style={{ flex: 1 }} onClick={() => handleAdminTripDecision('REJECTED')}>
                   Reject
                 </button>
-                <button type="button" className="gf-btn gf-btn-primary" style={{ flex: 1 }} onClick={() => handleAdminTripDecision('APPROVED')}>
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-primary"
+                  style={{ flex: 1 }}
+                  disabled={user.role === 'HWS' && dispatchModalTrip.requires_dual_approval && !dispatchModalTrip.pic_approved}
+                  onClick={() => handleAdminTripDecision('APPROVED')}
+                >
                   {user.role === 'ADM' && dispatchModalTrip.requires_dual_approval && (!dispatchModalTrip.pic_approved || !dispatchModalTrip.hws_approved)
                     ? 'Approve & Delegate as Admin'
                     : user.role === 'FM'
-                    ? dispatchModalTrip.hws_approved
-                      ? 'Complete Final Approval & Dispatch'
-                      : 'Approve as Fleet Operation PIC'
+                    ? 'Stage 1: Consent as Fleet Operation PIC'
                     : user.role === 'HWS'
                     ? dispatchModalTrip.pic_approved
-                      ? 'Authorize & Finalize Dispatch'
-                      : 'Approve as Head Of WS Part'
+                      ? 'Stage 2: Authorize & Finalize Dispatch'
+                      : 'Locked (Await Fleet PIC Stage 1)'
                     : 'Approve & Dispatch'}
                 </button>
               </div>
@@ -2758,238 +2923,469 @@ export function App() {
         </div>
       )}
 
-      {showDriverExpenseModal && (
-        <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label="Upload Expense Receipt">
-          <div className="gf-modal-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <div>
-                <h3 className="type-title">Upload Expense Receipt</h3>
-                <p className="type-caption">Claim reimbursement for operational car expenses</p>
-              </div>
-              <button
-                type="button"
-                className="gf-btn gf-btn-ghost"
-                onClick={() => setShowDriverExpenseModal(false)}
-              >
-                Cancel
-              </button>
-            </div>
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (!driverExpenseForm.vehicle_id) {
-                  setStatusBanner({ type: 'danger', text: 'Please select an operational vehicle.' });
-                  return;
-                }
-                if (!driverExpenseForm.amount || Number(driverExpenseForm.amount) <= 0) {
-                  setStatusBanner({ type: 'danger', text: 'Please enter a valid expense amount.' });
-                  return;
-                }
-                try {
-                  await apiRequest('/api/expenses', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                      vehicle_id: Number(driverExpenseForm.vehicle_id),
-                      category: driverExpenseForm.category,
-                      amount: Number(driverExpenseForm.amount),
-                      description: (driverExpenseForm.description.trim() || `${driverExpenseForm.category} Receipt Claim`),
-                      receipt_base64: driverExpenseForm.receipt_base64 || undefined,
-                      receipt_data_url: driverExpenseForm.receipt_data_url || undefined,
-                      receipt_filename: driverExpenseForm.receipt_name || undefined,
-                      receipt_mime_type: driverExpenseForm.receipt_mime_type || undefined,
-                    }),
-                  });
-                  setShowDriverExpenseModal(false);
-                  setDriverExpenseForm({
-                    vehicle_id: 0,
-                    category: 'Toll',
-                    amount: '',
-                    description: '',
-                    receipt_name: '',
-                    receipt_base64: '',
-                    receipt_data_url: '',
-                    receipt_mime_type: '',
-                    receipt_size_bytes: 0,
-                  });
-                  setStatusBanner({ type: 'success', text: 'Expense receipt successfully saved in database for reimbursement approval!' });
-                  await loadAllData(user);
-                } catch (err: any) {
-                  setStatusBanner({ type: 'danger', text: err.message });
-                }
-              }}
-              style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
-            >
-              <div>
-                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Operational Vehicle
-                </label>
-                <select
-                  className="gf-select"
-                  required
-                  value={driverExpenseForm.vehicle_id}
-                  onChange={(e) => setDriverExpenseForm({ ...driverExpenseForm, vehicle_id: Number(e.target.value) })}
+      {showDriverExpenseModal && (() => {
+        const myDrv = drivers.find(
+          (d: any) => d.user_id === user?.id || String(d.full_name || '').toLowerCase() === String(user?.nickname || '').toLowerCase()
+        );
+        const activeDispatchVehId = dispatches.find((d: any) => d.trip_status === 'IN_PROGRESS' || d.trip_status === 'APPROVED')?.vehicle_id;
+        const assignedDriverVeh =
+          vehicles.find(
+            (v: any) =>
+              (v.dedicated_driver_user_id && v.dedicated_driver_user_id === user?.id) ||
+              (myDrv && v.default_driver_id === myDrv.id) ||
+              (v.default_driver_name && String(v.default_driver_name).toLowerCase() === String(user?.nickname || '').toLowerCase())
+          ) ||
+          (activeDispatchVehId ? vehicles.find((v: any) => v.id === activeDispatchVehId) : null) ||
+          vehicles.find((v: any) => v.id === driverExpenseForm.vehicle_id) ||
+          vehicles[0];
+        const effectiveVehicleId = user?.role === 'DRV' && assignedDriverVeh ? assignedDriverVeh.id : (driverExpenseForm.vehicle_id || assignedDriverVeh?.id || 0);
+        const currentPettyCash = typeof myDrv?.petty_cash_balance === 'number' ? myDrv.petty_cash_balance : driverPettyCashBalance;
+
+        const clearReceiptSelection = () => {
+          if (driverReceiptInputRef.current) {
+            driverReceiptInputRef.current.value = '';
+          }
+          setDriverExpenseForm((prev) => ({
+            ...prev,
+            receipt_name: '',
+            receipt_data_url: '',
+            receipt_base64: '',
+            receipt_mime_type: '',
+            receipt_size_bytes: 0,
+          }));
+        };
+
+        return (
+          <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label="Upload Expense Receipt">
+            <div className="gf-modal-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <div>
+                  <h3 className="type-title">{t('Upload Expense Receipt')}</h3>
+                  <p className="type-caption">{t('Claim reimbursement for operational car expenses')}</p>
+                </div>
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-ghost"
+                  onClick={() => {
+                    clearReceiptSelection();
+                    setShowDriverExpenseModal(false);
+                  }}
                 >
-                  <option value={0}>Select Vehicle</option>
-                  {vehicles.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.registration_plate} — {v.make} {v.model} ({v.energy_type})
-                    </option>
-                  ))}
-                </select>
+                  {t('Cancel')}
+                </button>
               </div>
 
-              <div>
-                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Expense Category
-                </label>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {(['Parking', 'Gas', 'Charging', 'Toll'] as const).map((cat) => (
-                    <Chip
-                      key={cat}
-                      active={driverExpenseForm.category === cat}
-                      onClick={() => setDriverExpenseForm({ ...driverExpenseForm, category: cat })}
-                    >
-                      {cat === 'Charging' ? 'Charging (EV)' : cat}
-                    </Chip>
-                  ))}
+              {/* Petty Cash Balance Card inside Modal (Requirement #9) */}
+              <div
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '10px',
+                  background: '#ebf5ff',
+                  border: '1.5px solid #93c5fd',
+                  marginBottom: '12px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '8px',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#005bb5', textTransform: 'uppercase' }}>
+                    💵 {t('Driver Petty Cash Wallet')}
+                  </div>
+                  <div style={{ fontSize: '11.5px', color: '#1e3a8a', marginTop: '2px' }}>
+                    {t('Cash parking & toll expenses deduct from Petty Cash and are replenished upon approval.')}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '10.5px', color: '#005bb5', fontWeight: 700 }}>{t('Petty Cash Balance')}</div>
+                  <div className="mono" style={{ fontSize: '15px', fontWeight: 800, color: '#0072de' }}>
+                    {formatIdr(currentPettyCash)}
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Amount (Rp)
-                </label>
-                <input
-                  type="number"
-                  className="gf-input"
-                  required
-                  min={1}
-                  placeholder="e.g. 50000"
-                  value={driverExpenseForm.amount}
-                  onChange={(e) => setDriverExpenseForm({ ...driverExpenseForm, amount: e.target.value })}
-                />
-              </div>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!effectiveVehicleId) {
+                    setStatusBanner({ type: 'danger', text: 'Please select an operational vehicle.' });
+                    return;
+                  }
+                  if (!driverExpenseForm.amount || Number(driverExpenseForm.amount) <= 0) {
+                    setStatusBanner({ type: 'danger', text: 'Please enter a valid expense amount.' });
+                    return;
+                  }
+                  try {
+                    await apiRequest('/api/expenses', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        vehicle_id: Number(effectiveVehicleId),
+                        category: driverExpenseForm.category,
+                        payment_source: driverExpenseForm.payment_source || 'PETTY_CASH',
+                        amount: Number(driverExpenseForm.amount),
+                        description: (driverExpenseForm.description.trim() || `${driverExpenseForm.category} Receipt Claim`),
+                        receipt_base64: driverExpenseForm.receipt_base64 || undefined,
+                        receipt_data_url: driverExpenseForm.receipt_data_url || undefined,
+                        receipt_filename: driverExpenseForm.receipt_name || undefined,
+                        receipt_mime_type: driverExpenseForm.receipt_mime_type || undefined,
+                      }),
+                    });
+                    clearReceiptSelection();
+                    setShowDriverExpenseModal(false);
+                    setDriverExpenseForm({
+                      vehicle_id: effectiveVehicleId,
+                      category: 'Parking',
+                      payment_source: 'PETTY_CASH',
+                      amount: '',
+                      description: '',
+                      receipt_name: '',
+                      receipt_base64: '',
+                      receipt_data_url: '',
+                      receipt_mime_type: '',
+                      receipt_size_bytes: 0,
+                    });
+                    setStatusBanner({
+                      type: 'success',
+                      text: t('Expense receipt saved & Petty Cash claim submitted for reimbursement approval!'),
+                    });
+                    await loadAllData(user);
+                  } catch (err: any) {
+                    setStatusBanner({ type: 'danger', text: err.message });
+                  }
+                }}
+                style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+              >
+                {/* Requirement #7: Auto-filled & locked vehicle for logged-in driver so reimbursements never mix */}
+                <div>
+                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    {user?.role === 'DRV' ? t('Assigned Driver & Operational Vehicle (Auto-Filled)') : t('Operational Vehicle')}
+                  </label>
+                  {user?.role === 'DRV' && assignedDriverVeh ? (
+                    <div
+                      id="driver-expense-locked-vehicle"
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: 'var(--radius-control)',
+                        background: 'var(--color-bg-subtle)',
+                        border: '1.5px solid #0072de',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '8px',
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--color-text-primary)' }}>
+                          {assignedDriverVeh.registration_plate} — {assignedDriverVeh.make} {assignedDriverVeh.model} ({assignedDriverVeh.energy_type})
+                        </div>
+                        <div className="type-caption" style={{ color: '#005bb5', fontWeight: 700, marginTop: '2px' }}>
+                          👤 {t('Driver')}: {user.nickname} • {t('Locked to your driver account to prevent mixed claims')}
+                        </div>
+                      </div>
+                      <Lock size={16} style={{ color: '#0072de', flexShrink: 0 }} />
+                    </div>
+                  ) : (
+                    <select
+                      className="gf-select"
+                      required
+                      value={effectiveVehicleId}
+                      onChange={(e) => setDriverExpenseForm({ ...driverExpenseForm, vehicle_id: Number(e.target.value) })}
+                    >
+                      <option value={0}>Select Vehicle</option>
+                      {vehicles.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.registration_plate} — {v.make} {v.model} ({v.energy_type})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
 
-              <div>
-                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Description / Location
-                </label>
-                <input
-                  type="text"
-                  className="gf-input"
-                  placeholder="e.g. Gerbang Tol Cikarang Utama, Parkir Kantor Pusat"
-                  value={driverExpenseForm.description}
-                  onChange={(e) => setDriverExpenseForm({ ...driverExpenseForm, description: e.target.value })}
-                />
-              </div>
+                <div>
+                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    {t('Expense Category')}
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {(['Parking', 'Toll', 'Gas', 'Charging'] as const).map((cat) => (
+                      <Chip
+                        key={cat}
+                        active={driverExpenseForm.category === cat}
+                        onClick={() => setDriverExpenseForm({ ...driverExpenseForm, category: cat })}
+                      >
+                        {cat === 'Charging' ? t('Charging (EV)') : t(cat)}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
 
-              <div>
-                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Receipt Photo / Document
-                </label>
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,application/pdf"
-                  className="gf-input"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      if (file.size > 8 * 1024 * 1024) {
-                        setStatusBanner({ type: 'danger', text: 'Receipt file exceeds 8 MB size limit.' });
+                {/* Requirement #9: Petty Cash payment source */}
+                <div>
+                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    {t('Payment Source (Petty Cash Reimbursement)')}
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <Chip
+                      active={driverExpenseForm.payment_source === 'PETTY_CASH'}
+                      onClick={() => setDriverExpenseForm({ ...driverExpenseForm, payment_source: 'PETTY_CASH' })}
+                    >
+                      💵 {t('Petty Cash (Cash Parking / Operational)')}
+                    </Chip>
+                    <Chip
+                      active={driverExpenseForm.payment_source === 'DRIVER_ADVANCE'}
+                      onClick={() => setDriverExpenseForm({ ...driverExpenseForm, payment_source: 'DRIVER_ADVANCE' })}
+                    >
+                      💳 {t('Personal Cash Advance')}
+                    </Chip>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    {t('Amount (Rp)')}
+                  </label>
+                  <input
+                    type="number"
+                    className="gf-input"
+                    required
+                    min={1}
+                    placeholder="e.g. 50000"
+                    value={driverExpenseForm.amount}
+                    onChange={(e) => setDriverExpenseForm({ ...driverExpenseForm, amount: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    {t('Description / Location')}
+                  </label>
+                  <input
+                    type="text"
+                    className="gf-input"
+                    placeholder="e.g. Parkir Tunai Gedung SCBD, Gerbang Tol Cikarang Utama"
+                    value={driverExpenseForm.description}
+                    onChange={(e) => setDriverExpenseForm({ ...driverExpenseForm, description: e.target.value })}
+                  />
+                </div>
+
+                {/* Requirement #8: Complete removal of receipt photo when deleted or cancelled */}
+                <div>
+                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    {t('Receipt Photo / Document')}
+                  </label>
+                  <input
+                    ref={driverReceiptInputRef}
+                    id="driver-receipt-file-input"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,application/pdf"
+                    className="gf-input"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) {
+                        clearReceiptSelection();
                         return;
                       }
-                      const reader = new FileReader();
-                      reader.onload = (loadEvt) => {
-                        const dataUrl = loadEvt.target?.result as string;
+                      if (file.size > 15 * 1024 * 1024) {
+                        setStatusBanner({ type: 'danger', text: 'Receipt file exceeds 15 MB size limit.' });
+                        clearReceiptSelection();
+                        return;
+                      }
+                      if (file.type.startsWith('image/')) {
+                        const compressedUrl = await compressImageFileToDataUrl(file, 1200, 0.75);
                         setDriverExpenseForm((prev) => ({
                           ...prev,
                           receipt_name: file.name,
-                          receipt_data_url: dataUrl,
-                          receipt_base64: dataUrl,
-                          receipt_mime_type: file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
-                          receipt_size_bytes: file.size,
+                          receipt_data_url: compressedUrl,
+                          receipt_base64: compressedUrl,
+                          receipt_mime_type: 'image/jpeg',
+                          receipt_size_bytes: Math.round((compressedUrl.length * 3) / 4),
                         }));
-                      };
-                      reader.readAsDataURL(file);
-                    }
-                  }}
-                />
-
-                {driverExpenseForm.receipt_data_url && (
-                  <div
-                    style={{
-                      marginTop: '8px',
-                      padding: '8px 12px',
-                      borderRadius: 'var(--radius-control)',
-                      background: 'rgba(0, 114, 222, 0.08)',
-                      border: '1px solid rgba(0, 114, 222, 0.25)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '8px',
+                      } else {
+                        const reader = new FileReader();
+                        reader.onload = (loadEvt) => {
+                          const dataUrl = String(loadEvt.target?.result || '');
+                          setDriverExpenseForm((prev) => ({
+                            ...prev,
+                            receipt_name: file.name,
+                            receipt_data_url: dataUrl,
+                            receipt_base64: dataUrl,
+                            receipt_mime_type: file.type || 'application/pdf',
+                            receipt_size_bytes: file.size,
+                          }));
+                        };
+                        reader.readAsDataURL(file);
+                      }
                     }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                      {driverExpenseForm.receipt_mime_type?.startsWith('image') ? (
-                        <img
-                          src={driverExpenseForm.receipt_data_url}
-                          alt="Receipt Preview"
-                          style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px' }}
-                        />
-                      ) : (
-                        <FileText size={24} style={{ color: 'var(--color-primary)' }} />
-                      )}
-                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <div className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                          {driverExpenseForm.receipt_name}
-                        </div>
-                        <div className="type-caption" style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-                          {(driverExpenseForm.receipt_size_bytes / 1024).toFixed(1)} KB • Verified & Ready
+                  />
+
+                  {driverExpenseForm.receipt_data_url && (
+                    <div
+                      id="driver-receipt-preview-box"
+                      style={{
+                        marginTop: '8px',
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius-control)',
+                        background: 'rgba(0, 114, 222, 0.08)',
+                        border: '1px solid rgba(0, 114, 222, 0.25)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '8px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                        {driverExpenseForm.receipt_mime_type?.startsWith('image') ? (
+                          <img
+                            src={driverExpenseForm.receipt_data_url}
+                            alt="Receipt Preview"
+                            style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px' }}
+                          />
+                        ) : (
+                          <FileText size={24} style={{ color: 'var(--color-primary)' }} />
+                        )}
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                            {driverExpenseForm.receipt_name}
+                          </div>
+                          <div className="type-caption" style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                            {(driverExpenseForm.receipt_size_bytes / 1024).toFixed(1)} KB • {t('Verified & Ready')}
+                          </div>
                         </div>
                       </div>
+                      <button
+                        id="driver-remove-receipt-btn"
+                        type="button"
+                        className="gf-btn gf-btn-outline-danger"
+                        style={{ minHeight: '28px', padding: '0 8px', fontSize: '11px' }}
+                        onClick={clearReceiptSelection}
+                      >
+                        <Trash2 size={12} /> {t('Remove')}
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      className="gf-btn gf-btn-outline-danger"
-                      style={{ minHeight: '28px', padding: '0 8px', fontSize: '11px' }}
-                      onClick={() =>
-                        setDriverExpenseForm((prev) => ({
-                          ...prev,
-                          receipt_name: '',
-                          receipt_data_url: '',
-                          receipt_base64: '',
-                          receipt_mime_type: '',
-                          receipt_size_bytes: 0,
-                        }))
-                      }
-                    >
-                      Remove
-                    </button>
-                  </div>
-                )}
+                  )}
 
-                <p className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
-                  Take a photo of the receipt or attach PDF slip. Stored securely in database.
-                </p>
-              </div>
+                  <p className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
+                    {t('Take a photo of the receipt or attach PDF slip. Stored securely in database.')}
+                  </p>
+                </div>
 
-              <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-                <button
-                  type="button"
-                  className="gf-btn gf-btn-secondary"
-                  style={{ flex: 1 }}
-                  onClick={() => setShowDriverExpenseModal(false)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="gf-btn gf-btn-primary" style={{ flex: 1 }}>
-                  Submit Claim
-                </button>
-              </div>
-            </form>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-secondary"
+                    style={{ flex: 1 }}
+                    onClick={() => {
+                      clearReceiptSelection();
+                      setShowDriverExpenseModal(false);
+                    }}
+                  >
+                    {t('Cancel')}
+                  </button>
+                  <button type="submit" className="gf-btn gf-btn-primary" style={{ flex: 1 }}>
+                    {t('Submit Claim')}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {/* Requirement #12: Pre-Booking Confirmation Modal (Default +2h Advance Schedule & Urgent Change Reminder) */}
+      {showPreBookingConfirmModal && selectedVehicle && (() => {
+        const startMs = new Date(bookStart).getTime();
+        const leadTimeMin = Math.round((startMs - Date.now()) / 60000);
+        const isUrgent = leadTimeMin < 120;
+        const cleanPax = bookPassengers.filter((p) => p.nickname.trim());
+
+        return (
+          <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label="Pre-Booking Confirmation">
+            <div className="gf-modal-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                <div>
+                  <h3 className="type-title" style={{ margin: 0 }}>{t('Pre-Booking Confirmation')}</h3>
+                  <p className="type-caption" style={{ margin: '2px 0 0' }}>
+                    {t('Please review your departure schedule and details before submitting')}
+                  </p>
+                </div>
+                <StatusBadge label={isUrgent ? t('Urgent (< 2h)') : t('Standard (+2h)')} tone={isUrgent ? 'red' : 'blue'} />
+              </div>
+
+              {isUrgent ? (
+                <div style={{ padding: '12px', borderRadius: '10px', background: '#fef2f2', border: '1.5px solid #f87171', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#991b1b', fontWeight: 800, fontSize: '12px' }}>
+                    <AlertTriangle size={16} style={{ color: '#dc2626', flexShrink: 0 }} />
+                    <span>🚨 {t('Urgent Short-Notice Departure Reminder')}</span>
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#7f1d1d', lineHeight: 1.4 }}>
+                    {t('Default booking is 2 hours from current time. You selected an urgent departure in')} <strong>{Math.max(1, leadTimeMin)} min</strong>. {t('This requires Stage 1 Fleet Operation PIC consent followed by Stage 2 Head Of WS approval.')}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#991b1b' }}>
+                    <strong>{t('Urgent Reason')}:</strong> {bookUrgentReason.trim() || bookPurpose.trim()}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ padding: '12px', borderRadius: '10px', background: '#ebf5ff', border: '1.5px solid #93c5fd', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: '#005bb5' }}>
+                    🕒 {t('Scheduled 2+ Hours in Advance (Standard Policy)')}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#1e3a8a', lineHeight: 1.4 }}>
+                    {t('Your booking is automatically set for 2+ hours from now. Need to depart urgently sooner than 2 hours? Tap "Change Schedule Time" below.')}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ padding: '12px', borderRadius: '10px', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' }}>
+                <div><strong>{t('Departure')}:</strong> {new Date(bookStart).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                <div><strong>{t('Return')}:</strong> {new Date(bookEnd).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                <div><strong>{t('Route')}:</strong> {bookOrigin} → {bookDest}</div>
+                <div><strong>{t('Vehicle')}:</strong> {selectedVehicle.make} {selectedVehicle.model} ({selectedVehicle.registration_plate})</div>
+                <div><strong>{t('Trip Purpose')}:</strong> {bookPurpose}</div>
+                <div><strong>{t('Passengers')}:</strong> {cleanPax.map((p, idx) => `${idx + 1}. ${p.nickname}`).join(', ')}</div>
+              </div>
+
+              <div style={{ padding: '10px 12px', borderRadius: '8px', background: 'var(--color-bg-subtle)', fontSize: '11.5px', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>
+                ⏰ <strong>{t(' Boarding & No-Show Policy')}:</strong> {t('You will receive constant reminders starting 10 minutes before departure. If you do not show up or confirm boarding within 20 minutes after departure time, the booking will be automatically cancelled and the vehicle slot freed.')}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <button
+                  id="confirm-prebooking-submit-btn"
+                  type="button"
+                  className="gf-btn gf-btn-primary gf-btn-full"
+                  onClick={() => handleCreateTripBooking(true)}
+                >
+                  <CheckCircle2 size={16} /> {t('Confirm & Submit Booking')}
+                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    id="prebooking-change-time-btn"
+                    type="button"
+                    className="gf-btn gf-btn-secondary"
+                    style={{ flex: 1 }}
+                    onClick={() => {
+                      setShowPreBookingConfirmModal(false);
+                      setBookingStep('VEHICLE');
+                      setShowSchedulePicker(true);
+                    }}
+                  >
+                    <Calendar size={15} /> {t('Change Schedule Time')}
+                  </button>
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-ghost"
+                    style={{ flex: 1 }}
+                    onClick={() => setShowPreBookingConfirmModal(false)}
+                  >
+                    {t('Back to Summary')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {viewingReceiptModal && (
         <div
@@ -4651,11 +5047,9 @@ export function App() {
                                   {t.status === 'PENDING_APPROVAL' && t.requires_dual_approval && (
                                     <div style={{ marginTop: '4px', fontSize: '11px', fontWeight: 600 }}>
                                       {t.pic_approved && !t.hws_approved ? (
-                                        <span style={{ color: '#0072de' }}>✓ PIC Approved • Awaiting Head Of WS Part</span>
-                                      ) : t.hws_approved && !t.pic_approved ? (
-                                        <span style={{ color: '#005bb5' }}>✓ Head Of WS Part Approved • Awaiting PIC</span>
+                                        <span style={{ color: '#0072de' }}>✓ Stage 1: Fleet PIC Consented • Awaiting Stage 2: Head Of WS Part</span>
                                       ) : (
-                                        <span style={{ color: '#d97706' }}>⏳ Pending PIC & Head Of WS Part</span>
+                                        <span style={{ color: '#d97706' }}>⏳ Stage 1: Awaiting Fleet Operation PIC Consent first (then Stage 2: Head Of WS Part)</span>
                                       )}
                                     </div>
                                   )}
@@ -4727,11 +5121,9 @@ export function App() {
                           {tr.status === 'PENDING_APPROVAL' && tr.requires_dual_approval && (
                             <div style={{ fontSize: '11.5px', fontWeight: 600 }}>
                               {tr.pic_approved && !tr.hws_approved ? (
-                                <span style={{ color: '#0072de' }}>✓ PIC Approved • Awaiting Head Of WS Part</span>
-                              ) : tr.hws_approved && !tr.pic_approved ? (
-                                <span style={{ color: '#005bb5' }}>✓ Head Of WS Part Approved • Awaiting PIC</span>
+                                <span style={{ color: '#0072de' }}>✓ Stage 1: Fleet PIC Consented • Awaiting Stage 2: Head Of WS Part</span>
                               ) : (
-                                <span style={{ color: '#d97706' }}>⏳ Pending PIC & Head Of WS Part</span>
+                                <span style={{ color: '#d97706' }}>⏳ Stage 1: Awaiting Fleet Operation PIC Consent first (then Stage 2: Head Of WS Part)</span>
                               )}
                             </div>
                           )}
@@ -5435,7 +5827,7 @@ export function App() {
                                 <th>Username</th>
                                 <th>Driver Group</th>
                                 <th>Licence</th>
-                                <th>Expiry</th>
+                                <th>Petty Cash</th>
                                 <th>Status</th>
                                 <th>Toggle Status</th>
                                 <th>Actions</th>
@@ -5474,24 +5866,20 @@ export function App() {
                                           type="file"
                                           accept="image/*"
                                           style={{ display: 'none' }}
-                                          onChange={(e) => {
+                                          onChange={async (e) => {
                                             const file = e.target.files?.[0];
                                             if (file) {
-                                              const reader = new FileReader();
-                                              reader.onload = async (ev) => {
-                                                const base64 = String(ev.target?.result || '');
-                                                try {
-                                                  await apiRequest(`/api/drivers/${d.id}`, {
-                                                    method: 'PATCH',
-                                                    body: JSON.stringify({ photo_url: base64 }),
-                                                  });
-                                                  setStatusBanner({ type: 'success', text: `Photo updated for driver ${d.full_name}.` });
-                                                  await loadAllData(user);
-                                                } catch (err: any) {
-                                                  setStatusBanner({ type: 'danger', text: err.message });
-                                                }
-                                              };
-                                              reader.readAsDataURL(file);
+                                              const base64 = await compressImageFileToDataUrl(file, 900, 0.75);
+                                              try {
+                                                await apiRequest(`/api/drivers/${d.id}`, {
+                                                  method: 'PATCH',
+                                                  body: JSON.stringify({ photo_url: base64 }),
+                                                });
+                                                setStatusBanner({ type: 'success', text: `Photo updated for driver ${d.full_name}.` });
+                                                await loadAllData(user);
+                                              } catch (err: any) {
+                                                setStatusBanner({ type: 'danger', text: err.message });
+                                              }
                                             }
                                           }}
                                         />
@@ -5524,7 +5912,30 @@ export function App() {
                                     </select>
                                   </td>
                                   <td className="mono">{d.licence_number} (Class {d.licence_class})</td>
-                                  <td className="mono">{d.licence_expiry}</td>
+                                  <td>
+                                    <div className="mono" style={{ fontWeight: 800, color: '#0072de' }}>
+                                      {formatIdr(d.petty_cash_balance ?? 500000)}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="gf-btn gf-btn-secondary"
+                                      style={{ minHeight: '24px', padding: '0 7px', fontSize: '10.5px', marginTop: '3px' }}
+                                      onClick={async () => {
+                                        try {
+                                          await apiRequest(`/api/drivers/${d.id}/petty-cash-topup`, {
+                                            method: 'POST',
+                                            body: JSON.stringify({ amount: 250000 }),
+                                          });
+                                          setStatusBanner({ type: 'success', text: `Topped up Rp 250.000 Petty Cash for ${d.full_name}.` });
+                                          await loadAllData(user);
+                                        } catch (err: any) {
+                                          setStatusBanner({ type: 'danger', text: err.message });
+                                        }
+                                      }}
+                                    >
+                                      + Rp 250k Top Up
+                                    </button>
+                                  </td>
                                   <td><StatusBadge label={d.availability_status} tone={toneFromStatus(d.availability_status)} /></td>
                                   <td>
                                     <select
@@ -5597,7 +6008,7 @@ export function App() {
                                 />
                                 <div>
                                   <div style={{ fontWeight: 800, fontSize: '13.5px' }}>{d.full_name}</div>
-                                  <div className="type-caption mono">SIM {d.licence_class}: {d.licence_number}</div>
+                                  <div className="type-caption mono">SIM {d.licence_class}: {d.licence_number} • Petty Cash: {formatIdr(d.petty_cash_balance ?? 500000)}</div>
                                 </div>
                               </div>
                               <StatusBadge label={d.availability_status} tone={toneFromStatus(d.availability_status)} />
@@ -5640,6 +6051,25 @@ export function App() {
                               </select>
                             </div>
                             <div style={{ display: 'flex', gap: '6px', paddingTop: '4px', borderTop: '1px solid var(--color-divider)' }}>
+                              <button
+                                type="button"
+                                className="gf-proto-btn gf-proto-btn-s pressable"
+                                style={{ flex: 1 }}
+                                onClick={async () => {
+                                  try {
+                                    await apiRequest(`/api/drivers/${d.id}/petty-cash-topup`, {
+                                      method: 'POST',
+                                      body: JSON.stringify({ amount: 250000 }),
+                                    });
+                                    setStatusBanner({ type: 'success', text: `Topped up Rp 250.000 Petty Cash for ${d.full_name}.` });
+                                    await loadAllData(user);
+                                  } catch (err: any) {
+                                    setStatusBanner({ type: 'danger', text: err.message });
+                                  }
+                                }}
+                              >
+                                +Rp 250k Petty Cash
+                              </button>
                               <button
                                 type="button"
                                 className="gf-proto-btn gf-proto-btn-g gf-proto-btn-s pressable"
@@ -5958,7 +6388,14 @@ export function App() {
                               <td className="mono">{new Date(ex.date_time).toLocaleDateString()}</td>
                               <td className="mono" style={{ fontWeight: 700 }}>{ex.registration_plate}</td>
                               <td>
-                                <span style={{ fontWeight: 600 }}>{ex.category}</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                  <span style={{ fontWeight: 600 }}>{ex.category}</span>
+                                  {ex.payment_source === 'PETTY_CASH' && (
+                                    <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #93c5fd' }}>
+                                      💵 Petty Cash
+                                    </span>
+                                  )}
+                                </div>
                                 {ex.description && <div className="type-caption">{ex.description}</div>}
                               </td>
                               <td>{ex.submitted_by_name || 'Driver / User'}</td>
@@ -6005,9 +6442,25 @@ export function App() {
                                   <span className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>None</span>
                                 )}
                               </td>
-                              <td><StatusBadge label={ex.approval_status} tone={ex.approval_status === 'Approved' ? 'green' : ex.approval_status === 'Rejected' ? 'red' : 'blue'} /></td>
                               <td>
-                                {ex.approval_status === 'Submitted' ? (
+                                {(() => {
+                                  const expStat = String(ex.approval_status || '').toUpperCase();
+                                  const isPending = expStat === 'PENDING' || expStat === 'SUBMITTED';
+                                  return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                                      <StatusBadge
+                                        label={ex.approval_status}
+                                        tone={expStat === 'APPROVED' ? 'green' : expStat === 'REJECTED' ? 'red' : isPending ? 'blue' : 'blue'}
+                                      />
+                                      {ex.reimbursement_status === 'REIMBURSED' && (
+                                        <span style={{ fontSize: '10px', fontWeight: 700, color: '#005bb5' }}>✓ {t('Replenished to Petty Cash')}</span>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+                              </td>
+                              <td>
+                                {['PENDING', 'SUBMITTED'].includes(String(ex.approval_status || '').toUpperCase()) ? (
                                   <div style={{ display: 'flex', gap: '6px' }}>
                                     <button
                                       type="button"
@@ -6017,16 +6470,16 @@ export function App() {
                                         try {
                                           await apiRequest(`/api/expenses/${ex.id}`, {
                                             method: 'PATCH',
-                                            body: JSON.stringify({ approval_status: 'Approved' }),
+                                            body: JSON.stringify({ approval_status: 'APPROVED' }),
                                           });
-                                          setStatusBanner({ type: 'success', text: `Expense #${ex.id} approved for reimbursement.` });
+                                          setStatusBanner({ type: 'success', text: `Expense #${ex.id} approved & driver Petty Cash replenished.` });
                                           await loadAllData(user);
                                         } catch (err: any) {
                                           setStatusBanner({ type: 'danger', text: err.message });
                                         }
                                       }}
                                     >
-                                      Approve
+                                      {t('Approve')}
                                     </button>
                                     <button
                                       type="button"
@@ -6036,7 +6489,7 @@ export function App() {
                                         try {
                                           await apiRequest(`/api/expenses/${ex.id}`, {
                                             method: 'PATCH',
-                                            body: JSON.stringify({ approval_status: 'Rejected' }),
+                                            body: JSON.stringify({ approval_status: 'REJECTED' }),
                                           });
                                           setStatusBanner({ type: 'info', text: `Expense #${ex.id} rejected.` });
                                           await loadAllData(user);
@@ -6947,25 +7400,49 @@ export function App() {
 
           {driverSectionTab === 'SCHEDULE' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
-                <Chip active={scheduleFilterTab === 'ALL'} onClick={() => setScheduleFilterTab('ALL')}>
-                  {t('All Cars')} ({vehicles.length})
-                </Chip>
-                <Chip active={scheduleFilterTab === 'AVAILABLE'} onClick={() => setScheduleFilterTab('AVAILABLE')}>
-                  {t('Available Now')} ({vehicles.filter((v) => v.status === 'Available').length})
-                </Chip>
-                <Chip active={scheduleFilterTab === 'BOOKED'} onClick={() => setScheduleFilterTab('BOOKED')}>
-                  {t('Booked Today')}
-                </Chip>
-              </div>
+              {['ADM', 'FM', 'HWS'].includes(user.role) ? (
+                <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+                  <Chip active={scheduleFilterTab === 'ALL'} onClick={() => setScheduleFilterTab('ALL')}>
+                    {t('All Cars')} ({vehicles.length})
+                  </Chip>
+                  <Chip active={scheduleFilterTab === 'AVAILABLE'} onClick={() => setScheduleFilterTab('AVAILABLE')}>
+                    {t('Available Now')} ({vehicles.filter((v) => v.status === 'Available').length})
+                  </Chip>
+                  <Chip active={scheduleFilterTab === 'BOOKED'} onClick={() => setScheduleFilterTab('BOOKED')}>
+                    {t('Booked Today')}
+                  </Chip>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    background: '#ebf5ff',
+                    border: '1px solid #93c5fd',
+                    color: '#005bb5',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <Lock size={15} style={{ flexShrink: 0 }} />
+                  <span>
+                    {t('Drivers can view their own assigned schedule only. Full fleet schedule is restricted to Admin, Fleet PIC, and Head of WS.')}
+                  </span>
+                </div>
+              )}
 
               {/* My Driver Agenda */}
               {(() => {
-                const todayStr = new Date().toISOString().slice(0, 10);
                 const myAgenda = trips.filter(
-                  (t) => (t.assigned_driver_user_id === user.id || t.assigned_driver_name === user.nickname) &&
-                         String(t.start_time).startsWith(todayStr) &&
-                         t.status !== 'CANCELLED' && t.status !== 'REJECTED'
+                  (t) =>
+                    (t.assigned_driver_user_id === user.id ||
+                      (t.assigned_driver_name && t.assigned_driver_name.toLowerCase() === (user.nickname || '').toLowerCase()) ||
+                      (dedicatedCar && t.vehicle_id === dedicatedCar.id)) &&
+                    t.status !== 'CANCELLED' &&
+                    t.status !== 'REJECTED'
                 );
                 return (
                   <div
@@ -6980,18 +7457,18 @@ export function App() {
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span className="type-section" style={{ fontSize: '15px' }}>📋 My Driver Agenda (Today)</span>
-                      <StatusBadge label={`${myAgenda.length} Trips`} tone="blue" />
+                      <span className="type-section" style={{ fontSize: '15px' }}>📋 {t('My Driver Agenda (Today)')}</span>
+                      <StatusBadge label={`${myAgenda.length} ${t('Trips')}`} tone="blue" />
                     </div>
                     {myAgenda.length === 0 ? (
                       <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-                        No trips scheduled for you today. On standby.
+                        {t('No trips scheduled for you today. On standby.')}
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {myAgenda.map((t) => (
+                        {myAgenda.map((tItem) => (
                           <div
-                            key={t.id}
+                            key={tItem.id}
                             style={{
                               padding: '10px 12px',
                               borderRadius: 'var(--radius-control)',
@@ -7001,20 +7478,20 @@ export function App() {
                           >
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                               <span className="mono" style={{ fontWeight: 700, fontSize: '13px' }}>
-                                {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                {new Date(tItem.start_time).toLocaleDateString([], { month: 'short', day: 'numeric' })} • {new Date(tItem.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(tItem.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </span>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                {formatReservationModeLabel(t.reservation_type, t.return_pickup_time) && (
-                                  <StatusBadge label={formatReservationModeLabel(t.reservation_type, t.return_pickup_time)!} tone="blue" />
+                                {formatReservationModeLabel(tItem.reservation_type, tItem.return_pickup_time) && (
+                                  <StatusBadge label={formatReservationModeLabel(tItem.reservation_type, tItem.return_pickup_time)!} tone="blue" />
                                 )}
-                                <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />
+                                <StatusBadge label={tItem.status} tone={toneFromStatus(tItem.status)} />
                               </div>
                             </div>
                             <div className="type-caption" style={{ marginTop: '4px', fontWeight: 600 }}>
-                              {t.origin} ➔ {t.destination}
+                              {tItem.origin} ➔ {tItem.destination}
                             </div>
                             <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-                              Passenger: {t.passenger_nickname || 'Team'} • <span className="notranslate" translate="no">{t.department_name}</span> • Car: {t.registration_plate}
+                              {t('Passengers')}: {tItem.passenger_nickname || 'Team'} • <span className="notranslate" translate="no">{tItem.department_name}</span> • {t('Car')}: {tItem.registration_plate}
                             </div>
                           </div>
                         ))}
@@ -7024,10 +7501,13 @@ export function App() {
                 );
               })()}
 
-              {/* Cars Live Availability and Time Schedule */}
+              {/* Cars Live Availability and Time Schedule (Scoped to own dedicated car for DRV, or all cars for ADM/FM/HWS) */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {vehicles
                   .filter((v) => {
+                    if (!['ADM', 'FM', 'HWS'].includes(user.role)) {
+                      return Boolean(dedicatedCar && v.id === dedicatedCar.id);
+                    }
                     const todayStr = new Date().toISOString().slice(0, 10);
                     if (scheduleFilterTab === 'AVAILABLE') return v.status === 'Available';
                     if (scheduleFilterTab === 'BOOKED') {
@@ -7071,7 +7551,7 @@ export function App() {
                               </span>
                             </div>
                             <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
-                              👤 Driver: <strong>{v.default_driver_name || 'Pool Driver'}</strong>
+                              👤 {t('Driver')}: <strong>{v.default_driver_name || 'Pool Driver'}</strong>
                               {v.default_driver_phone && <span className="mono"> ({v.default_driver_phone})</span>}
                             </div>
                           </div>
@@ -7111,7 +7591,7 @@ export function App() {
                         <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: '6px' }}>
                           {vehicleTripsToday.length === 0 ? (
                             <div className="type-caption" style={{ color: 'var(--color-green-text)', fontWeight: 600 }}>
-                              ✅ Free all day
+                              ✅ {t('Free all day')}
                             </div>
                           ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -7140,73 +7620,65 @@ export function App() {
             </div>
           ) : (
             <>
-              {/* Driver Duty Confirmation & Location Check-In Card */}
+              {/* Item 6: Driver Online Status Bar (No separate "Ready for Duty" button — Online toggle automatically activates duty) */}
               <div
                 className="gf-proto-card"
                 style={{
                   borderColor: driverCheckedInReady ? 'var(--color-samsung-blue)' : 'var(--color-divider)',
                   background: driverCheckedInReady ? 'var(--color-samsung-blue-tint)' : 'var(--color-bg-surface)',
                   display: 'flex',
-                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
                   gap: '10px',
+                  flexWrap: 'wrap',
                 }}
               >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-              <div className="type-body" style={{ fontWeight: 700 }}>
-                {driverCheckedInReady ? t('Ready for Duty') : t('Step 1: Confirm Ready to Drive & Work')}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <span
+                    style={{
+                      width: '12px',
+                      height: '12px',
+                      borderRadius: '50%',
+                      background: driverCheckedInReady ? '#0072de' : '#94a3b8',
+                      boxShadow: driverCheckedInReady ? '0 0 0 3px rgba(0, 114, 222, 0.2)' : 'none',
+                      flexShrink: 0,
+                    }}
+                  />
+                  <div style={{ minWidth: 0 }}>
+                    <div className="type-body" style={{ fontWeight: 800, fontSize: '13.5px' }}>
+                      {driverCheckedInReady ? t('Online & Ready for Duty') : t('Offline / Standby')}
+                    </div>
+                    <div className="type-caption" style={{ color: 'var(--color-text-secondary)', fontSize: '11.5px' }}>
+                      {driverCheckedInReady
+                        ? t('Automatically ready when Online is active')
+                        : t('Tap Online to automatically go on duty')}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button
+                    id="driver-online-toggle-sheet-btn"
+                    type="button"
+                    className={`gf-btn ${driverCheckedInReady ? 'gf-btn-secondary' : 'gf-btn-primary'}`}
+                    style={{ minHeight: '34px', padding: '0 12px', fontSize: '12px' }}
+                    onClick={async () => {
+                      if (driverCheckedInReady) {
+                        setGpsReportingActive(false);
+                        setGpsNoticeAccepted(false);
+                        setStatusBanner({ type: 'info', text: t('Status updated to Offline') });
+                      } else {
+                        setGpsNoticeAccepted(true);
+                        setGpsReportingActive(true);
+                        detectAndReportUserLocation(true);
+                        await sendDriverLocationReport('GRANTED');
+                        setStatusBanner({ type: 'success', text: t('You are now Online and automatically Ready for Duty!') });
+                      }
+                    }}
+                  >
+                    <Power size={14} /> {driverCheckedInReady ? t('Go Offline') : t('Online')}
+                  </button>
+                </div>
               </div>
-              <StatusBadge label={driverCheckedInReady ? 'Verified' : 'Required'} tone={driverCheckedInReady ? 'blue' : 'amber'} />
-            </div>
-            <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-              Before starting any assigned operational trip, please confirm you are on duty and send your current check-in location to dispatch.
-            </div>
-            {!driverCheckedInReady ? (
-              <button
-                id="driver-accept-gps-notice-btn"
-                type="button"
-                className="gf-btn gf-btn-primary gf-btn-full"
-                onClick={async () => {
-                  setGpsNoticeAccepted(true);
-                  setGpsReportingActive(true);
-                  detectAndReportUserLocation(true);
-                  await sendDriverLocationReport('GRANTED');
-                  setStatusBanner({ type: 'success', text: 'Duty confirmed & check-in location sent! You can now start assigned trips.' });
-                }}
-              >
-                <Navigation size={16} /> Confirm Ready to Drive & Send Check-In Location
-              </button>
-            ) : (
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="gf-btn gf-btn-primary"
-                  style={{ flex: 1 }}
-                  onClick={async () => {
-                    detectAndReportUserLocation(false);
-                    await sendDriverLocationReport('GRANTED');
-                  }}
-                >
-                  <MapPin size={16} /> Update Check-In Location
-                </button>
-                <button
-                  type="button"
-                  className="gf-btn gf-btn-secondary"
-                  onClick={() => {
-                    setGpsReportingActive(false);
-                    setGpsNoticeAccepted(false);
-                    setStatusBanner({ type: 'info', text: t('Status updated to Offline') });
-                  }}
-                >
-                  {t('Go Offline')}
-                </button>
-              </div>
-            )}
-            {lastDriverGpsReport && (
-              <div className="type-caption mono">
-                Last check-in: {lastDriverGpsReport.permission_state} • {new Date(lastDriverGpsReport.capture_time).toLocaleTimeString()}
-              </div>
-            )}
-          </div>
 
           <h2 className="type-section">{t('Assigned Trips')} ({dispatches.length})</h2>
           {loadingData ? (
@@ -7272,222 +7744,255 @@ export function App() {
 
                     {!isCompleted && tripId && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--color-divider)' }}>
-                        {!driverCheckedInReady ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <div className="type-caption" style={{ color: 'var(--color-status-amber-fg)', fontWeight: 700 }}>
-                              Action required: Confirm duty & send check-in location before running this trip.
+                        {!d.acknowledged_at && (
+                          <button
+                            type="button"
+                            className="gf-btn gf-btn-primary gf-btn-full"
+                            onClick={async () => {
+                              setGpsNoticeAccepted(true);
+                              setGpsReportingActive(true);
+                              await sendDriverLocationReport('GRANTED');
+                              await apiRequest(`/api/driver/trips/${tripId}/acknowledge`, { method: 'POST' });
+                              setStatusBanner({ type: 'success', text: t('Dispatch order acknowledged & check-in recorded.') });
+                              await loadAllData(user);
+                            }}
+                          >
+                            {t('Acknowledge Order')}
+                          </button>
+                        )}
+                        {!isInProgress ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <div style={{ border: '1.5px solid #bfdbfe', background: '#eff6ff', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <label htmlFor={`start-odo-file-${tripId}`} style={{ fontWeight: 800, fontSize: '13px', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <Camera size={16} /> {t('Mandatory Start Odometer Photo')}
+                                </label>
+                                <span style={{ fontSize: '11px', color: '#64748b' }}>
+                                  {startOdoTime[tripId] ? `Recorded: ${startOdoTime[tripId]}` : t('Auto-recorded on capture')}
+                                </span>
+                              </div>
+                              <input
+                                type="file"
+                                id={`start-odo-file-${tripId}`}
+                                accept="image/*"
+                                capture="environment"
+                                className="gf-input"
+                                style={{ background: '#ffffff' }}
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) {
+                                    setStartOdoPhoto((prev) => {
+                                      const next = { ...prev };
+                                      delete next[tripId];
+                                      return next;
+                                    });
+                                    return;
+                                  }
+                                  try {
+                                    const compressed = await compressImageFileToDataUrl(file, 1200, 0.72);
+                                    setStartOdoPhoto((prev) => ({ ...prev, [tripId]: compressed }));
+                                    setStartOdoTime((prev) => ({ ...prev, [tripId]: new Date().toLocaleString() }));
+                                  } catch {
+                                    setStatusBanner({ type: 'danger', text: 'Failed to process odometer photo.' });
+                                  }
+                                }}
+                              />
+                              {startOdoPhoto[tripId] && (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <img
+                                      src={startOdoPhoto[tripId]}
+                                      alt="Start Odometer preview"
+                                      style={{ width: '70px', height: '50px', objectFit: 'cover', borderRadius: '8px', border: '1.5px solid #3b82f6' }}
+                                    />
+                                    <span style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: 700 }}>
+                                      ✅ {t('Odometer photo verified')} ({startOdoTime[tripId]})
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="gf-btn gf-btn-outline-danger"
+                                    style={{ minHeight: '28px', padding: '0 8px', fontSize: '11px' }}
+                                    onClick={() => {
+                                      setStartOdoPhoto((prev) => {
+                                        const next = { ...prev };
+                                        delete next[tripId];
+                                        return next;
+                                      });
+                                      const inputEl = document.getElementById(`start-odo-file-${tripId}`) as HTMLInputElement | null;
+                                      if (inputEl) inputEl.value = '';
+                                    }}
+                                  >
+                                    <X size={12} /> {t('Remove')}
+                                  </button>
+                                </div>
+                              )}
                             </div>
+
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <input
+                                type="number"
+                                className="gf-input"
+                                aria-label="Start odometer"
+                                placeholder="Start Odometer (km)"
+                                value={activeTripOdoInput[tripId] ?? d.current_odometer}
+                                onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
+                              />
+                              <button
+                                type="button"
+                                className="gf-btn gf-btn-primary"
+                                onClick={async () => {
+                                  if (!startOdoPhoto[tripId]) {
+                                    setStatusBanner({ type: 'danger', text: t('Mandatory: Driver must take a photo of the odometer before starting the trip.') });
+                                    return;
+                                  }
+                                  try {
+                                    setGpsNoticeAccepted(true);
+                                    setGpsReportingActive(true);
+                                    await sendDriverLocationReport('GRANTED');
+                                    await apiRequest(`/api/driver/trips/${tripId}/start`, {
+                                      method: 'POST',
+                                      body: JSON.stringify({
+                                        start_odometer: Number(activeTripOdoInput[tripId] ?? d.current_odometer),
+                                        start_odometer_photo: startOdoPhoto[tripId],
+                                        photo_base64: startOdoPhoto[tripId],
+                                      }),
+                                    });
+                                    setStatusBanner({ type: 'success', text: t('Check-in & odometer photo verified, trip started!') });
+                                    await loadAllData(user);
+                                  } catch (err: any) {
+                                    setStatusBanner({ type: 'danger', text: err.message });
+                                  }
+                                }}
+                              >
+                                <Play size={16} /> {t('Start Trip')}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <div style={{ border: '1.5px solid #bfdbfe', background: '#eff6ff', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <label htmlFor={`end-odo-file-${tripId}`} style={{ fontWeight: 800, fontSize: '13px', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <Camera size={16} /> {t('Mandatory Completion Odometer Photo')}
+                                </label>
+                                <span style={{ fontSize: '11px', color: '#64748b' }}>
+                                  {endOdoTime[tripId] ? `Recorded: ${endOdoTime[tripId]}` : t('Auto-recorded on capture')}
+                                </span>
+                              </div>
+                              <input
+                                type="file"
+                                id={`end-odo-file-${tripId}`}
+                                accept="image/*"
+                                capture="environment"
+                                className="gf-input"
+                                style={{ background: '#ffffff' }}
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) {
+                                    setEndOdoPhoto((prev) => {
+                                      const next = { ...prev };
+                                      delete next[tripId];
+                                      return next;
+                                    });
+                                    return;
+                                  }
+                                  try {
+                                    const compressed = await compressImageFileToDataUrl(file, 1200, 0.72);
+                                    setEndOdoPhoto((prev) => ({ ...prev, [tripId]: compressed }));
+                                    setEndOdoTime((prev) => ({ ...prev, [tripId]: new Date().toLocaleString() }));
+                                  } catch {
+                                    setStatusBanner({ type: 'danger', text: 'Failed to process odometer photo.' });
+                                  }
+                                }}
+                              />
+                              {endOdoPhoto[tripId] && (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <img
+                                      src={endOdoPhoto[tripId]}
+                                      alt="End Odometer preview"
+                                      style={{ width: '70px', height: '50px', objectFit: 'cover', borderRadius: '8px', border: '1.5px solid #3b82f6' }}
+                                    />
+                                    <span style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: 700 }}>
+                                      ✅ {t('End photo verified')} ({endOdoTime[tripId]})
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="gf-btn gf-btn-outline-danger"
+                                    style={{ minHeight: '28px', padding: '0 8px', fontSize: '11px' }}
+                                    onClick={() => {
+                                      setEndOdoPhoto((prev) => {
+                                        const next = { ...prev };
+                                        delete next[tripId];
+                                        return next;
+                                      });
+                                      const inputEl = document.getElementById(`end-odo-file-${tripId}`) as HTMLInputElement | null;
+                                      if (inputEl) inputEl.value = '';
+                                    }}
+                                  >
+                                    <X size={12} /> {t('Remove')}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            <input
+                              type="number"
+                              className="gf-input"
+                              placeholder={`End Odometer (> ${d.start_odometer || d.current_odometer})`}
+                              value={activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25}
+                              onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
+                            />
+                            {d.energy_type === 'Electric' && (
+                              <input
+                                type="number"
+                                className="gf-input"
+                                placeholder="End Battery %"
+                                value={activeTripBatteryInput[tripId] ?? '72'}
+                                onChange={(e) => setActiveTripBatteryInput({ ...activeTripBatteryInput, [tripId]: e.target.value })}
+                              />
+                            )}
+                            <input
+                              type="text"
+                              className="gf-input"
+                              placeholder="Return parking spot"
+                              value={activeTripParkingInput[tripId] ?? 'Main Pool'}
+                              onChange={(e) => setActiveTripParkingInput({ ...activeTripParkingInput, [tripId]: e.target.value })}
+                            />
                             <button
                               type="button"
                               className="gf-btn gf-btn-primary gf-btn-full"
                               onClick={async () => {
-                                setGpsNoticeAccepted(true);
-                                setGpsReportingActive(true);
-                                detectAndReportUserLocation(true);
-                                await sendDriverLocationReport('GRANTED');
-                                setStatusBanner({ type: 'success', text: 'Duty confirmed & check-in location sent!' });
+                                if (!endOdoPhoto[tripId]) {
+                                  setStatusBanner({ type: 'danger', text: t('Mandatory: Driver must take a photo of the odometer upon trip completion.') });
+                                  return;
+                                }
+                                try {
+                                  setGpsNoticeAccepted(true);
+                                  setGpsReportingActive(true);
+                                  await sendDriverLocationReport('GRANTED');
+                                  await apiRequest(`/api/driver/trips/${tripId}/complete`, {
+                                    method: 'POST',
+                                    body: JSON.stringify({
+                                      end_odometer: Number(activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25),
+                                      end_odometer_photo: endOdoPhoto[tripId],
+                                      photo_base64: endOdoPhoto[tripId],
+                                      battery_percent: d.energy_type === 'Electric' ? Number(activeTripBatteryInput[tripId] ?? 72) : undefined,
+                                      parking_return_note: activeTripParkingInput[tripId] || 'Main Pool',
+                                    }),
+                                  });
+                                  setStatusBanner({ type: 'success', text: t('Trip completed, odometer photo and timestamp saved!') });
+                                  await loadAllData(user);
+                                } catch (err: any) {
+                                  setStatusBanner({ type: 'danger', text: err.message });
+                                }
                               }}
                             >
-                              <Navigation size={16} /> Confirm to Drive & Send Check-In First
+                              {t('Complete Trip')}
                             </button>
                           </div>
-                        ) : (
-                          <>
-                            {!d.acknowledged_at && (
-                              <button
-                                type="button"
-                                className="gf-btn gf-btn-primary gf-btn-full"
-                                onClick={async () => {
-                                  await sendDriverLocationReport('GRANTED');
-                                  await apiRequest(`/api/driver/trips/${tripId}/acknowledge`, { method: 'POST' });
-                                  setStatusBanner({ type: 'success', text: 'Dispatch order acknowledged & check-in recorded.' });
-                                  await loadAllData(user);
-                                }}
-                              >
-                                Acknowledge Order & Confirm Ready
-                              </button>
-                            )}
-                            {!isInProgress ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <div style={{ border: '1.5px solid #bfdbfe', background: '#eff6ff', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                    <label htmlFor={`start-odo-file-${tripId}`} style={{ fontWeight: 800, fontSize: '13px', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                      <Camera size={16} /> Mandatory Start Odometer Photo
-                                    </label>
-                                    <span style={{ fontSize: '11px', color: '#64748b' }}>
-                                      {startOdoTime[tripId] ? `Recorded: ${startOdoTime[tripId]}` : 'Auto-recorded on capture'}
-                                    </span>
-                                  </div>
-                                  <input
-                                    type="file"
-                                    id={`start-odo-file-${tripId}`}
-                                    accept="image/*"
-                                    capture="environment"
-                                    className="gf-input"
-                                    style={{ background: '#ffffff' }}
-                                    onChange={(e) => {
-                                      const file = e.target.files?.[0];
-                                      if (!file) return;
-                                      const reader = new FileReader();
-                                      reader.onload = () => {
-                                        const b64 = reader.result as string;
-                                        setStartOdoPhoto((prev) => ({ ...prev, [tripId]: b64 }));
-                                        setStartOdoTime((prev) => ({ ...prev, [tripId]: new Date().toLocaleString() }));
-                                      };
-                                      reader.readAsDataURL(file);
-                                    }}
-                                  />
-                                  {startOdoPhoto[tripId] && (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                      <img
-                                        src={startOdoPhoto[tripId]}
-                                        alt="Start Odometer preview"
-                                        style={{ width: '70px', height: '50px', objectFit: 'cover', borderRadius: '8px', border: '1.5px solid #3b82f6' }}
-                                      />
-                                      <span style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: 700 }}>
-                                        ✅ Odometer photo verified ({startOdoTime[tripId]})
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                  <input
-                                    type="number"
-                                    className="gf-input"
-                                    aria-label="Start odometer"
-                                    placeholder="Start Odometer (km)"
-                                    value={activeTripOdoInput[tripId] ?? d.current_odometer}
-                                    onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
-                                  />
-                                  <button
-                                    type="button"
-                                    className="gf-btn gf-btn-primary"
-                                    onClick={async () => {
-                                      if (!startOdoPhoto[tripId]) {
-                                        setStatusBanner({ type: 'danger', text: 'Mandatory: Driver must take a photo of the odometer before starting the trip.' });
-                                        return;
-                                      }
-                                      try {
-                                        await sendDriverLocationReport('GRANTED');
-                                        await apiRequest(`/api/driver/trips/${tripId}/start`, {
-                                          method: 'POST',
-                                          body: JSON.stringify({
-                                            start_odometer: Number(activeTripOdoInput[tripId] ?? d.current_odometer),
-                                            start_odometer_photo: startOdoPhoto[tripId],
-                                            photo_base64: startOdoPhoto[tripId],
-                                          }),
-                                        });
-                                        setStatusBanner({ type: 'success', text: 'Check-in & odometer photo verified, trip started!' });
-                                        await loadAllData(user);
-                                      } catch (err: any) {
-                                        setStatusBanner({ type: 'danger', text: err.message });
-                                      }
-                                    }}
-                                  >
-                                    <Play size={16} /> Start Trip
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <div style={{ border: '1.5px solid #bfdbfe', background: '#eff6ff', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                    <label htmlFor={`end-odo-file-${tripId}`} style={{ fontWeight: 800, fontSize: '13px', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                      <Camera size={16} /> Mandatory Completion Odometer Photo
-                                    </label>
-                                    <span style={{ fontSize: '11px', color: '#64748b' }}>
-                                      {endOdoTime[tripId] ? `Recorded: ${endOdoTime[tripId]}` : 'Auto-recorded on capture'}
-                                    </span>
-                                  </div>
-                                  <input
-                                    type="file"
-                                    id={`end-odo-file-${tripId}`}
-                                    accept="image/*"
-                                    capture="environment"
-                                    className="gf-input"
-                                    style={{ background: '#ffffff' }}
-                                    onChange={(e) => {
-                                      const file = e.target.files?.[0];
-                                      if (!file) return;
-                                      const reader = new FileReader();
-                                      reader.onload = () => {
-                                        const b64 = reader.result as string;
-                                        setEndOdoPhoto((prev) => ({ ...prev, [tripId]: b64 }));
-                                        setEndOdoTime((prev) => ({ ...prev, [tripId]: new Date().toLocaleString() }));
-                                      };
-                                      reader.readAsDataURL(file);
-                                    }}
-                                  />
-                                  {endOdoPhoto[tripId] && (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                      <img
-                                        src={endOdoPhoto[tripId]}
-                                        alt="End Odometer preview"
-                                        style={{ width: '70px', height: '50px', objectFit: 'cover', borderRadius: '8px', border: '1.5px solid #3b82f6' }}
-                                      />
-                                      <span style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: 700 }}>
-                                        ✅ End photo verified ({endOdoTime[tripId]})
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-
-                                <input
-                                  type="number"
-                                  className="gf-input"
-                                  placeholder={`End Odometer (> ${d.start_odometer || d.current_odometer})`}
-                                  value={activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25}
-                                  onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
-                                />
-                                {d.energy_type === 'Electric' && (
-                                  <input
-                                    type="number"
-                                    className="gf-input"
-                                    placeholder="End Battery %"
-                                    value={activeTripBatteryInput[tripId] ?? '72'}
-                                    onChange={(e) => setActiveTripBatteryInput({ ...activeTripBatteryInput, [tripId]: e.target.value })}
-                                  />
-                                )}
-                                <input
-                                  type="text"
-                                  className="gf-input"
-                                  placeholder="Return parking spot"
-                                  value={activeTripParkingInput[tripId] ?? 'Main Pool'}
-                                  onChange={(e) => setActiveTripParkingInput({ ...activeTripParkingInput, [tripId]: e.target.value })}
-                                />
-                                <button
-                                  type="button"
-                                  className="gf-btn gf-btn-primary gf-btn-full"
-                                  onClick={async () => {
-                                    if (!endOdoPhoto[tripId]) {
-                                      setStatusBanner({ type: 'danger', text: 'Mandatory: Driver must take a photo of the odometer upon trip completion.' });
-                                      return;
-                                    }
-                                    try {
-                                      await sendDriverLocationReport('GRANTED');
-                                      await apiRequest(`/api/driver/trips/${tripId}/complete`, {
-                                        method: 'POST',
-                                        body: JSON.stringify({
-                                          end_odometer: Number(activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25),
-                                          end_odometer_photo: endOdoPhoto[tripId],
-                                          photo_base64: endOdoPhoto[tripId],
-                                          battery_percent: d.energy_type === 'Electric' ? Number(activeTripBatteryInput[tripId] ?? 72) : undefined,
-                                          parking_return_note: activeTripParkingInput[tripId] || 'Main Pool',
-                                        }),
-                                      });
-                                      setStatusBanner({ type: 'success', text: 'Trip completed, odometer photo and timestamp saved!' });
-                                      await loadAllData(user);
-                                    } catch (err: any) {
-                                      setStatusBanner({ type: 'danger', text: err.message });
-                                    }
-                                  }}
-                                >
-                                  Complete Trip
-                                </button>
-                              </div>
-                            )}
-                          </>
                         )}
                       </div>
                     )}
@@ -7497,12 +8002,12 @@ export function App() {
             </div>
           )}
 
-          {/* Driver Reimbursements & Expense Receipt Upload (Revision #11) */}
+          {/* Driver Reimbursements, Petty Cash Wallet & Expense Receipt Upload (Items 7, 8 & 9) */}
           <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
               <div>
-                <h2 className="type-section">Reimbursements & Receipts</h2>
-                <p className="type-caption">Upload Parking, Gas, Charging (EV), and Toll receipts for reimbursement approval</p>
+                <h2 className="type-section">{t('Reimbursements & Receipts')}</h2>
+                <p className="type-caption">{t('Upload Parking, Gas, Charging (EV), and Toll receipts for reimbursement approval')}</p>
               </div>
               <button
                 id="driver-upload-receipt-btn"
@@ -7510,15 +8015,55 @@ export function App() {
                 className="gf-btn gf-btn-primary"
                 onClick={() => setShowDriverExpenseModal(true)}
               >
-                <Upload size={16} /> Upload Receipt
+                <Upload size={16} /> {t('Upload Receipt')}
               </button>
             </div>
 
+            {/* Petty Cash Wallet Balance Card (Item 9) */}
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-card)',
+                background: 'linear-gradient(135deg, #0072de 0%, #005bb5 100%)',
+                color: '#ffffff',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '12px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 700, opacity: 0.9, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  💵 {t('Petty Cash Wallet')} ({t('Parking & Operational Cash')})
+                </div>
+                <div className="mono" style={{ fontSize: '20px', fontWeight: 800, marginTop: '2px' }}>
+                  {formatIdr(driverPettyCashBalance)}
+                </div>
+                <div style={{ fontSize: '11px', opacity: 0.88, marginTop: '2px' }}>
+                  {t('Deducted on cash parking/expense claims & replenished when Admin approves')}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '11px', opacity: 0.9 }}>{t('Pending Petty Cash Claims')}</div>
+                <div className="mono" style={{ fontSize: '14px', fontWeight: 800 }}>
+                  {formatIdr(
+                    expenses
+                      .filter((ex) => ex.payment_source === 'PETTY_CASH' && ['PENDING', 'SUBMITTED'].includes(String(ex.approval_status || ex.status || '').toUpperCase()))
+                      .reduce((sum, ex) => sum + Number(ex.amount || 0), 0)
+                  )}
+                </div>
+              </div>
+            </div>
+
             {expenses.length === 0 ? (
-              <EmptyState message="No reimbursement claims submitted yet." />
+              <EmptyState message={t('No reimbursement claims submitted yet.')} />
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {expenses.map((ex) => (
+                {expenses.map((ex) => {
+                  const expStatusNorm = String(ex.approval_status || ex.status || 'PENDING').toUpperCase();
+                  const isExpPending = expStatusNorm === 'PENDING' || expStatusNorm === 'SUBMITTED';
+                  return (
                   <div
                     key={ex.id}
                     style={{
@@ -7530,55 +8075,106 @@ export function App() {
                       justifyContent: 'space-between',
                       alignItems: 'center',
                       gap: '10px',
+                      flexWrap: 'wrap',
                     }}
                   >
                     <div>
-                      <div className="type-body" style={{ fontWeight: 700 }}>
-                        {ex.category} • Rp {Number(ex.amount).toLocaleString()}
+                      <div className="type-body" style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <span>{t(ex.category)} • Rp {Number(ex.amount).toLocaleString()}</span>
+                        {ex.payment_source === 'PETTY_CASH' && (
+                          <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #93c5fd' }}>
+                            💵 {t('Petty Cash')}
+                          </span>
+                        )}
+                        {ex.reimbursement_status === 'REIMBURSED' && (
+                          <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#dbeafe', color: '#1e40af' }}>
+                            ✓ {t('Replenished to Petty Cash')}
+                          </span>
+                        )}
                       </div>
                       <div className="type-caption">
-                        {ex.registration_plate || 'Operational Car'} • {ex.description || 'Receipt claim'} • {new Date(ex.date_time).toLocaleDateString()}
+                        {ex.registration_plate || t('Operational Car')} • {ex.description || t('Receipt claim')} • {new Date(ex.date_time).toLocaleDateString()}
                       </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                       {(ex.receipt_data_url || ex.receipt_document_id) && (
+                        <>
+                          <button
+                            type="button"
+                            className="gf-btn gf-btn-secondary"
+                            style={{ minHeight: '30px', padding: '0 8px', fontSize: '11.5px', gap: '4px' }}
+                            onClick={async () => {
+                              if (ex.receipt_data_url) {
+                                setViewingReceiptModal({
+                                  url: ex.receipt_data_url,
+                                  title: `${ex.category} Receipt (#${ex.id})`,
+                                  filename: ex.receipt_filename || 'receipt.jpg',
+                                });
+                              } else if (ex.receipt_document_id) {
+                                try {
+                                  const doc = await apiRequest(`/api/documents/${ex.receipt_document_id}`);
+                                  if (doc?.document?.content_base64) {
+                                    setViewingReceiptModal({
+                                      url: `data:${doc.document.mime_type};base64,${doc.document.content_base64}`,
+                                      title: `${ex.category} Receipt (#${ex.id})`,
+                                      filename: doc.document.file_name,
+                                    });
+                                  }
+                                } catch (err: any) {
+                                  setStatusBanner({ type: 'danger', text: err.message });
+                                }
+                              }
+                            }}
+                          >
+                            <FileText size={12} /> {t('View Receipt')}
+                          </button>
+                          {isExpPending && (
+                            <button
+                              type="button"
+                              className="gf-btn gf-btn-outline-danger"
+                              style={{ minHeight: '30px', padding: '0 8px', fontSize: '11.5px', gap: '4px' }}
+                              title={t('Remove Receipt Photo')}
+                              onClick={async () => {
+                                try {
+                                  await apiRequest(`/api/expenses/${ex.id}/receipt`, { method: 'DELETE' });
+                                  setStatusBanner({ type: 'info', text: t('Receipt photo removed.') });
+                                  await loadAllData(user);
+                                } catch (err: any) {
+                                  setStatusBanner({ type: 'danger', text: err.message });
+                                }
+                              }}
+                            >
+                              <X size={12} /> {t('Remove Receipt')}
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {isExpPending && (
                         <button
                           type="button"
-                          className="gf-btn gf-btn-secondary"
-                          style={{ minHeight: '30px', padding: '0 8px', fontSize: '12px', gap: '4px' }}
+                          className="gf-btn gf-btn-outline-danger"
+                          style={{ minHeight: '30px', padding: '0 8px', fontSize: '11.5px', gap: '4px' }}
                           onClick={async () => {
-                            if (ex.receipt_data_url) {
-                              setViewingReceiptModal({
-                                url: ex.receipt_data_url,
-                                title: `${ex.category} Receipt (#${ex.id})`,
-                                filename: ex.receipt_filename || 'receipt.jpg',
-                              });
-                            } else if (ex.receipt_document_id) {
-                              try {
-                                const doc = await apiRequest(`/api/documents/${ex.receipt_document_id}`);
-                                if (doc?.document?.content_base64) {
-                                  setViewingReceiptModal({
-                                    url: `data:${doc.document.mime_type};base64,${doc.document.content_base64}`,
-                                    title: `${ex.category} Receipt (#${ex.id})`,
-                                    filename: doc.document.file_name,
-                                  });
-                                }
-                              } catch (err: any) {
-                                setStatusBanner({ type: 'danger', text: err.message });
-                              }
+                            try {
+                              await apiRequest(`/api/expenses/${ex.id}`, { method: 'DELETE' });
+                              setStatusBanner({ type: 'info', text: t('Reimbursement claim removed.') });
+                              await loadAllData(user);
+                            } catch (err: any) {
+                              setStatusBanner({ type: 'danger', text: err.message });
                             }
                           }}
                         >
-                          <FileText size={13} /> View Receipt
+                          <X size={12} /> {t('Delete')}
                         </button>
                       )}
                       <StatusBadge
-                        label={ex.approval_status}
-                        tone={ex.approval_status === 'Approved' ? 'green' : ex.approval_status === 'Rejected' ? 'red' : 'blue'}
+                        label={ex.approval_status || ex.status}
+                        tone={expStatusNorm === 'APPROVED' ? 'green' : expStatusNorm === 'REJECTED' ? 'red' : 'blue'}
                       />
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -7770,11 +8366,48 @@ export function App() {
                   </button>
                 </div>
 
+                {/* Petty Cash Wallet Banner */}
+                <div
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: 'var(--radius-card)',
+                    background: 'linear-gradient(135deg, #0072de 0%, #005bb5 100%)',
+                    color: '#ffffff',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '12px',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '11px', fontWeight: 700, opacity: 0.9, textTransform: 'uppercase' }}>
+                      💵 {t('Petty Cash Wallet')}
+                    </div>
+                    <div className="mono" style={{ fontSize: '19px', fontWeight: 800 }}>
+                      {formatIdr(driverPettyCashBalance)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '11px', opacity: 0.9 }}>{t('Pending Petty Cash Claims')}</div>
+                    <div className="mono" style={{ fontSize: '14px', fontWeight: 800 }}>
+                      {formatIdr(
+                        expenses
+                          .filter((ex) => ex.payment_source === 'PETTY_CASH' && ['PENDING', 'SUBMITTED'].includes(String(ex.approval_status || ex.status || '').toUpperCase()))
+                          .reduce((sum, ex) => sum + Number(ex.amount || 0), 0)
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 {expenses.length === 0 ? (
                   <EmptyState message={t('No reimbursement claims submitted yet.')} />
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {expenses.map((exp) => (
+                    {expenses.map((exp) => {
+                      const expStatusNorm = String(exp.approval_status || exp.status || 'PENDING').toUpperCase();
+                      const isExpPending = expStatusNorm === 'PENDING' || expStatusNorm === 'SUBMITTED';
+                      return (
                       <div
                         key={exp.id}
                         style={{
@@ -7786,17 +8419,69 @@ export function App() {
                           alignItems: 'center',
                           justifyContent: 'space-between',
                           gap: '12px',
+                          flexWrap: 'wrap',
                         }}
                       >
                         <div>
-                          <div style={{ fontWeight: 700, fontSize: '14px' }}>{exp.category} • {formatIdr(exp.amount)}</div>
+                          <div style={{ fontWeight: 700, fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <span>{t(exp.category)} • {formatIdr(exp.amount)}</span>
+                            {exp.payment_source === 'PETTY_CASH' && (
+                              <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #93c5fd' }}>
+                                💵 {t('Petty Cash')}
+                              </span>
+                            )}
+                            {exp.reimbursement_status === 'REIMBURSED' && (
+                              <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#dbeafe', color: '#1e40af' }}>
+                                ✓ {t('Replenished to Petty Cash')}
+                              </span>
+                            )}
+                          </div>
                           <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                            {exp.description || 'No description'} • {new Date(exp.incurred_date || exp.created_at).toLocaleDateString()}
+                            {exp.registration_plate || t('Operational Car')} • {exp.description || t('No description')} • {new Date(exp.date_time || exp.incurred_date || exp.created_at).toLocaleDateString()}
                           </div>
                         </div>
-                        <StatusBadge label={exp.status} tone={exp.status === 'Approved' ? 'green' : exp.status === 'Rejected' ? 'red' : 'amber'} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          {(exp.receipt_data_url || exp.receipt_document_id) && isExpPending && (
+                            <button
+                              type="button"
+                              className="gf-btn gf-btn-outline-danger"
+                              style={{ minHeight: '28px', padding: '0 8px', fontSize: '11px' }}
+                              onClick={async () => {
+                                try {
+                                  await apiRequest(`/api/expenses/${exp.id}/receipt`, { method: 'DELETE' });
+                                  setStatusBanner({ type: 'info', text: t('Receipt photo removed.') });
+                                  await loadAllData(user);
+                                } catch (err: any) {
+                                  setStatusBanner({ type: 'danger', text: err.message });
+                                }
+                              }}
+                            >
+                              <X size={12} /> {t('Remove Receipt')}
+                            </button>
+                          )}
+                          {isExpPending && (
+                            <button
+                              type="button"
+                              className="gf-btn gf-btn-outline-danger"
+                              style={{ minHeight: '28px', padding: '0 8px', fontSize: '11px' }}
+                              onClick={async () => {
+                                try {
+                                  await apiRequest(`/api/expenses/${exp.id}`, { method: 'DELETE' });
+                                  setStatusBanner({ type: 'info', text: t('Reimbursement claim removed.') });
+                                  await loadAllData(user);
+                                } catch (err: any) {
+                                  setStatusBanner({ type: 'danger', text: err.message });
+                                }
+                              }}
+                            >
+                              <X size={12} /> {t('Delete')}
+                            </button>
+                          )}
+                          <StatusBadge label={exp.approval_status || exp.status} tone={expStatusNorm === 'APPROVED' ? 'green' : expStatusNorm === 'REJECTED' ? 'red' : 'blue'} />
+                        </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -7916,27 +8601,60 @@ export function App() {
                         : undefined
                     }
                   />
-                  {(trip.status === 'APPROVED' || trip.status === 'IN_PROGRESS') && trip.booking_status !== 'CANCELLED' && (
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '6px', borderTop: '1px solid var(--color-divider)', marginTop: '4px' }}>
-                      <button
-                        type="button"
-                        className="gf-btn gf-btn-secondary"
-                        style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const paxFormatted = formatPassengersMultiLine(trip.passengers_json, trip.passenger_nickname);
-                          const modeLabel = formatReservationModeLabel(trip.reservation_type, trip.return_pickup_time);
-                          const shareModeLine = modeLabel ? `\n📋 *Mode*: ${modeLabel}` : '';
-                          const shareMsg = `*GalaxyFleet Booking Details*\n🚗 *Vehicle*: ${trip.make} ${trip.model} (${trip.registration_plate || '—'})\n👥 *Passenger(s) [Nickname only]*:\n${paxFormatted}\n👤 *Driver*: ${trip.assigned_driver_name || 'Assigned Driver'}${trip.assigned_driver_phone ? ` (${trip.assigned_driver_phone})` : ''}\n📍 *Pickup*: ${trip.origin}\n🎯 *Destination*: ${trip.destination}\n🕒 *Schedule*: ${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${shareModeLine}\n📌 *Status*: ${trip.status}\n\n_Reminder: For privacy protection, only nicknames are used._`;
-                          if (navigator.clipboard) {
-                            navigator.clipboard.writeText(shareMsg).catch(() => {});
-                          }
-                          window.open(`https://wa.me/?text=${encodeURIComponent(shareMsg)}`, '_blank');
-                          setStatusBanner({ type: 'success', text: t('Booking details copied & opened WhatsApp to share with passenger!') });
-                        }}
-                      >
-                        <Share2 size={13} /> {t('Share to Passenger (WhatsApp)')}
-                      </button>
+                  {(trip.status === 'PENDING_APPROVAL' || trip.status === 'APPROVED' || trip.status === 'IN_PROGRESS') && trip.booking_status !== 'CANCELLED' && (
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', flexWrap: 'wrap', paddingTop: '6px', borderTop: '1px solid var(--color-divider)', marginTop: '4px' }}>
+                      {trip.status === 'APPROVED' && !trip.passenger_boarded_at && (
+                        <button
+                          type="button"
+                          className="gf-btn gf-btn-primary"
+                          style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleConfirmPassengerBoarding(trip);
+                          }}
+                        >
+                          <CheckCircle2 size={13} /> {t('I Am Here / Confirm Boarding')}
+                        </button>
+                      )}
+                      {trip.status === 'APPROVED' && Boolean(trip.passenger_boarded_at) && (
+                        <span style={{ fontSize: '11.5px', fontWeight: 700, color: '#005bb5', padding: '4px 8px', borderRadius: '6px', background: '#ebf5ff' }}>
+                          ✓ {t('Boarding Confirmed')}
+                        </span>
+                      )}
+                      {(trip.status === 'APPROVED' || trip.status === 'IN_PROGRESS') && (
+                        <button
+                          type="button"
+                          className="gf-btn gf-btn-secondary"
+                          style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const paxFormatted = formatPassengersMultiLine(trip.passengers_json, trip.passenger_nickname);
+                            const modeLabel = formatReservationModeLabel(trip.reservation_type, trip.return_pickup_time);
+                            const shareModeLine = modeLabel ? `\n📋 *Mode*: ${modeLabel}` : '';
+                            const shareMsg = `*GalaxyFleet Booking Details*\n🚗 *Vehicle*: ${trip.make} ${trip.model} (${trip.registration_plate || '—'})\n👥 *Passenger(s) [Nickname only]*:\n${paxFormatted}\n👤 *Driver*: ${trip.assigned_driver_name || 'Assigned Driver'}${trip.assigned_driver_phone ? ` (${trip.assigned_driver_phone})` : ''}\n📍 *Pickup*: ${trip.origin}\n🎯 *Destination*: ${trip.destination}\n🕒 *Schedule*: ${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${shareModeLine}\n📌 *Status*: ${trip.status}\n\n_Reminder: For privacy protection, only nicknames are used._`;
+                            if (navigator.clipboard) {
+                              navigator.clipboard.writeText(shareMsg).catch(() => {});
+                            }
+                            window.open(`https://wa.me/?text=${encodeURIComponent(shareMsg)}`, '_blank');
+                            setStatusBanner({ type: 'success', text: t('Booking details copied & opened WhatsApp to share with passenger!') });
+                          }}
+                        >
+                          <Share2 size={13} /> {t('Share to Passenger (WhatsApp)')}
+                        </button>
+                      )}
+                      {(trip.status === 'PENDING_APPROVAL' || trip.status === 'APPROVED') && (
+                        <button
+                          type="button"
+                          className="gf-btn gf-btn-outline-danger"
+                          style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCancelBookingRequest(trip);
+                          }}
+                        >
+                          {t('Cancel Booking')}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -8061,24 +8779,20 @@ export function App() {
                     type="file"
                     accept="image/*"
                     style={{ display: 'none' }}
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (file) {
-                        const reader = new FileReader();
-                        reader.onload = async (ev) => {
-                          const base64 = String(ev.target?.result || '');
-                          try {
-                            await apiRequest('/api/driver/profile/photo', {
-                              method: 'POST',
-                              body: JSON.stringify({ photo_url: base64 }),
-                            });
-                            setStatusBanner({ type: 'success', text: 'Driver profile photo updated successfully!' });
-                            await loadAllData(user);
-                          } catch (err: any) {
-                            setStatusBanner({ type: 'danger', text: err.message });
-                          }
-                        };
-                        reader.readAsDataURL(file);
+                        try {
+                          const base64 = await compressImageFileToDataUrl(file, 900, 0.75);
+                          await apiRequest('/api/driver/profile/photo', {
+                            method: 'POST',
+                            body: JSON.stringify({ photo_url: base64 }),
+                          });
+                          setStatusBanner({ type: 'success', text: t('Driver profile photo updated successfully!') });
+                          await loadAllData(user);
+                        } catch (err: any) {
+                          setStatusBanner({ type: 'danger', text: err.message });
+                        }
                       }
                     }}
                   />
@@ -8353,7 +9067,17 @@ export function App() {
     // -------------------------------------------------------------------------
     if (bookingStep === 'SCHEDULE_VIEW') {
       const todayStr = new Date().toISOString().slice(0, 10);
+      const canSeeAllDriverSchedules = ['ADM', 'FM', 'HWS'].includes(user.role);
+      const myDedicatedVehicle = vehicles.find(
+        (v) =>
+          (v.dedicated_driver_user_id && v.dedicated_driver_user_id === user.id) ||
+          (v.default_driver_name && v.default_driver_name.toLowerCase() === (user.nickname || '').toLowerCase())
+      );
+
       const filteredVehicles = vehicles.filter((v) => {
+        if (user.role === 'DRV' && !canSeeAllDriverSchedules) {
+          return Boolean(myDedicatedVehicle && v.id === myDedicatedVehicle.id);
+        }
         if (scheduleFilterTab === 'AVAILABLE') {
           return v.status === 'Available';
         }
@@ -8386,30 +9110,52 @@ export function App() {
                   setBookingStep('HOME');
                 }
               }}
-              aria-label="Back"
-              title="Back"
+              aria-label={t('Back')}
+              title={t('Back')}
             >
               <ChevronRight size={22} style={{ transform: 'rotate(180deg)' }} />
             </button>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <h1 className="type-title" style={{ fontSize: '19px' }}>Fleet Schedule</h1>
-              <p className="type-caption">Live operational timetable & dedicated drivers</p>
+              <h1 className="type-title" style={{ fontSize: '19px' }}>{t('Fleet Schedule')}</h1>
+              <p className="type-caption">{t('Live operational timetable & dedicated drivers')}</p>
             </div>
-            <StatusBadge label="Live Availability" tone="green" />
+            <StatusBadge label={t('Live Availability')} tone="green" />
           </div>
 
-          {/* Filter Chips */}
-          <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
-            <Chip active={scheduleFilterTab === 'ALL'} onClick={() => setScheduleFilterTab('ALL')}>
-              All Cars ({vehicles.length})
-            </Chip>
-            <Chip active={scheduleFilterTab === 'AVAILABLE'} onClick={() => setScheduleFilterTab('AVAILABLE')}>
-              Available Now ({vehicles.filter((v) => v.status === 'Available').length})
-            </Chip>
-            <Chip active={scheduleFilterTab === 'BOOKED'} onClick={() => setScheduleFilterTab('BOOKED')}>
-              Booked Today
-            </Chip>
-          </div>
+          {/* Filter Chips (Shown for Admin/FM/HWS or Employees viewing car availability) */}
+          {user.role !== 'DRV' || canSeeAllDriverSchedules ? (
+            <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+              <Chip active={scheduleFilterTab === 'ALL'} onClick={() => setScheduleFilterTab('ALL')}>
+                {t('All Cars')} ({vehicles.length})
+              </Chip>
+              <Chip active={scheduleFilterTab === 'AVAILABLE'} onClick={() => setScheduleFilterTab('AVAILABLE')}>
+                {t('Available Now')} ({vehicles.filter((v) => v.status === 'Available').length})
+              </Chip>
+              <Chip active={scheduleFilterTab === 'BOOKED'} onClick={() => setScheduleFilterTab('BOOKED')}>
+                {t('Booked Today')}
+              </Chip>
+            </div>
+          ) : (
+            <div
+              style={{
+                padding: '10px 12px',
+                borderRadius: '10px',
+                background: '#ebf5ff',
+                border: '1px solid #93c5fd',
+                color: '#005bb5',
+                fontSize: '12px',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <Lock size={15} style={{ flexShrink: 0 }} />
+              <span>
+                {t('Drivers can view their own assigned schedule only. Full fleet schedule is restricted to Admin, Fleet PIC, and Head of WS.')}
+              </span>
+            </div>
+          )}
 
           {/* Driver Daily Agenda Card (if Driver account or has assigned trips) */}
           {(user.role === 'DRV' || driverAgendaTrips.length > 0) && (
@@ -8425,18 +9171,18 @@ export function App() {
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="type-section" style={{ fontSize: '15px' }}>📋 My Driver Agenda (Today)</span>
-                <StatusBadge label={`${driverAgendaTrips.length} Bookings`} tone="blue" />
+                <span className="type-section" style={{ fontSize: '15px' }}>📋 {t('My Driver Agenda (Today)')}</span>
+                <StatusBadge label={`${driverAgendaTrips.length} ${t('Bookings')}`} tone="blue" />
               </div>
               {driverAgendaTrips.length === 0 ? (
                 <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-                  No trips assigned to you today. Ready on standby.
+                  {t('No trips assigned to you today. Ready on standby.')}
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {driverAgendaTrips.map((t) => (
+                  {driverAgendaTrips.map((tItem) => (
                     <div
-                      key={t.id}
+                      key={tItem.id}
                       style={{
                         padding: '10px 12px',
                         borderRadius: 'var(--radius-control)',
@@ -8446,20 +9192,20 @@ export function App() {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                         <span className="mono" style={{ fontWeight: 700, fontSize: '13px' }}>
-                          {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {new Date(tItem.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(tItem.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          {formatReservationModeLabel(t.reservation_type, t.return_pickup_time) && (
-                            <StatusBadge label={formatReservationModeLabel(t.reservation_type, t.return_pickup_time)!} tone="blue" />
+                          {formatReservationModeLabel(tItem.reservation_type, tItem.return_pickup_time) && (
+                            <StatusBadge label={formatReservationModeLabel(tItem.reservation_type, tItem.return_pickup_time)!} tone="blue" />
                           )}
-                          <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />
+                          <StatusBadge label={tItem.status} tone={toneFromStatus(tItem.status)} />
                         </div>
                       </div>
                       <div className="type-caption" style={{ marginTop: '4px', fontWeight: 600 }}>
-                        {t.origin} ➔ {t.destination}
+                        {tItem.origin} ➔ {tItem.destination}
                       </div>
                       <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-                        Passenger: {t.passenger_nickname || 'Team'} • <span className="notranslate" translate="no">{t.department_name}</span> • Car: {t.registration_plate}
+                        {t('Passengers')}: {tItem.passenger_nickname || 'Team'} • <span className="notranslate" translate="no">{tItem.department_name}</span> • {t('Car')}: {tItem.registration_plate}
                       </div>
                     </div>
                   ))}
@@ -8495,7 +9241,7 @@ export function App() {
                     boxShadow: 'var(--shadow-sm)',
                   }}
                 >
-                  {/* Top Bar: Plate + Model + Dedicated Driver */}
+                  {/* Top Bar: Plate + Model + Dedicated Driver (Full driver details only for ADM/FM/HWS) */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -8515,10 +9261,12 @@ export function App() {
                           {v.make} {v.model}
                         </span>
                       </div>
-                      <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
-                        👤 Dedicated Driver: <strong>{v.default_driver_name || 'Pool Driver'}</strong>
-                        {v.default_driver_phone && <span className="mono"> ({v.default_driver_phone})</span>}
-                      </div>
+                      {canSeeAllDriverSchedules && (
+                        <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
+                          👤 {t('Dedicated Driver')}: <strong>{v.default_driver_name || 'Pool Driver'}</strong>
+                          {v.default_driver_phone && <span className="mono"> ({v.default_driver_phone})</span>}
+                        </div>
+                      )}
                     </div>
                     <StatusBadge
                       label={isFreeNow ? 'Available Now' : v.status !== 'Available' ? v.status : 'Booked'}
@@ -8557,12 +9305,12 @@ export function App() {
                   <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: '8px' }}>
                     {vehicleTripsToday.length === 0 ? (
                       <div className="type-caption" style={{ color: 'var(--color-green-text)', fontWeight: 600 }}>
-                        ✅ Available full day — No scheduled bookings today
+                        ✅ {t('Available full day — No scheduled bookings today')}
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <div className="type-caption" style={{ fontWeight: 700 }}>
-                          Booked Slots Today ({vehicleTripsToday.length}):
+                          {t('Booked Slots Today')} ({vehicleTripsToday.length}):
                         </div>
                         {vehicleTripsToday.map((t) => {
                           const modeLabel = formatReservationModeLabel(t.reservation_type, t.return_pickup_time);
@@ -8572,7 +9320,8 @@ export function App() {
                                 🕒 {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}:
                               </span>
                               <span>
-                                <span className="notranslate" translate="no"><strong>{t.department_name}</strong></span> (Passenger: {t.passenger_nickname || 'Team'})
+                                <span className="notranslate" translate="no"><strong>{t.department_name}</strong></span>
+                                {canSeeAllDriverSchedules ? ` (Passenger: ${t.passenger_nickname || 'Team'})` : ''}
                               </span>
                               {modeLabel && (
                                 <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #bfdbfe' }}>
@@ -8601,7 +9350,7 @@ export function App() {
                         })
                       }
                     >
-                      Select & Book This Vehicle
+                      {t('Select & Book This Vehicle')}
                     </button>
                   )}
                 </div>
@@ -8841,6 +9590,7 @@ export function App() {
                   {myHomeTrips.slice(0, 6).map((tr) => {
                     const isCancelled = tr.booking_status === 'CANCELLED' || tr.status === 'CANCELLED';
                     const isPending = tr.status === 'PENDING_APPROVAL' && !isCancelled;
+                    const isApprovedTrip = tr.status === 'APPROVED' && !isCancelled;
                     const badgeLabel = isCancelled
                       ? 'CANCELLED'
                       : tr.status === 'APPROVED' && tr.registration_plate
@@ -8897,8 +9647,26 @@ export function App() {
                           {modeLabel ? ` · ${modeLabel}` : ''}
                         </div>
 
-                        {isPending && (
-                          <div style={{ marginTop: '10px' }}>
+                        {(isPending || isApprovedTrip) && (
+                          <div style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {isApprovedTrip && !tr.passenger_boarded_at && (
+                              <button
+                                type="button"
+                                className="gf-proto-btn gf-proto-btn-s pressable"
+                                style={{ background: '#0072de', color: '#ffffff', border: 'none' }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleConfirmPassengerBoarding(tr);
+                                }}
+                              >
+                                ✓ {t('I Am Here / Confirm Boarding')}
+                              </button>
+                            )}
+                            {isApprovedTrip && Boolean(tr.passenger_boarded_at) && (
+                              <span style={{ fontSize: '11.5px', fontWeight: 700, color: '#005bb5', padding: '4px 10px', borderRadius: '9999px', background: '#ebf5ff' }}>
+                                ✓ {t('Boarding Confirmed')}
+                              </span>
+                            )}
                             <button
                               type="button"
                               className="gf-proto-btn gf-proto-btn-r gf-proto-btn-s pressable"
@@ -8907,7 +9675,7 @@ export function App() {
                                 handleCancelBookingRequest(tr);
                               }}
                             >
-                              {t('Cancel')}
+                              {t('Cancel Booking')}
                             </button>
                           </div>
                         )}
@@ -9507,7 +10275,7 @@ export function App() {
             multiStopToast={multiStopToast}
           />
 
-          {/* GoCar Reference Screen 2: Outlined Action Pills ("Select via map" & "Pickup spot A/B/C") */}
+          {/* GoCar Reference Screen 2: Outlined Action Pills ("Select via map", "Pick Destination on Map", "Pickup spot A/B/C") */}
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button
               type="button"
@@ -9518,7 +10286,21 @@ export function App() {
               }}
             >
               <MapPin size={15} style={{ color: routeTab === 'PIN' ? '#ffffff' : '#0072de' }} />
-              Select via map
+              {t('Select via map')}
+            </button>
+
+            <button
+              id="route-pick-dest-map-btn"
+              type="button"
+              className={`gf-action-pill-outlined pressable ${routeTab === 'PIN' && activeRouteField === 'destination' ? 'is-active' : ''}`}
+              onClick={() => {
+                setActiveRouteField('destination');
+                setRouteTab('PIN');
+                setSheetSnap('peek');
+              }}
+            >
+              <MapPin size={15} style={{ color: routeTab === 'PIN' && activeRouteField === 'destination' ? '#ffffff' : '#0072de' }} />
+              {t('Pick Destination on Map')}
             </button>
 
             <button
@@ -9530,7 +10312,7 @@ export function App() {
               }}
             >
               <Navigation size={15} style={{ color: routeTab === 'PICKUP' ? '#ffffff' : '#0a0a0a' }} />
-              Pickup spot ({selectedPickupSpot})
+              {t('Pickup spot')} ({selectedPickupSpot})
             </button>
 
             <button
@@ -9542,7 +10324,7 @@ export function App() {
               }}
             >
               <Bookmark size={15} style={{ color: routeTab === 'SAVED' ? '#ffffff' : '#0072de' }} />
-              Saved places
+              {t('Saved places')}
             </button>
           </div>
 
@@ -9979,18 +10761,20 @@ export function App() {
               </div>
             </div>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '14px', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)', fontSize: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-text-secondary)' }}>
-                <Clock size={16} style={{ color: '#0072de' }} />
-                <span><strong>{t('Book Now')}</strong> • {t('Ready to depart immediately or tap schedule button for advance reservation')}</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '14px', background: '#ebf5ff', border: '1px solid #93c5fd', fontSize: '12px', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#005bb5' }}>
+                <Clock size={16} style={{ color: '#0072de', flexShrink: 0 }} />
+                <span>
+                  <strong>{t('Default +2h Advance Schedule')}: {getScheduleSlotBrief(bookStart, lang)}</strong> • {t('Tap Change if needed urgently (< 2h)')}
+                </span>
               </div>
               <button
                 type="button"
                 className="gf-btn gf-btn-secondary gf-btn-sm"
-                style={{ padding: '0 10px', height: '30px', fontSize: '11.5px', fontWeight: 700 }}
+                style={{ padding: '0 10px', height: '30px', fontSize: '11.5px', fontWeight: 700, flexShrink: 0 }}
                 onClick={() => setShowSchedulePicker(true)}
               >
-                {t('Set Schedule')}
+                {t('Change / Urgent')}
               </button>
             </div>
           )}
@@ -10180,7 +10964,7 @@ export function App() {
                     </div>
                   </div>
 
-                  {/* Quick Presets (Today Full Day, Tomorrow Full Day, etc.) */}
+                  {/* Quick Presets (In 2h Standard, Urgent +15m, Today Full Day, Tomorrow Full Day) */}
                   <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
                     <Chip
                       active={false}
@@ -10196,6 +10980,21 @@ export function App() {
                       }}
                     >
                       {t('In 2h (Standard)')}
+                    </Chip>
+                    <Chip
+                      active={false}
+                      onClick={() => {
+                        const hrs = bookReservationType === 'FULL_DAY' ? Math.max(8, bookDurationHours) : bookDurationHours;
+                        const sMs = roundUpTo5MinMs(Date.now() + 15 * 60000);
+                        const eMs = sMs + hrs * 3600000;
+                        setBookStart(toLocalDateTimeInput(new Date(sMs)));
+                        setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+                        if (bookReservationType === 'DROP_AND_PICKUP') {
+                          setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
+                        }
+                      }}
+                    >
+                      🚨 {t('Urgent Now (+15m)')}
                     </Chip>
                     <Chip
                       active={false}
@@ -11023,72 +11822,76 @@ export function App() {
         badgeTone = 'red';
         title = 'Awaiting Fleet Operation PIC Urgent Approval';
       } else if (isDual && picApproved) {
-        badgeLabel = 'Stage 1 Approved';
+        badgeLabel = t('Stage 1: Fleet PIC Consented');
         badgeTone = 'amber';
-        title = 'Awaiting Head Of WS Part Review';
-      } else if (isDual && hwsApproved) {
-        badgeLabel = 'Stage 1 Approved';
+        title = t('Stage 2: Awaiting Head Of WS Approval');
+      } else if (isDual && !picApproved) {
+        badgeLabel = t('Stage 1: Awaiting Fleet PIC Consent');
         badgeTone = 'amber';
-        title = 'Awaiting Fleet PIC Dispatch';
+        title = t('Stage 1: Awaiting Fleet PIC Consent');
       }
 
       const timelineSteps = isApproved
         ? [
-            { label: 'Request sent & schedule locked', sub: 'Car and driver slot reserved immediately', done: true },
+            { label: t('Request sent & schedule locked'), sub: t('Car and driver slot reserved immediately'), done: true },
             {
-              label: 'Approvals completed',
+              label: t('Approvals completed'),
               sub: focusedTrip?.adm_delegated
-                ? 'Authorized & delegated directly by System Admin'
+                ? t('Authorized & delegated directly by System Admin')
                 : isDual
-                ? 'Approved by both Fleet Operation PIC and Head Of WS Part'
+                ? t('Approved by both Fleet Operation PIC and Head Of WS Part')
                 : isUrgent
-                ? 'Approved by Fleet Operation PIC (Urgent Short-Notice Authorization)'
-                : 'Approved by Fleet Administration',
+                ? t('Approved by Fleet Operation PIC (Urgent Short-Notice Authorization)')
+                : t('Approved by Fleet Administration'),
               done: true,
             },
             {
-              label: 'Driver dispatched',
+              label: t('Driver dispatched'),
               sub: focusedTrip?.assigned_driver_name
-                ? `Driver ${focusedTrip.assigned_driver_name} is assigned (${focusedTrip.registration_plate || 'Company Car'})`
-                : 'Driver dispatched and arriving',
+                ? `${t('Driver')} ${focusedTrip.assigned_driver_name} (${focusedTrip.registration_plate || t('Company Car')})`
+                : t('Driver dispatched and arriving'),
               done: true,
             },
           ]
         : isDual
         ? [
-            { label: 'Request sent & schedule locked', sub: 'Car and driver slot reserved immediately', done: true },
+            { label: t('Request sent & schedule locked'), sub: t('Car and driver slot reserved immediately'), done: true },
             {
-              label: isUrgent ? 'Fleet Operation PIC urgent approval' : 'Fleet Operation PIC approval',
+              label: isUrgent ? t('Fleet Operation PIC urgent approval') : t('Stage 1: Fleet Operation PIC Consent'),
               sub: picApproved
-                ? 'Approved by Fleet Operation PIC'
+                ? t('Consented by Fleet Operation PIC (Stage 1 Complete)')
                 : isUrgent
-                ? 'Mandatory Fleet Operation PIC authorization required (< 2h departure)'
-                : 'Awaiting Fleet Operation PIC review',
+                ? t('Mandatory Fleet Operation PIC authorization required (< 2h departure)')
+                : t('Awaiting Fleet Operation PIC consent first'),
               done: Boolean(picApproved),
-              active: !picApproved && !hwsApproved,
+              active: !picApproved,
             },
             {
-              label: 'Head Of WS Part authorization',
-              sub: hwsApproved ? 'Approved by Head Of WS Part' : picApproved ? 'Awaiting Head Of WS Part authorization' : 'Pending',
+              label: t('Stage 2: Head Of WS Part Final Approval'),
+              sub: hwsApproved
+                ? t('Approved by Head Of WS Part')
+                : picApproved
+                ? t('Fleet PIC has consented — Now awaiting Head Of WS Part final approval')
+                : t('Locked until Fleet Operation PIC consents first'),
               done: Boolean(hwsApproved),
               active: Boolean(picApproved) && !hwsApproved,
             },
             {
-              label: 'Driver dispatched',
-              sub: 'Driver is assigned immediately upon final approval',
+              label: t('Driver dispatched'),
+              sub: t('Driver is assigned immediately upon final approval'),
               done: false,
             },
           ]
         : [
-            { label: 'Request sent & schedule locked', sub: 'Car and driver slot reserved immediately', done: true },
+            { label: t('Request sent & schedule locked'), sub: t('Car and driver slot reserved immediately'), done: true },
             {
-              label: isUrgent ? 'Fleet Operation PIC urgent approval' : 'Admin review in progress',
+              label: isUrgent ? t('Fleet Operation PIC urgent approval') : t('Admin review in progress'),
               sub: isUrgent
-                ? 'Mandatory Fleet Operation PIC authorization required (< 2h departure)'
-                : 'Fleet Admin verifies & dispatches your driver',
+                ? t('Mandatory Fleet Operation PIC authorization required (< 2h departure)')
+                : t('Fleet Admin verifies & dispatches your driver'),
               active: true,
             },
-            { label: 'Driver dispatched', sub: 'You will get a push notification once assigned', done: false },
+            { label: t('Driver dispatched'), sub: t('You will get a push notification once assigned'), done: false },
           ];
 
       return (
@@ -11180,13 +11983,32 @@ export function App() {
                   setSheetSnap('half');
                 }}
               >
-                <Car size={16} /> Open Active Trip & Driver Info
+                <Car size={16} /> {t('Open Active Trip & Driver Info')}
               </button>
+              {focusedTrip?.status === 'APPROVED' && !focusedTrip?.passenger_boarded_at && (
+                <button
+                  id="waiting-confirm-boarding-btn"
+                  type="button"
+                  className="gf-btn gf-btn-secondary gf-btn-full"
+                  onClick={() => handleConfirmPassengerBoarding(focusedTrip)}
+                >
+                  <CheckCircle2 size={16} /> {t('I Am Here / Confirm Boarding')}
+                </button>
+              )}
+              {focusedTrip?.status === 'APPROVED' && (
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-outline-danger gf-btn-full"
+                  onClick={() => handleCancelBookingRequest(focusedTrip)}
+                >
+                  {t('Cancel Booking')}
+                </button>
+              )}
             </div>
           ) : isRejected ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px 14px' }}>
-                <div style={{ fontWeight: 700, color: '#991b1b', fontSize: '13px' }}>Rejection Reason:</div>
+                <div style={{ fontWeight: 700, color: '#991b1b', fontSize: '13px' }}>{t('Rejection Reason')}:</div>
                 <div style={{ color: '#7f1d1d', fontSize: '13px', marginTop: '2px' }}>
                   {focusedTrip?.decisions?.find((d: any) => d.decision === 'REJECTED')?.reason || 'Booking request was rejected by fleet administration.'}
                 </div>
@@ -11200,7 +12022,7 @@ export function App() {
                   setSheetSnap('half');
                 }}
               >
-                Dismiss & Return to Home
+                {t('Dismiss & Return to Home')}
               </button>
             </div>
           ) : (
@@ -11214,11 +12036,11 @@ export function App() {
                     const [trpRes, bkgRes] = await Promise.all([apiRequest('/api/trips'), apiRequest('/api/bookings')]);
                     if (trpRes.trips) setTrips(trpRes.trips);
                     if (bkgRes.bookings) setBookings(bkgRes.bookings);
-                    setStatusBanner({ type: 'info', text: 'Trip status synced.' });
+                    setStatusBanner({ type: 'info', text: t('Trip status synced.') });
                   } catch {}
                 }}
               >
-                <RefreshCw size={14} /> Sync Status
+                <RefreshCw size={14} /> {t('Sync Status')}
               </button>
               <button
                 type="button"
@@ -11226,7 +12048,7 @@ export function App() {
                 style={{ flex: 1 }}
                 onClick={() => handleCancelBookingRequest(focusedTrip)}
               >
-                Cancel Request
+                {t('Cancel Request')}
               </button>
             </div>
           )}
@@ -11252,7 +12074,7 @@ export function App() {
             {tripModeLabel && <StatusBadge label={tripModeLabel} tone="blue" />}
           </div>
           <h1 className="type-title" style={{ marginTop: '6px' }}>
-            {isStarted ? `Arriving in ~${Math.max(8, currentMetrics.durationMin || 18)} min (ETA ${currentMetrics.etaText})` : 'Driver arriving in ~10 min'}
+            {isStarted ? `Arriving in ~${Math.max(8, currentMetrics.durationMin || 18)} min (ETA ${currentMetrics.etaText})` : t('Driver arriving in ~10 min')}
           </h1>
           {tripToShow && (
             <div className="type-caption">{tripToShow.origin} → {tripToShow.destination}</div>
@@ -11268,6 +12090,59 @@ export function App() {
             </div>
           )}
         </div>
+
+        {/* Item 1 & Item 2: 10-Min Reminder & 20-Min Auto-Cancel Policy + Confirm Boarding + Cancel Approved Booking */}
+        {!isStarted && tripToShow?.status === 'APPROVED' && (
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: 'var(--radius-card)',
+              background: tripToShow?.passenger_boarded_at ? '#ebf5ff' : '#fffbeb',
+              border: tripToShow?.passenger_boarded_at ? '1.5px solid #93c5fd' : '1.5px solid #fde68a',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+              <Clock size={16} style={{ color: tripToShow?.passenger_boarded_at ? '#0072de' : '#d97706', flexShrink: 0, marginTop: '2px' }} />
+              <div style={{ fontSize: '12px', color: tripToShow?.passenger_boarded_at ? '#005bb5' : '#92400e', lineHeight: 1.4 }}>
+                {tripToShow?.passenger_boarded_at ? (
+                  <>
+                    <strong>✓ {t('Boarding Confirmed')}</strong> — {t('Your presence is recorded. Auto-cancellation timer is stopped.')}
+                  </>
+                ) : (
+                  <>
+                    <strong>⏰ {t('10-Min Departure Reminder & 20-Min Auto-Cancel')}:</strong>{' '}
+                    {t('Repeated reminders are sent starting 10 minutes before departure. Bookings are auto-cancelled if you do not confirm boarding or start the trip within 20 minutes after departure.')}
+                  </>
+                )}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {!tripToShow?.passenger_boarded_at && (
+                <button
+                  id="confirm-boarding-btn"
+                  type="button"
+                  className="gf-btn gf-btn-primary"
+                  style={{ flex: 1, minHeight: '38px', fontSize: '12.5px' }}
+                  onClick={() => handleConfirmPassengerBoarding(tripToShow)}
+                >
+                  <CheckCircle2 size={15} /> {t('I Am Here / Confirm Boarding')}
+                </button>
+              )}
+              <button
+                id="cancel-approved-booking-btn"
+                type="button"
+                className="gf-btn gf-btn-outline-danger"
+                style={{ flex: tripToShow?.passenger_boarded_at ? 1 : undefined, minHeight: '38px', fontSize: '12.5px', padding: '0 14px' }}
+                onClick={() => handleCancelBookingRequest(tripToShow)}
+              >
+                <X size={15} /> {t('Cancel Booking')}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Driver Row: Round Photo, Name, Rating, Bold Plate Box */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '14px', borderRadius: 'var(--radius-card)', border: '1px solid var(--color-divider)' }}>
@@ -11290,7 +12165,7 @@ export function App() {
             </div>
             <div style={{ minWidth: 0 }}>
               <div className="type-body" style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {tripToShow?.assigned_driver_name || 'Assigned Company Driver'}
+                {tripToShow?.assigned_driver_name || t('Assigned Company Driver')}
               </div>
               <div className="type-caption" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <Star size={12} style={{ color: 'var(--color-green)', fill: 'var(--color-green)' }} />
@@ -11331,7 +12206,7 @@ export function App() {
             title="Call driver via phone app"
           >
             <span className="gf-icon-btn-48 pressable"><Phone size={20} /></span>
-            <span className="type-caption" style={{ fontWeight: 600 }}>Call</span>
+            <span className="type-caption" style={{ fontWeight: 600 }}>{t('Call')}</span>
           </button>
 
           <button
@@ -11368,13 +12243,13 @@ export function App() {
                 navigator.clipboard.writeText(shareMsg).catch(() => {});
               }
               window.open(`https://wa.me/?text=${encodeURIComponent(shareMsg)}`, '_blank');
-              setStatusBanner({ type: 'success', text: 'Booking details copied & opened WhatsApp to share with passenger!' });
+              setStatusBanner({ type: 'success', text: t('Booking details copied & opened WhatsApp to share with passenger!') });
             }}
             style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', background: 'transparent', border: 'none', cursor: 'pointer' }}
             title="Share booking details to passenger via WhatsApp"
           >
             <span className="gf-icon-btn-48 pressable"><Share2 size={20} /></span>
-            <span className="type-caption" style={{ fontWeight: 600 }}>Share</span>
+            <span className="type-caption" style={{ fontWeight: 600 }}>{t('Share')}</span>
           </button>
         </div>
 

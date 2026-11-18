@@ -486,6 +486,109 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
   { en: 'Driver Reimbursements', id: 'Klaim Biaya Driver', ko: '기사 경비 청구' },
   { en: 'Upload Parking, Gas, EV Charging, and Toll receipts', id: 'Unggah struk Parkir, BBM, Pengisian EV, dan Tol', ko: '주차, 주유, EV 충전, 통행료 영수증을 업로드하세요' },
   { en: 'No reimbursement claims submitted yet.', id: 'Belum ada pengajuan klaim biaya.', ko: '아직 제출된 경비 청구가 없습니다.' },
+
+  // Additional Employee, Driver & Admin UI Phrases (Comprehensive Coverage)
+  { en: 'Waiting for approval', id: 'Menunggu persetujuan', ko: '승인 대기 중' },
+  { en: 'Approved & Dispatched', id: 'Disetujui & Dikirim', ko: '승인 및 배차 완료' },
+  { en: 'Request sent', id: 'Permintaan terkirim', ko: '요청 전송됨' },
+  { en: 'Booking Approved!', id: 'Booking Disetujui!', ko: '예약 승인 완료!' },
+  { en: 'Booking Request Rejected', id: 'Permintaan Booking Ditolak', ko: '예약 요청 반려됨' },
+  { en: 'Awaiting Fleet Operation PIC Urgent Approval', id: 'Menunggu Persetujuan Mendesak PIC Armada', ko: '차량 담당자 긴급 승인 대기 중' },
+  { en: 'Awaiting Fleet Operation PIC Consent (Stage 1)', id: 'Menunggu Persetujuan PIC Operasional Armada (Tahap 1)', ko: '1단계: 차량 운영 담당자 동의 대기 중' },
+  { en: 'Awaiting Head Of WS Part Review', id: 'Menunggu Tinjauan Head Of WS Part', ko: 'WS 부서장 검토 대기 중' },
+  { en: 'Awaiting Head Of WS Part Approval (Stage 2)', id: 'Menunggu Persetujuan Head Of WS Part (Tahap 2)', ko: '2단계: WS 부서장 최종 승인 대기 중' },
+  { en: 'Awaiting Fleet PIC Dispatch', id: 'Menunggu Disposisi Fleet PIC', ko: '차량 담당자 배차 대기 중' },
+  { en: 'Stage 1 Approved', id: 'Tahap 1 Disetujui', ko: '1단계 승인 완료' },
+  { en: 'Stage 1: Fleet PIC Consent', id: 'Tahap 1: Persetujuan Fleet PIC', ko: '1단계: 차량 담당자 동의' },
+  { en: 'Stage 2: Head Of WS Approval', id: 'Tahap 2: Persetujuan Head Of WS', ko: '2단계: WS 부서장 승인' },
+  { en: 'Sequential Approval Hierarchy', id: 'Hierarki Persetujuan Berurutan', ko: '순차적 승인 체계' },
+  { en: 'Step 1: Fleet Operation PIC must consent first before Step 2: Head Of WS Part can approve.', id: 'Tahap 1: PIC Operasional Armada wajib menyetujui lebih dulu sebelum Tahap 2: Head Of WS Part dapat menyetujui.', ko: '1단계 차량 운영 담당자 동의 후 2단계 WS 부서장 승인이 가능합니다.' },
+  { en: 'Awaiting Stage 1 (Fleet Operation PIC Consent) first', id: 'Menunggu Tahap 1 (Persetujuan PIC Armada) terlebih dahulu', ko: '1단계(차량 담당자 동의) 완료 대기 중' },
+  { en: 'Consent as Fleet Operation PIC (Stage 1)', id: 'Setujui sebagai PIC Operasional Armada (Tahap 1)', ko: '차량 담당자 동의 (1단계)' },
+  { en: 'Approve & Dispatch as Head Of WS (Stage 2)', id: 'Setujui & Disposisi sebagai Head Of WS (Tahap 2)', ko: 'WS 부서장 최종 승인 및 배차 (2단계)' },
+  { en: 'Approve & Delegate as Admin', id: 'Setujui & Delegasikan sebagai Admin', ko: '관리자 권한으로 즉시 승인 및 배차' },
+  { en: 'Open Active Trip & Driver Info', id: 'Buka Info Perjalanan & Driver Aktif', ko: '진행 중인 운행 및 기사 정보 열기' },
+  { en: 'Dismiss & Return to Home', id: 'Tutup & Kembali ke Beranda', ko: '닫고 홈으로 돌아가기' },
+  { en: 'Sync Status', id: 'Sinkronkan Status', ko: '상태 동기화' },
+  { en: 'Cancel Request', id: 'Batalkan Permintaan', ko: '요청 취소' },
+  { en: 'Cancel Booking', id: 'Batalkan Booking', ko: '예약 취소' },
+  { en: 'Cancel Approved Booking', id: 'Batalkan Booking yang Disetujui', ko: '승인된 예약 취소' },
+  { en: 'Plans changed? You can cancel this booking to free the vehicle slot.', id: 'Rencana berubah? Anda dapat membatalkan booking ini agar slot mobil tersedia kembali.', ko: '일정이 변경되셨나요? 예약을 취소하여 차량 슬롯을 비울 수 있습니다.' },
+  { en: 'I Am Here / Confirm Boarding', id: 'Saya Sudah di Mobil / Konfirmasi Naik', ko: '탑승 확인 (출발 대기)' },
+  { en: 'Boarding Confirmed', id: 'Konfirmasi Naik Tercatat', ko: '탑승 확인 완료' },
+  { en: 'Boarding Confirmed • Ready for Driver Start Trip', id: 'Penumpang Sudah Naik • Siap Driver Mulai Jalan', ko: '탑승 확인됨 • 기사 출발 대기' },
+  { en: 'Departure Reminder (10 Min Warning)', id: 'Pengingat Keberangkatan (10 Menit Sebelum Jalan)', ko: '출발 10분 전 알림' },
+  { en: 'Auto-cancels 20 minutes after scheduled departure if passenger does not show up.', id: 'Otomatis dibatalkan 20 menit setelah jadwal berangkat jika penumpang tidak hadir.', ko: '출발 시간 후 20분 이내 미탑승 시 자동 취소됩니다.' },
+  { en: 'Please confirm boarding or ask driver to start trip within 20 minutes of departure.', id: 'Harap konfirmasi naik atau minta driver mulai perjalanan dalam 20 menit dari jadwal berangkat.', ko: '출발 후 20분 이내에 탑승 확인을 누르거나 기사에게 운행 시작을 요청하세요.' },
+  { en: 'Pre-Booking Confirmation', id: 'Konfirmasi Sebelum Booking', ko: '예약 최종 확인' },
+  { en: 'Review your schedule and trip details before submitting your booking request.', id: 'Periksa kembali jadwal dan rincian perjalanan Anda sebelum mengirim permintaan booking.', ko: '예약 요청을 제출하기 전에 일정과 운행 정보를 확인하세요.' },
+  { en: 'Default departure is set to 2 hours from now. Need to leave earlier? Tap Change Schedule.', id: 'Waktu berangkat otomatis diatur 2 jam dari sekarang. Perlu berangkat lebih cepat/mendesak? Ketuk Ubah Jadwal.', ko: '기본 출발 시간은 현재로부터 2시간 후로 설정됩니다. 긴급 출발이 필요하시면 일정 변경을 누르세요.' },
+  { en: 'Urgent Departure (< 2 Hours From Now)', id: 'Keberangkatan Mendesak (< 2 Jam Dari Sekarang)', ko: '긴급 출발 (현재로부터 2시간 이내)' },
+  { en: 'You selected a departure time less than 2 hours from now. Would you like to keep this urgent time or adjust the schedule?', id: 'Anda memilih waktu keberangkatan kurang dari 2 jam dari sekarang. Apakah Anda yakin ingin jadwal mendesak ini atau ingin mengubah jadwal?', ko: '출발 시간이 현재로부터 2시간 이내입니다. 긴급 일정으로 진행하시겠습니까, 아니면 시간을 변경하시겠습니까?' },
+  { en: 'Adjust Schedule Time', id: 'Ubah Waktu Jadwal', ko: '출발 시간 변경' },
+  { en: 'Confirm & Submit Booking', id: 'Konfirmasi & Kirim Booking', ko: '예약 확정 및 제출' },
+  { en: 'Pick Destination on Map', id: 'Pilih Tujuan di Peta', ko: '지도에서 목적지 선택' },
+  { en: 'Select via map', id: 'Pilih lewat peta', ko: '지도에서 선택' },
+  { en: 'Saved places', id: 'Tempat tersimpan', ko: '저장된 장소' },
+  { en: 'Confirm pickup spot', id: 'Konfirmasi titik jemput', ko: '픽업 지점 확인' },
+  { en: 'Use GPS', id: 'Gunakan GPS', ko: 'GPS 사용' },
+  { en: 'Quick Corporate Locations', id: 'Lokasi Korporat Cepat', ko: '주요 사내 거점' },
+  { en: 'Driver provided', id: 'Termasuk pengemudi', ko: '전담 기사 포함' },
+  { en: 'Company driver assigned & schedule locked', id: 'Driver perusahaan ditugaskan & jadwal dikunci', ko: '사내 기사 배정 및 일정 고정' },
+  { en: 'Included', id: 'Termasuk', ko: '포함됨' },
+  { en: 'Self-drive', id: 'Lepas kunci (Self-drive)', ko: '자가 운전' },
+  { en: 'Disabled by company policy', id: 'Dinonaktifkan sesuai kebijakan perusahaan', ko: '회사 정책에 의해 비활성화됨' },
+  { en: 'Auto-assign on Admin approval', id: 'Otomatis ditugaskan saat disetujui Admin', ko: '관리자 승인 시 자동 배정' },
+  { en: 'Petty Cash Balance', id: 'Saldo Kas Kecil (Petty Cash)', ko: '소액 현금(페티캐시) 잔액' },
+  { en: 'Driver Petty Cash Wallet', id: 'Dompet Petty Cash Driver', ko: '기사 소액 현금(페티캐시) 지갑' },
+  { en: 'Cash parking and operational fees are deducted from your Petty Cash float and replenished upon Admin/Fleet PIC approval.', id: 'Biaya parkir tunai dan operasional dipotong dari saldo Petty Cash Anda dan diisi kembali saat klaim disetujui Admin/Fleet PIC.', ko: '현금 주차비 및 운행 경비는 페티캐시 잔액에서 차감되며 관리자 승인 시 보충됩니다.' },
+  { en: 'Pending Petty Cash Claims', id: 'Klaim Petty Cash Menunggu', ko: '승인 대기 중인 페티캐시 청구' },
+  { en: 'Reimbursed to Petty Cash', id: 'Telah Direimburse ke Petty Cash', ko: '페티캐시 보충 완료액' },
+  { en: 'Payment Source', id: 'Sumber Pembayaran', ko: '결제 수단' },
+  { en: 'Petty Cash (Cash Parking / Operational)', id: 'Petty Cash (Parkir Tunai / Operasional)', ko: '페티캐시 (현금 주차/운행비)' },
+  { en: 'Driver Personal Advance (Reimburse)', id: 'Talangan Pribadi Driver (Reimburse)', ko: '기사 개인 선결제 (정산 청구)' },
+  { en: 'Top Up Petty Cash', id: 'Top Up Saldo Petty Cash', ko: '페티캐시 잔액 충전' },
+  { en: 'Assigned Operational Vehicle (Auto-Filled)', id: 'Kendaraan Operasional Ditugaskan (Otomatis Terisi)', ko: '배정된 운행 차량 (자동 입력됨)' },
+  { en: 'Locked to your logged-in driver account so reimbursements never mix with other drivers.', id: 'Dikunci ke akun driver Anda agar klaim reimbursement tidak tercampur dengan driver lain.', ko: '로그인한 기사 계정에 고정되어 다른 기사의 정산 내역과 섞이지 않습니다.' },
+  { en: 'Remove Photo / Cancel Upload', id: 'Hapus Foto / Batalkan Unggahan', ko: '사진 삭제 / 업로드 취소' },
+  { en: 'Delete Receipt Photo', id: 'Hapus Foto Struk', ko: '영수증 사진 삭제' },
+  { en: 'Delete Claim', id: 'Hapus Klaim', ko: '청구 내역 삭제' },
+  { en: 'My Assigned Schedule Only', id: 'Hanya Jadwal Tugas Saya', ko: '내 배정 일정만 표시' },
+  { en: 'Drivers can view their own assigned schedule only. Full fleet schedule is restricted to Admin, Fleet PIC, and Head of WS.', id: 'Driver hanya dapat melihat jadwal miliknya sendiri. Jadwal seluruh armada hanya untuk Admin, Fleet PIC, dan Head of WS.', ko: '기사는 본인의 배정 일정만 볼 수 있습니다. 전체 차량 일정은 관리자, 차량 담당자 및 부서장만 열람 가능합니다.' },
+  { en: 'Fleet Schedule', id: 'Jadwal Armada', ko: '차량 운행 일정' },
+  { en: 'Live operational timetable & dedicated drivers', id: 'Jadwal operasional langsung & pengemudi khusus', ko: '실시간 운행 시간표 및 전담 기사' },
+  { en: 'Live Availability', id: 'Ketersediaan Live', ko: '실시간 현황' },
+  { en: 'Select & Book This Vehicle', id: 'Pilih & Pesan Kendaraan Ini', ko: '이 차량 선택 및 예약' },
+  { en: 'No dispatch orders assigned to you yet.', id: 'Belum ada perintah disposisi yang ditugaskan kepada Anda.', ko: '아직 배정된 운행 명령이 없습니다.' },
+  { en: 'View Receipt', id: 'Lihat Struk', ko: '영수증 보기' },
+  { en: 'Submit Claim', id: 'Kirim Klaim', ko: '청구 제출' },
+  { en: 'Overall Fleet Live Map', id: 'Peta Live Seluruh Armada', ko: '전체 차량 실시간 관제 지도' },
+  { en: 'Live Vehicle Status Directory', id: 'Direktori Status Kendaraan Live', ko: '실시간 차량 상태 목록' },
+  { en: 'Register New Vehicle', id: 'Daftarkan Kendaraan Baru', ko: '신규 차량 등록' },
+  { en: 'Add Vehicle', id: 'Tambah Kendaraan', ko: '차량 추가' },
+  { en: 'Register / Update Driver Profile & Group', id: 'Daftarkan / Perbarui Profil & Grup Driver', ko: '기사 프로필 및 그룹 등록/수정' },
+  { en: 'Save Driver', id: 'Simpan Driver', ko: '기사 저장' },
+  { en: 'Add Group', id: 'Tambah Grup', ko: '그룹 추가' },
+  { en: 'Gasoline Fuel Records (Litres)', id: 'Catatan BBM Bensin (Liter)', ko: '가솔린 주유 기록 (리터)' },
+  { en: 'EV Charging Records (kWh)', id: 'Catatan Pengisian EV (kWh)', ko: '전기차 충전 기록 (kWh)' },
+  { en: 'Maintenance Schedule', id: 'Jadwal Perawatan', ko: '정비 일정' },
+  { en: 'Document Vault', id: 'Penyimpanan Dokumen', ko: '문서 보관함' },
+  { en: 'Usage Analytics & Executive Briefing', id: 'Analitik Penggunaan & Laporan Eksekutif', ko: '운행 통계 및 임원 브리핑' },
+  { en: 'Open Executive Report (PDF/Print)', id: 'Buka Laporan Eksekutif (PDF/Cetak)', ko: '임원 보고서 열기 (PDF/인쇄)' },
+  { en: 'Print Executive Briefing', id: 'Cetak Laporan Eksekutif', ko: '임원 브리핑 인쇄' },
+  { en: 'Vehicle Usage & Cost Breakdown (IDR)', id: 'Rincian Penggunaan & Biaya Kendaraan (IDR)', ko: '차량별 운행 및 비용 내역 (IDR)' },
+  { en: 'Driver Operational Usage Summary', id: 'Ringkasan Penggunaan Operasional Driver', ko: '기사별 운행 요약' },
+  { en: 'Group Order', id: 'Pesanan Grup', ko: '그룹 배차' },
+  { en: 'Work Trip', id: 'Perjalanan Dinas', ko: '업무 운행' },
+  { en: 'Call', id: 'Telepon', ko: '전화' },
+  { en: 'Share', id: 'Bagikan', ko: '공유' },
+  { en: 'Instant', id: 'Langsung', ko: '즉시' },
+  { en: 'Scheduled', id: 'Terjadwal', ko: '예약됨' },
+  { en: 'Booking History', id: 'Riwayat Pesanan', ko: '예약 내역' },
+  { en: 'Stage 1/2: Awaiting Fleet PIC Consent', id: 'Tahap 1/2: Menunggu Persetujuan PIC Fleet', ko: '1/2단계: 차량 담당자 동의 대기' },
+  { en: 'Stage 2/2: Fleet PIC Consented', id: 'Tahap 2/2: PIC Fleet Setuju', ko: '2/2단계: 차량 담당자 동의 완료' },
+  { en: 'Awaiting Head of WS', id: 'Menunggu Head of WS', ko: 'WS 부서장 승인 대기' },
+  { en: 'Stage 2/2: Fleet PIC Consented • Awaiting Head of WS', id: 'Tahap 2/2: PIC Fleet Setuju • Menunggu Head of WS', ko: '2/2단계: 차량 담당자 동의 완료 • WS 부서장 승인 대기' },
 ];
 
 /**
@@ -535,6 +638,123 @@ for (const [alias, canonicalEn] of PHRASE_ALIASES) {
 }
 
 /**
+ * Dynamic pattern translators for interpolated strings with numbers/names
+ */
+const DYNAMIC_PATTERNS: Array<{
+  regex: RegExp;
+  render: (match: RegExpExecArray, lang: SupportedLang) => string;
+}> = [
+  {
+    regex: /^Showing (\d+) of (\d+) vehicles$/i,
+    render: (m, l) =>
+      l === 'id' ? `Menampilkan ${m[1]} dari ${m[2]} kendaraan` : l === 'ko' ? `전체 ${m[2]}대 중 ${m[1]}대 표시` : `Showing ${m[1]} of ${m[2]} vehicles`,
+  },
+  {
+    regex: /^Menampilkan (\d+) dari (\d+) kendaraan$/i,
+    render: (m, l) =>
+      l === 'id' ? `Menampilkan ${m[1]} dari ${m[2]} kendaraan` : l === 'ko' ? `전체 ${m[2]}대 중 ${m[1]}대 표시` : `Showing ${m[1]} of ${m[2]} vehicles`,
+  },
+  {
+    regex: /^전체 (\d+)대 중 (\d+)대 표시$/i,
+    render: (m, l) =>
+      l === 'id' ? `Menampilkan ${m[2]} dari ${m[1]} kendaraan` : l === 'ko' ? `전체 ${m[1]}대 중 ${m[2]}대 표시` : `Showing ${m[2]} of ${m[1]} vehicles`,
+  },
+  {
+    regex: /^(\d+) trips? completed$/i,
+    render: (m, l) => (l === 'id' ? `${m[1]} perjalanan selesai` : l === 'ko' ? `${m[1]}건 운행 완료` : `${m[1]} trips completed`),
+  },
+  {
+    regex: /^(\d+) perjalanan selesai$/i,
+    render: (m, l) => (l === 'id' ? `${m[1]} perjalanan selesai` : l === 'ko' ? `${m[1]}건 운행 완료` : `${m[1]} trips completed`),
+  },
+  {
+    regex: /^([\d.,]+) km traveled$/i,
+    render: (m, l) => (l === 'id' ? `${m[1]} km ditempuh` : l === 'ko' ? `${m[1]} km 주행` : `${m[1]} km traveled`),
+  },
+  {
+    regex: /^Booked Slots Today \((\d+)\):?$/i,
+    render: (m, l) => (l === 'id' ? `Slot Dipesan Hari Ini (${m[1]}):` : l === 'ko' ? `오늘 예약된 슬롯 (${m[1]}):` : `Booked Slots Today (${m[1]}):`),
+  },
+  {
+    regex: /^Fleet Register \((\d+) Cars — Edit Plate, Type & Standby\)$/i,
+    render: (m, l) =>
+      l === 'id'
+        ? `Daftar Armada (${m[1]} Mobil — Ubah Pelat, Tipe & Siaga)`
+        : l === 'ko'
+        ? `차량 등록부 (${m[1]}대 — 번호판, 유형 및 대기 편집)`
+        : `Fleet Register (${m[1]} Cars — Edit Plate, Type & Standby)`,
+  },
+  {
+    regex: /^System Audit Trail \((\d+) Recorded Events\)$/i,
+    render: (m, l) =>
+      l === 'id'
+        ? `Jejak Audit Sistem (${m[1]} Kejadian Tercatat)`
+        : l === 'ko'
+        ? `시스템 감사 로그 (${m[1]}건 기록됨)`
+        : `System Audit Trail (${m[1]} Recorded Events)`,
+  },
+  {
+    regex: /^Completed Trips Elapsed Driving Time \((\d+) Trips\)$/i,
+    render: (m, l) =>
+      l === 'id'
+        ? `Waktu Tempuh Perjalanan Selesai (${m[1]} Perjalanan)`
+        : l === 'ko'
+        ? `완료된 운행 소요 시간 (${m[1]}건)`
+        : `Completed Trips Elapsed Driving Time (${m[1]} Trips)`,
+  },
+  {
+    regex: /^Confirm pickup point \(Spot ([A-Z])\)$/i,
+    render: (m, l) =>
+      l === 'id' ? `Konfirmasi titik jemput (Titik ${m[1]})` : l === 'ko' ? `픽업 위치 확인 (지점 ${m[1]})` : `Confirm pickup point (Spot ${m[1]})`,
+  },
+  {
+    regex: /^Pickup spot \(([A-Z])\)$/i,
+    render: (m, l) => (l === 'id' ? `Titik jemput (${m[1]})` : l === 'ko' ? `픽업 지점 (${m[1]})` : `Pickup spot (${m[1]})`),
+  },
+  {
+    regex: /^Capacity:\s*(\d+) of (\d+) passengers$/i,
+    render: (m, l) =>
+      l === 'id' ? `Kapasitas: ${m[1]} dari ${m[2]} penumpang` : l === 'ko' ? `탑승 정원: ${m[2]}명 중 ${m[1]}명` : `Capacity: ${m[1]} of ${m[2]} passengers`,
+  },
+  {
+    regex: /^Driver:\s*(.+)$/i,
+    render: (m, l) => (l === 'id' ? `Pengemudi: ${m[1]}` : l === 'ko' ? `기사: ${m[1]}` : `Driver: ${m[1]}`),
+  },
+  {
+    regex: /^Pengemudi:\s*(.+)$/i,
+    render: (m, l) => (l === 'id' ? `Pengemudi: ${m[1]}` : l === 'ko' ? `기사: ${m[1]}` : `Driver: ${m[1]}`),
+  },
+  {
+    regex: /^Passenger:\s*(.+)$/i,
+    render: (m, l) => (l === 'id' ? `Penumpang: ${m[1]}` : l === 'ko' ? `탑승자: ${m[1]}` : `Passenger: ${m[1]}`),
+  },
+  {
+    regex: /^Departing in (\d+) mins?!$/i,
+    render: (m, l) => (l === 'id' ? `Berangkat dalam ${m[1]} menit!` : l === 'ko' ? `${m[1]}분 후 출발!` : `Departing in ${m[1]} mins!`),
+  },
+  {
+    regex: /^Berangkat dalam (\d+) menit!$/i,
+    render: (m, l) => (l === 'id' ? `Berangkat dalam ${m[1]} menit!` : l === 'ko' ? `${m[1]}분 후 출발!` : `Departing in ${m[1]} mins!`),
+  },
+  {
+    regex: /^(\d+)분 후 출발!$/i,
+    render: (m, l) => (l === 'id' ? `Berangkat dalam ${m[1]} menit!` : l === 'ko' ? `${m[1]}분 후 출발!` : `Departing in ${m[1]} mins!`),
+  },
+  {
+    regex: /^(\d+) seats? available$/i,
+    render: (m, l) => (l === 'id' ? `${m[1]} kursi tersedia` : l === 'ko' ? `${m[1]}석 이용 가능` : `${m[1]} seats available`),
+  },
+  {
+    regex: /^(\d+) kursi tersedia$/i,
+    render: (m, l) => (l === 'id' ? `${m[1]} kursi tersedia` : l === 'ko' ? `${m[1]}석 이용 가능` : `${m[1]} seats available`),
+  },
+  {
+    regex: /^(\d+)석 이용 가능$/i,
+    render: (m, l) => (l === 'id' ? `${m[1]} kursi tersedia` : l === 'ko' ? `${m[1]}석 이용 가능` : `${m[1]} seats available`),
+  },
+];
+
+/**
  * Get current application language from storage or browser
  */
 export function getCurrentLanguage(): SupportedLang {
@@ -559,6 +779,41 @@ export function getCurrentLanguage(): SupportedLang {
   return 'en';
 }
 
+function lookupCore(coreText: string, lang: SupportedLang): string | null {
+  if (!coreText) return null;
+  let entry = TRANSLATION_MAP.get(coreText) || TRANSLATION_MAP.get(coreText.toLowerCase());
+  let suffix = '';
+  if (!entry) {
+    const punctMatch = coreText.match(/[:*.›→]+$/);
+    if (punctMatch) {
+      suffix = punctMatch[0];
+      const stripped = coreText.slice(0, -suffix.length).trim();
+      entry = TRANSLATION_MAP.get(stripped) || TRANSLATION_MAP.get(stripped.toLowerCase());
+    }
+  }
+  if (entry) {
+    return `${entry[lang] || entry.en}${suffix}`;
+  }
+
+  // Check trailing parenthetical count e.g. "Pending Account Registrations (0)"
+  const countMatch = coreText.match(/^(.+?)\s*(\(\d+[^)]*\))$/);
+  if (countMatch) {
+    const baseEntry = TRANSLATION_MAP.get(countMatch[1].trim()) || TRANSLATION_MAP.get(countMatch[1].trim().toLowerCase());
+    if (baseEntry) {
+      return `${baseEntry[lang] || baseEntry.en} ${countMatch[2]}`;
+    }
+  }
+
+  for (const pat of DYNAMIC_PATTERNS) {
+    const m = pat.regex.exec(coreText);
+    if (m) {
+      return pat.render(m, lang);
+    }
+  }
+
+  return null;
+}
+
 /**
  * Translates any input string (English, Indonesian, or Korean) to target language
  */
@@ -569,25 +824,38 @@ export function t(text: string, targetLang?: SupportedLang): string {
   const trimmed = text.trim();
   if (!trimmed) return text;
 
-  // Direct lookup (exact or lowercase)
-  let entry = TRANSLATION_MAP.get(trimmed) || TRANSLATION_MAP.get(trimmed.toLowerCase());
+  const leadingSpaces = text.match(/^\s*/)?.[0] || '';
+  const trailingSpaces = text.match(/\s*$/)?.[0] || '';
 
-  // Suffix matching if trailing punctuation
-  let suffix = '';
-  if (!entry) {
-    const punctMatch = trimmed.match(/[:*.]+$/);
-    if (punctMatch) {
-      suffix = punctMatch[0];
-      const core = trimmed.slice(0, -suffix.length).trim();
-      entry = TRANSLATION_MAP.get(core) || TRANSLATION_MAP.get(core.toLowerCase());
+  // 1. Direct / pattern lookup
+  const direct = lookupCore(trimmed, lang);
+  if (direct !== null) {
+    return `${leadingSpaces}${direct}${trailingSpaces}`;
+  }
+
+  // 2. Leading icon/symbol prefix preservation (e.g., "✓ Filled", "📋 My Driver Agenda (Today)")
+  const prefixMatch = trimmed.match(/^([✓✅⏳⚠️🚨⚡⛽🚗🅿️📋🕒📍🎯👤👥🔁✕+•]+\s+)(.+)$/u);
+  if (prefixMatch) {
+    const translatedRest = lookupCore(prefixMatch[2].trim(), lang);
+    if (translatedRest !== null) {
+      return `${leadingSpaces}${prefixMatch[1]}${translatedRest}${trailingSpaces}`;
     }
   }
 
-  if (entry) {
-    const result = entry[lang] || entry.en;
-    const leadingSpaces = text.match(/^\s*/)?.[0] || '';
-    const trailingSpaces = text.match(/\s*$/)?.[0] || '';
-    return `${leadingSpaces}${result}${suffix}${trailingSpaces}`;
+  // 3. Multi-segment separator translation (" • ", " · ", " — ")
+  for (const sep of [' • ', ' · ', ' — ']) {
+    if (trimmed.includes(sep)) {
+      const parts = trimmed.split(sep);
+      let changed = false;
+      const mapped = parts.map((part) => {
+        const tr = t(part, lang);
+        if (tr !== part) changed = true;
+        return tr;
+      });
+      if (changed) {
+        return `${leadingSpaces}${mapped.join(sep)}${trailingSpaces}`;
+      }
+    }
   }
 
   return text;
@@ -649,98 +917,103 @@ const originalTextMap = new WeakMap<Node, string>();
 const translatedByWalkerMap = new WeakMap<Node, string>();
 const originalPlaceholderMap = new WeakMap<Element, string>();
 const originalTitleMap = new WeakMap<Element, string>();
+let isTranslatingDom = false;
 
 /**
  * High-performance DOM tree walker that translates text nodes in place
  */
 export function translateDomTree(root: Node = document.body, lang: SupportedLang = getCurrentLanguage()) {
-  if (typeof document === 'undefined' || !root) return;
+  if (typeof document === 'undefined' || !root || isTranslatingDom) return;
+  isTranslatingDom = true;
+  try {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node: Node) => {
+        const parent = node.parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
 
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode: (node: Node) => {
-      const parent = node.parentElement;
-      if (!parent) return NodeFilter.FILTER_REJECT;
+        // Skip elements that should never be translated
+        const tag = parent.tagName;
+        if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'CODE', 'PRE', 'SVG'].includes(tag)) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        if (parent.closest('.notranslate, [translate="no"], .goog-te-combo')) {
+          return NodeFilter.FILTER_REJECT;
+        }
 
-      // Skip elements that should never be translated
-      const tag = parent.tagName;
-      if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'CODE', 'PRE', 'SVG'].includes(tag)) {
-        return NodeFilter.FILTER_REJECT;
-      }
-      if (parent.closest('.notranslate, [translate="no"], .goog-te-combo')) {
-        return NodeFilter.FILTER_REJECT;
-      }
+        const val = node.nodeValue;
+        if (!val || !val.trim()) return NodeFilter.FILTER_REJECT;
 
-      const val = node.nodeValue;
-      if (!val || !val.trim()) return NodeFilter.FILTER_REJECT;
-
-      return NodeFilter.FILTER_ACCEPT;
-    },
-  });
-
-  const nodesToUpdate: Array<{ node: Node; originalText: string }> = [];
-
-  let currentNode = walker.nextNode();
-  while (currentNode) {
-    let original = originalTextMap.get(currentNode);
-    const prevWalkerVal = translatedByWalkerMap.get(currentNode);
-    const currentVal = currentNode.nodeValue || '';
-    if (original === undefined) {
-      original = currentVal;
-      originalTextMap.set(currentNode, original);
-    } else if (currentVal !== prevWalkerVal && currentVal !== original) {
-      // React re-rendered this text node cleanly; adopt new text without reverting it
-      original = currentVal;
-      originalTextMap.set(currentNode, original);
-      translatedByWalkerMap.delete(currentNode);
-    }
-    nodesToUpdate.push({ node: currentNode, originalText: original });
-    currentNode = walker.nextNode();
-  }
-
-  for (const { node, originalText } of nodesToUpdate) {
-    const translated = t(originalText, lang);
-    const prevWalkerVal = translatedByWalkerMap.get(node);
-    if (translated !== originalText) {
-      if (node.nodeValue !== translated) {
-        node.nodeValue = translated;
-      }
-      translatedByWalkerMap.set(node, translated);
-    } else if (prevWalkerVal !== undefined && node.nodeValue === prevWalkerVal) {
-      node.nodeValue = originalText;
-      translatedByWalkerMap.delete(node);
-    }
-  }
-
-  // Also translate input/textarea placeholders and element titles
-  if (root instanceof Element || root instanceof Document) {
-    const inputs = (root as Element).querySelectorAll?.('input[placeholder], textarea[placeholder]') || [];
-    inputs.forEach((el) => {
-      const htmlEl = el as HTMLInputElement | HTMLTextAreaElement;
-      if (htmlEl.closest?.('.notranslate, [translate="no"]')) return;
-      let orig = originalPlaceholderMap.get(htmlEl);
-      if (orig === undefined) {
-        orig = htmlEl.placeholder || '';
-        originalPlaceholderMap.set(htmlEl, orig);
-      }
-      const translated = t(orig, lang);
-      if (htmlEl.placeholder !== translated) {
-        htmlEl.placeholder = translated;
-      }
+        return NodeFilter.FILTER_ACCEPT;
+      },
     });
 
-    const titled = (root as Element).querySelectorAll?.('[title]') || [];
-    titled.forEach((el) => {
-      if (el.closest?.('.notranslate, [translate="no"]')) return;
-      let orig = originalTitleMap.get(el);
-      if (orig === undefined) {
-        orig = el.getAttribute('title') || '';
-        originalTitleMap.set(el, orig);
+    const nodesToUpdate: Array<{ node: Node; originalText: string }> = [];
+
+    let currentNode = walker.nextNode();
+    while (currentNode) {
+      let original = originalTextMap.get(currentNode);
+      const prevWalkerVal = translatedByWalkerMap.get(currentNode);
+      const currentVal = currentNode.nodeValue || '';
+      if (original === undefined) {
+        original = currentVal;
+        originalTextMap.set(currentNode, original);
+      } else if (currentVal !== prevWalkerVal && currentVal !== original) {
+        // React re-rendered this text node cleanly; adopt new text without reverting it
+        original = currentVal;
+        originalTextMap.set(currentNode, original);
+        translatedByWalkerMap.delete(currentNode);
       }
-      const translated = t(orig, lang);
-      if (el.getAttribute('title') !== translated) {
-        el.setAttribute('title', translated);
+      nodesToUpdate.push({ node: currentNode, originalText: original });
+      currentNode = walker.nextNode();
+    }
+
+    for (const { node, originalText } of nodesToUpdate) {
+      const translated = t(originalText, lang);
+      const prevWalkerVal = translatedByWalkerMap.get(node);
+      if (translated !== originalText) {
+        if (node.nodeValue !== translated) {
+          node.nodeValue = translated;
+        }
+        translatedByWalkerMap.set(node, translated);
+      } else if (prevWalkerVal !== undefined && node.nodeValue === prevWalkerVal) {
+        node.nodeValue = originalText;
+        translatedByWalkerMap.delete(node);
       }
-    });
+    }
+
+    // Also translate input/textarea placeholders and element titles
+    if (root instanceof Element || root instanceof Document) {
+      const inputs = (root as Element).querySelectorAll?.('input[placeholder], textarea[placeholder]') || [];
+      inputs.forEach((el) => {
+        const htmlEl = el as HTMLInputElement | HTMLTextAreaElement;
+        if (htmlEl.closest?.('.notranslate, [translate="no"]')) return;
+        let orig = originalPlaceholderMap.get(htmlEl);
+        if (orig === undefined) {
+          orig = htmlEl.placeholder || '';
+          originalPlaceholderMap.set(htmlEl, orig);
+        }
+        const translated = t(orig, lang);
+        if (htmlEl.placeholder !== translated) {
+          htmlEl.placeholder = translated;
+        }
+      });
+
+      const titled = (root as Element).querySelectorAll?.('[title]') || [];
+      titled.forEach((el) => {
+        if (el.closest?.('.notranslate, [translate="no"]')) return;
+        let orig = originalTitleMap.get(el);
+        if (orig === undefined) {
+          orig = el.getAttribute('title') || '';
+          originalTitleMap.set(el, orig);
+        }
+        const translated = t(orig, lang);
+        if (el.getAttribute('title') !== translated) {
+          el.setAttribute('title', translated);
+        }
+      });
+    }
+  } finally {
+    isTranslatingDom = false;
   }
 }
 
@@ -757,6 +1030,7 @@ export function startDomTranslationObserver() {
   translateDomTree(document.body, currentLang);
 
   mutationObserver = new MutationObserver((mutations) => {
+    if (isTranslatingDom) return;
     const lang = getCurrentLanguage();
 
     let hasRelevantChanges = false;
@@ -765,19 +1039,27 @@ export function startDomTranslationObserver() {
         hasRelevantChanges = true;
         break;
       }
+      if (m.type === 'characterData' && m.target) {
+        const prev = translatedByWalkerMap.get(m.target);
+        if (m.target.nodeValue !== prev) {
+          hasRelevantChanges = true;
+          break;
+        }
+      }
     }
 
     if (hasRelevantChanges) {
       if (debounceTimer) window.clearTimeout(debounceTimer);
       debounceTimer = window.setTimeout(() => {
         translateDomTree(document.body, lang);
-      }, 50);
+      }, 40);
     }
   });
 
   mutationObserver.observe(document.body, {
     childList: true,
     subtree: true,
+    characterData: true,
   });
 }
 
@@ -802,6 +1084,10 @@ export function setAppLanguage(nextLang: SupportedLang) {
   // Dispatch custom event for React components
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('gf_language_change', { detail: { lang: nextLang } }));
+    // Schedule post-React-render passes so newly rendered React text nodes also translate
+    window.requestAnimationFrame?.(() => translateDomTree(document.body, nextLang));
+    window.setTimeout(() => translateDomTree(document.body, nextLang), 60);
+    window.setTimeout(() => translateDomTree(document.body, nextLang), 180);
   }
 }
 
@@ -840,3 +1126,4 @@ export function useAppLanguage(): {
     t: (text: string) => t(text, lang),
   };
 }
+
