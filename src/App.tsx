@@ -60,6 +60,7 @@ import {
   formatPhoneCallUrl,
 } from './components/MapView';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
+import { DisplayModeToggle } from './components/DisplayModeToggle';
 import { useAppLanguage, startDomTranslationObserver, translateDomTree, type SupportedLang } from './utils/i18n';
 import { SamsungBusLogo } from './components/SamsungBusLogo';
 import { RouteFields } from './components/RouteFields';
@@ -2375,7 +2376,8 @@ export function App() {
     return (
       <div className="gf-auth-screen">
         <div className="gf-auth-card">
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+            <DisplayModeToggle variant="compact" id="auth-display-mode-toggle" />
             <LanguageSwitcher />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
@@ -7307,6 +7309,7 @@ export function App() {
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <DisplayModeToggle variant="icon" id="driver-display-mode-toggle" />
               <LanguageSwitcher compact />
               <StatusBadge label={driverCheckedInReady ? t('Online & Checked In') : t('Offline / Standby')} tone={driverCheckedInReady ? 'blue' : 'amber'} />
             </div>
@@ -8851,6 +8854,12 @@ export function App() {
             </div>
 
             <div style={{ padding: '12px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
+              <div className="type-caption" style={{ fontWeight: 700, marginBottom: '4px' }}>{t('Display Mode')}</div>
+              <div className="type-caption" style={{ marginBottom: '8px' }}>{t('Mobile View keeps a compact phone layout; Web View shows the full desktop layout.')}</div>
+              <DisplayModeToggle variant="full" id="profile-display-mode-toggle-0" />
+            </div>
+
+            <div style={{ padding: '12px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
               <div className="type-caption" style={{ fontWeight: 700, marginBottom: '8px' }}>{t('Appearance')}</div>
               <Segmented
                 ariaLabel="Theme preference"
@@ -8974,6 +8983,12 @@ export function App() {
           <div style={{ padding: '12px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
             <div className="type-caption" style={{ fontWeight: 700, marginBottom: '8px' }}>{t('Language')}</div>
             <LanguageSwitcher />
+          </div>
+
+          <div style={{ padding: '12px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
+            <div className="type-caption" style={{ fontWeight: 700, marginBottom: '4px' }}>{t('Display Mode')}</div>
+            <div className="type-caption" style={{ marginBottom: '8px' }}>{t('Mobile View keeps a compact phone layout; Web View shows the full desktop layout.')}</div>
+            <DisplayModeToggle variant="full" id="profile-display-mode-toggle-1" />
           </div>
 
           <div style={{ padding: '12px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
@@ -9454,6 +9469,7 @@ export function App() {
                   {t('Search services')}
                 </span>
               </button>
+              <DisplayModeToggle variant="icon" id="home-display-mode-toggle" />
               <button
                 type="button"
                 className="gf-driver-avatar-btn pressable"

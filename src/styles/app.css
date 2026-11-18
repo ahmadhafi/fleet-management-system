@@ -571,7 +571,7 @@ textarea {
 }
 
 /* Laptop & Compact Desktops (768px - 1380px) — keep entire permanent header unclipped */
-@media (min-width: 768px) and (max-width: 1380px) {
+@container gfapp (min-width: 768px) and (max-width: 1380px) {
   .gf-embedded-topbar {
     padding: 0 14px;
     gap: 10px;
@@ -599,7 +599,7 @@ textarea {
 }
 
 /* Mobile Navigation & Screen Real Estate (< 768px) — Clean Native App Mode */
-@media (max-width: 767px) {
+@container gfapp (max-width: 767px) {
   /* Hide desktop website navbar completely on mobile */
   .gf-topbar-nav {
     display: none !important;
@@ -726,14 +726,14 @@ textarea {
   }
 }
 
-@media (max-width: 380px) {
+@container gfapp (max-width: 380px) {
   .gf-topbar-title {
     font-size: 13.5px;
   }
 }
 
 /* Tablet Layout (768px - 1023px) — Permanent Topbar Nav + Floating Card Sheet (No Deadzone!) */
-@media (min-width: 768px) and (max-width: 1023px) {
+@container gfapp (min-width: 768px) and (max-width: 1023px) {
   .gf-bottom-nav {
     display: none !important;
   }
@@ -745,7 +745,7 @@ textarea {
     left: var(--space-4);
     right: auto;
     bottom: var(--space-4);
-    width: min(420px, calc(100vw - 32px));
+    width: min(420px, calc(100% - 32px));
     height: auto !important;
     max-height: calc(100dvh - 96px);
     border-radius: var(--radius-sheet);
@@ -787,7 +787,7 @@ textarea {
   display: none;
 }
 
-@media (min-width: 1024px) {
+@container gfapp (min-width: 1024px) {
   .gf-bottom-nav {
     display: none !important;
   }
@@ -1921,7 +1921,7 @@ textarea {
   padding: 0;
 }
 
-@media (min-width: 640px) {
+@container gfapp (min-width: 640px) {
   .gf-modal-backdrop {
     align-items: center;
     padding: var(--space-4);
@@ -1940,7 +1940,7 @@ textarea {
   border: 1px solid var(--color-divider);
 }
 
-@media (min-width: 640px) {
+@container gfapp (min-width: 640px) {
   .gf-modal-card {
     border-radius: var(--radius-sheet);
     padding: var(--space-6);
@@ -1969,7 +1969,7 @@ textarea {
   box-shadow: 2px 0 16px rgba(15, 23, 42, 0.03);
 }
 
-@media (min-width: 1024px) {
+@container gfapp (min-width: 1024px) {
   .gf-admin-sidebar {
     display: flex;
   }
@@ -2188,7 +2188,7 @@ iframe.goog-te-banner-frame {
 }
 
 /* Responsive Language Switcher Labels */
-@media (max-width: 767px) {
+@container gfapp (max-width: 767px) {
   .gf-lang-label-full {
     display: none !important;
   }
@@ -2312,7 +2312,7 @@ iframe.goog-te-banner-frame {
   border: 1px solid var(--color-divider);
 }
 
-@media (max-width: 767px) {
+@container gfapp (max-width: 767px) {
   .gf-map-back-btn {
     top: calc(14px + var(--safe-top)) !important;
     left: 12px !important;
@@ -3294,7 +3294,7 @@ iframe.goog-te-banner-frame {
   margin: -14px -16px;
 }
 
-@media (min-width: 768px) {
+@container gfapp (min-width: 768px) {
   .gf-proto-land-shell {
     margin: -20px;
   }
@@ -3606,7 +3606,7 @@ iframe.goog-te-banner-frame {
   display: none;
 }
 
-@media (min-width: 768px) {
+@container gfapp (min-width: 768px) {
   .gf-admin-bottom-nav {
     display: none !important;
   }
@@ -3619,13 +3619,18 @@ iframe.goog-te-banner-frame {
 }
 
 /* Hide tablet hamburger button on mobile (<768px where bottom nav is used) and desktop (>=1024px where sidebar is visible) */
-@media (max-width: 767px), (min-width: 1024px) {
+@container gfapp (max-width: 767px) {
+  .gf-tablet-only-menu-btn {
+    display: none !important;
+  }
+}
+@container gfapp (min-width: 1024px) {
   .gf-tablet-only-menu-btn {
     display: none !important;
   }
 }
 
-@media (max-width: 767px) {
+@container gfapp (max-width: 767px) {
   /* Proportional Mobile Typography */
   .type-hero {
     font-size: 19px !important;
@@ -3778,7 +3783,7 @@ iframe.goog-te-banner-frame {
   bottom: 0 !important;
 }
 
-@media (max-width: 767px) {
+@container gfapp (max-width: 767px) {
   .gf-map-stage-host {
     position: absolute;
     top: 0;
@@ -3792,7 +3797,7 @@ iframe.goog-te-banner-frame {
   .gf-sheet.is-fullscreen-page {
     position: fixed !important;
     inset: 0 !important;
-    width: 100vw !important;
+    width: 100% !important;
     height: 100dvh !important;
     max-height: 100dvh !important;
     border-radius: 0 !important;
@@ -3800,7 +3805,7 @@ iframe.goog-te-banner-frame {
   }
 }
 
-@media (min-width: 768px) and (max-width: 1023px) {
+@container gfapp (min-width: 768px) and (max-width: 1023px) {
   .gf-ride-layout.is-no-map {
     display: flex;
     justify-content: center;
@@ -3812,7 +3817,7 @@ iframe.goog-te-banner-frame {
     right: auto !important;
     bottom: auto !important;
     top: 0 !important;
-    width: min(500px, 100vw) !important;
+    width: min(500px, 100%) !important;
     height: calc(100dvh - 64px) !important;
     max-height: calc(100dvh - 64px) !important;
     border-radius: 0 !important;
@@ -3824,7 +3829,7 @@ iframe.goog-te-banner-frame {
   }
 }
 
-@media (min-width: 1024px) {
+@container gfapp (min-width: 1024px) {
   /* Reduce map proportion on desktop when map IS visible during car booking */
   .gf-ride-layout:not(.is-no-map) .gf-sheet {
     width: 500px;
@@ -3838,8 +3843,8 @@ iframe.goog-te-banner-frame {
     background: var(--color-bg-subtle);
   }
   .gf-sheet.is-fullscreen-page {
-    width: min(520px, 100vw) !important;
-    min-width: min(520px, 100vw) !important;
+    width: min(520px, 100%) !important;
+    min-width: min(520px, 100%) !important;
     max-width: 520px !important;
     height: 100% !important;
     max-height: 100% !important;
@@ -3897,4 +3902,222 @@ iframe.goog-te-banner-frame {
 
 :root[data-theme='dark'] .gf-gocar-dest-row-card:hover {
   background: rgba(37, 140, 251, 0.12);
+}
+
+/* ============================================================================
+ * DISPLAY MODE — MOBILE APPEARANCE ⇄ WEB APPEARANCE
+ * #root is the "app frame" and a named size container (gfapp). Every layout
+ * rule above uses `@container gfapp (...)`, so the frame width — not the
+ * browser width — decides the layout:
+ *   - data-display-mode="mobile": frame is max 430px (phone) → mobile layout
+ *   - data-display-mode="web": frame is full width → responsive web layout
+ * Layout containment also makes #root the containing block for position:fixed
+ * UI (bottom navs, sheets, modals) so they stay inside the phone frame.
+ * ========================================================================== */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+#root {
+  container: gfapp / inline-size;
+  /* Layout containment → #root becomes the containing block for position:fixed UI */
+  contain: layout;
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  margin: 0 auto;
+  overflow: hidden;
+  background: var(--color-bg-canvas);
+}
+
+.gf-app-scroller {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* Desktop / tablet backdrop around the phone frame in Mobile appearance */
+@media (min-width: 520px) {
+  html[data-display-mode='mobile'] body {
+    background:
+      radial-gradient(circle at 20% 10%, rgba(0, 114, 222, 0.10), transparent 45%),
+      radial-gradient(circle at 85% 90%, rgba(0, 91, 181, 0.10), transparent 45%),
+      var(--color-bg-subtle);
+  }
+  html[data-display-mode='mobile'] #root {
+    max-width: 430px;
+    border-left: 1px solid var(--color-divider);
+    border-right: 1px solid var(--color-divider);
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.03), 0 24px 70px rgba(15, 23, 42, 0.18);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Toggle component
+ * ------------------------------------------------------------------------- */
+.gf-display-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.gf-display-toggle.is-dark-glass {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.gf-display-toggle-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 26px;
+  min-width: 28px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.gf-display-toggle.is-dark-glass .gf-display-toggle-btn {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.gf-display-toggle-btn.is-active,
+.gf-display-toggle.is-dark-glass .gf-display-toggle-btn.is-active {
+  background: var(--color-samsung-blue, #0072de);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 114, 222, 0.35);
+}
+
+.gf-display-toggle.is-full {
+  height: 38px;
+  width: 100%;
+  padding: 3px;
+}
+
+.gf-display-toggle.is-full .gf-display-toggle-btn {
+  flex: 1;
+  height: 30px;
+  font-size: 12.5px;
+  gap: 6px;
+}
+
+.gf-display-toggle-icon {
+  appearance: none;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  color: var(--color-samsung-blue, #0072de);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+.gf-display-toggle-icon.is-dark-glass {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+}
+
+@container gfapp (max-width: 380px) {
+  .gf-display-toggle-label {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * MOBILE APPEARANCE — extra compact phone refinements
+ * ------------------------------------------------------------------------- */
+@container gfapp (max-width: 767px) {
+  /* Sticky compact admin topbar */
+  .gf-admin-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 900;
+  }
+
+  /* Never let wide content push the phone frame sideways */
+  .gf-admin-main,
+  .gf-admin-content,
+  .gf-sheet-body {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .gf-table-wrap {
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 12px;
+  }
+  .gf-table {
+    min-width: 520px;
+  }
+  img,
+  video,
+  canvas {
+    max-width: 100%;
+  }
+
+  /* Bottom-sheet style modals */
+  .gf-modal-card {
+    max-height: 90dvh;
+    padding: 16px 16px calc(18px + var(--safe-bottom));
+    border-radius: 20px 20px 0 0;
+  }
+
+  /* Auth screen fills the phone */
+  .gf-auth-screen {
+    padding: 14px;
+    align-items: flex-start;
+    padding-top: max(28px, var(--safe-top));
+  }
+  .gf-auth-card {
+    padding: 18px 16px;
+    border-radius: 20px;
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
+  }
+
+  /* Compact bottom navigation */
+  .gf-nav-item {
+    font-size: 11px;
+    padding: 4px 6px;
+    gap: 2px;
+  }
+  .gf-nav-item svg {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+/* Icons inside buttons/toggles never shrink away in tight rows */
+.gf-btn svg,
+.gf-display-toggle-btn svg,
+.gf-display-toggle-icon svg,
+.gf-nav-item svg,
+.gf-admin-bottom-btn svg {
+  flex-shrink: 0;
 }

@@ -15,6 +15,7 @@ import {
   ScrollText,
 } from 'lucide-react';
 import { LanguageSwitcher } from './LanguageSwitcher';
+import { DisplayModeToggle } from './DisplayModeToggle';
 import { SamsungBusLogo } from './SamsungBusLogo';
 import { useAppLanguage } from '../utils/i18n';
 
@@ -132,6 +133,7 @@ export const EmbeddedTopNav: React.FC<EmbeddedTopNavProps> = ({
 
       {/* Right: Dedicated Language Switcher + User Role Badge + Sign Out (Ample room, no cut-off) */}
       <div className="gf-topbar-right">
+        <DisplayModeToggle variant="compact" id="topbar-display-mode-toggle" />
         <div className="gf-topbar-lang-wrap">
           <LanguageSwitcher compact={false} />
         </div>
@@ -353,6 +355,7 @@ export const DesktopHeaderNav: React.FC<DesktopHeaderNavProps> = ({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <DisplayModeToggle variant="icon" id="desktop-header-display-mode-toggle" />
           <LanguageSwitcher compact />
           {onSignOut && (
             <button
@@ -516,6 +519,11 @@ export const AdminShell: React.FC<AdminShellProps> = ({
 
       <div style={{ borderTop: '1px solid var(--color-divider)', margin: '8px 0' }} />
 
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <span className="type-caption" style={{ fontWeight: 700 }}>{t('Display Mode')}</span>
+        <DisplayModeToggle variant="full" />
+      </div>
+
       <button
         id="admin-sidebar-signout-btn"
         type="button"
@@ -577,6 +585,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
           </div>
 
           <div className="gf-admin-topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+            <DisplayModeToggle variant="icon" id="admin-topbar-display-mode-toggle" />
             <div className="gf-topbar-lang-wrap">
               <LanguageSwitcher compact />
             </div>

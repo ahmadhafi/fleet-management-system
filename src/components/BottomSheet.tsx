@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Car, Minimize2 } from 'lucide-react';
 import { useAppLanguage } from '../utils/i18n';
+import { getAppFrameWidth } from '../utils/displayMode';
 
 export type SnapPoint = 'peek' | 'half' | 'full';
 
@@ -96,7 +97,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   }, [onEscape, isCollapsed, onSnapChange]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
-    if (window.innerWidth >= 640) return;
+    if (getAppFrameWidth() >= 640) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const vh = window.innerHeight || 800;
     const currentH = sheetRef.current?.getBoundingClientRect().height || (vh * SNAP_PERCENT[snap]) / 100;

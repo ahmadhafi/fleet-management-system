@@ -1989,9 +1989,9 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         const cssContent = fs.readFileSync(path.resolve(__dirname, '../src/styles/app.css'), 'utf-8');
 
         // 1. Navigation breakpoint harmonization at 768px (eliminates 640px-820px deadzone)
-        expect(cssContent).toContain('@media (max-width: 767px)');
-        expect(cssContent).toContain('@media (min-width: 768px) and (max-width: 1023px)');
-        expect(cssContent).toContain('@media (min-width: 1024px)');
+        expect(cssContent).toContain('@container gfapp (max-width: 767px)');
+        expect(cssContent).toContain('@container gfapp (min-width: 768px) and (max-width: 1023px)');
+        expect(cssContent).toContain('@container gfapp (min-width: 1024px)');
 
         // 2. Google Translate body offset and banner suppression
         expect(cssContent).toContain('top: 0 !important;');
