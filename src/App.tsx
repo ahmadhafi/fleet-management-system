@@ -65,6 +65,7 @@ import { LanguageSwitcher } from './components/LanguageSwitcher';
 import { DisplayModeToggle } from './components/DisplayModeToggle';
 import { useAppLanguage, startDomTranslationObserver, translateDomTree, type SupportedLang } from './utils/i18n';
 import { SamsungBusLogo } from './components/SamsungBusLogo';
+import { CompanyCarIcon } from './components/CompanyCarIcon';
 import { RouteFields } from './components/RouteFields';
 import { VehicleArt } from './components/VehicleArt';
 import { getDriverAvatarDataUri } from './components/CarAvatarArt';
@@ -9623,7 +9624,7 @@ export function App() {
             }}
           >
             <div className="gf-circle-icon" style={{ background: isApproved ? '#0072de' : 'var(--color-amber)', color: '#ffffff', flexShrink: 0 }}>
-              <Car size={18} />
+              <CompanyCarIcon size={20} />
             </div>
             <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
@@ -9697,7 +9698,7 @@ export function App() {
               >
                 <span className="gf-gojek-hero-tag">{t('Available • 8 Cars')}</span>
                 <div className="gf-gojek-hero-art">
-                  <SamsungBusLogo size={40} />
+                  <CompanyCarIcon size={48} />
                 </div>
                 <div>
                   <div className="gf-gojek-hero-title">{t('Company Car')}</div>
@@ -9797,7 +9798,7 @@ export function App() {
                   title={t('Company Car')}
                 >
                   <div className="gf-gojek-quick-tile">
-                    <Car size={22} />
+                    <CompanyCarIcon size={24} />
                   </div>
                   <span className="gf-gojek-quick-label">{t('Vehicles')}</span>
                 </button>
@@ -9846,7 +9847,7 @@ export function App() {
                     flexShrink: 0,
                   }}
                 >
-                  <Car size={22} />
+                  <CompanyCarIcon size={26} />
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontWeight: 800, fontSize: '14.5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
