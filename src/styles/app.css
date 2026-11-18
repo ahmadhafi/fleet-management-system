@@ -3634,6 +3634,16 @@ iframe.goog-te-banner-frame {
 }
 
 @media (max-width: 767px) {
+  .gf-map-stage-host {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--mobile-map-height, 34dvh);
+    z-index: var(--z-map);
+    overflow: hidden;
+  }
+
   .gf-sheet.is-fullscreen-page {
     position: fixed !important;
     inset: 0 !important;

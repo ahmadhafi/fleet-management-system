@@ -731,7 +731,7 @@ export function App() {
         setVapidPublicKey(res.vapidPublicKey || '');
         if (res.user.role === 'DRV') {
           setNavSection('DRIVER');
-          setSheetSnap('full');
+          setSheetSnap('half');
         } else if (['ADM', 'FM', 'HWS'].includes(res.user.role)) {
           setNavSection('ADMIN');
           setAdminModule('ADMIN_DISPATCH');
@@ -951,7 +951,7 @@ export function App() {
       setVapidPublicKey(res.vapidPublicKey || '');
       if (res.user.role === 'DRV') {
         setNavSection('DRIVER');
-        setSheetSnap('full');
+        setSheetSnap('half');
       } else if (['ADM', 'FM', 'HWS'].includes(res.user.role)) {
         setNavSection('ADMIN');
         setAdminModule('ADMIN_DISPATCH');
@@ -6234,14 +6234,11 @@ export function App() {
   // Map only appears when user is actively booking a car (or compact Driver duty header)
   const isCarBookingMapStep =
     navSection === 'HOME' &&
-    (bookingStep === 'VEHICLE' ||
+    (bookingStep === 'ROUTE' ||
+      bookingStep === 'VEHICLE' ||
       bookingStep === 'SUMMARY' ||
       bookingStep === 'WAITING' ||
-      bookingStep === 'IN_TRIP' ||
-      (bookingStep === 'ROUTE' &&
-        (routeTab === 'PIN' ||
-          routeTab === 'PICKUP' ||
-          (Boolean(bookOrigin.trim()) && Boolean(bookDest.trim())))));
+      bookingStep === 'IN_TRIP');
 
   const showBookingMap = isCarBookingMapStep || (navSection === 'DRIVER' && driverSectionTab === 'DISPATCH');
 
@@ -8422,7 +8419,7 @@ export function App() {
                   requireLocationBeforeCarUse(() => {
                     setBookReservationType('ONE_WAY');
                     setBookingStep('ROUTE');
-                    setSheetSnap('full');
+                    setSheetSnap('half');
                   })
                 }
                 aria-label={t('Search services')}
@@ -8890,7 +8887,7 @@ export function App() {
               </div>
             )}
 
-            {/* Compact Rounded Inline Map Preview Card (Reference: 1794990260264.jpg — ~112px tall, NOT full-screen) */}
+            {/* Compact Rounded Inline Map Preview Card (Reference: 1794990260264.jpg — ~116px tall, with live MapTiler/OSM tiles + pin + corporate cars) */}
             <button
               type="button"
               className="pressable"
@@ -8898,7 +8895,7 @@ export function App() {
                 requireLocationBeforeCarUse(() => {
                   setBookReservationType('ONE_WAY');
                   setBookingStep('ROUTE');
-                  setSheetSnap('full');
+                  setSheetSnap('half');
                 })
               }
               aria-label={t('Where to?')}
@@ -8908,48 +8905,69 @@ export function App() {
                 borderRadius: '18px',
                 overflow: 'hidden',
                 width: '100%',
-                height: '112px',
+                height: '116px',
                 display: 'block',
                 cursor: 'pointer',
                 position: 'relative',
+                background: '#f5efe4',
                 boxShadow: '0 2px 10px rgba(15, 23, 42, 0.08)',
               }}
             >
-              <svg viewBox="0 0 380 112" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: '100%', display: 'block' }} aria-hidden="true">
-                {/* Bay / Water Background */}
-                <rect width="380" height="112" fill="#9ed8f5" />
-                {/* Landmasses */}
-                <path d="M0 14 Q45 8 72 28 T128 38 L145 26 L185 38 L245 30 L315 36 L380 42 L380 112 L0 112 Z" fill="#f5efe4" />
-                <path d="M52 0 L108 0 L114 24 L82 28 L56 12 Z" fill="#f5efe4" />
-                {/* Subtle District Blocks & Parks */}
-                <path d="M18 56 L86 48 L94 88 L14 96 Z" fill="#efe7d8" />
-                <path d="M198 48 L290 42 L302 92 L192 98 Z" fill="#efe7d8" />
-                {/* Road Network */}
-                <path d="M0 82 Q90 66 175 56 T355 88 L380 94" stroke="#cbd5e1" strokeWidth="5" fill="none" />
-                <path d="M0 82 Q90 66 175 56 T355 88 L380 94" stroke="#ffffff" strokeWidth="2.5" fill="none" />
-                <path d="M68 28 L88 112 M156 36 L142 112 M248 34 L236 112 M312 38 L328 112" stroke="#ffffff" strokeWidth="2" fill="none" opacity="0.85" />
-                {/* Map Labels */}
-                <text x="38" y="34" fill="#334155" fontSize="10.5" fontWeight="600" stroke="#ffffff" strokeWidth="2.5" paintOrder="stroke">Muara Gembong</text>
-                <text x="36" y="70" fill="#475569" fontSize="10" fontWeight="600" stroke="#ffffff" strokeWidth="2.5" paintOrder="stroke">Sunter</text>
-                <text x="124" y="70" fill="#334155" fontSize="10" fontWeight="700" stroke="#ffffff" strokeWidth="2.5" paintOrder="stroke">Jl. Jababeka Raya</text>
-                <text x="246" y="68" fill="#475569" fontSize="10" fontWeight="600" stroke="#ffffff" strokeWidth="2.5" paintOrder="stroke">Sunter</text>
+              {/* Real Map Tiles Layer (Backed by /api/maps/tiles with MapTiler API Key) */}
+              <div
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  opacity: 0.96,
+                  pointerEvents: 'none',
+                }}
+              >
+                <img
+                  src="/api/maps/tiles/streets/13/6527/4240"
+                  alt=""
+                  style={{ width: '100%', height: '140px', objectFit: 'cover', marginTop: '-14px' }}
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                <img
+                  src="/api/maps/tiles/streets/13/6528/4240"
+                  alt=""
+                  style={{ width: '100%', height: '140px', objectFit: 'cover', marginTop: '-14px' }}
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              </div>
+
+              <svg viewBox="0 0 380 116" preserveAspectRatio="xMidYMid slice" style={{ width: '100%', height: '100%', display: 'block', position: 'relative', zIndex: 1 }} aria-hidden="true">
+                {/* Road Network & Labels Overlay */}
+                <path d="M0 82 Q90 66 175 56 T355 88 L380 94" stroke="#cbd5e1" strokeWidth="4.5" fill="none" opacity="0.65" />
+                <path d="M0 82 Q90 66 175 56 T355 88 L380 94" stroke="#ffffff" strokeWidth="2.2" fill="none" opacity="0.8" />
+                <text x="38" y="34" fill="#1e293b" fontSize="10.5" fontWeight="700" stroke="#ffffff" strokeWidth="3" paintOrder="stroke">Muara Gembong</text>
+                <text x="36" y="72" fill="#334155" fontSize="10" fontWeight="700" stroke="#ffffff" strokeWidth="3" paintOrder="stroke">Sunter</text>
+                <text x="124" y="72" fill="#0f172a" fontSize="10.5" fontWeight="800" stroke="#ffffff" strokeWidth="3" paintOrder="stroke">Jl. Jababeka Raya</text>
+                <text x="252" y="70" fill="#334155" fontSize="10" fontWeight="700" stroke="#ffffff" strokeWidth="3" paintOrder="stroke">Sunter</text>
 
                 {/* Center Samsung Blue Location Pin */}
-                <g transform="translate(186, 42)">
-                  <ellipse cx="0" cy="18" rx="6" ry="2.5" fill="rgba(0,0,0,0.22)" />
+                <g transform="translate(186, 44)">
+                  <ellipse cx="0" cy="18" rx="6" ry="2.5" fill="rgba(0,0,0,0.25)" />
                   <path d="M0 -12 C-8 -12 -13 -6 -13 1 C-13 9 0 18 0 18 C0 18 13 9 13 1 C13 -6 8 -12 0 -12 Z" fill="#0072de" stroke="#ffffff" strokeWidth="2" />
                   <circle cx="0" cy="0" r="4.5" fill="#ffffff" />
                 </g>
 
                 {/* Left Top-Down Corporate Car Icon */}
-                <g transform="translate(108, 90) rotate(-8)">
+                <g transform="translate(108, 92) rotate(-8)">
                   <rect x="-15" y="-8" width="30" height="16" rx="5" fill="#0072de" stroke="#ffffff" strokeWidth="1.5" />
                   <rect x="-8" y="-6" width="16" height="12" rx="2.5" fill="#e0f2fe" />
                   <rect x="-5" y="-5" width="9" height="10" rx="1.5" fill="#0284c7" />
                 </g>
 
                 {/* Right Top-Down Corporate Car Icon */}
-                <g transform="translate(306, 90)">
+                <g transform="translate(306, 92)">
                   <rect x="-8" y="-15" width="16" height="30" rx="5" fill="#0072de" stroke="#ffffff" strokeWidth="1.5" />
                   <rect x="-6" y="-8" width="12" height="16" rx="2.5" fill="#e0f2fe" />
                   <rect x="-5" y="-4" width="10" height="9" rx="1.5" fill="#0284c7" />
@@ -8974,7 +8992,7 @@ export function App() {
                 requireLocationBeforeCarUse(() => {
                   setBookReservationType('ONE_WAY');
                   setBookingStep('ROUTE');
-                  setSheetSnap('full');
+                  setSheetSnap('half');
                 })
               }
             >
@@ -11099,7 +11117,10 @@ export function App() {
         onSelectNav={(n) => {
           const target = isDriverOnly && n === 'HOME' ? 'DRIVER' : n;
           setNavSection(target);
-          if (target === 'HOME' || target === 'DRIVER') {
+          if (target === 'DRIVER') {
+            setBookingStep('HOME');
+            setSheetSnap('half');
+          } else if (target === 'HOME') {
             setBookingStep('HOME');
             setSheetSnap('full');
           } else {
@@ -11119,12 +11140,20 @@ export function App() {
         departmentName={user?.department_name}
         onSwitchToDriverDispatch={() => {
           setNavSection('DRIVER');
-          setSheetSnap('full');
+          setSheetSnap('half');
         }}
         onSwitchToAdmin={() => setNavSection('ADMIN')}
         mapStage={
           showBookingMap ? (
-            <div className="gf-map-stage-host">
+            <div
+              className="gf-map-stage-host"
+              style={
+                {
+                  '--mobile-map-height':
+                    sheetSnap === 'peek' ? '61dvh' : sheetSnap === 'full' ? '22dvh' : '34dvh',
+                } as React.CSSProperties
+              }
+            >
               {/* Gojek Driver Top Controls (Avatar, Status Pill, Circular Power Button) */}
               {(isDriverOnly || user?.role === 'DRV') && navSection === 'DRIVER' && (
                 <div className="gf-driver-topbar">

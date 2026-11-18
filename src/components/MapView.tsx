@@ -74,49 +74,50 @@ const DEFAULT_CENTER: [number, number] = [-6.19834, 106.88873];
 
 export type MapLayerKey = 'streets' | 'satellite' | 'terrain';
 
+export const DEFAULT_MAPTILER_KEY = 'KHmsrWcJhgdZjirijNbw';
 export const OSM_FALLBACK_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 export const SATELLITE_FALLBACK_TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 export const TERRAIN_FALLBACK_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
-export const MAP_LAYERS: Record<MapLayerKey, { name: string; url: string; options: L.TileLayerOptions }> = {
+export const MAP_LAYERS: Record<MapLayerKey, { name: string; url: string; proxyUrl: string; options: L.TileLayerOptions }> = {
   streets: {
     name: 'Streets',
     url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    proxyUrl: '/api/maps/tiles/streets/{z}/{x}/{y}',
     options: {
       maxZoom: 20,
       subdomains: ['a', 'b', 'c', 'd'],
       updateWhenZooming: false,
-      updateWhenIdle: true,
+      updateWhenIdle: false,
       keepBuffer: 4,
-      crossOrigin: true,
       attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions" target="_blank" rel="noreferrer">CARTO</a>',
+        '&copy; <a href="https://www.maptiler.com/copyright/" target="_blank" rel="noreferrer">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions" target="_blank" rel="noreferrer">CARTO</a>',
     },
   },
   satellite: {
     name: 'Satellite',
     url: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+    proxyUrl: '/api/maps/tiles/satellite/{z}/{x}/{y}',
     options: {
       maxZoom: 21,
       subdomains: ['0', '1', '2', '3'],
       updateWhenZooming: false,
-      updateWhenIdle: true,
+      updateWhenIdle: false,
       keepBuffer: 4,
-      crossOrigin: true,
-      attribution: 'Map &copy; Google Maps &mdash; Satellite Hybrid',
+      attribution: 'Map &copy; MapTiler &amp; Google Maps &mdash; Satellite Hybrid',
     },
   },
   terrain: {
     name: 'Terrain',
     url: 'https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+    proxyUrl: '/api/maps/tiles/terrain/{z}/{x}/{y}',
     options: {
       maxZoom: 20,
       subdomains: ['0', '1', '2', '3'],
       updateWhenZooming: false,
-      updateWhenIdle: true,
+      updateWhenIdle: false,
       keepBuffer: 4,
-      crossOrigin: true,
-      attribution: 'Map &copy; Google Maps &mdash; Topographic Terrain',
+      attribution: 'Map &copy; MapTiler &amp; Google Maps &mdash; Topographic Terrain',
     },
   },
 };
@@ -334,13 +335,23 @@ export const MapView: React.FC<MapViewProps> = ({
       }
       tileLoadSafetyTimerRef.current = window.setTimeout(() => {
         setTilesLoading(false);
-      }, 2500);
+      }, 2000);
     };
 
     setTilesLoading(true);
     resetSafetyTimer();
 
-    const layer = L.tileLayer(config.url, config.options);
+    const customKey =
+      (typeof window !== 'undefined' && window.localStorage?.getItem('gf_map_api_key')?.trim()) || DEFAULT_MAPTILER_KEY;
+    const primaryTileUrl = `${config.proxyUrl}?key=${encodeURIComponent(customKey)}`;
+
+    const layer = L.tileLayer(primaryTileUrl, {
+      maxZoom: config.options.maxZoom || 20,
+      updateWhenZooming: false,
+      updateWhenIdle: false,
+      keepBuffer: 4,
+      attribution: config.options.attribution,
+    });
     layer.on('loading', () => {
       setTilesLoading(true);
       resetSafetyTimer();
@@ -353,18 +364,17 @@ export const MapView: React.FC<MapViewProps> = ({
     });
     layer.on('tileerror', () => {
       tileErrorCount += 1;
-      if (!didFailover && tileErrorCount >= 3 && baseTileLayerRef.current === layer) {
+      if (!didFailover && tileErrorCount >= 2 && baseTileLayerRef.current === layer) {
         didFailover = true;
         map.removeLayer(layer);
 
-        let fallbackUrl = OSM_FALLBACK_TILE_URL;
+        let fallbackUrl = config.url || OSM_FALLBACK_TILE_URL;
         let fallbackOptions: L.TileLayerOptions = {
           maxZoom: 19,
-          subdomains: ['a', 'b', 'c'],
+          subdomains: config.options.subdomains || ['a', 'b', 'c'],
           updateWhenZooming: false,
-          updateWhenIdle: true,
+          updateWhenIdle: false,
           keepBuffer: 4,
-          crossOrigin: true,
           attribution:
             '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
         };
@@ -374,9 +384,8 @@ export const MapView: React.FC<MapViewProps> = ({
           fallbackOptions = {
             maxZoom: 19,
             updateWhenZooming: false,
-            updateWhenIdle: true,
+            updateWhenIdle: false,
             keepBuffer: 4,
-            crossOrigin: true,
             attribution: 'Tiles &copy; Esri &mdash; World Imagery',
           };
         } else if (layerKey === 'terrain') {
@@ -385,9 +394,8 @@ export const MapView: React.FC<MapViewProps> = ({
             maxZoom: 19,
             subdomains: ['a', 'b', 'c'],
             updateWhenZooming: false,
-            updateWhenIdle: true,
+            updateWhenIdle: false,
             keepBuffer: 4,
-            crossOrigin: true,
             attribution:
               '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
           };
@@ -968,7 +976,14 @@ export const MapView: React.FC<MapViewProps> = ({
       }
 
       const bounds = L.latLngBounds(latlngs);
-      map.fitBounds(bounds, { padding: [70, 70], maxZoom: 16 });
+      const containerH = mapContainerRef.current?.clientHeight || 400;
+      if (containerH < 360) {
+        map.fitBounds(bounds, { paddingTopLeft: [54, 48], paddingBottomRight: [54, 28], maxZoom: 16 });
+      } else {
+        map.fitBounds(bounds, { padding: [64, 64], maxZoom: 16 });
+      }
+    } else if (Boolean(origin && origin.trim()) && !pinMode) {
+      map.setView(effOrigin, 15, { animate: false });
     }
   }, [effOrigin, effDest, routeGeometry, metrics.etaText, metrics.durationMin, showRoute, pinMode, driverActive, origin, driverCoords, driverName, activeVehicleModel]);
 

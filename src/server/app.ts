@@ -141,6 +141,102 @@ export function createApp() {
 
   app.use(express.json({ limit: '12mb' }));
 
+  // Built-in MapTiler API Key & Multi-Provider Map Tile Proxy (Streets, Satellite, Terrain)
+  // Mounted before rate limiter so concurrent Leaflet tile loads never trigger HTTP 429
+  const DEFAULT_MAPTILER_API_KEY = process.env.MAPTILER_API_KEY || process.env.VITE_MAPTILER_API_KEY || 'KHmsrWcJhgdZjirijNbw';
+  const tileBinaryCache = new Map<string, { buffer: Buffer; contentType: string; expiresAt: number }>();
+
+  app.get('/api/maps/config', (_req: Request, res: Response) => {
+    res.json({
+      provider: 'MapTiler + Google Maps + CartoDB + OpenStreetMap',
+      apiKeyConfigured: Boolean(DEFAULT_MAPTILER_API_KEY),
+      apiKey: DEFAULT_MAPTILER_API_KEY,
+      tileProxyUrl: '/api/maps/tiles/{layer}/{z}/{x}/{y}',
+    });
+  });
+
+  app.get('/api/maps/tiles/:layer/:z/:x/:y', async (req: Request, res: Response) => {
+    const layer = String(req.params.layer || 'streets').toLowerCase();
+    const z = Math.max(0, Math.min(22, parseInt(String(req.params.z), 10) || 12));
+    const x = Math.max(0, parseInt(String(req.params.x), 10) || 0);
+    const y = Math.max(0, parseInt(String(req.params.y).replace(/\.(png|jpg|jpeg|webp)$/i, ''), 10) || 0);
+    const customKey = typeof req.query.key === 'string' && req.query.key.trim() ? req.query.key.trim() : DEFAULT_MAPTILER_API_KEY;
+
+    const cacheKey = `${layer}:${z}:${x}:${y}`;
+    const cached = tileBinaryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      res.setHeader('Content-Type', cached.contentType);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.send(cached.buffer);
+      return;
+    }
+
+    const subCarto = ['a', 'b', 'c', 'd'][(x + y) % 4];
+    const subGoogle = ['0', '1', '2', '3'][(x + y) % 4];
+    const subOsm = ['a', 'b', 'c'][(x + y) % 3];
+
+    const candidateUrls: string[] =
+      layer === 'satellite'
+        ? [
+            ...(customKey ? [`https://api.maptiler.com/maps/hybrid/256/${z}/${x}/${y}.jpg?key=${encodeURIComponent(customKey)}`] : []),
+            `https://mt${subGoogle}.google.com/vt/lyrs=y&x=${x}&y=${y}&z=${z}`,
+            `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
+          ]
+        : layer === 'terrain'
+        ? [
+            ...(customKey ? [`https://api.maptiler.com/maps/outdoor-v2/256/${z}/${x}/${y}.png?key=${encodeURIComponent(customKey)}`] : []),
+            `https://mt${subGoogle}.google.com/vt/lyrs=p&x=${x}&y=${y}&z=${z}`,
+            `https://${subOsm}.tile.openstreetmap.org/${z}/${x}/${y}.png`,
+          ]
+        : [
+            ...(customKey ? [`https://api.maptiler.com/maps/streets-v2/256/${z}/${x}/${y}.png?key=${encodeURIComponent(customKey)}`] : []),
+            `https://${subCarto}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`,
+            `https://mt${subGoogle}.google.com/vt/lyrs=m&x=${x}&y=${y}&z=${z}`,
+            `https://${subOsm}.tile.openstreetmap.org/${z}/${x}/${y}.png`,
+          ];
+
+    for (const url of candidateUrls) {
+      try {
+        const resp = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36',
+            Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+          },
+          signal: AbortSignal.timeout(3500),
+        });
+        if (resp.ok) {
+          const contentType = resp.headers.get('content-type') || (layer === 'satellite' ? 'image/jpeg' : 'image/png');
+          if (contentType.startsWith('image/')) {
+            const arrayBuf = await resp.arrayBuffer();
+            const buffer = Buffer.from(arrayBuf);
+            if (buffer.length > 100) {
+              if (tileBinaryCache.size >= 800) {
+                const oldestKey = tileBinaryCache.keys().next().value;
+                if (oldestKey !== undefined) tileBinaryCache.delete(oldestKey);
+              }
+              tileBinaryCache.set(cacheKey, {
+                buffer,
+                contentType,
+                expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+              });
+              res.setHeader('Content-Type', contentType);
+              res.setHeader('Cache-Control', 'public, max-age=86400');
+              res.send(buffer);
+              return;
+            }
+          }
+        }
+      } catch {
+        // Failover to next tile provider
+      }
+    }
+
+    const fallbackSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><rect width="256" height="256" fill="#f5efe4"/><path d="M0 64 H256 M0 128 H256 M0 192 H256 M64 0 V256 M128 0 V256 M192 0 V256" stroke="#e2dacb" stroke-width="1"/><path d="M0 40 Q128 110 256 180 M40 256 Q140 120 220 0" stroke="#ffffff" stroke-width="4" fill="none"/></svg>`;
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.send(fallbackSvg);
+  });
+
   // Enterprise DoS & Traffic Surge Rate Limiter
   app.use('/api', createRateLimiter());
 
