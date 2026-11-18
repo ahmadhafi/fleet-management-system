@@ -844,6 +844,27 @@ export const MapView: React.FC<MapViewProps> = ({
           <!-- Person Using This Car / Active Passenger Detail -->
           ${tripInfo}
 
+          <!-- Real-Time ETA to Samsung Jababeka Location -->
+          ${(() => {
+            const distToSamsungKm = Math.max(0.5, Number((haversineKm(v.latitude, v.longitude, -6.287549, 107.1356063) * 1.28).toFixed(1)));
+            const etaToSamsungMin = Math.max(3, Math.round(distToSamsungKm * 2.3 + 4));
+            const arrivalTime = new Date(Date.now() + etaToSamsungMin * 60_000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return `
+              <div style="background:#eff6ff;border:1.5px solid #0072de;border-radius:10px;padding:8px 10px;margin-top:8px;">
+                <div style="font-size:10px;font-weight:900;color:#0072de;text-transform:uppercase;letter-spacing:0.04em;display:flex;align-items:center;justify-content:space-between;">
+                  <span>🏢 Live ETA to Samsung Jababeka</span>
+                  <span style="background:#0072de;color:#ffffff;padding:1px 6px;border-radius:9999px;font-size:9px;font-weight:800;">LIVE</span>
+                </div>
+                <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-top:2px;">
+                  ~${etaToSamsungMin} min (${distToSamsungKm} km) • ETA ${arrivalTime}
+                </div>
+                <div style="font-size:10.5px;color:#475569;margin-top:1px;">
+                  PT Samsung Electronics Indonesia, Cikarang Utara
+                </div>
+              </div>
+            `;
+          })()}
+
           <!-- Footer Stats -->
           <div style="margin-top:8px;padding-top:6px;border-top:1px solid #e2e8f0;font-size:11px;color:#64748b;display:flex;justify-content:space-between;align-items:center;">
             <span>Odo: <b>${Number(v.current_odometer || 0).toLocaleString()} km</b></span>
@@ -852,6 +873,43 @@ export const MapView: React.FC<MapViewProps> = ({
         </div>
       `);
     }
+
+    // Add Samsung Jababeka Plant Facility Marker to Fleet Live Map
+    const samsungLat = -6.287549;
+    const samsungLon = 107.1356063;
+    bounds.extend([samsungLat, samsungLon]);
+
+    const samsungIcon = L.divIcon({
+      className: 'gf-leaflet-marker',
+      html: `
+        <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;z-index:850;">
+          <div style="background:#0072de;color:#ffffff;padding:3px 9px;border-radius:9999px;font-size:10.5px;font-weight:900;white-space:nowrap;box-shadow:0 3px 12px rgba(0,114,222,0.45);margin-bottom:3px;border:1.5px solid #ffffff;display:flex;align-items:center;gap:4px;">
+            <span>🏢 Samsung Jababeka (SEIN)</span>
+          </div>
+          <div style="width:28px;height:28px;border-radius:50%;background:#0072de;border:2.5px solid #ffffff;box-shadow:0 4px 12px rgba(0,114,222,0.5);display:flex;align-items:center;justify-content:center;color:#ffffff;font-weight:900;font-size:13px;">
+            📍
+          </div>
+        </div>
+      `,
+      iconSize: [0, 0],
+      iconAnchor: [0, 0],
+    });
+
+    const samsungMarker = L.marker([samsungLat, samsungLon], { icon: samsungIcon }).addTo(fleetLayer);
+    samsungMarker.bindPopup(`
+      <div style="font-family:inherit;font-size:12.5px;line-height:1.45;padding:4px;max-width:280px;">
+        <div style="font-size:10px;text-transform:uppercase;font-weight:900;color:#0072de;letter-spacing:0.04em;">Samsung Corporate Facility</div>
+        <div style="font-weight:800;font-size:14px;color:#0f172a;margin-top:2px;">PT Samsung Electronics Indonesia</div>
+        <div style="font-size:11.5px;color:#475569;margin-top:3px;">
+          Jl. Jababeka Raya Blok F. 29 No.31, Harja Mekar, Cikarang Utara, Kabupaten Bekasi, Jawa Barat 17530
+        </div>
+        <div style="margin-top:8px;">
+          <a href="https://maps.app.goo.gl/3SNQBaMPZwVQCy857?g_st=ac" target="_blank" rel="noreferrer" style="font-size:11px;font-weight:700;color:#0072de;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
+            Open in Google Maps ↗
+          </a>
+        </div>
+      </div>
+    `);
 
     if (map && bounds.isValid() && !routeActiveRef.current && !hasFittedFleetRef.current) {
       hasFittedFleetRef.current = true;
@@ -975,6 +1033,7 @@ export const MapView: React.FC<MapViewProps> = ({
         L.marker(carPoint, { icon: drvIcon }).addTo(group);
       }
 
+      map.invalidateSize({ pan: false });
       const bounds = L.latLngBounds(latlngs);
       const containerH = mapContainerRef.current?.clientHeight || 400;
       if (containerH < 360) {
@@ -982,6 +1041,12 @@ export const MapView: React.FC<MapViewProps> = ({
       } else {
         map.fitBounds(bounds, { padding: [64, 64], maxZoom: 16 });
       }
+      window.setTimeout(() => {
+        if (mapInstanceRef.current && mapContainerRef.current) {
+          mapInstanceRef.current.invalidateSize({ pan: false });
+          mapInstanceRef.current.fitBounds(bounds, { padding: [54, 48], maxZoom: 16 });
+        }
+      }, 140);
     } else if (Boolean(origin && origin.trim()) && !pinMode) {
       map.setView(effOrigin, 15, { animate: false });
     }
@@ -1054,7 +1119,7 @@ export const MapView: React.FC<MapViewProps> = ({
           <div className="gf-map-metrics-pill">
             <Navigation2 size={13} style={{ color: 'var(--color-green)' }} />
             <span>
-              {metrics.distanceKm} km • ~{metrics.durationMin} {t('min ride')}{metrics.etaText ? ` • ETA ${metrics.etaText}` : ''}
+              {`${metrics.distanceKm} km • ~${metrics.durationMin} ${t('min ride')}${metrics.etaText ? ` • ETA ${metrics.etaText}` : ''}`}
             </span>
           </div>
         )}

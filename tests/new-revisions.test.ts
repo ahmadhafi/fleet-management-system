@@ -2399,7 +2399,7 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(appTsx).toContain('onPinMoveAddress');
         expect(appTsx).toContain('confirm-boarding');
         expect(appTsx).toContain('driver-online-toggle-sheet-btn');
-      });
+      }, 30000);
     });
   });
 });

@@ -59,6 +59,7 @@ import {
   type FleetVehiclePosition,
   formatWhatsAppUrl,
   formatPhoneCallUrl,
+  haversineKm,
 } from './components/MapView';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
 import { DisplayModeToggle } from './components/DisplayModeToggle';
@@ -98,7 +99,18 @@ const FALLBACK_GROUPS = [
   { id: 13, name: 'Driver G', code: 'DRV' },
 ];
 
+export const SAMSUNG_JABABEKA_FACILITY = {
+  name: 'PT Samsung Electronics Indonesia (SEIN)',
+  fullName: 'PT Samsung Electronics Indonesia - Jababeka Plant',
+  address: 'Jl. Jababeka Raya Blok F. 29 No.31, Harja Mekar, Kec. Cikarang Utara, Kabupaten Bekasi, Jawa Barat 17530',
+  shortAddress: 'Jl. Jababeka Raya Blok F. 29 No.31, Cikarang Utara',
+  lat: -6.287549,
+  lon: 107.1356063,
+  mapsUrl: 'https://maps.app.goo.gl/3SNQBaMPZwVQCy857?g_st=ac',
+};
+
 const QUICK_CORPORATE_POIS = [
+  { label: '🏢 Samsung Jababeka (SEIN)', name: 'PT Samsung Electronics Indonesia - Jababeka Plant', address: 'Jl. Jababeka Raya Blok F. 29 No.31, Harja Mekar, Kec. Cikarang Utara, Kabupaten Bekasi, Jawa Barat 17530', lat: -6.287549, lon: 107.1356063 },
   { label: '🏭 Plant 1 (Sunter)', name: 'Manufacturing Plant 1', address: 'Jl. Danau Sunter Barat No. 8, Sunter Jaya, Jakarta Utara', lat: -6.13842, lon: 106.88561 },
   { label: '🏭 Plant 2 (Karawang)', name: 'Manufacturing Plant 2', address: 'Kawasan Industri KIIC Lot A-1, Telukjambe Timur, Karawang Barat', lat: -6.34789, lon: 107.28912 },
   { label: '🚛 Central Pool', name: 'Central Fleet Pool & Operations Base', address: 'Jl. Rawa Gelam IV No. 2, Kawasan Industri Pulogadung, Jakarta Timur', lat: -6.19834, lon: 106.88873 },
@@ -893,7 +905,7 @@ export function App() {
 
   // Calculate real road route path, distance (km), ride time (min), and arrival ETA whenever pickup & destination are set
   useEffect(() => {
-    if (!user || !bookOrigin.trim() || !bookDest.trim()) {
+    if (!user || !bookDest.trim()) {
       setCalculatedRoute(null);
       return;
     }
@@ -902,8 +914,13 @@ export function App() {
     const timer = window.setTimeout(async () => {
       setCalculatingRoute(true);
       try {
-        let resolvedOrig = originCoords || (myCoords ? { lat: myCoords.lat, lon: myCoords.lon } : null);
+        let resolvedOrig = originCoords || (myCoords ? { lat: myCoords.lat, lon: myCoords.lon } : { lat: -6.22728, lon: 106.80816 });
         let resolvedDest = destCoords;
+
+        if (!bookOrigin.trim()) {
+          setBookOrigin('Samsung Office Jakarta (Lobby)');
+          setOriginCoords(resolvedOrig);
+        }
 
         if (!resolvedOrig && bookOrigin.trim().length >= 2) {
           const g1 = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(bookOrigin.trim())}`).catch(() => null);
@@ -920,17 +937,17 @@ export function App() {
           }
         }
 
-        const origLat = resolvedOrig?.lat ?? -6.19834;
-        const origLon = resolvedOrig?.lon ?? 106.88873;
+        const origLat = resolvedOrig?.lat ?? -6.22728;
+        const origLon = resolvedOrig?.lon ?? 106.80816;
         const dstLat = resolvedDest?.lat ?? origLat - 0.018;
         const dstLon = resolvedDest?.lon ?? origLon + 0.022;
         const depTime = scheduleMode === 'SCHEDULE' && bookStart ? new Date(bookStart).toISOString() : new Date().toISOString();
 
         const routeRes = await apiRequest(
           `/api/route?originLat=${encodeURIComponent(origLat)}&originLon=${encodeURIComponent(origLon)}&destLat=${encodeURIComponent(dstLat)}&destLon=${encodeURIComponent(dstLon)}&departureTime=${encodeURIComponent(depTime)}`
-        );
+        ).catch(() => null);
 
-        if (!cancelled && routeRes) {
+        if (!cancelled && routeRes && routeRes.distanceKm > 0) {
           const etaDate = routeRes.etaIso ? new Date(routeRes.etaIso) : new Date(Date.now() + Number(routeRes.durationMin || 10) * 60_000);
           setCalculatedRoute({
             distanceKm: Number(routeRes.distanceKm || 0),
@@ -939,13 +956,35 @@ export function App() {
             etaText: etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             geometry: Array.isArray(routeRes.geometry) ? routeRes.geometry : undefined,
           });
+        } else if (!cancelled) {
+          const est = estimateRouteMetrics(bookOrigin || 'Samsung Office Jakarta (Lobby)', bookDest, { lat: origLat, lon: origLon }, { lat: dstLat, lon: dstLon });
+          const etaDate = new Date(Date.now() + est.durationMin * 60_000);
+          const midLat = (origLat + dstLat) / 2 + (dstLon - origLon) * 0.08;
+          const midLon = (origLon + dstLon) / 2 - (dstLat - origLat) * 0.08;
+          setCalculatedRoute({
+            distanceKm: est.distanceKm,
+            durationMin: est.durationMin,
+            etaIso: etaDate.toISOString(),
+            etaText: etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            geometry: [[origLat, origLon], [midLat, midLon], [dstLat, dstLon]],
+          });
         }
       } catch {
-        // Fallback handled by estimateRouteMetrics
+        if (!cancelled) {
+          const est = estimateRouteMetrics(bookOrigin || 'Samsung Office Jakarta (Lobby)', bookDest, originCoords, destCoords);
+          const etaDate = new Date(Date.now() + est.durationMin * 60_000);
+          setCalculatedRoute({
+            distanceKm: est.distanceKm,
+            durationMin: est.durationMin,
+            etaIso: etaDate.toISOString(),
+            etaText: etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            geometry: [[-6.22728, 106.80816], [-6.25, 106.9], [-6.287549, 107.1356063]],
+          });
+        }
       } finally {
         if (!cancelled) setCalculatingRoute(false);
       }
-    }, 150);
+    }, 120);
 
     return () => {
       cancelled = true;
@@ -4461,6 +4500,161 @@ export function App() {
                   </div>
                 </div>
 
+                {/* Real-Time Fleet ETA to Samsung Jababeka Facility Monitor (FM, HWS, ADM) */}
+                <div
+                  className="gf-card-flat"
+                  style={{
+                    background: 'linear-gradient(135deg, #021a38 0%, #003873 100%)',
+                    color: '#ffffff',
+                    borderRadius: '16px',
+                    padding: '16px 18px',
+                    border: '1.5px solid rgba(255, 255, 255, 0.16)',
+                    boxShadow: '0 8px 24px rgba(0, 56, 115, 0.28)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ background: '#258cfb', color: '#ffffff', padding: '2px 8px', borderRadius: '9999px', fontSize: '10px', fontWeight: 900, letterSpacing: '0.04em' }}>
+                          SAMSUNG DESTINATION MONITOR
+                        </span>
+                        <span style={{ fontSize: '11px', color: '#9ecaff', fontWeight: 700 }}>
+                          Live Fleet Tracking & Arrival ETA
+                        </span>
+                      </div>
+                      <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '6px 0 2px', color: '#ffffff' }}>
+                        🏢 {SAMSUNG_JABABEKA_FACILITY.fullName}
+                      </h3>
+                      <p style={{ fontSize: '12px', color: '#cbd5e1', margin: 0 }}>
+                        {SAMSUNG_JABABEKA_FACILITY.address}
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <a
+                        href={SAMSUNG_JABABEKA_FACILITY.mapsUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="gf-btn"
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.18)',
+                          color: '#ffffff',
+                          fontSize: '11.5px',
+                          padding: '6px 12px',
+                          borderRadius: '9999px',
+                          border: '1px solid rgba(255, 255, 255, 0.28)',
+                          textDecoration: 'none',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          fontWeight: 700,
+                        }}
+                      >
+                        <span>📍 Open in Google Maps ↗</span>
+                      </a>
+                      <span className="gf-badge" style={{ background: '#0072de', color: '#ffffff', fontWeight: 800, border: '1px solid rgba(255,255,255,0.3)' }}>
+                        Hub: -6.2875, 107.1356
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Vehicle Cards Grid with Real-Time Road Distance & ETA to Samsung */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+                      gap: '10px',
+                    }}
+                  >
+                    {fleetPositions.map((pos) => {
+                      const distKm = Math.max(0.5, Number((haversineKm(pos.latitude, pos.longitude, SAMSUNG_JABABEKA_FACILITY.lat, SAMSUNG_JABABEKA_FACILITY.lon) * 1.28).toFixed(1)));
+                      const etaMin = Math.max(3, Math.round(distKm * 2.3 + 4));
+                      const arrivalTime = new Date(Date.now() + etaMin * 60_000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                      const isInTrip = pos.status === 'IN_TRIP';
+                      const isFocused = focusedVehicleId === pos.id;
+
+                      return (
+                        <div
+                          key={pos.id}
+                          style={{
+                            background: isFocused ? 'rgba(37, 140, 251, 0.38)' : 'rgba(255, 255, 255, 0.08)',
+                            border: isFocused ? '1.5px solid #60a5fa' : '1px solid rgba(255, 255, 255, 0.12)',
+                            borderRadius: '12px',
+                            padding: '10px 12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                            transition: 'all 120ms ease',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontWeight: 800, fontSize: '13.5px', color: '#ffffff' }}>
+                              {pos.registration_plate}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '9.5px',
+                                fontWeight: 800,
+                                padding: '2px 7px',
+                                borderRadius: '9999px',
+                                background: isInTrip ? '#fef3c7' : 'rgba(255, 255, 255, 0.2)',
+                                color: isInTrip ? '#b45309' : '#ffffff',
+                              }}
+                            >
+                              {isInTrip ? '🚗 In Trip' : '🅿️ Standby'}
+                            </span>
+                          </div>
+
+                          <div style={{ fontSize: '11.5px', color: '#9ecaff' }}>
+                            {pos.make} {pos.model} • Driver: <b>{pos.driver_name?.split(' ')[0] || 'Driver'}</b>
+                          </div>
+
+                          <div style={{ background: 'rgba(0, 0, 0, 0.35)', borderRadius: '8px', padding: '6px 8px', marginTop: '2px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                              <span style={{ fontSize: '10.5px', color: '#cbd5e1' }}>ETA to Samsung:</span>
+                              <span style={{ fontSize: '13px', fontWeight: 900, color: '#60a5fa' }}>
+                                ~{etaMin} min
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: '#94a3b8', marginTop: '2px' }}>
+                              <span>Distance: <b>{distKm} km</b></span>
+                              <span>Arrival: <b>{arrivalTime}</b></span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            className="gf-btn"
+                            style={{
+                              minHeight: '28px',
+                              padding: '0 8px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              background: isFocused ? '#258cfb' : 'rgba(255, 255, 255, 0.16)',
+                              color: '#ffffff',
+                              border: 'none',
+                              borderRadius: '8px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '4px',
+                            }}
+                            onClick={() => {
+                              setFocusedVehicleId(pos.id);
+                              document.getElementById('admin-fleet-map-canvas')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }}
+                          >
+                            <Navigation size={12} /> {isFocused ? 'Tracking on Map' : 'Track on Map'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* Driver Quick Position Cards - Display ONLY when search query is typed */}
                 {q.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -6949,8 +7143,8 @@ export function App() {
   // Determine Map visual state
   const mapOrigin =
     bookingStep === 'WAITING' || bookingStep === 'IN_TRIP'
-      ? focusedTrip?.origin || bookOrigin
-      : bookOrigin;
+      ? focusedTrip?.origin || bookOrigin || 'Samsung Office Jakarta (Lobby)'
+      : bookOrigin || 'Samsung Office Jakarta (Lobby)';
   const mapDest =
     bookingStep === 'WAITING' || bookingStep === 'IN_TRIP'
       ? focusedTrip?.destination || bookDest
@@ -6958,7 +7152,7 @@ export function App() {
 
   const showRouteOnMap =
     navSection === 'HOME' &&
-    ((bookingStep === 'ROUTE' && Boolean(bookOrigin.trim()) && Boolean(bookDest.trim()) && routeTab !== 'PIN') ||
+    ((bookingStep === 'ROUTE' && Boolean(bookDest.trim()) && routeTab !== 'PIN') ||
       bookingStep === 'VEHICLE' ||
       bookingStep === 'SUMMARY' ||
       bookingStep === 'IN_TRIP');
@@ -7061,7 +7255,7 @@ export function App() {
                   {calculatingRoute ? 'Calculating street route...' : `Arrival ETA ${currentMetrics.etaText}`}
                 </div>
                 <div className="type-body" style={{ fontWeight: 700 }}>
-                  {currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min ride
+                  {`${currentMetrics.distanceKm} km • ~${currentMetrics.durationMin} min ride`}
                 </div>
               </div>
               <button
@@ -9451,7 +9645,7 @@ export function App() {
             {feedbackBanner}
 
             {/* 1. Gojek-Style Search Bar (Preserves id="home-where-to-btn") */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', boxSizing: 'border-box', padding: '0 2px' }}>
               <button
                 id="home-where-to-btn"
                 type="button"
@@ -9465,18 +9659,20 @@ export function App() {
                 }
                 aria-label={t('Search services, cars, destinations...')}
               >
-                <Search size={20} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
-                <span style={{ fontSize: '14.5px', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text-secondary)' }}>
+                <Search size={18} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
+                <span style={{ fontSize: '13.5px', fontWeight: 500, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text-secondary)' }}>
                   {t('Search services, cars, destinations...')}
                 </span>
               </button>
-              <DisplayModeToggle variant="icon" id="home-display-mode-toggle" />
+              <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                <DisplayModeToggle variant="icon" id="home-display-mode-toggle" />
+              </div>
               <button
                 type="button"
                 className="gf-driver-avatar-btn pressable"
                 onClick={handleOpenProfileModal}
                 title={t('Profile')}
-                style={{ width: '42px', height: '42px', flexShrink: 0 }}
+                style={{ width: '40px', height: '40px', minWidth: '40px', flexShrink: 0 }}
               >
                 <img
                   src={user.photo_url || getDriverAvatarDataUri(user.nickname || 'User')}
@@ -10525,7 +10721,7 @@ export function App() {
                 <span className="type-body" style={{ fontWeight: 700, color: '#005bb5' }}>
                   {calculatingRoute
                     ? 'Calculating route path & ETA...'
-                    : `${currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min ride`}
+                    : `${currentMetrics.distanceKm} km • ~${currentMetrics.durationMin} min ride`}
                 </span>
               </div>
               <StatusBadge label={`ETA ${currentMetrics.etaText}`} tone="blue" />
@@ -10847,7 +11043,7 @@ export function App() {
             <div className="gf-proto-ban">
               <span>✓ {t('Internal Work Fleet • Chauffeur Included')}</span>
               <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
-                {currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} min
+                {`${currentMetrics.distanceKm} km • ~${currentMetrics.durationMin} min`}
               </span>
             </div>
           </div>
@@ -11594,7 +11790,7 @@ export function App() {
                 <div className="type-body" style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bookOrigin}</div>
                 <div className="type-body" style={{ fontWeight: 700, marginTop: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bookDest}</div>
                 <div className="type-caption" style={{ marginTop: '4px' }}>
-                  {currentMetrics.distanceKm} km • ~{currentMetrics.durationMin} {t('min ride')} • ETA {currentMetrics.etaText}
+                  {`${currentMetrics.distanceKm} km • ~${currentMetrics.durationMin} ${t('min ride')} • ETA ${currentMetrics.etaText}`}
                 </div>
               </div>
             </div>
