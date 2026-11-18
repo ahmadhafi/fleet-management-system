@@ -3164,26 +3164,6 @@ iframe.goog-te-banner-frame {
   border: 2px solid #ffffff;
 }
 
-/* Compact Floating Dispatch Bar at bottom-left of Driver full-bleed map */
-.gf-driver-floating-dispatch-bar {
-  position: absolute;
-  left: 14px;
-  right: 70px;
-  bottom: 24px;
-  z-index: 420;
-  background: #ffffff;
-  border-radius: 16px;
-  padding: 10px 14px;
-  box-shadow: 0 6px 22px rgba(15, 23, 42, 0.18);
-  border: 1px solid rgba(0, 114, 222, 0.18);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  cursor: pointer;
-  text-align: left;
-}
-
 /* Reference Page 4: Going Online Scrim + Activation Sheet + Dark Top Banner */
 .gf-driver-scrim {
   position: absolute;
@@ -3244,7 +3224,7 @@ iframe.goog-te-banner-frame {
 
 .gf-driver-bottom-toast {
   position: absolute;
-  bottom: 92px;
+  bottom: 18px;
   left: 50%;
   transform: translateX(-50%);
   background: #1f1f1f;

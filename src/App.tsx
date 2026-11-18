@@ -12868,51 +12868,6 @@ export function App() {
                   </div>
                 )}
 
-                {/* Compact Floating Dispatch Bar (keeps ~88% of Driver screen pure unobstructed map) */}
-                {isDriverFullMap && !driverActivatingOnline && (
-                  <button
-                    type="button"
-                    id="driver-floating-dispatch-bar"
-                    className="gf-driver-floating-dispatch-bar pressable"
-                    onClick={() => {
-                      setDriverDispatchDrawerOpen(true);
-                      setSheetSnap('half');
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                      <div
-                        style={{
-                          width: '36px',
-                          height: '36px',
-                          borderRadius: '10px',
-                          background: '#ebf5ff',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                        }}
-                      >
-                        <CompanyCarIcon size={24} />
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#1f1f1f', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {pendingDriverJobsCount > 0
-                            ? `${pendingDriverJobsCount} ${t('Active Dispatches')}`
-                            : isDriverOnline
-                            ? t('Ready for Duty')
-                            : t('Duty & Trips')}
-                        </div>
-                        <div style={{ fontSize: '11.5px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {pendingDriverJobsCount > 0
-                            ? t('Tap to open dispatch console')
-                            : t('Tap to view dispatches & car status')}
-                        </div>
-                      </div>
-                    </div>
-                    <ChevronRight size={18} style={{ color: '#0072de', flexShrink: 0 }} />
-                  </button>
-                )}
-
                 {/* Reference Page 4: Going Online Scrim + Top Dark Banner + White Activation Sheet */}
                 {isDriverDispatchMap && driverActivatingOnline && (
                   <>
