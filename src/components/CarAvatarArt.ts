@@ -37,6 +37,19 @@ export function resolveCarAvatarKey(modelName?: string, make?: string, energyTyp
 }
 
 /**
+ * Returns the real vehicle photo icon PNG path:
+ * - Hyundai Ioniq 5 (/icons/car-ioniq5.png) for Ioniq 5 and Electric vehicles
+ * - Hyundai Stargazer (/icons/car-stargazer.png) for Stargazer and Gasoline vehicles
+ */
+export function getVehiclePhotoIconUrl(modelName?: string, energyType?: string): string {
+  const text = `${modelName || ''}`.toLowerCase();
+  if (text.includes('ioniq') || energyType === 'Electric') {
+    return '/icons/car-ioniq5.png';
+  }
+  return '/icons/car-stargazer.png';
+}
+
+/**
  * Generates the SVG string of the specific car model avatar front-fascia
  */
 export function getCarFrontAvatarSvg(key: CarModelKey, isInTrip: boolean = false): string {

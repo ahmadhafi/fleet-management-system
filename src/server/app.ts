@@ -5444,6 +5444,7 @@ export function createApp() {
           db.prepare('DELETE FROM ev_charging_records').run();
           db.prepare('DELETE FROM maintenance_records').run();
           db.prepare('DELETE FROM trip_requests').run();
+          db.prepare('DELETE FROM report_approvals').run();
           db.prepare('DELETE FROM notifications').run();
           db.prepare('UPDATE documents SET replaced_by_id = NULL').run();
           db.prepare('DELETE FROM documents').run();
@@ -5500,6 +5501,309 @@ export function createApp() {
       console.error('System reset failed:', err);
       res.status(500).json({ error: err.message || 'System reset failed' });
     }
+  });
+
+  // ── Digital Summary Report Approvals (Weekly on Friday & End of Month for FM & HWS) ──
+  const computeIsoWeekKey = (d: Date): { key: string; monday: Date; friday: Date } => {
+    const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const day = utc.getUTCDay() || 7; // Mon=1..Sun=7
+    const monday = new Date(utc);
+    monday.setUTCDate(utc.getUTCDate() - (day - 1));
+    const friday = new Date(monday);
+    friday.setUTCDate(monday.getUTCDate() + 4);
+    const thursday = new Date(monday);
+    thursday.setUTCDate(monday.getUTCDate() + 3);
+    const yearStart = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil(((thursday.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+    const key = `${thursday.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+    return { key, monday, friday };
+  };
+
+  const fmtIsoDate = (d: Date): string =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+
+  const fmtShortDate = (d: Date): string =>
+    d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
+
+  const buildPeriodSummarySnapshot = (db: AppDatabase, startIso: string, endIso: string) => {
+    const startTs = `${startIso} 00:00:00`;
+    const endTs = `${endIso} 23:59:59`;
+    const tripStats = db
+      .prepare(
+        `SELECT COUNT(*) as total_trips,
+                SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completed_trips,
+                COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN COALESCE(distance_km, 0) ELSE 0 END), 0) as total_distance_km
+         FROM trip_requests
+         WHERE COALESCE(actual_end_time, start_time, created_at) BETWEEN ? AND ?`
+      )
+      .get(startTs, endTs) as { total_trips: number; completed_trips: number; total_distance_km: number };
+
+    const fuelStats = db
+      .prepare(
+        `SELECT COALESCE(SUM(cost), 0) as total_fuel_cost, COALESCE(SUM(litres), 0) as total_litres
+         FROM fuel_records
+         WHERE COALESCE(date_time, created_at) BETWEEN ? AND ?`
+      )
+      .get(startTs, endTs) as { total_fuel_cost: number; total_litres: number };
+
+    const evStats = db
+      .prepare(
+        `SELECT COALESCE(SUM(cost), 0) as total_ev_cost, COALESCE(SUM(kwh_added), 0) as total_kwh
+         FROM ev_charging_records
+         WHERE COALESCE(date_time, created_at) BETWEEN ? AND ?`
+      )
+      .get(startTs, endTs) as { total_ev_cost: number; total_kwh: number };
+
+    const expStats = db
+      .prepare(
+        `SELECT COALESCE(SUM(amount), 0) as total_expense_cost
+         FROM expenses
+         WHERE COALESCE(date_time, created_at) BETWEEN ? AND ?`
+      )
+      .get(startTs, endTs) as { total_expense_cost: number };
+
+    const activeVehicles = Number(
+      (db.prepare("SELECT COUNT(*) as c FROM vehicles WHERE status != 'Retired'").get() as { c: number })?.c || 0
+    );
+    const activeDrivers = Number(
+      (db.prepare('SELECT COUNT(*) as c FROM driver_profiles').get() as { c: number })?.c || 0
+    );
+
+    const fuelCost = Math.round(Number(fuelStats?.total_fuel_cost || 0));
+    const evCost = Math.round(Number(evStats?.total_ev_cost || 0));
+    const expenseCost = Math.round(Number(expStats?.total_expense_cost || 0));
+
+    return {
+      total_trips: Number(tripStats?.total_trips || 0),
+      completed_trips: Number(tripStats?.completed_trips || 0),
+      total_distance_km: Number(Number(tripStats?.total_distance_km || 0).toFixed(1)),
+      total_litres: Number(Number(fuelStats?.total_litres || 0).toFixed(1)),
+      total_kwh: Number(Number(evStats?.total_kwh || 0).toFixed(1)),
+      total_fuel_cost: fuelCost,
+      total_ev_cost: evCost,
+      total_expense_cost: expenseCost,
+      total_operational_cost_idr: fuelCost + evCost + expenseCost,
+      active_vehicles: activeVehicles,
+      active_drivers: activeDrivers,
+    };
+  };
+
+  const ensurePeriodicReportApprovals = (db: AppDatabase, refDate: Date) => {
+    const { key: weekKey, monday, friday } = computeIsoWeekKey(refDate);
+    const weekStart = fmtIsoDate(monday);
+    const weekEnd = fmtIsoDate(friday);
+    const weekLabel = `Weekly Summary (${fmtShortDate(monday)} – ${fmtShortDate(friday)})`;
+    const weekSummary = JSON.stringify(buildPeriodSummarySnapshot(db, weekStart, weekEnd));
+
+    const existingWeek = db.prepare('SELECT id, overall_status FROM report_approvals WHERE period_key = ?').get(weekKey) as
+      | { id: number; overall_status: string }
+      | undefined;
+    if (!existingWeek) {
+      db.prepare(
+        `INSERT INTO report_approvals (period_type, period_key, period_label, period_start, period_end, summary_json)
+         VALUES ('WEEKLY', ?, ?, ?, ?, ?)`
+      ).run(weekKey, weekLabel, weekStart, weekEnd, weekSummary);
+    } else if (existingWeek.overall_status === 'PENDING') {
+      db.prepare("UPDATE report_approvals SET summary_json = ?, updated_at = datetime('now') WHERE id = ?").run(
+        weekSummary,
+        existingWeek.id
+      );
+    }
+
+    const monthStartObj = new Date(Date.UTC(refDate.getFullYear(), refDate.getMonth(), 1));
+    const monthEndObj = new Date(Date.UTC(refDate.getFullYear(), refDate.getMonth() + 1, 0));
+    const monthKey = `${refDate.getFullYear()}-${String(refDate.getMonth() + 1).padStart(2, '0')}`;
+    const monthStart = fmtIsoDate(monthStartObj);
+    const monthEnd = fmtIsoDate(monthEndObj);
+    const monthName = monthStartObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    const monthLabel = `Monthly Summary (${monthName})`;
+    const monthSummary = JSON.stringify(buildPeriodSummarySnapshot(db, monthStart, monthEnd));
+
+    const existingMonth = db.prepare('SELECT id, overall_status FROM report_approvals WHERE period_key = ?').get(monthKey) as
+      | { id: number; overall_status: string }
+      | undefined;
+    if (!existingMonth) {
+      db.prepare(
+        `INSERT INTO report_approvals (period_type, period_key, period_label, period_start, period_end, summary_json)
+         VALUES ('MONTHLY', ?, ?, ?, ?, ?)`
+      ).run(monthKey, monthLabel, monthStart, monthEnd, monthSummary);
+    } else if (existingMonth.overall_status === 'PENDING') {
+      db.prepare("UPDATE report_approvals SET summary_json = ?, updated_at = datetime('now') WHERE id = ?").run(
+        monthSummary,
+        existingMonth.id
+      );
+    }
+
+    return { weekKey, monthKey, weekEnd, monthEnd };
+  };
+
+  app.get('/api/reports/approvals', requireAuth, requireRoles(['ADM', 'FM', 'HWS']), (req: Request, res: Response) => {
+    const db = getDb();
+    const user = req.user!;
+    const simRaw = typeof req.query.simulate_date === 'string' ? req.query.simulate_date.trim() : '';
+    const refDate = /^\d{4}-\d{2}-\d{2}$/.test(simRaw) ? new Date(`${simRaw}T12:00:00Z`) : new Date();
+    const { weekKey, monthKey, weekEnd, monthEnd } = ensurePeriodicReportApprovals(db, refDate);
+
+    const rows = db
+      .prepare('SELECT * FROM report_approvals ORDER BY period_end DESC, period_type DESC LIMIT 24')
+      .all() as any[];
+
+    const approvals = rows.map((r) => {
+      let summary: Record<string, unknown> = {};
+      try {
+        summary = JSON.parse(r.summary_json || '{}');
+      } catch {
+        summary = {};
+      }
+      return { ...r, summary };
+    });
+
+    const dayOfWeek = refDate.getUTCDay(); // 5 = Friday
+    const isFriday = dayOfWeek === 5;
+    const isEndOfWeekWindow = dayOfWeek === 5 || dayOfWeek === 6 || dayOfWeek === 0;
+    const lastDayOfMonth = new Date(Date.UTC(refDate.getUTCFullYear(), refDate.getUTCMonth() + 1, 0)).getUTCDate();
+    const isEndOfMonth = refDate.getUTCDate() >= lastDayOfMonth - 1;
+    const todayIso = fmtIsoDate(refDate);
+
+    let pendingPopup: any = null;
+    if (user.role === 'FM' || user.role === 'HWS') {
+      const roleStatusKey = user.role === 'FM' ? 'fm_status' : 'hws_status';
+      const pendingForRole = approvals.filter((a) => a[roleStatusKey] === 'PENDING');
+
+      // Priority 1: Monthly summary on End of Month (last 2 days of month)
+      if (isEndOfMonth) {
+        pendingPopup = pendingForRole.find((a) => a.period_key === monthKey) || null;
+      }
+      // Priority 2: Weekly summary on Friday (or weekend if Friday wasn't signed yet)
+      if (!pendingPopup && isEndOfWeekWindow) {
+        pendingPopup = pendingForRole.find((a) => a.period_key === weekKey) || null;
+      }
+      // Priority 3: Any overdue report whose period_end already passed
+      if (!pendingPopup) {
+        pendingPopup = pendingForRole.find((a) => String(a.period_end) < todayIso) || null;
+      }
+    }
+
+    res.json({
+      approvals,
+      pendingPopup,
+      scheduleInfo: {
+        referenceDate: todayIso,
+        isFriday,
+        isEndOfMonth,
+        currentWeekEnd: weekEnd,
+        currentMonthEnd: monthEnd,
+      },
+    });
+  });
+
+  app.post('/api/reports/approvals/:id/decision', requireAuth, requireRoles(['FM', 'HWS']), (req: Request, res: Response) => {
+    const db = getDb();
+    const user = req.user!;
+    const reportId = Number(req.params.id);
+    if (!Number.isInteger(reportId) || reportId <= 0) {
+      res.status(400).json({ error: 'Invalid report approval ID' });
+      return;
+    }
+
+    const decision = String(req.body?.decision || '').toUpperCase();
+    const notes = String(req.body?.notes || '').trim();
+    if (decision !== 'APPROVED' && decision !== 'REJECTED') {
+      res.status(400).json({ error: 'decision must be APPROVED or REJECTED' });
+      return;
+    }
+
+    const existing = db.prepare('SELECT * FROM report_approvals WHERE id = ?').get(reportId) as any;
+    if (!existing) {
+      res.status(404).json({ error: 'Summary report approval record not found' });
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const rawSig = `${reportId}|${existing.period_key}|${user.role}|${user.id}|${decision}|${nowIso}`;
+    const signatureHash = `GF-DIGI-${crypto.createHash('sha256').update(rawSig).digest('hex').slice(0, 12).toUpperCase()}`;
+
+    const nextFmStatus = user.role === 'FM' ? decision : existing.fm_status;
+    const nextHwsStatus = user.role === 'HWS' ? decision : existing.hws_status;
+    let nextOverall = 'PENDING';
+    if (nextFmStatus === 'REJECTED' || nextHwsStatus === 'REJECTED') {
+      nextOverall = 'REJECTED';
+    } else if (nextFmStatus === 'APPROVED' && nextHwsStatus === 'APPROVED') {
+      nextOverall = 'APPROVED';
+    } else if (nextFmStatus === 'APPROVED' || nextHwsStatus === 'APPROVED') {
+      nextOverall = 'PARTIALLY_APPROVED';
+    }
+
+    if (user.role === 'FM') {
+      db.prepare(
+        `UPDATE report_approvals
+         SET fm_status = ?, fm_user_id = ?, fm_approved_by_name = ?, fm_approved_at = ?, fm_notes = ?, fm_signature_hash = ?,
+             overall_status = ?, updated_at = datetime('now')
+         WHERE id = ?`
+      ).run(decision, user.id, user.nickname, nowIso, notes || null, signatureHash, nextOverall, reportId);
+    } else {
+      db.prepare(
+        `UPDATE report_approvals
+         SET hws_status = ?, hws_user_id = ?, hws_approved_by_name = ?, hws_approved_at = ?, hws_notes = ?, hws_signature_hash = ?,
+             overall_status = ?, updated_at = datetime('now')
+         WHERE id = ?`
+      ).run(decision, user.id, user.nickname, nowIso, notes || null, signatureHash, nextOverall, reportId);
+    }
+
+    recordAudit(
+      db,
+      user,
+      'REPORT_APPROVAL_DECISION',
+      'REPORT_APPROVAL',
+      reportId,
+      {
+        fm_status: existing.fm_status,
+        hws_status: existing.hws_status,
+        overall_status: existing.overall_status,
+      },
+      {
+        fm_status: nextFmStatus,
+        hws_status: nextHwsStatus,
+        overall_status: nextOverall,
+        signatureHash,
+        notes,
+      }
+    );
+
+    const roleLabel = user.role === 'FM' ? 'Fleet Manager' : 'Head of WS';
+    const counterpartRole = user.role === 'FM' ? 'HWS' : 'FM';
+    notifyRole(db, counterpartRole, {
+      triggerType: 'REPORT_APPROVAL',
+      title: `Digital Report ${decision}: ${existing.period_label}`,
+      body: `${roleLabel} (${user.nickname}) ${decision.toLowerCase()} the ${existing.period_type.toLowerCase()} summary report (${signatureHash}).`,
+      relatedEntityType: 'REPORT_APPROVAL',
+      relatedEntityId: reportId,
+    });
+    notifyAdmins(db, {
+      triggerType: 'REPORT_APPROVAL',
+      title: `Report ${decision} by ${roleLabel}`,
+      body: `${existing.period_label} is now ${nextOverall} (Digital Stamp: ${signatureHash}).`,
+      relatedEntityType: 'REPORT_APPROVAL',
+      relatedEntityId: reportId,
+    });
+    liveEvents.broadcast({
+      type: 'report_approval',
+      data: { reportId, overall_status: nextOverall, period_key: existing.period_key },
+    });
+
+    const updated = db.prepare('SELECT * FROM report_approvals WHERE id = ?').get(reportId) as any;
+    let summary: Record<string, unknown> = {};
+    try {
+      summary = JSON.parse(updated.summary_json || '{}');
+    } catch {
+      summary = {};
+    }
+
+    res.json({
+      approval: { ...updated, summary },
+      signatureHash,
+      overall_status: nextOverall,
+    });
   });
 
   // Comprehensive 1-Page Executive Report Generator (Concise Summary, IDR Ledger, Digital Signatures)

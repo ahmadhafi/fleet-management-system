@@ -3,7 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { ArrowLeft, Crosshair, LocateFixed, Navigation2, Users, WifiOff, Layers, Map as MapIcon, Mountain } from 'lucide-react';
 import { apiRequest } from '../api';
-import { getDriverAvatarDataUri } from './CarAvatarArt';
+import { getDriverAvatarDataUri, getVehiclePhotoIconUrl } from './CarAvatarArt';
 import { useAppLanguage } from '../utils/i18n';
 
 export interface GeoPlace {
@@ -252,6 +252,8 @@ interface MapViewProps {
   hasDriverTopbar?: boolean;
   driverMapMode?: boolean;
   driverOnline?: boolean;
+  driverVehicleModel?: string;
+  driverVehicleEnergyType?: string;
 }
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -283,6 +285,8 @@ export const MapView: React.FC<MapViewProps> = ({
   hasDriverTopbar = false,
   driverMapMode = false,
   driverOnline = false,
+  driverVehicleModel,
+  driverVehicleEnergyType,
 }) => {
   const { t } = useAppLanguage();
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -653,13 +657,14 @@ export const MapView: React.FC<MapViewProps> = ({
         }).addTo(pinsLayer);
       }
 
+      const driverCarIconUrl = getVehiclePhotoIconUrl(driverVehicleModel || activeVehicleModel, driverVehicleEnergyType);
       const driverSelfCarIcon = L.divIcon({
         className: 'gf-leaflet-marker',
         html: `
           <div class="gf-driver-map-car-marker ${driverOnline ? 'is-online' : ''}" style="position:relative;display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
             ${driverOnline ? `<div style="position:absolute;inset:-8px;border-radius:50%;background:rgba(0,114,222,0.22);animation:gfDriverCarPulse 2s ease-out infinite;"></div>` : ''}
-            <div style="width:46px;height:46px;border-radius:50%;background:#ffffff;border:3px solid ${driverOnline ? '#0072de' : '#64748b'};box-shadow:0 4px 14px rgba(0,0,0,0.24);display:flex;align-items:center;justify-content:center;position:relative;z-index:2;padding:5px;">
-              <img src="/icons/company-car-transparent.png" alt="Driver Vehicle" style="width:32px;height:20px;object-fit:contain;display:block;" />
+            <div style="width:52px;height:52px;border-radius:50%;background:#ffffff;border:3px solid ${driverOnline ? '#0072de' : '#64748b'};box-shadow:0 4px 14px rgba(0,0,0,0.24);display:flex;align-items:center;justify-content:center;position:relative;z-index:2;padding:4px;overflow:hidden;">
+              <img src="${driverCarIconUrl}" alt="Driver Vehicle" style="width:42px;height:42px;object-fit:contain;display:block;" />
             </div>
             <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid ${driverOnline ? '#0072de' : '#64748b'};margin-top:-2px;position:relative;z-index:2;"></div>
           </div>
@@ -692,7 +697,7 @@ export const MapView: React.FC<MapViewProps> = ({
       });
       L.marker([myCoords.lat, myCoords.lon], { icon: meIcon }).addTo(pinsLayer);
     }
-  }, [userPins, currentUserId, myCoords, originCoords, driverMapMode, driverOnline, effOrigin]);
+  }, [userPins, currentUserId, myCoords, originCoords, driverMapMode, driverOnline, driverVehicleModel, driverVehicleEnergyType, activeVehicleModel, effOrigin]);
 
   // Render Operational Fleet Vehicles (Admin Fleet Live Map)
   useEffect(() => {
@@ -718,6 +723,7 @@ export const MapView: React.FC<MapViewProps> = ({
       const driverPhoto = getDriverAvatarDataUri(v.driver_name || 'Driver', v.driver_photo_url);
 
       const isFollowing = Boolean(v.is_following_driver);
+      const fleetCarIconUrl = getVehiclePhotoIconUrl(`${v.make || ''} ${v.model || ''}`, v.energy_type);
       const carIcon = L.divIcon({
         className: 'gf-leaflet-marker',
         html: `
@@ -729,9 +735,9 @@ export const MapView: React.FC<MapViewProps> = ({
               <span style="font-size:10px;">${isEv ? '⚡' : '⛽'}</span>
             </div>
 
-            <!-- Unified Company Car Icon Badge -->
-            <div style="position:relative;width:44px;height:44px;border-radius:50%;background:#ffffff;border:2.5px solid ${isInTrip || isFollowing ? '#0072de' : '#334155'};display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.28);padding:5px;">
-              <img src="/icons/company-car-transparent.png" alt="${escapeHtml(v.model)}" style="width:30px;height:18px;object-fit:contain;display:block;" />
+            <!-- Model-specific Car Icon Badge (Stargazer / Ioniq 5) -->
+            <div style="position:relative;width:50px;height:50px;border-radius:50%;background:#ffffff;border:2.5px solid ${isInTrip || isFollowing ? '#0072de' : '#334155'};display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.28);padding:4px;overflow:hidden;">
+              <img src="${fleetCarIconUrl}" alt="${escapeHtml(v.model)}" style="width:40px;height:40px;object-fit:contain;display:block;" />
               ${isInTrip ? `
                 <div style="position:absolute;top:-5px;right:-8px;background:#258cfb;color:#ffffff;border-radius:9999px;padding:1px 5px;font-size:8px;font-weight:900;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(37,140,251,0.5);border:1px solid #ffffff;">
                   DRIVING
@@ -1047,6 +1053,7 @@ export const MapView: React.FC<MapViewProps> = ({
           ? routeGeometry![Math.floor(routeGeometry!.length / 2)]
           : ([mid1Lat, mid1Lon] as [number, number]);
 
+        const activeCarIconUrl = getVehiclePhotoIconUrl(activeVehicleModel);
         const drvIcon = L.divIcon({
           className: 'gf-leaflet-marker',
           html: `
@@ -1055,8 +1062,8 @@ export const MapView: React.FC<MapViewProps> = ({
                 <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#258cfb;animation:pulse 1.5s infinite;"></span>
                 <span>${escapeHtml(driverName || 'Driver')} (Live Car)</span>
               </div>
-              <div style="width:44px;height:44px;border-radius:50%;background:#ffffff;border:2.5px solid #0072de;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,114,222,0.35);padding:5px;">
-                <img src="/icons/company-car-transparent.png" alt="Live Car" style="width:30px;height:18px;object-fit:contain;display:block;" />
+              <div style="width:50px;height:50px;border-radius:50%;background:#ffffff;border:2.5px solid #0072de;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,114,222,0.35);padding:4px;overflow:hidden;">
+                <img src="${activeCarIconUrl}" alt="Live Car" style="width:40px;height:40px;object-fit:contain;display:block;" />
               </div>
             </div>
           `,

@@ -570,6 +570,31 @@ function initializeSchema(db: AppDatabase) {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS report_approvals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      period_type TEXT NOT NULL CHECK (period_type IN ('WEEKLY', 'MONTHLY')),
+      period_key TEXT NOT NULL UNIQUE,
+      period_label TEXT NOT NULL,
+      period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL,
+      summary_json TEXT NOT NULL DEFAULT '{}',
+      fm_status TEXT NOT NULL DEFAULT 'PENDING' CHECK (fm_status IN ('PENDING', 'APPROVED', 'REJECTED')),
+      fm_user_id INTEGER REFERENCES users(id),
+      fm_approved_by_name TEXT,
+      fm_approved_at TEXT,
+      fm_notes TEXT,
+      fm_signature_hash TEXT,
+      hws_status TEXT NOT NULL DEFAULT 'PENDING' CHECK (hws_status IN ('PENDING', 'APPROVED', 'REJECTED')),
+      hws_user_id INTEGER REFERENCES users(id),
+      hws_approved_by_name TEXT,
+      hws_approved_at TEXT,
+      hws_notes TEXT,
+      hws_signature_hash TEXT,
+      overall_status TEXT NOT NULL DEFAULT 'PENDING' CHECK (overall_status IN ('PENDING', 'PARTIALLY_APPROVED', 'APPROVED', 'REJECTED')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   try {

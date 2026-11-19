@@ -74,7 +74,7 @@ import { SamsungBusLogo } from './components/SamsungBusLogo';
 import { CompanyCarIcon } from './components/CompanyCarIcon';
 import { RouteFields } from './components/RouteFields';
 import { VehicleArt } from './components/VehicleArt';
-import { getDriverAvatarDataUri } from './components/CarAvatarArt';
+import { getDriverAvatarDataUri, getVehiclePhotoIconUrl } from './components/CarAvatarArt';
 import { triggerSystemNotification } from './utils/notification';
 import { GojekWheelPicker, type DateOption } from './components/GojekWheelPicker';
 import {
@@ -441,6 +441,11 @@ export function App() {
   const [focusedVehicleId, setFocusedVehicleId] = useState<number | null>(null);
   const [fleetFilterMode, setFleetFilterMode] = useState<'ALL' | 'DRIVING' | 'GASOLINE' | 'ELECTRIC'>('ALL');
   const [showExecutiveReportModal, setShowExecutiveReportModal] = useState<boolean>(false);
+  const [reportApprovals, setReportApprovals] = useState<any[]>([]);
+  const [reportApprovalPopup, setReportApprovalPopup] = useState<any | null>(null);
+  const [reportApprovalNotes, setReportApprovalNotes] = useState<string>('');
+  const [reportApprovalSubmitting, setReportApprovalSubmitting] = useState<boolean>(false);
+  const reportApprovalSnoozedRef = useRef<Record<string, boolean>>({});
   const [showResetModal, setShowResetModal] = useState<boolean>(false);
   const [resetMode, setResetMode] = useState<'OPERATIONS_ONLY' | 'FACTORY_RESET'>('OPERATIONS_ONLY');
   const [resetConfirmCode, setResetConfirmCode] = useState<string>('');
@@ -825,18 +830,27 @@ export function App() {
       setDocuments(docRes.documents || []);
 
       if (['ADM', 'FM', 'HWS'].includes(currentUser.role)) {
-        const [usrRes, gpsRes, anaRes, audRes, fleetRes] = await Promise.all([
+        const [usrRes, gpsRes, anaRes, audRes, fleetRes, repAppRes] = await Promise.all([
           apiRequest('/api/users'),
           apiRequest('/api/gps/latest'),
           apiRequest('/api/analytics/usage'),
           apiRequest('/api/audit'),
           apiRequest('/api/admin/fleet-map-positions'),
+          apiRequest('/api/reports/approvals').catch(() => ({ approvals: [], pendingPopup: null })),
         ]);
         setUsersList(usrRes.users || []);
         setGpsLatest(gpsRes);
         setUsageAnalytics(anaRes);
         setAuditEvents(audRes.auditEvents || []);
         setFleetPositions(fleetRes.fleetPositions || []);
+        setReportApprovals(repAppRes.approvals || []);
+        if (
+          (currentUser.role === 'FM' || currentUser.role === 'HWS') &&
+          repAppRes.pendingPopup &&
+          !reportApprovalSnoozedRef.current[String(repAppRes.pendingPopup.period_key)]
+        ) {
+          setReportApprovalPopup(repAppRes.pendingPopup);
+        }
       }
     } catch (err: any) {
       console.error('Failed loading dashboard data:', err);
@@ -1992,6 +2006,31 @@ export function App() {
       await loadAllData(user);
     } catch (err: any) {
       setStatusBanner({ type: 'danger', text: err.message });
+    }
+  };
+
+  const handleSubmitReportApproval = async (reportId: number, decision: 'APPROVED' | 'REJECTED') => {
+    if (!user || (user.role !== 'FM' && user.role !== 'HWS')) return;
+    setReportApprovalSubmitting(true);
+    try {
+      const res = await apiRequest(`/api/reports/approvals/${reportId}/decision`, {
+        method: 'POST',
+        body: JSON.stringify({ decision, notes: reportApprovalNotes.trim() }),
+      });
+      if (reportApprovalPopup?.period_key) {
+        reportApprovalSnoozedRef.current[String(reportApprovalPopup.period_key)] = true;
+      }
+      setReportApprovalPopup(null);
+      setReportApprovalNotes('');
+      setStatusBanner({
+        type: decision === 'APPROVED' ? 'success' : 'info',
+        text: `Summary report digitally ${decision.toLowerCase()} by ${user.role === 'FM' ? 'Fleet Manager' : 'Head of WS'} (Stamp: ${res.signatureHash}).`,
+      });
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message || 'Unable to submit digital report approval.' });
+    } finally {
+      setReportApprovalSubmitting(false);
     }
   };
 
@@ -3537,6 +3576,153 @@ export function App() {
         </div>
       )}
 
+      {/* Digital Summary Report Approval Popup (Auto-pops on Friday End-of-Week & End-of-Month for FM & HWS) */}
+      {reportApprovalPopup && user && (user.role === 'FM' || user.role === 'HWS') && (() => {
+        const s = reportApprovalPopup.summary || {};
+        const isWeekly = reportApprovalPopup.period_type === 'WEEKLY';
+        const myRoleStatus = user.role === 'FM' ? reportApprovalPopup.fm_status : reportApprovalPopup.hws_status;
+        return (
+          <div
+            id="report-approval-popup-modal"
+            className="gf-modal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Digital Summary Report Approval"
+            style={{ zIndex: 1200 }}
+          >
+            <div className="gf-modal-card" style={{ maxWidth: '520px', width: '94vw', maxHeight: '90vh', overflowY: 'auto', borderRadius: '20px', padding: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '14px' }}>
+                <div>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '3px 10px',
+                      borderRadius: '9999px',
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      background: '#ebf5ff',
+                      color: '#0072de',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    <ShieldCheck size={13} />
+                    {isWeekly ? t('Weekly Summary Report • Friday Sign-Off') : t('Monthly Summary Report • End of Month Sign-Off')}
+                  </span>
+                  <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>
+                    {reportApprovalPopup.period_label}
+                  </h2>
+                  <p style={{ margin: '4px 0 0', fontSize: '12.5px', color: '#64748b' }}>
+                    {t('Digital approval required from Fleet Manager & Head of WS.')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-ghost"
+                  style={{ minHeight: '34px', width: '34px', padding: 0, borderRadius: '50%' }}
+                  aria-label="Close report approval popup"
+                  onClick={() => {
+                    reportApprovalSnoozedRef.current[String(reportApprovalPopup.period_key)] = true;
+                    setReportApprovalPopup(null);
+                  }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Summary KPIs Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '14px' }}>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '10px 12px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>{t('Completed Trips')}</div>
+                  <div className="mono" style={{ fontSize: '18px', fontWeight: 800, color: '#0072de', marginTop: '2px' }}>
+                    {Number(s.completed_trips ?? 0)} <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>/ {Number(s.total_trips ?? 0)}</span>
+                  </div>
+                </div>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '10px 12px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>{t('Total Distance')}</div>
+                  <div className="mono" style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
+                    {Number(s.total_distance_km ?? 0).toLocaleString()} km
+                  </div>
+                </div>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '10px 12px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>{t('Total Cost (IDR)')}</div>
+                  <div className="mono" style={{ fontSize: '15px', fontWeight: 800, color: '#005bb5', marginTop: '4px' }}>
+                    {formatIdr(Number(s.total_operational_cost_idr ?? 0))}
+                  </div>
+                </div>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '10px 12px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>{t('Fleet & Drivers')}</div>
+                  <div className="mono" style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>
+                    {Number(s.active_vehicles ?? vehicles.length)} cars • {Number(s.active_drivers ?? drivers.length)} drivers
+                  </div>
+                </div>
+              </div>
+
+              {/* Dual Digital Signature Status */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '12px', marginBottom: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: '#0f172a' }}>{t('Digital Approval Signatures')}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12.5px' }}>
+                  <span><strong>Fleet Manager (FM):</strong> {reportApprovalPopup.fm_approved_by_name || 'Awaiting sign-off'}</span>
+                  <StatusBadge label={reportApprovalPopup.fm_status} tone={reportApprovalPopup.fm_status === 'APPROVED' ? 'blue' : reportApprovalPopup.fm_status === 'REJECTED' ? 'red' : 'amber'} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12.5px' }}>
+                  <span><strong>Head of WS (HWS):</strong> {reportApprovalPopup.hws_approved_by_name || 'Awaiting sign-off'}</span>
+                  <StatusBadge label={reportApprovalPopup.hws_status} tone={reportApprovalPopup.hws_status === 'APPROVED' ? 'blue' : reportApprovalPopup.hws_status === 'REJECTED' ? 'red' : 'amber'} />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '14px' }}>
+                <label className="type-label" style={{ display: 'block', marginBottom: '5px' }}>
+                  {t('Digital Approval Notes (Optional)')}
+                </label>
+                <input
+                  type="text"
+                  className="gf-input"
+                  placeholder={t('e.g., Verified weekly mileage and operational receipts')}
+                  value={reportApprovalNotes}
+                  onChange={(e) => setReportApprovalNotes(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  id="approve-report-digitally-btn"
+                  type="button"
+                  className="gf-btn gf-btn-primary pressable"
+                  style={{ flex: 2 }}
+                  disabled={reportApprovalSubmitting}
+                  onClick={() => handleSubmitReportApproval(reportApprovalPopup.id, 'APPROVED')}
+                >
+                  <CheckCircle2 size={16} /> {myRoleStatus === 'APPROVED' ? t('Re-Sign Digitally') : t('Approve Report Digitally')}
+                </button>
+                <button
+                  id="reject-report-digitally-btn"
+                  type="button"
+                  className="gf-btn gf-btn-outline-danger pressable"
+                  style={{ flex: 1 }}
+                  disabled={reportApprovalSubmitting}
+                  onClick={() => handleSubmitReportApproval(reportApprovalPopup.id, 'REJECTED')}
+                >
+                  {t('Reject')}
+                </button>
+              </div>
+              <button
+                type="button"
+                className="gf-btn gf-btn-ghost"
+                style={{ width: '100%', marginTop: '8px', fontSize: '12.5px', color: '#64748b' }}
+                onClick={() => {
+                  reportApprovalSnoozedRef.current[String(reportApprovalPopup.period_key)] = true;
+                  setReportApprovalPopup(null);
+                }}
+              >
+                {t('Review Later')}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {showExecutiveReportModal && usageAnalytics && (
         <div className="gf-modal-backdrop gf-print-backdrop" role="dialog" aria-modal="true" aria-label="Executive Briefing Report">
           <div className="gf-modal-card gf-print-card" style={{ maxWidth: '1040px', width: '95vw', maxHeight: '92vh', overflowY: 'auto' }}>
@@ -4871,8 +5057,17 @@ export function App() {
                             return (
                               <tr key={pos.id} style={{ background: focusedVehicleId === pos.id ? '#f0f7ff' : undefined }}>
                                 <td>
-                                  <div style={{ fontWeight: 800 }}>{pos.registration_plate}</div>
-                                  <div className="type-caption">{pos.make} {pos.model} ({pos.car_type})</div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <img
+                                      src={getVehiclePhotoIconUrl(`${pos.make} ${pos.model}`, pos.energy_type)}
+                                      alt={`${pos.make} ${pos.model}`}
+                                      style={{ width: '40px', height: '40px', objectFit: 'contain', flexShrink: 0, borderRadius: '8px', background: '#f8fafc', padding: '2px', border: '1px solid #e2e8f0' }}
+                                    />
+                                    <div>
+                                      <div style={{ fontWeight: 800 }}>{pos.registration_plate}</div>
+                                      <div className="type-caption">{pos.make} {pos.model} ({pos.car_type})</div>
+                                    </div>
+                                  </div>
                                 </td>
                                 <td>
                                   <StatusBadge
@@ -4954,9 +5149,16 @@ export function App() {
                     {filteredFleetPositions.map((pos) => (
                       <div key={pos.id} className="gf-proto-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: focusedVehicleId === pos.id ? '#f0f7ff' : undefined }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                          <div>
-                            <span className="mono" style={{ fontWeight: 800, fontSize: '13.5px' }}>{pos.registration_plate}</span>
-                            <div className="type-caption">{pos.make} {pos.model} ({pos.car_type})</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                            <img
+                              src={getVehiclePhotoIconUrl(`${pos.make} ${pos.model}`, pos.energy_type)}
+                              alt={`${pos.make} ${pos.model}`}
+                              style={{ width: '40px', height: '40px', objectFit: 'contain', flexShrink: 0, borderRadius: '8px', background: '#f8fafc', padding: '2px', border: '1px solid #e2e8f0' }}
+                            />
+                            <div style={{ minWidth: 0 }}>
+                              <span className="mono" style={{ fontWeight: 800, fontSize: '13.5px' }}>{pos.registration_plate}</span>
+                              <div className="type-caption">{pos.make} {pos.model} ({pos.car_type})</div>
+                            </div>
                           </div>
                           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                             <StatusBadge
@@ -5016,6 +5218,7 @@ export function App() {
 
           {adminModule === 'ADMIN_DISPATCH' && (
             <>
+              {user.role === 'ADM' && (
               <section className="gf-card-flat">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
                   <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14.5px' }}>
@@ -5181,11 +5384,28 @@ export function App() {
                   </>
                 )}
               </section>
+              )}
 
               <section className="gf-card-flat">
-                <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                  <ShieldCheck size={18} /> {t('Vehicle Bookings & Dispatch Queue')} ({trips.length})
-                </h2>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                  <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                    <ShieldCheck size={18} /> {t('Vehicle Bookings & Dispatch Queue')} ({trips.length})
+                  </h2>
+                  {user.role !== 'ADM' && (
+                    <button
+                      type="button"
+                      className="gf-btn gf-btn-primary gf-btn-sm"
+                      style={{ minHeight: '30px', padding: '4px 10px', fontSize: '11.5px', borderRadius: '8px' }}
+                      onClick={async () => {
+                        const res = await apiRequest('/api/notifications/send-reminders', { method: 'POST' });
+                        setStatusBanner({ type: 'success', text: `Sent ${res.sentCount} booking & dispatch push reminders.` });
+                        await loadAllData(user);
+                      }}
+                    >
+                      <Bell size={13} /> {t('Send Upcoming Push Reminders')}
+                    </button>
+                  )}
+                </div>
                 {trips.length === 0 ? (
                   <EmptyState message={t('No vehicle bookings submitted yet.')} />
                 ) : (
@@ -5360,6 +5580,7 @@ export function App() {
                 )}
               </section>
 
+              {user.role === 'ADM' && (
               <section className="gf-card-flat">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                   <div>
@@ -5660,6 +5881,7 @@ export function App() {
                   );
                 })()}
               </section>
+              )}
             </>
           )}
 
@@ -5808,8 +6030,17 @@ export function App() {
                                 <tr key={v.id}>
                                   <td className="mono" style={{ fontWeight: 700 }}>{v.registration_plate}</td>
                                   <td>
-                                    <div style={{ fontWeight: 700 }}>{v.make} {v.model}</div>
-                                    <div className="type-caption">{v.seats} seats • VIN {v.vin}</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                      <img
+                                        src={getVehiclePhotoIconUrl(`${v.make} ${v.model}`, v.energy_type)}
+                                        alt={`${v.make} ${v.model}`}
+                                        style={{ width: '40px', height: '40px', objectFit: 'contain', flexShrink: 0, borderRadius: '8px', background: '#f8fafc', padding: '2px', border: '1px solid #e2e8f0' }}
+                                      />
+                                      <div>
+                                        <div style={{ fontWeight: 700 }}>{v.make} {v.model}</div>
+                                        <div className="type-caption">{v.seats} seats • VIN {v.vin}</div>
+                                      </div>
+                                    </div>
                                   </td>
                                   <td>
                                     <div style={{ fontWeight: 600 }}>{v.default_driver_name || 'Pool Driver'}</div>
@@ -5835,9 +6066,11 @@ export function App() {
                                       <button type="button" className="gf-btn gf-btn-primary" onClick={() => openVehicle360(v.id)}>
                                         360°
                                       </button>
-                                      <button type="button" className="gf-btn gf-btn-outline-danger" onClick={() => handleDeleteVehicle(v)} title="Delete Vehicle">
-                                        <Trash2 size={15} /> Delete
-                                      </button>
+                                      {user.role === 'ADM' && (
+                                        <button type="button" className="gf-btn gf-btn-outline-danger" onClick={() => handleDeleteVehicle(v)} title="Delete Vehicle">
+                                          <Trash2 size={15} /> Delete
+                                        </button>
+                                      )}
                                     </div>
                                   </td>
                                 </tr>
@@ -5851,13 +6084,20 @@ export function App() {
                         {vehicles.map((v) => (
                           <div key={v.id} className="gf-proto-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                              <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                                  <span className="gf-proto-plt">{v.registration_plate}</span>
-                                  <span style={{ fontWeight: 800, fontSize: '13.5px' }}>{v.make} {v.model}</span>
-                                </div>
-                                <div className="type-caption" style={{ marginTop: '3px' }}>
-                                  {v.car_type} · {v.seats} seats · {Number(v.current_odometer || 0).toLocaleString()} km
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                                <img
+                                  src={getVehiclePhotoIconUrl(`${v.make} ${v.model}`, v.energy_type)}
+                                  alt={`${v.make} ${v.model}`}
+                                  style={{ width: '40px', height: '40px', objectFit: 'contain', flexShrink: 0, borderRadius: '8px', background: '#f8fafc', padding: '2px', border: '1px solid #e2e8f0' }}
+                                />
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                    <span className="gf-proto-plt">{v.registration_plate}</span>
+                                    <span style={{ fontWeight: 800, fontSize: '13.5px' }}>{v.make} {v.model}</span>
+                                  </div>
+                                  <div className="type-caption" style={{ marginTop: '3px' }}>
+                                    {v.car_type} · {v.seats} seats · {Number(v.current_odometer || 0).toLocaleString()} km
+                                  </div>
                                 </div>
                               </div>
                               <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -5885,9 +6125,11 @@ export function App() {
                               <button type="button" className="gf-proto-btn gf-proto-btn-s pressable" style={{ flex: 1 }} onClick={() => openVehicle360(v.id)}>
                                 360° View
                               </button>
-                              <button type="button" className="gf-proto-btn gf-proto-btn-r gf-proto-btn-s pressable" onClick={() => handleDeleteVehicle(v)} title="Delete Vehicle">
-                                <Trash2 size={13} />
-                              </button>
+                              {user.role === 'ADM' && (
+                                <button type="button" className="gf-proto-btn gf-proto-btn-r gf-proto-btn-s pressable" onClick={() => handleDeleteVehicle(v)} title="Delete Vehicle">
+                                  <Trash2 size={13} />
+                                </button>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -6185,15 +6427,17 @@ export function App() {
                                       >
                                         <Edit3 size={13} /> Edit
                                       </button>
-                                      <button
-                                        type="button"
-                                        className="gf-btn gf-btn-outline-danger"
-                                        style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px' }}
-                                        onClick={() => handleDeleteDriver(d)}
-                                        title="Delete Driver Profile"
-                                      >
-                                        <Trash2 size={13} /> Delete
-                                      </button>
+                                      {user.role === 'ADM' && (
+                                        <button
+                                          type="button"
+                                          className="gf-btn gf-btn-outline-danger"
+                                          style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px' }}
+                                          onClick={() => handleDeleteDriver(d)}
+                                          title="Delete Driver Profile"
+                                        >
+                                          <Trash2 size={13} /> Delete
+                                        </button>
+                                      )}
                                     </div>
                                   </td>
                                 </tr>
@@ -6298,13 +6542,15 @@ export function App() {
                               >
                                 <Edit3 size={13} /> Edit
                               </button>
-                              <button
-                                type="button"
-                                className="gf-proto-btn gf-proto-btn-r gf-proto-btn-s pressable"
-                                onClick={() => handleDeleteDriver(d)}
-                              >
-                                <Trash2 size={13} /> Delete
-                              </button>
+                              {user.role === 'ADM' && (
+                                <button
+                                  type="button"
+                                  className="gf-proto-btn gf-proto-btn-r gf-proto-btn-s pressable"
+                                  onClick={() => handleDeleteDriver(d)}
+                                >
+                                  <Trash2 size={13} /> Delete
+                                </button>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -6812,6 +7058,82 @@ export function App() {
                   )}
                 </div>
               </div>
+
+              {/* Digital Summary Report Approvals (Weekly on Friday & End of Month) */}
+              <section className="gf-card-flat" style={{ marginBottom: '12px', borderLeft: '4px solid #0072de' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                  <div>
+                    <h3 className="type-section" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px', fontSize: '15px' }}>
+                      <ShieldCheck size={16} style={{ color: '#0072de' }} /> {t('Digital Report Approvals (Weekly Friday & End of Month)')}
+                    </h3>
+                    <p className="type-caption" style={{ margin: '2px 0 0' }}>
+                      {t('Auto-prompts Fleet Manager & Head of WS every Friday and End of Month for digital sign-off.')}
+                    </p>
+                  </div>
+                </div>
+                {reportApprovals.length === 0 ? (
+                  <EmptyState message={t('No periodic summary reports generated yet.')} />
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
+                    {reportApprovals.slice(0, 4).map((rep) => {
+                      const s = rep.summary || {};
+                      const canSign = user?.role === 'FM' || user?.role === 'HWS';
+                      const myStatus = user?.role === 'FM' ? rep.fm_status : rep.hws_status;
+                      return (
+                        <div key={rep.id} className="gf-proto-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '6px' }}>
+                            <div>
+                              <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#0072de', textTransform: 'uppercase' }}>
+                                {rep.period_type === 'WEEKLY' ? 'Weekly • Friday' : 'Monthly • End of Month'}
+                              </span>
+                              <div style={{ fontWeight: 800, fontSize: '13.5px', color: '#0f172a' }}>{rep.period_label}</div>
+                            </div>
+                            <StatusBadge
+                              label={rep.overall_status}
+                              tone={rep.overall_status === 'APPROVED' ? 'blue' : rep.overall_status === 'REJECTED' ? 'red' : 'amber'}
+                            />
+                          </div>
+
+                          <div className="type-caption" style={{ display: 'flex', justifyContent: 'space-between', gap: '6px', flexWrap: 'wrap' }}>
+                            <span>Trips: <b>{Number(s.completed_trips ?? 0)}/{Number(s.total_trips ?? 0)}</b></span>
+                            <span>Dist: <b>{Number(s.total_distance_km ?? 0)} km</b></span>
+                            <span>Cost: <b>{formatIdr(Number(s.total_operational_cost_idr ?? 0))}</b></span>
+                          </div>
+
+                          <div style={{ fontSize: '11.5px', display: 'flex', flexDirection: 'column', gap: '4px', background: '#f8fafc', padding: '8px', borderRadius: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                              <span><strong>FM:</strong> {rep.fm_approved_by_name || 'Pending'}</span>
+                              <span className="mono" style={{ fontSize: '10.5px', color: rep.fm_status === 'APPROVED' ? '#0072de' : '#64748b' }}>
+                                {rep.fm_signature_hash || rep.fm_status}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                              <span><strong>HWS:</strong> {rep.hws_approved_by_name || 'Pending'}</span>
+                              <span className="mono" style={{ fontSize: '10.5px', color: rep.hws_status === 'APPROVED' ? '#0072de' : '#64748b' }}>
+                                {rep.hws_signature_hash || rep.hws_status}
+                              </span>
+                            </div>
+                          </div>
+
+                          {canSign && (
+                            <button
+                              type="button"
+                              className="gf-btn gf-btn-primary gf-btn-sm pressable"
+                              style={{ width: '100%', minHeight: '34px', fontSize: '12px' }}
+                              onClick={() => {
+                                setReportApprovalNotes('');
+                                setReportApprovalPopup(rep);
+                              }}
+                            >
+                              <CheckCircle2 size={14} /> {myStatus === 'PENDING' ? t('Approve Digitally') : t('Review / Update Signature')}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
 
               {/* Top KPI Grid with Elapsed Duration in Hours & Minutes + All-Time IDR Totals */}
               <div className="gf-kpi-grid">
@@ -12903,6 +13225,16 @@ export function App() {
                   hasDriverTopbar={isDriverDispatchMap}
                   driverMapMode={isDriverDispatchMap}
                   driverOnline={isDriverOnline}
+                  driverVehicleModel={(() => {
+                    const myProf = drivers.find((d) => d.user_id === user.id);
+                    const myVeh = myProf ? vehicles.find((v) => v.default_driver_id === myProf.id) : null;
+                    return myVeh ? `${myVeh.make} ${myVeh.model}` : focusedTrip?.model || 'Stargazer';
+                  })()}
+                  driverVehicleEnergyType={(() => {
+                    const myProf = drivers.find((d) => d.user_id === user.id);
+                    const myVeh = myProf ? vehicles.find((v) => v.default_driver_id === myProf.id) : null;
+                    return myVeh?.energy_type || focusedTrip?.energy_type || 'Gasoline';
+                  })()}
                   origin={mapOrigin}
                   destination={mapDest}
                   originCoords={originCoords}
@@ -13055,12 +13387,19 @@ export function App() {
 
                 {/* 3. Assigned Dedicated Vehicle Row */}
                 <div className="gf-driver-status-row">
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '15px', fontWeight: 700, color: '#1f1f1f' }}>
-                      {dedicatedCar ? `${dedicatedCar.make} ${dedicatedCar.model}` : t('Assigned Dedicated Car')}
-                    </div>
-                    <div style={{ fontSize: '12.5px', color: '#878787', marginTop: '2px' }}>
-                      {dedicatedCar ? `${dedicatedCar.registration_plate} • Odo ${dedicatedCar.current_odometer} km` : t('Ready for Duty')}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                    <img
+                      src={getVehiclePhotoIconUrl(dedicatedCar ? `${dedicatedCar.make} ${dedicatedCar.model}` : 'Stargazer', dedicatedCar?.energy_type)}
+                      alt={dedicatedCar ? `${dedicatedCar.make} ${dedicatedCar.model}` : 'Assigned Car'}
+                      style={{ width: '42px', height: '42px', objectFit: 'contain', flexShrink: 0, borderRadius: '10px', background: '#f8fafc', padding: '2px', border: '1px solid #e2e8f0' }}
+                    />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: '15px', fontWeight: 700, color: '#1f1f1f' }}>
+                        {dedicatedCar ? `${dedicatedCar.make} ${dedicatedCar.model}` : t('Assigned Dedicated Car')}
+                      </div>
+                      <div style={{ fontSize: '12.5px', color: '#878787', marginTop: '2px' }}>
+                        {dedicatedCar ? `${dedicatedCar.registration_plate} • Odo ${dedicatedCar.current_odometer} km` : t('Ready for Duty')}
+                      </div>
                     </div>
                   </div>
                   <button
