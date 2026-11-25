@@ -340,7 +340,7 @@ export function getDriverAvatarDataUri(name: string, photoUrl?: string | null): 
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
     <circle cx="50" cy="50" r="48" fill="${p.bg}"/>
-    <!-- Driver Shoulders & Chauffeur Uniform -->
+    <!-- Driver Shoulders & Driver Uniform -->
     <path d="M20 94 C20 74 34 68 50 68 C66 68 80 74 80 94 Z" fill="#0f172a"/>
     <!-- Collar & Tie -->
     <polygon points="50,68 44,78 50,88 56,78" fill="#ffffff"/>

@@ -181,11 +181,11 @@ function toLocalDateTimeInput(date: Date): string {
 function formatReservationModeLabel(reservationType?: string | null, returnPickupTime?: string | null): string | null {
   const mode = String(reservationType || 'ONE_WAY').toUpperCase();
   if (mode === 'FULL_DAY') return 'Full Day';
-  if (mode === 'DROP_AND_PICKUP') {
+  if (mode === 'DROP_AND_PICKUP' || mode === 'ROUND_TRIP') {
     const rp = returnPickupTime
       ? ` • Pick-Up ${new Date(returnPickupTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
       : '';
-    return `Drop & Pick Up${rp}`;
+    return `Round Trip${rp}`;
   }
   return null;
 }
@@ -253,7 +253,7 @@ function getScheduleSlotBrief(isoOrDateStr: string, targetLang?: SupportedLang):
   }
 }
 
-function getScheduleSlotDisplay(isoOrDateStr: string, targetLang?: SupportedLang): string {
+export function getScheduleSlotDisplay(isoOrDateStr: string, targetLang?: SupportedLang): string {
   try {
     const d = new Date(isoOrDateStr);
     if (Number.isNaN(d.getTime())) return 'Jadwal khusus';
@@ -485,7 +485,7 @@ export function App() {
   const [vehicleFilter, setVehicleFilter] = useState<'ALL' | 'Electric' | 'MPV'>('ALL');
   const [activityTab, setActivityTab] = useState<'ONGOING' | 'HISTORY'>('ONGOING');
   const [summaryPicker, setSummaryPicker] = useState<'PURPOSE' | 'PAX' | 'NOTES' | 'CHARGE' | null>(null);
-  const [pickerValidationError, setPickerValidationError] = useState<string | null>(null);
+  const [_pickerValidationError, setPickerValidationError] = useState<string | null>(null);
   const [focusedTripId, setFocusedTripId] = useState<number | null>(null);
   const [driverSectionTab, setDriverSectionTab] = useState<'DISPATCH' | 'SCHEDULE'>('DISPATCH');
   const [customerHomeMode, setCustomerHomeMode] = useState<'SUPER_APP' | 'GOCAR_LANDING'>('SUPER_APP');
@@ -573,6 +573,17 @@ export function App() {
   const [bookDurationHours, setBookDurationHours] = useState<number>(2);
   const [liveAvailability, setLiveAvailability] = useState<{ vehicles: any[]; drivers: any[] } | null>(null);
   const [scheduleFilterTab, setScheduleFilterTab] = useState<'ALL' | 'AVAILABLE' | 'BOOKED'>('ALL');
+  const [scheduleCalendarDate, setScheduleCalendarDate] = useState<string>(() => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  });
+  const [calendarTrips, setCalendarTrips] = useState<any[]>([]);
+  const [negotiationModalTrip, setNegotiationModalTrip] = useState<any | null>(null);
+  const [negotiationActionType, setNegotiationActionType] = useState<'HITCHHIKE' | 'REQUEST_CANCEL'>('HITCHHIKE');
+  const [negotiationNote, setNegotiationNote] = useState<string>('');
+  const [negotiationPassengerNickname, setNegotiationPassengerNickname] = useState<string>('');
+  const [negotiationSubmitting, setNegotiationSubmitting] = useState<boolean>(false);
 
   // Driver Expense Reimbursement & Petty Cash State
   const [showDriverExpenseModal, setShowDriverExpenseModal] = useState<boolean>(false);
@@ -749,7 +760,7 @@ export function App() {
     setLoadingData(true);
     setDataError(null);
     try {
-      const [vehRes, drvRes, trpRes, bkgRes, ntfRes, deptRes, pinRes] = await Promise.all([
+      const [vehRes, drvRes, trpRes, bkgRes, ntfRes, deptRes, pinRes, calRes] = await Promise.all([
         apiRequest('/api/vehicles'),
         apiRequest('/api/drivers'),
         apiRequest('/api/trips'),
@@ -757,6 +768,7 @@ export function App() {
         apiRequest('/api/notifications'),
         apiRequest('/api/departments'),
         apiRequest('/api/location/pins').catch(() => ({ pins: [] })),
+        apiRequest('/api/schedule/calendar').catch(() => ({ trips: [] })),
       ]);
       const loadedVehicles = vehRes.vehicles || [];
       const loadedDrivers = drvRes.drivers || [];
@@ -766,6 +778,9 @@ export function App() {
       setBookings(bkgRes.bookings || []);
       setNotifications(ntfRes.notifications || []);
       setUserPins(pinRes.pins || []);
+      if (Array.isArray(calRes.trips)) {
+        setCalendarTrips(calRes.trips);
+      }
       if (Array.isArray(deptRes.departments) && deptRes.departments.length > 0) {
         setGroupsList(deptRes.departments);
         const drvGrp = deptRes.departments.find((g: any) => ['DRV', 'DRIVER', 'DRIVER_G'].includes(String(g.code || '').toUpperCase()) || /driver/i.test(g.name));
@@ -938,31 +953,34 @@ export function App() {
     const timer = window.setTimeout(async () => {
       setCalculatingRoute(true);
       try {
-        let resolvedOrig = originCoords || (myCoords ? { lat: myCoords.lat, lon: myCoords.lon } : { lat: -6.22728, lon: 106.80816 });
+        let resolvedOrig = originCoords;
         let resolvedDest = destCoords;
 
         if (!bookOrigin.trim()) {
           setBookOrigin('Samsung Office Jakarta (Lobby)');
+          resolvedOrig = myCoords ? { lat: myCoords.lat, lon: myCoords.lon } : { lat: -6.22728, lon: 106.80816 };
           setOriginCoords(resolvedOrig);
         }
 
         if (!resolvedOrig && bookOrigin.trim().length >= 2) {
-          const g1 = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(bookOrigin.trim())}`).catch(() => null);
+          const cleanOrigQuery = bookOrigin.replace(/\s*\(Spot [ABC]\)$/i, '').replace(/\s*\(Main Lobby Gate\)$/i, '').trim();
+          const g1 = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(cleanOrigQuery)}`).catch(() => null);
           if (g1?.results?.[0]) {
             resolvedOrig = { lat: Number(g1.results[0].lat), lon: Number(g1.results[0].lon) };
             if (!cancelled) setOriginCoords(resolvedOrig);
           }
         }
         if (!resolvedDest && bookDest.trim().length >= 2) {
-          const g2 = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(bookDest.trim())}`).catch(() => null);
+          const cleanDestQuery = bookDest.replace(/\s*\(Main Lobby Gate\)$/i, '').trim();
+          const g2 = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(cleanDestQuery)}`).catch(() => null);
           if (g2?.results?.[0]) {
             resolvedDest = { lat: Number(g2.results[0].lat), lon: Number(g2.results[0].lon) };
             if (!cancelled) setDestCoords(resolvedDest);
           }
         }
 
-        const origLat = resolvedOrig?.lat ?? -6.22728;
-        const origLon = resolvedOrig?.lon ?? 106.80816;
+        const origLat = resolvedOrig?.lat ?? (myCoords?.lat ?? -6.22728);
+        const origLon = resolvedOrig?.lon ?? (myCoords?.lon ?? 106.80816);
         const dstLat = resolvedDest?.lat ?? origLat - 0.018;
         const dstLon = resolvedDest?.lon ?? origLon + 0.022;
         const depTime = scheduleMode === 'SCHEDULE' && bookStart ? new Date(bookStart).toISOString() : new Date().toISOString();
@@ -995,14 +1013,20 @@ export function App() {
         }
       } catch {
         if (!cancelled) {
-          const est = estimateRouteMetrics(bookOrigin || 'Samsung Office Jakarta (Lobby)', bookDest, originCoords, destCoords);
+          const fallbackOrig = originCoords || (myCoords ? { lat: myCoords.lat, lon: myCoords.lon } : { lat: -6.22728, lon: 106.80816 });
+          const fallbackDest = destCoords || { lat: fallbackOrig.lat - 0.018, lon: fallbackOrig.lon + 0.022 };
+          const est = estimateRouteMetrics(bookOrigin || 'Samsung Office Jakarta (Lobby)', bookDest, fallbackOrig, fallbackDest);
           const etaDate = new Date(Date.now() + est.durationMin * 60_000);
           setCalculatedRoute({
             distanceKm: est.distanceKm,
             durationMin: est.durationMin,
             etaIso: etaDate.toISOString(),
             etaText: etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            geometry: [[-6.22728, 106.80816], [-6.25, 106.9], [-6.287549, 107.1356063]],
+            geometry: [
+              [fallbackOrig.lat, fallbackOrig.lon],
+              [(fallbackOrig.lat + fallbackDest.lat) / 2, (fallbackOrig.lon + fallbackDest.lon) / 2],
+              [fallbackDest.lat, fallbackDest.lon],
+            ],
           });
         }
       } finally {
@@ -1503,15 +1527,19 @@ export function App() {
     // Synchronizes booking approvals, driver assignments, trip starts, and completions across requester, driver, and admin
     const syncInterval = window.setInterval(async () => {
       try {
-        const [trpRes, bkgRes] = await Promise.all([
+        const [trpRes, bkgRes, calRes] = await Promise.all([
           apiRequest('/api/trips'),
           apiRequest('/api/bookings'),
+          apiRequest('/api/schedule/calendar').catch(() => ({ trips: [] })),
         ]);
         if (Array.isArray(trpRes.trips)) {
           setTrips(trpRes.trips);
         }
         if (Array.isArray(bkgRes.bookings)) {
           setBookings(bkgRes.bookings);
+        }
+        if (Array.isArray(calRes.trips)) {
+          setCalendarTrips(calRes.trips);
         }
         if (['DRV', 'ADM', 'FM'].includes(user.role)) {
           const dspRes = await apiRequest('/api/driver/dispatches').catch(() => ({ dispatches: [] }));
@@ -1788,7 +1816,7 @@ export function App() {
     }
   };
 
-  const handleDoneSummaryPicker = () => {
+  const _handleDoneSummaryPicker = () => {
     if (summaryPicker === 'PURPOSE') {
       if (!bookPurpose.trim()) {
         setPickerValidationError('Tujuan perjalanan (Purpose) wajib diisi.');
@@ -1808,9 +1836,9 @@ export function App() {
     setPickerValidationError(null);
     setSummaryPicker(null);
   };
+  void _handleDoneSummaryPicker;
 
-  const handleCreateTripBooking = async (confirmed?: boolean | React.MouseEvent) => {
-    const isPreBookingConfirmed = confirmed === true;
+  const handleCreateTripBooking = async (_confirmed?: boolean | React.MouseEvent) => {
     setStatusBanner(null);
     if (!selectedVehicle) {
       setStatusBanner({ type: 'danger', text: 'Please select an available vehicle first.' });
@@ -1844,7 +1872,7 @@ export function App() {
     if (bookReservationType === 'DROP_AND_PICKUP') {
       const rpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
       if (!bookReturnPickupTime || Number.isNaN(rpMs)) {
-        setStatusBanner({ type: 'danger', text: 'Please select a post-event pick-up time for Drop & Pick Up bookings.' });
+        setStatusBanner({ type: 'danger', text: 'Please select a post-event pick-up time for Round Trip bookings.' });
         return;
       }
       if (rpMs <= startMs) {
@@ -1862,10 +1890,8 @@ export function App() {
     if (!bookPurpose.trim()) {
       setStatusBanner({
         type: 'danger',
-        text: 'Tujuan perjalanan (Purpose) wajib diisi. Silakan pilih atau ketik tujuan perjalanan Anda sebelum memesan.',
+        text: 'Tujuan perjalanan (Trip Purpose) wajib diisi. Silakan pilih atau ketik tujuan perjalanan Anda sebelum memesan.',
       });
-      setPickerValidationError('Tujuan perjalanan (Purpose) wajib diisi.');
-      setSummaryPicker('PURPOSE');
       return;
     }
 
@@ -1884,28 +1910,10 @@ export function App() {
         type: 'danger',
         text: paxErr,
       });
-      setPickerValidationError(paxErr);
-      setSummaryPicker('PAX');
       return;
     }
 
-    const leadTimeMin = Math.round((startMs - nowMs) / 60000);
-    const isUrgent = leadTimeMin < 120;
     const effectivePurpose = bookPurpose.trim();
-
-    if (isUrgent && !bookUrgentReason.trim() && !bookNotes.trim() && effectivePurpose.length < 5) {
-      setStatusBanner({
-        type: 'danger',
-        text: 'This trip departs in less than 2 hours. Company policy requires an urgent justification for short-notice bookings.',
-      });
-      return;
-    }
-
-    // Requirement #12: Pre-Booking Confirmation step (reminds passenger of default +2h schedule or urgent < 2h change before submitting)
-    if (!isPreBookingConfirmed) {
-      setShowPreBookingConfirmModal(true);
-      return;
-    }
     setShowPreBookingConfirmModal(false);
 
     const startIso = new Date(bookStart).toISOString();
@@ -1932,9 +1940,9 @@ export function App() {
           passenger_count: Math.max(1, cleanPassengers.length || Number(bookPax)),
           passenger_nickname: formattedPaxNickname,
           passengers: cleanPassengers,
-          notes: bookNotes,
-          is_urgent: isUrgent ? 1 : 0,
-          urgent_reason: isUrgent ? (bookUrgentReason.trim() || effectivePurpose) : null,
+          notes: bookNotes || effectivePurpose,
+          is_urgent: 0,
+          urgent_reason: effectivePurpose,
         }),
       });
       setBookPurpose('');
@@ -2002,6 +2010,57 @@ export function App() {
       setStatusBanner({
         type: 'success',
         text: t('Boarding confirmed! Auto-cancellation timer stopped and driver notified.'),
+      });
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message });
+    }
+  };
+
+  const handleSubmitNegotiation = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!negotiationModalTrip?.id) return;
+    const paxName = (negotiationPassengerNickname || user?.nickname || 'Colleague').trim();
+    if (negotiationActionType === 'HITCHHIKE' && !paxName) {
+      setStatusBanner({ type: 'danger', text: 'Please enter your passenger nickname to hitchhike.' });
+      return;
+    }
+    setNegotiationSubmitting(true);
+    try {
+      const res = await apiRequest(`/api/trips/${negotiationModalTrip.id}/negotiate`, {
+        method: 'POST',
+        body: JSON.stringify({
+          action_type: negotiationActionType,
+          passenger_nickname: paxName,
+          note: negotiationNote.trim(),
+        }),
+      });
+      setStatusBanner({
+        type: 'success',
+        text: res.message || `Request sent to ${negotiationModalTrip.requester_name || 'booking holder'} (${negotiationModalTrip.department_name || 'Group'}).`,
+      });
+      setNegotiationModalTrip(null);
+      setNegotiationNote('');
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message });
+    } finally {
+      setNegotiationSubmitting(false);
+    }
+  };
+
+  const handleAcceptHitchhike = async (tripId: number, passengerNickname: string, requesterUserId?: number) => {
+    try {
+      const res = await apiRequest(`/api/trips/${tripId}/hitchhike-accept`, {
+        method: 'POST',
+        body: JSON.stringify({
+          passenger_nickname: passengerNickname,
+          requester_user_id: requesterUserId,
+        }),
+      });
+      setStatusBanner({
+        type: 'success',
+        text: `Hitchhike accepted! ${passengerNickname} added to Trip #${tripId} (${res.passenger_nickname || ''}).`,
       });
       await loadAllData(user);
     } catch (err: any) {
@@ -4484,6 +4543,177 @@ export function App() {
           </div>
         </div>
       )}
+
+      {negotiationModalTrip && (
+        <div
+          className="gf-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Negotiate or Hitchhike Booking"
+          style={{ zIndex: 9999 }}
+          onClick={() => setNegotiationModalTrip(null)}
+        >
+          <div
+            className="gf-modal-card"
+            style={{ maxWidth: '500px', width: '94vw', display: 'flex', flexDirection: 'column', gap: '14px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--color-border)', paddingBottom: '10px' }}>
+              <div>
+                <h3 className="type-title" style={{ margin: 0, fontSize: '18px' }}>
+                  🤝 {t('Negotiate / Hitchhike')}
+                </h3>
+                <p className="type-caption" style={{ margin: '2px 0 0' }}>
+                  {negotiationModalTrip.make} {negotiationModalTrip.model} ({negotiationModalTrip.registration_plate})
+                </p>
+              </div>
+              <button
+                type="button"
+                className="gf-btn gf-btn-secondary"
+                style={{ minHeight: '32px', padding: '4px 10px' }}
+                onClick={() => setNegotiationModalTrip(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Current Booking Holder Info Card */}
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: '12px',
+                background: '#ebf5ff',
+                border: '1.5px solid #93c5fd',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+                fontSize: '13px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 800, color: '#005bb5' }}>
+                  👤 Current Holder (PIC): {negotiationModalTrip.requester_name || 'Colleague'} ({negotiationModalTrip.department_name || 'Group'})
+                </span>
+                <StatusBadge label={formatReservationModeLabel(negotiationModalTrip.reservation_type, negotiationModalTrip.return_pickup_time) || 'Standard Trip'} tone="blue" />
+              </div>
+              <div>
+                <strong>🎯 Destination:</strong> {negotiationModalTrip.origin} → <strong>{negotiationModalTrip.destination}</strong>
+              </div>
+              <div>
+                <strong>👥 Passengers:</strong> {formatPassengersDisplay(negotiationModalTrip.passengers_json, negotiationModalTrip.passenger_nickname)}
+              </div>
+              <div>
+                <strong>🕒 Booked Time & Duration:</strong>{' '}
+                {new Date(negotiationModalTrip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} –{' '}
+                {new Date(negotiationModalTrip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{' '}
+                ({Math.max(1, Math.round((new Date(negotiationModalTrip.end_time).getTime() - new Date(negotiationModalTrip.start_time).getTime()) / 3600000))}h)
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmitNegotiation} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '6px' }}>
+                  Choose Action:
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="pressable"
+                    onClick={() => setNegotiationActionType('HITCHHIKE')}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      border: negotiationActionType === 'HITCHHIKE' ? '2px solid #0072de' : '1px solid var(--color-border)',
+                      background: negotiationActionType === 'HITCHHIKE' ? '#ebf5ff' : 'var(--color-surface)',
+                      color: negotiationActionType === 'HITCHHIKE' ? '#005bb5' : 'var(--color-text-primary)',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, fontSize: '13px' }}>🚗 Hitchhike Ride</div>
+                    <div style={{ fontSize: '11px', opacity: 0.85, marginTop: '2px' }}>Join this car (same destination)</div>
+                  </button>
+                  <button
+                    type="button"
+                    className="pressable"
+                    onClick={() => setNegotiationActionType('REQUEST_CANCEL')}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      border: negotiationActionType === 'REQUEST_CANCEL' ? '2px solid #0072de' : '1px solid var(--color-border)',
+                      background: negotiationActionType === 'REQUEST_CANCEL' ? '#ebf5ff' : 'var(--color-surface)',
+                      color: negotiationActionType === 'REQUEST_CANCEL' ? '#005bb5' : 'var(--color-text-primary)',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, fontSize: '13px' }}>🔄 Negotiate Cancel</div>
+                    <div style={{ fontSize: '11px', opacity: 0.85, marginTop: '2px' }}>Ask holder to release / swap slot</div>
+                  </button>
+                </div>
+              </div>
+
+              {negotiationActionType === 'HITCHHIKE' && (
+                <div>
+                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    Your Passenger Nickname *
+                  </label>
+                  <input
+                    type="text"
+                    className="gf-input"
+                    required
+                    placeholder="e.g. Budi"
+                    value={negotiationPassengerNickname}
+                    onChange={(e) => setNegotiationPassengerNickname(e.target.value)}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  Message to {negotiationModalTrip.requester_name || 'Booking Holder'} (Optional)
+                </label>
+                <input
+                  type="text"
+                  className="gf-input"
+                  placeholder={
+                    negotiationActionType === 'HITCHHIKE'
+                      ? `Heading to ${negotiationModalTrip.destination} too, may I join your ride?`
+                      : 'Need this car urgently for a client visit, can we coordinate?'
+                  }
+                  value={negotiationNote}
+                  onChange={(e) => setNegotiationNote(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-secondary"
+                  style={{ flex: 1 }}
+                  onClick={() => setNegotiationModalTrip(null)}
+                  disabled={negotiationSubmitting}
+                >
+                  {t('Cancel')}
+                </button>
+                <button
+                  id="submit-negotiation-btn"
+                  type="submit"
+                  className="gf-btn gf-btn-primary"
+                  style={{ flex: 1.4 }}
+                  disabled={negotiationSubmitting}
+                >
+                  {negotiationSubmitting
+                    ? 'Sending...'
+                    : negotiationActionType === 'HITCHHIKE'
+                    ? 'Send Hitchhike Request'
+                    : 'Send Cancel Negotiation'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -4498,6 +4728,11 @@ export function App() {
           onSelectModule={setAdminModule}
           onSignOut={handleLogout}
           onOpenProfile={handleOpenProfileModal}
+          onBackToApp={() => {
+            setNavSection('HOME');
+            setBookingStep('HOME');
+            setSheetSnap('full');
+          }}
           pendingCount={pendingTrips.length + pendingUsers.length}
           userNickname={user.nickname}
           userRole={user.role}
@@ -7608,6 +7843,10 @@ export function App() {
       }
     } else if (bookingStep === 'VEHICLE' && selectedVehicle) {
       const availSelected = selectedVehicle.isAvailable !== false && selectedVehicle.status === 'Available';
+      const isPurposeFilled = Boolean(bookPurpose.trim());
+      const isPassengerFilled = bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim()));
+      const canDirectSubmit = availSelected && isPurposeFilled && isPassengerFilled;
+
       stickyFooter = (
         <StickyActionBar>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%' }}>
@@ -7628,20 +7867,22 @@ export function App() {
               className="gf-gocar-book-cta pressable"
               disabled={!availSelected}
               onClick={() => {
-                setBookingStep('SUMMARY');
-                setSheetSnap('half');
+                if (canDirectSubmit) {
+                  handleCreateTripBooking(true);
+                } else {
+                  setBookingStep('SUMMARY');
+                  setSheetSnap('half');
+                }
               }}
             >
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, overflow: 'hidden' }}>
                 <span style={{ width: '100%', textAlign: 'left', fontSize: '14.5px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {scheduleMode === 'SCHEDULE'
-                    ? `${t('Schedule')} ${selectedVehicle.make} ${selectedVehicle.model}`
+                  {canDirectSubmit
+                    ? `${t('Request GalaxyFleet')} • ${selectedVehicle.make} ${selectedVehicle.model}`
                     : `${t('Book')} ${selectedVehicle.make} ${selectedVehicle.model}`}
                 </span>
                 <span style={{ width: '100%', textAlign: 'left', fontSize: '11.5px', fontWeight: 600, opacity: 0.9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {scheduleMode === 'SCHEDULE'
-                    ? getScheduleSlotBrief(bookStart, lang)
-                    : `${t('Ready to Depart')} • ETA ${currentMetrics.etaText}`}
+                  {getScheduleSlotBrief(bookStart, lang)} • ETA {currentMetrics.etaText}
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
@@ -7649,10 +7890,8 @@ export function App() {
                   {bookReservationType === 'FULL_DAY'
                     ? t('Full Day')
                     : bookReservationType === 'DROP_AND_PICKUP'
-                    ? t('Drop & Pick Up')
-                    : scheduleMode === 'SCHEDULE'
-                    ? t('Scheduled')
-                    : t('Instant')}
+                    ? t('Round Trip')
+                    : t('Standard Trip')}
                 </span>
                 <span className="gf-gocar-book-arrow">
                   <ArrowRight size={17} strokeWidth={2.75} />
@@ -7675,8 +7914,8 @@ export function App() {
               {bookReservationType === 'FULL_DAY'
                 ? ' • Full Day'
                 : bookReservationType === 'DROP_AND_PICKUP'
-                ? ' • Drop & Pick Up'
-                : ''}{' '}
+                ? ' • Round Trip'
+                : ' • Standard Trip'}{' '}
               • ETA {currentMetrics.etaText}
             </div>
             <button
@@ -7708,7 +7947,7 @@ export function App() {
                   {bookReservationType === 'FULL_DAY'
                     ? t('Full Day')
                     : bookReservationType === 'DROP_AND_PICKUP'
-                    ? t('Drop & Pick Up')
+                    ? t('Round Trip')
                     : canProceedBooking
                     ? t('Confirm')
                     : t('Complete Details')}
@@ -8301,31 +8540,35 @@ export function App() {
 
                     {!isCompleted && tripId && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--color-divider)' }}>
-                        {!d.acknowledged_at && (
-                          <button
-                            type="button"
-                            className="gf-btn gf-btn-primary gf-btn-full"
-                            onClick={async () => {
-                              setGpsNoticeAccepted(true);
-                              setGpsReportingActive(true);
-                              await sendDriverLocationReport('GRANTED');
-                              await apiRequest(`/api/driver/trips/${tripId}/acknowledge`, { method: 'POST' });
-                              setStatusBanner({ type: 'success', text: t('Dispatch order acknowledged & check-in recorded.') });
-                              await loadAllData(user);
-                            }}
-                          >
-                            {t('Acknowledge Order')}
-                          </button>
-                        )}
+                        <div
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: '8px',
+                            background: '#ebf5ff',
+                            border: '1px solid #bfdbfe',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: '#005bb5',
+                          }}
+                        >
+                          <span>✓ {t('Auto-Accepted Order')}</span>
+                          <span style={{ fontSize: '11px', fontWeight: 600 }}>
+                            {isInProgress ? t('Trip in Progress') : t('Take odometer photo & type reading to start')}
+                          </span>
+                        </div>
                         {!isInProgress ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                             <div style={{ border: '1.5px solid #bfdbfe', background: '#eff6ff', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '4px' }}>
                                 <label htmlFor={`start-odo-file-${tripId}`} style={{ fontWeight: 800, fontSize: '13px', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  <Camera size={16} /> {t('Mandatory Start Odometer Photo')}
+                                  <Camera size={16} /> 1. {t('Mandatory Start Odometer Photo')} *
                                 </label>
                                 <span style={{ fontSize: '11px', color: '#64748b' }}>
-                                  {startOdoTime[tripId] ? `Recorded: ${startOdoTime[tripId]}` : t('Auto-recorded on capture')}
+                                  {startOdoTime[tripId] ? `Recorded: ${startOdoTime[tripId]}` : t('Photo required for verification')}
                                 </span>
                               </div>
                               <input
@@ -8386,55 +8629,76 @@ export function App() {
                               )}
                             </div>
 
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                              <input
-                                type="number"
-                                className="gf-input"
-                                aria-label="Start odometer"
-                                placeholder="Start Odometer (km)"
-                                value={activeTripOdoInput[tripId] ?? d.current_odometer}
-                                onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
-                              />
-                              <button
-                                type="button"
-                                className="gf-btn gf-btn-primary"
-                                onClick={async () => {
-                                  if (!startOdoPhoto[tripId]) {
-                                    setStatusBanner({ type: 'danger', text: t('Mandatory: Driver must take a photo of the odometer before starting the trip.') });
-                                    return;
-                                  }
-                                  try {
-                                    setGpsNoticeAccepted(true);
-                                    setGpsReportingActive(true);
-                                    await sendDriverLocationReport('GRANTED');
-                                    await apiRequest(`/api/driver/trips/${tripId}/start`, {
-                                      method: 'POST',
-                                      body: JSON.stringify({
-                                        start_odometer: Number(activeTripOdoInput[tripId] ?? d.current_odometer),
-                                        start_odometer_photo: startOdoPhoto[tripId],
-                                        photo_base64: startOdoPhoto[tripId],
-                                      }),
-                                    });
-                                    setStatusBanner({ type: 'success', text: t('Check-in & odometer photo verified, trip started!') });
-                                    await loadAllData(user);
-                                  } catch (err: any) {
-                                    setStatusBanner({ type: 'danger', text: err.message });
-                                  }
-                                }}
-                              >
-                                <Play size={16} /> {t('Start Trip')}
-                              </button>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <label htmlFor={`start-odo-input-${tripId}`} className="type-caption" style={{ fontWeight: 800, color: '#1e40af' }}>
+                                2. Type Start Odometer Manually (km) * — Min: {d.current_odometer} km
+                              </label>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <input
+                                  id={`start-odo-input-${tripId}`}
+                                  type="number"
+                                  className="gf-input"
+                                  aria-label="Start odometer"
+                                  required
+                                  placeholder={`Type current odometer (min ${d.current_odometer} km)`}
+                                  value={activeTripOdoInput[tripId] ?? ''}
+                                  onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
+                                />
+                                <button
+                                  type="button"
+                                  className="gf-btn gf-btn-primary"
+                                  onClick={async () => {
+                                    if (!startOdoPhoto[tripId]) {
+                                      setStatusBanner({ type: 'danger', text: t('Mandatory: Driver must take a photo of the odometer before starting the trip.') });
+                                      return;
+                                    }
+                                    const rawStartOdo = (activeTripOdoInput[tripId] ?? '').toString().trim();
+                                    if (!rawStartOdo || Number.isNaN(Number(rawStartOdo)) || Number(rawStartOdo) < Number(d.current_odometer || 0)) {
+                                      setStatusBanner({
+                                        type: 'danger',
+                                        text: `Mandatory: Please type the start odometer reading manually (must be at least ${d.current_odometer || 0} km) matching your odometer photo.`,
+                                      });
+                                      return;
+                                    }
+                                    try {
+                                      setGpsNoticeAccepted(true);
+                                      setGpsReportingActive(true);
+                                      await sendDriverLocationReport('GRANTED');
+                                      await apiRequest(`/api/driver/trips/${tripId}/start`, {
+                                        method: 'POST',
+                                        body: JSON.stringify({
+                                          start_odometer: Number(rawStartOdo),
+                                          start_odometer_photo: startOdoPhoto[tripId],
+                                          photo_base64: startOdoPhoto[tripId],
+                                          enforce_photo: true,
+                                        }),
+                                      });
+                                      setActiveTripOdoInput((prev) => {
+                                        const next = { ...prev };
+                                        delete next[tripId];
+                                        return next;
+                                      });
+                                      setStatusBanner({ type: 'success', text: t('Odometer photo & manual reading verified, trip started!') });
+                                      await loadAllData(user);
+                                    } catch (err: any) {
+                                      setStatusBanner({ type: 'danger', text: err.message });
+                                    }
+                                  }}
+                                >
+                                  <Play size={16} /> {t('Start Trip')}
+                                </button>
+                              </div>
                             </div>
                           </div>
                         ) : (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                             <div style={{ border: '1.5px solid #bfdbfe', background: '#eff6ff', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '4px' }}>
                                 <label htmlFor={`end-odo-file-${tripId}`} style={{ fontWeight: 800, fontSize: '13px', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  <Camera size={16} /> {t('Mandatory Completion Odometer Photo')}
+                                  <Camera size={16} /> 1. {t('Mandatory Completion Odometer Photo')} *
                                 </label>
                                 <span style={{ fontSize: '11px', color: '#64748b' }}>
-                                  {endOdoTime[tripId] ? `Recorded: ${endOdoTime[tripId]}` : t('Auto-recorded on capture')}
+                                  {endOdoTime[tripId] ? `Recorded: ${endOdoTime[tripId]}` : t('Photo required to verify odometer')}
                                 </span>
                               </div>
                               <input
@@ -8495,13 +8759,20 @@ export function App() {
                               )}
                             </div>
 
-                            <input
-                              type="number"
-                              className="gf-input"
-                              placeholder={`End Odometer (> ${d.start_odometer || d.current_odometer})`}
-                              value={activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25}
-                              onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
-                            />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <label htmlFor={`end-odo-input-${tripId}`} className="type-caption" style={{ fontWeight: 800, color: '#1e40af' }}>
+                                2. Type End Odometer Manually (km) * — Must be &ge; {d.start_odometer || d.current_odometer} km
+                              </label>
+                              <input
+                                id={`end-odo-input-${tripId}`}
+                                type="number"
+                                className="gf-input"
+                                required
+                                placeholder={`Type end odometer manually (>= ${d.start_odometer || d.current_odometer} km)`}
+                                value={activeTripOdoInput[tripId] ?? ''}
+                                onChange={(e) => setActiveTripOdoInput({ ...activeTripOdoInput, [tripId]: e.target.value })}
+                              />
+                            </div>
                             {d.energy_type === 'Electric' && (
                               <input
                                 type="number"
@@ -8526,6 +8797,15 @@ export function App() {
                                   setStatusBanner({ type: 'danger', text: t('Mandatory: Driver must take a photo of the odometer upon trip completion.') });
                                   return;
                                 }
+                                const rawEndOdo = (activeTripOdoInput[tripId] ?? '').toString().trim();
+                                const minStartOdo = Number(d.start_odometer || d.current_odometer || 0);
+                                if (!rawEndOdo || Number.isNaN(Number(rawEndOdo)) || Number(rawEndOdo) < minStartOdo) {
+                                  setStatusBanner({
+                                    type: 'danger',
+                                    text: `Mandatory: Please type the end odometer reading manually (must be >= ${minStartOdo} km) matching your completion odometer photo.`,
+                                  });
+                                  return;
+                                }
                                 try {
                                   setGpsNoticeAccepted(true);
                                   setGpsReportingActive(true);
@@ -8533,14 +8813,15 @@ export function App() {
                                   await apiRequest(`/api/driver/trips/${tripId}/complete`, {
                                     method: 'POST',
                                     body: JSON.stringify({
-                                      end_odometer: Number(activeTripOdoInput[tripId] ?? Number(d.start_odometer || d.current_odometer) + 25),
+                                      end_odometer: Number(rawEndOdo),
                                       end_odometer_photo: endOdoPhoto[tripId],
                                       photo_base64: endOdoPhoto[tripId],
+                                      enforce_photo: true,
                                       battery_percent: d.energy_type === 'Electric' ? Number(activeTripBatteryInput[tripId] ?? 72) : undefined,
                                       parking_return_note: activeTripParkingInput[tripId] || 'Main Pool',
                                     }),
                                   });
-                                  setStatusBanner({ type: 'success', text: t('Trip completed, odometer photo and timestamp saved!') });
+                                  setStatusBanner({ type: 'success', text: t('Trip completed, odometer photo and manual reading verified!') });
                                   await loadAllData(user);
                                 } catch (err: any) {
                                   setStatusBanner({ type: 'danger', text: err.message });
@@ -8766,11 +9047,26 @@ export function App() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {feedbackBanner}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-              <div>
-                <h1 className="type-title">{t('Trip Log')}</h1>
-                <p className="type-caption">
-                  {user.department_name || 'Driver G'} • {t('Total Driving Time')}
-                </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="gf-icon-btn-48 pressable"
+                  style={{ width: '36px', height: '36px' }}
+                  aria-label={t('Back')}
+                  title={t('Back')}
+                  onClick={() => {
+                    setNavSection('DRIVER');
+                    setSheetSnap('full');
+                  }}
+                >
+                  <ArrowLeft size={18} />
+                </button>
+                <div>
+                  <h1 className="type-title">{t('Trip Log')}</h1>
+                  <p className="type-caption">
+                    {user.department_name || 'Driver G'} • {t('Total Driving Time')}
+                  </p>
+                </div>
               </div>
               <StatusBadge label={`${driverCompletedTrips.length} ${t('Trips Completed')}`} tone="blue" />
             </div>
@@ -8782,17 +9078,15 @@ export function App() {
                   <Car size={16} />
                   <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)' }}>{t('Trips Completed')}</span>
                 </div>
-                <div style={{ fontSize: '20px', fontWeight: 800, marginTop: '2px' }}>{driverCompletedTrips.length}</div>
+                <div style={{ fontSize: '18px', fontWeight: 800, marginTop: '2px' }}>{driverCompletedTrips.length}</div>
               </div>
-
               <div className="gf-driver-triplog-stat-card">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#0072de' }}>
                   <Clock size={16} />
                   <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)' }}>{t('Total Driving Time')}</span>
                 </div>
-                <div style={{ fontSize: '17px', fontWeight: 800, marginTop: '2px' }}>{formattedTotalTime}</div>
+                <div style={{ fontSize: '15px', fontWeight: 800, marginTop: '2px' }}>{formattedTotalTime}</div>
               </div>
-
               <div className="gf-driver-triplog-stat-card">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#0072de' }}>
                   <Navigation size={16} />
@@ -9051,7 +9345,24 @@ export function App() {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {feedbackBanner}
-          <h1 className="type-title">{t('Activity')}</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              id="activity-back-btn"
+              type="button"
+              className="gf-icon-btn-48 pressable"
+              style={{ width: '36px', height: '36px' }}
+              aria-label={t('Back')}
+              title={t('Back')}
+              onClick={() => {
+                setNavSection('HOME');
+                setBookingStep('HOME');
+                setSheetSnap('full');
+              }}
+            >
+              <ArrowLeft size={18} />
+            </button>
+            <h1 className="type-title" style={{ margin: 0 }}>{t('Activity')}</h1>
+          </div>
 
           <div className="gf-underline-tabs" role="tablist" aria-label="Trip history tabs">
             <button
@@ -9230,7 +9541,24 @@ export function App() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {feedbackBanner}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-            <h1 className="type-title">{t('Inbox')}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button
+                id="inbox-back-btn"
+                type="button"
+                className="gf-icon-btn-48 pressable"
+                style={{ width: '36px', height: '36px' }}
+                aria-label={t('Back')}
+                title={t('Back')}
+                onClick={() => {
+                  setNavSection(isDriverOnly ? 'DRIVER' : 'HOME');
+                  setBookingStep('HOME');
+                  setSheetSnap('full');
+                }}
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <h1 className="type-title" style={{ margin: 0 }}>{t('Inbox')}</h1>
+            </div>
             {unreadCount > 0 && (
               <button
                 type="button"
@@ -9254,17 +9582,56 @@ export function App() {
             <EmptyState message={t("You're all caught up! Alerts appear here.")} />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {notifications.map((n) => (
-                <div key={n.id} className={!n.is_read ? 'gf-proto-inbox-unread' : undefined}>
-                  <ListRow
-                    tall
-                    icon={<Bell size={18} style={{ color: n.is_read ? 'var(--color-text-muted)' : '#0072de' }} />}
-                    title={n.title}
-                    subtitle={n.body}
-                    trailing={!n.is_read ? <span className="gf-dot-green" style={{ background: '#0072de' }} aria-label="Unread" /> : undefined}
-                  />
-                </div>
-              ))}
+              {notifications.map((n) => {
+                const isHitchhikeReq = n.trigger_type === 'HITCHHIKE_REQUEST' && n.related_entity_id;
+                const isCancelNegotiateReq = n.trigger_type === 'CANCEL_NEGOTIATION_REQUEST' && n.related_entity_id;
+                const hitchhikerMatch = isHitchhikeReq ? String(n.body || '').match(/for passenger "([^"]+)"/i) || String(n.body || '').match(/^([^\s(]+)/) : null;
+                const hitchhikerName = hitchhikerMatch?.[1] || 'Colleague';
+
+                return (
+                  <div
+                    key={n.id}
+                    className={!n.is_read ? 'gf-proto-inbox-unread' : undefined}
+                    style={{
+                      borderRadius: '12px',
+                      border: isHitchhikeReq || isCancelNegotiateReq ? '1.5px solid #93c5fd' : undefined,
+                      padding: isHitchhikeReq || isCancelNegotiateReq ? '6px 10px' : undefined,
+                    }}
+                  >
+                    <ListRow
+                      tall
+                      icon={<Bell size={18} style={{ color: n.is_read ? 'var(--color-text-muted)' : '#0072de' }} />}
+                      title={n.title}
+                      subtitle={n.body}
+                      trailing={!n.is_read ? <span className="gf-dot-green" style={{ background: '#0072de' }} aria-label="Unread" /> : undefined}
+                    />
+                    {isHitchhikeReq && (
+                      <div style={{ display: 'flex', gap: '8px', padding: '4px 0 6px 36px', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="gf-btn gf-btn-primary gf-btn-sm"
+                          style={{ minHeight: '30px', padding: '0 12px', fontSize: '11.5px' }}
+                          onClick={() => handleAcceptHitchhike(Number(n.related_entity_id), hitchhikerName)}
+                        >
+                          ✓ {t('Accept Hitchhike')} ({hitchhikerName})
+                        </button>
+                      </div>
+                    )}
+                    {isCancelNegotiateReq && (
+                      <div style={{ display: 'flex', gap: '8px', padding: '4px 0 6px 36px', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="gf-btn gf-btn-outline-danger gf-btn-sm"
+                          style={{ minHeight: '30px', padding: '0 12px', fontSize: '11.5px' }}
+                          onClick={() => handleCancelBookingRequest({ id: Number(n.related_entity_id) })}
+                        >
+                          {t('Cancel Booking')} &amp; Release Slot
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -9286,6 +9653,23 @@ export function App() {
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {feedbackBanner}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button
+                id="driver-profile-back-btn"
+                type="button"
+                className="gf-icon-btn-48 pressable"
+                style={{ width: '36px', height: '36px' }}
+                aria-label={t('Back')}
+                title={t('Back')}
+                onClick={() => {
+                  setNavSection('DRIVER');
+                  setSheetSnap('full');
+                }}
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <h1 className="type-title" style={{ margin: 0, fontSize: '19px' }}>{t('Corporate Driver Profile')}</h1>
+            </div>
 
             {/* Corporate Driver Profile Card */}
             <div
@@ -9481,7 +9865,22 @@ export function App() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {feedbackBanner}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button
+                id="profile-back-btn"
+                type="button"
+                className="gf-icon-btn-48 pressable"
+                style={{ width: '36px', height: '36px' }}
+                aria-label={t('Back')}
+                title={t('Back')}
+                onClick={() => {
+                  setNavSection('HOME');
+                  setBookingStep('HOME');
+                  setSheetSnap('full');
+                }}
+              >
+                <ArrowLeft size={18} />
+              </button>
               <div
                 style={{
                   width: '56px',
@@ -9632,169 +10031,192 @@ export function App() {
     }
 
     // -------------------------------------------------------------------------
-    // FLEET SCHEDULE & AVAILABILITY BOARD (Revisions #10 & #14)
+    // SET SCHEDULE: GOOGLE CALENDAR-STYLE FLEET & DRIVER TIMETABLE (07:00 AM - 04:00 PM)
     // -------------------------------------------------------------------------
     if (bookingStep === 'SCHEDULE_VIEW') {
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const canSeeAllDriverSchedules = ['ADM', 'FM', 'HWS'].includes(user.role);
+      const selectedDateStr = scheduleCalendarDate || new Date().toISOString().slice(0, 10);
+      const isDriverRole = user.role === 'DRV' && !isPrivileged;
       const myDedicatedVehicle = vehicles.find(
         (v) =>
           (v.dedicated_driver_user_id && v.dedicated_driver_user_id === user.id) ||
           (v.default_driver_name && v.default_driver_name.toLowerCase() === (user.nickname || '').toLowerCase())
       );
 
-      const filteredVehicles = vehicles.filter((v) => {
-        if (user.role === 'DRV' && !canSeeAllDriverSchedules) {
+      // Active calendar trips: exclude COMPLETED, CANCELLED, and REJECTED so finished/cancelled bookings disappear immediately
+      const rawCalendarSource = calendarTrips.length > 0 ? calendarTrips : trips;
+      const activeCalendarTrips = rawCalendarSource.filter((t) => {
+        if (['COMPLETED', 'CANCELLED', 'REJECTED'].includes(String(t.status || '').toUpperCase())) return false;
+        if (String(t.booking_status || '').toUpperCase() === 'CANCELLED') return false;
+        // Match selected date (either local date or ISO prefix)
+        const startD = new Date(t.start_time);
+        const endD = new Date(t.end_time);
+        if (!Number.isNaN(startD.getTime()) && !Number.isNaN(endD.getTime())) {
+          const pad = (n: number) => String(n).padStart(2, '0');
+          const localStartDate = `${startD.getFullYear()}-${pad(startD.getMonth() + 1)}-${pad(startD.getDate())}`;
+          const localEndDate = `${endD.getFullYear()}-${pad(endD.getMonth() + 1)}-${pad(endD.getDate())}`;
+          return (
+            localStartDate === selectedDateStr ||
+            localEndDate === selectedDateStr ||
+            String(t.start_time).startsWith(selectedDateStr)
+          );
+        }
+        return String(t.start_time || '').startsWith(selectedDateStr);
+      });
+
+      const visibleVehicles = vehicles.filter((v) => {
+        if (isDriverRole) {
           return Boolean(myDedicatedVehicle && v.id === myDedicatedVehicle.id);
         }
         if (scheduleFilterTab === 'AVAILABLE') {
           return v.status === 'Available';
         }
         if (scheduleFilterTab === 'BOOKED') {
-          return trips.some((t) => t.vehicle_id === v.id && String(t.start_time).startsWith(todayStr) && t.status !== 'CANCELLED' && t.status !== 'REJECTED');
+          return activeCalendarTrips.some((t) => Number(t.vehicle_id) === v.id);
         }
         return true;
       });
 
-      // Filter driver agenda if current user is DRV or has trips
-      const driverAgendaTrips = trips.filter((t) => {
-        return (t.assigned_driver_user_id === user.id || t.assigned_driver_name === user.nickname) && t.status !== 'CANCELLED' && t.status !== 'REJECTED';
-      });
+      // 07:00 AM to 04:00 PM (07:00 - 16:00) Google Calendar hourly rows
+      const calendarHours = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+      const formatHourAmPm = (h: number) => {
+        if (h === 12) return '12:00 PM';
+        return h < 12 ? `0${h}:00 AM`.slice(-8) : `0${h - 12}:00 PM`.slice(-8);
+      };
 
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {feedbackBanner}
 
           {/* Header with Back navigation button */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-            <button
-              id="schedule-back-btn"
-              type="button"
-              className="gf-icon-btn-48 pressable"
-              onClick={() => {
-                if (user.role === 'DRV') {
-                  setNavSection('DRIVER');
-                  setSheetSnap('full');
-                } else {
-                  setBookingStep('HOME');
-                }
-              }}
-              aria-label={t('Back')}
-              title={t('Back')}
-            >
-              <ChevronRight size={22} style={{ transform: 'rotate(180deg)' }} />
-            </button>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <h1 className="type-title" style={{ fontSize: '19px' }}>{t('Fleet Schedule')}</h1>
-              <p className="type-caption">{t('Live operational timetable & dedicated drivers')}</p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button
+                id="schedule-back-btn"
+                type="button"
+                className="gf-icon-btn-48 pressable"
+                onClick={() => {
+                  if (user.role === 'DRV') {
+                    setNavSection('DRIVER');
+                    setSheetSnap('full');
+                  } else {
+                    setBookingStep('HOME');
+                    setSheetSnap('full');
+                  }
+                }}
+                aria-label={t('Back')}
+                title={t('Back')}
+                style={{ width: '38px', height: '38px' }}
+              >
+                <ArrowLeft size={20} />
+              </button>
+              <div style={{ minWidth: 0 }}>
+                <h1 className="type-title" style={{ fontSize: '19px', margin: 0 }}>
+                  {t('Set Schedule (07:00 AM - 04:00 PM)')}
+                </h1>
+                <p className="type-caption" style={{ margin: '2px 0 0' }}>
+                  Google Calendar View • Group &amp; PIC, Passengers, Destination &amp; Duration
+                </p>
+              </div>
             </div>
-            <StatusBadge label={t('Live Availability')} tone="green" />
+            <StatusBadge label="07:00 AM – 04:00 PM" tone="blue" />
           </div>
 
-          {/* Filter Chips (Shown for Admin/FM/HWS or Employees viewing car availability) */}
-          {user.role !== 'DRV' || canSeeAllDriverSchedules ? (
-            <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
-              <Chip active={scheduleFilterTab === 'ALL'} onClick={() => setScheduleFilterTab('ALL')}>
-                {t('All Cars')} ({vehicles.length})
-              </Chip>
-              <Chip active={scheduleFilterTab === 'AVAILABLE'} onClick={() => setScheduleFilterTab('AVAILABLE')}>
-                {t('Available Now')} ({vehicles.filter((v) => v.status === 'Available').length})
-              </Chip>
-              <Chip active={scheduleFilterTab === 'BOOKED'} onClick={() => setScheduleFilterTab('BOOKED')}>
-                {t('Booked Today')}
-              </Chip>
+          {/* Date Picker & Filter Chips */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '10px',
+              flexWrap: 'wrap',
+              padding: '10px 12px',
+              borderRadius: '12px',
+              background: 'var(--color-bg-subtle)',
+              border: '1px solid var(--color-border)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <Calendar size={16} style={{ color: '#0072de' }} />
+              <input
+                id="schedule-calendar-date-input"
+                type="date"
+                className="gf-input"
+                style={{ minHeight: '34px', height: '34px', padding: '0 10px', fontSize: '13px', width: 'auto' }}
+                value={selectedDateStr}
+                onChange={(e) => setScheduleCalendarDate(e.target.value)}
+              />
+              <button
+                type="button"
+                className="gf-btn gf-btn-secondary gf-btn-sm"
+                style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px' }}
+                onClick={() => {
+                  const now = new Date();
+                  const pad = (n: number) => String(n).padStart(2, '0');
+                  setScheduleCalendarDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
+                }}
+              >
+                {t('Today')}
+              </button>
+              <button
+                type="button"
+                className="gf-btn gf-btn-secondary gf-btn-sm"
+                style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px' }}
+                onClick={() => {
+                  const tom = new Date();
+                  tom.setDate(tom.getDate() + 1);
+                  const pad = (n: number) => String(n).padStart(2, '0');
+                  setScheduleCalendarDate(`${tom.getFullYear()}-${pad(tom.getMonth() + 1)}-${pad(tom.getDate())}`);
+                }}
+              >
+                {t('Tomorrow')}
+              </button>
             </div>
-          ) : (
-            <div
-              style={{
-                padding: '10px 12px',
-                borderRadius: '10px',
-                background: '#ebf5ff',
-                border: '1px solid #93c5fd',
-                color: '#005bb5',
-                fontSize: '12px',
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              <Lock size={15} style={{ flexShrink: 0 }} />
-              <span>
-                {t('Drivers can view their own assigned schedule only. Full fleet schedule is restricted to Admin, Fleet PIC, and Head of WS.')}
-              </span>
-            </div>
-          )}
 
-          {/* Driver Daily Agenda Card (if Driver account or has assigned trips) */}
-          {(user.role === 'DRV' || driverAgendaTrips.length > 0) && (
-            <div
-              style={{
-                padding: '14px',
-                borderRadius: 'var(--radius-card)',
-                background: 'var(--color-bg-subtle)',
-                border: '1.5px solid var(--color-border)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '10px',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="type-section" style={{ fontSize: '15px' }}>📋 {t('My Driver Agenda (Today)')}</span>
-                <StatusBadge label={`${driverAgendaTrips.length} ${t('Bookings')}`} tone="blue" />
+            {!isDriverRole && (
+              <div style={{ display: 'flex', gap: '6px', overflowX: 'auto' }}>
+                <Chip active={scheduleFilterTab === 'ALL'} onClick={() => setScheduleFilterTab('ALL')}>
+                  {t('All Cars')} ({vehicles.length})
+                </Chip>
+                <Chip active={scheduleFilterTab === 'AVAILABLE'} onClick={() => setScheduleFilterTab('AVAILABLE')}>
+                  {t('Available Now')}
+                </Chip>
+                <Chip active={scheduleFilterTab === 'BOOKED'} onClick={() => setScheduleFilterTab('BOOKED')}>
+                  {t('Booked Today')} ({activeCalendarTrips.length})
+                </Chip>
               </div>
-              {driverAgendaTrips.length === 0 ? (
-                <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-                  {t('No trips assigned to you today. Ready on standby.')}
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {driverAgendaTrips.map((tItem) => (
-                    <div
-                      key={tItem.id}
-                      style={{
-                        padding: '10px 12px',
-                        borderRadius: 'var(--radius-control)',
-                        background: 'var(--color-surface)',
-                        border: '1px solid var(--color-border)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                        <span className="mono" style={{ fontWeight: 700, fontSize: '13px' }}>
-                          {new Date(tItem.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(tItem.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          {formatReservationModeLabel(tItem.reservation_type, tItem.return_pickup_time) && (
-                            <StatusBadge label={formatReservationModeLabel(tItem.reservation_type, tItem.return_pickup_time)!} tone="blue" />
-                          )}
-                          <StatusBadge label={tItem.status} tone={toneFromStatus(tItem.status)} />
-                        </div>
-                      </div>
-                      <div className="type-caption" style={{ marginTop: '4px', fontWeight: 600 }}>
-                        {tItem.origin} ➔ {tItem.destination}
-                      </div>
-                      <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-                        {t('Passengers')}: {tItem.passenger_nickname || 'Team'} • <span className="notranslate" translate="no">{tItem.department_name}</span> • {t('Car')}: {tItem.registration_plate}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Vehicle Schedule Timeline Cards */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {filteredVehicles.map((v) => {
-              const vehicleTripsToday = trips.filter(
-                (t) => t.vehicle_id === v.id && String(t.start_time).startsWith(todayStr) && t.status !== 'CANCELLED' && t.status !== 'REJECTED'
-              );
-              const isFreeNow = v.status === 'Available' && vehicleTripsToday.every((t) => {
-                const now = Date.now();
-                const start = new Date(t.start_time).getTime();
-                const end = new Date(t.end_time).getTime();
-                return now < start || now > end;
-              });
+          {/* Info Note: Completed/Cancelled auto-removal & Hitchhike/Negotiation policy */}
+          <div
+            style={{
+              padding: '10px 14px',
+              borderRadius: '10px',
+              background: '#ebf5ff',
+              border: '1px solid #93c5fd',
+              color: '#005bb5',
+              fontSize: '12px',
+              lineHeight: 1.45,
+            }}
+          >
+            📅 <strong>Google Calendar Schedule (07:00 AM – 04:00 PM):</strong> Completed or cancelled bookings are automatically removed. Booked time slots are locked, but you can tap <strong>Negotiate / Hitchhike</strong> on any booked slot to hitchhike (if heading to the same destination) or negotiate with the current holder (PIC) to release the slot.
+          </div>
+
+          {/* Per-Vehicle Google Calendar Day View (07:00 AM to 04:00 PM) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {visibleVehicles.map((v) => {
+              const vehicleTrips = activeCalendarTrips
+                .filter((t) => Number(t.vehicle_id) === v.id)
+                .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+
+              const isFreeNow =
+                v.status === 'Available' &&
+                vehicleTrips.every((t) => {
+                  const now = Date.now();
+                  const start = new Date(t.start_time).getTime();
+                  const end = new Date(t.end_time).getTime();
+                  return now < start || now > end;
+                });
 
               return (
                 <div
@@ -9802,16 +10224,16 @@ export function App() {
                   style={{
                     padding: '14px',
                     borderRadius: 'var(--radius-card)',
-                    border: '1px solid var(--color-border)',
+                    border: '1.5px solid var(--color-border)',
                     background: 'var(--color-surface)',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '10px',
+                    gap: '12px',
                     boxShadow: 'var(--shadow-sm)',
                   }}
                 >
-                  {/* Top Bar: Plate + Model + Dedicated Driver (Full driver details only for ADM/FM/HWS) */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                  {/* Vehicle & Driver Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <span
@@ -9826,90 +10248,258 @@ export function App() {
                         >
                           {v.registration_plate}
                         </span>
-                        <span className="type-body" style={{ fontWeight: 700 }}>
+                        <span className="type-body" style={{ fontWeight: 800, fontSize: '15px' }}>
                           {v.make} {v.model}
                         </span>
+                        <span className="type-caption">• {v.seats} Seats • {v.energy_type}</span>
                       </div>
-                      {canSeeAllDriverSchedules && (
-                        <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
-                          👤 {t('Dedicated Driver')}: <strong>{v.default_driver_name || 'Pool Driver'}</strong>
-                          {v.default_driver_phone && <span className="mono"> ({v.default_driver_phone})</span>}
-                        </div>
-                      )}
+                      <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
+                        👤 {t('Driver')}: <strong>{v.default_driver_name || 'Assigned Company Driver'}</strong>
+                        {v.default_driver_phone ? ` (${v.default_driver_phone})` : ''}
+                      </div>
                     </div>
                     <StatusBadge
-                      label={isFreeNow ? 'Available Now' : v.status !== 'Available' ? v.status : 'Booked'}
-                      tone={isFreeNow ? 'green' : v.status !== 'Available' ? 'neutral' : 'amber'}
+                      label={v.status !== 'Available' ? v.status : vehicleTrips.length > 0 ? `${vehicleTrips.length} Booked Slot(s)` : isFreeNow ? 'Available All Day' : 'Booked'}
+                      tone={v.status !== 'Available' ? 'neutral' : vehicleTrips.length === 0 ? 'blue' : 'amber'}
                     />
                   </div>
 
-                  {/* 24-Hour Visual Schedule Bar (08:00 - 20:00 range) */}
+                  {/* Visual 07:00 AM - 04:00 PM Horizontal Timeline Bar */}
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }} className="type-caption mono">
-                      <span>08:00</span>
-                      <span>12:00</span>
-                      <span>16:00</span>
-                      <span>20:00</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px', fontWeight: 700 }} className="type-caption mono">
+                      <span>07:00 AM</span>
+                      <span>10:00 AM</span>
+                      <span>01:00 PM</span>
+                      <span>04:00 PM</span>
                     </div>
-                    <div className="gf-timeline-track" style={{ position: 'relative' }}>
-                      {vehicleTripsToday.map((t) => {
-                        const startH = new Date(t.start_time).getHours() + new Date(t.start_time).getMinutes() / 60;
-                        const endH = new Date(t.end_time).getHours() + new Date(t.end_time).getMinutes() / 60;
-                        const leftPct = Math.max(0, Math.min(100, ((startH - 8) / 12) * 100));
-                        const widthPct = Math.max(8, Math.min(100 - leftPct, ((endH - startH) / 12) * 100));
+                    <div className="gf-timeline-track" style={{ position: 'relative', height: '14px', borderRadius: '7px' }}>
+                      {vehicleTrips.map((t) => {
+                        const startD = new Date(t.start_time);
+                        const endD = new Date(t.end_time);
+                        const startH = startD.getHours() + startD.getMinutes() / 60;
+                        const endH = Math.max(startH + 0.5, endD.getHours() + endD.getMinutes() / 60);
+                        // 07:00 to 16:00 is a 9-hour window
+                        const clampedStart = Math.max(7, Math.min(16, startH));
+                        const clampedEnd = Math.max(clampedStart + 0.4, Math.min(16, endH));
+                        const leftPct = Math.max(0, Math.min(100, ((clampedStart - 7) / 9) * 100));
+                        const widthPct = Math.max(6, Math.min(100 - leftPct, ((clampedEnd - clampedStart) / 9) * 100));
 
                         return (
                           <div
                             key={t.id}
                             className="gf-timeline-block"
-                            style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
-                            title={`${new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}: ${t.department_name} (${t.passenger_nickname || 'Team'})`}
+                            style={{ left: `${leftPct}%`, width: `${widthPct}%`, cursor: 'pointer' }}
+                            onClick={() => {
+                              if (t.requester_id !== user.id && !isDriverRole) {
+                                setNegotiationModalTrip(t);
+                                setNegotiationPassengerNickname(user.nickname || '');
+                                setNegotiationActionType('HITCHHIKE');
+                              }
+                            }}
+                            title={`${startD.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${endD.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}: ${t.department_name} • PIC: ${t.requester_name} • Pax: ${formatPassengersDisplay(t.passengers_json, t.passenger_nickname)} → ${t.destination}`}
                           />
                         );
                       })}
                     </div>
                   </div>
 
-                  {/* Booking Slots Text List */}
-                  <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: '8px' }}>
-                    {vehicleTripsToday.length === 0 ? (
-                      <div className="type-caption" style={{ color: 'var(--color-green-text)', fontWeight: 600 }}>
-                        ✅ {t('Available full day — No scheduled bookings today')}
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <div className="type-caption" style={{ fontWeight: 700 }}>
-                          {t('Booked Slots Today')} ({vehicleTripsToday.length}):
-                        </div>
-                        {vehicleTripsToday.map((t) => {
-                          const modeLabel = formatReservationModeLabel(t.reservation_type, t.return_pickup_time);
-                          return (
-                            <div key={t.id} className="type-caption" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                              <span className="mono" style={{ fontWeight: 700 }}>
-                                🕒 {new Date(t.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(t.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}:
-                              </span>
-                              <span>
-                                <span className="notranslate" translate="no"><strong>{t.department_name}</strong></span>
-                                {canSeeAllDriverSchedules ? ` (Passenger: ${t.passenger_nickname || 'Team'})` : ''}
-                              </span>
-                              {modeLabel && (
-                                <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #bfdbfe' }}>
-                                  {modeLabel}
+                  {/* Google Calendar Hourly Grid (07:00 AM to 04:00 PM) */}
+                  <div
+                    style={{
+                      border: '1px solid var(--color-border)',
+                      borderRadius: '12px',
+                      overflow: 'hidden',
+                      background: 'var(--color-bg-subtle)',
+                    }}
+                  >
+                    {calendarHours.map((hour) => {
+                      // Find any booking overlapping this hour [hour:00, hour+1:00)
+                      const overlappingTrips = vehicleTrips.filter((t) => {
+                        const s = new Date(t.start_time);
+                        const e = new Date(t.end_time);
+                        const sH = s.getHours() + s.getMinutes() / 60;
+                        const eH = e.getHours() + e.getMinutes() / 60;
+                        return sH < hour + 1 && eH > hour;
+                      });
+
+                      const isHourBooked = overlappingTrips.length > 0;
+
+                      return (
+                        <div
+                          key={hour}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'stretch',
+                            borderBottom: hour < 16 ? '1px solid var(--color-divider)' : 'none',
+                            minHeight: isHourBooked ? '68px' : '40px',
+                            background: isHourBooked ? '#ebf5ff' : 'var(--color-surface)',
+                          }}
+                        >
+                          {/* Left Hour Column (07:00 AM - 04:00 PM) */}
+                          <div
+                            className="mono"
+                            style={{
+                              width: '84px',
+                              flexShrink: 0,
+                              padding: '8px 10px',
+                              fontSize: '11.5px',
+                              fontWeight: 800,
+                              color: isHourBooked ? '#005bb5' : 'var(--color-text-secondary)',
+                              borderRight: '1px solid var(--color-divider)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              background: isHourBooked ? '#dbeafe' : 'var(--color-bg-subtle)',
+                            }}
+                          >
+                            {formatHourAmPm(hour)}
+                          </div>
+
+                          {/* Right Slot Content */}
+                          <div style={{ flex: 1, padding: '8px 12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '8px' }}>
+                            {!isHourBooked ? (
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+                                  Available slot ({formatHourAmPm(hour)})
                                 </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                                {!isDriverRole && v.status === 'Available' && (
+                                  <button
+                                    type="button"
+                                    className="gf-btn gf-btn-ghost gf-btn-sm pressable"
+                                    style={{ minHeight: '26px', height: '26px', padding: '0 10px', fontSize: '11.5px', color: '#0072de', fontWeight: 800 }}
+                                    onClick={() =>
+                                      requireLocationBeforeCarUse(() => {
+                                        const [yr, mo, dy] = selectedDateStr.split('-').map(Number);
+                                        const slotStart = new Date();
+                                        if (yr && mo && dy) slotStart.setFullYear(yr, mo - 1, dy);
+                                        slotStart.setHours(hour, 0, 0, 0);
+                                        if (slotStart.getTime() < Date.now()) {
+                                          slotStart.setTime(roundUpTo5MinMs(Date.now() + 30 * 60000));
+                                        }
+                                        const slotEnd = new Date(slotStart.getTime() + 2 * 3600000);
+                                        setBookVehicleId(v.id);
+                                        setBookStart(toLocalDateTimeInput(slotStart));
+                                        setBookEnd(toLocalDateTimeInput(slotEnd));
+                                        setBookDurationHours(2);
+                                        setScheduleMode('SCHEDULE');
+                                        setBookingStep('ROUTE');
+                                        setSheetSnap('full');
+                                      })
+                                    }
+                                  >
+                                    + Book {formatHourAmPm(hour)}
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              overlappingTrips.map((t) => {
+                                const sTime = new Date(t.start_time);
+                                const eTime = new Date(t.end_time);
+                                const durHrs = Math.max(0.5, Math.round(((eTime.getTime() - sTime.getTime()) / 3600000) * 10) / 10);
+                                const paxDisplay = formatPassengersDisplay(t.passengers_json, t.passenger_nickname);
+                                const modeLabel = formatReservationModeLabel(t.reservation_type, t.return_pickup_time) || 'Standard Trip';
+                                const isMyBooking = Number(t.requester_id) === Number(user.id);
+
+                                return (
+                                  <div
+                                    key={`${t.id}-${hour}`}
+                                    style={{
+                                      padding: '8px 10px',
+                                      borderRadius: '8px',
+                                      background: '#ffffff',
+                                      borderLeft: '4px solid #0072de',
+                                      boxShadow: '0 1px 4px rgba(0, 114, 222, 0.12)',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      gap: '4px',
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                        <span className="mono" style={{ fontSize: '12px', fontWeight: 800, color: '#005bb5' }}>
+                                          🕒 {sTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {eTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({durHrs}h)
+                                        </span>
+                                        <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '1px 7px', borderRadius: '4px', background: '#ebf5ff', color: '#0072de', border: '1px solid #93c5fd' }}>
+                                          {modeLabel}
+                                        </span>
+                                      </div>
+                                      <StatusBadge label="UNAVAILABLE • BOOKED" tone="amber" />
+                                    </div>
+
+                                    <div style={{ fontSize: '12.5px', color: 'var(--color-text-primary)', lineHeight: 1.35 }}>
+                                      <strong>🏢 Group &amp; PIC:</strong>{' '}
+                                      <span className="notranslate" translate="no" style={{ fontWeight: 800 }}>{t.department_name || 'Company Group'}</span>{' '}
+                                      • PIC: <strong>{t.requester_name || 'Employee'}</strong>
+                                      {t.requester_contact ? ` (${t.requester_contact})` : ''}
+                                    </div>
+
+                                    <div style={{ fontSize: '12px', color: 'var(--color-text-primary)', lineHeight: 1.35 }}>
+                                      <strong>👥 Passenger(s):</strong> {paxDisplay}
+                                    </div>
+
+                                    <div style={{ fontSize: '12px', color: 'var(--color-text-primary)', lineHeight: 1.35 }}>
+                                      <strong>🎯 Destination:</strong> {t.origin} → <strong>{t.destination}</strong>
+                                      {t.purpose ? ` (${t.purpose})` : ''}
+                                    </div>
+
+                                    {/* Actions: If another user holds this booking, allow Negotiate to Cancel or Hitchhike; if current user holds it, allow Cancel */}
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
+                                      {isMyBooking ? (
+                                        <button
+                                          type="button"
+                                          className="gf-btn gf-btn-outline-danger gf-btn-sm pressable"
+                                          style={{ minHeight: '28px', padding: '0 10px', fontSize: '11.5px' }}
+                                          onClick={() => handleCancelBookingRequest(t)}
+                                        >
+                                          {t('Cancel Booking')}
+                                        </button>
+                                      ) : !isDriverRole ? (
+                                        <>
+                                          <button
+                                            type="button"
+                                            className="gf-btn gf-btn-primary gf-btn-sm pressable"
+                                            style={{ minHeight: '28px', padding: '0 10px', fontSize: '11.5px' }}
+                                            onClick={() => {
+                                              setNegotiationModalTrip(t);
+                                              setNegotiationActionType('HITCHHIKE');
+                                              setNegotiationPassengerNickname(user.nickname || '');
+                                              setNegotiationNote(`Heading to ${t.destination} too, may I hitchhike?`);
+                                            }}
+                                          >
+                                            🚗 {t('Hitchhike (Same Destination)')}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="gf-btn gf-btn-secondary gf-btn-sm pressable"
+                                            style={{ minHeight: '28px', padding: '0 10px', fontSize: '11.5px' }}
+                                            onClick={() => {
+                                              setNegotiationModalTrip(t);
+                                              setNegotiationActionType('REQUEST_CANCEL');
+                                              setNegotiationPassengerNickname(user.nickname || '');
+                                              setNegotiationNote('Need this vehicle slot urgently, can we coordinate?');
+                                            }}
+                                          >
+                                            🔄 {t('Negotiate to Cancel')}
+                                          </button>
+                                        </>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
 
-                  {/* Quick Action: Book This Car (Passengers only, never for drivers) */}
-                  {user.role !== 'DRV' && (
+                  {/* Quick Action: Select & Book This Vehicle */}
+                  {!isDriverRole && (
                     <button
                       type="button"
                       className="gf-btn gf-btn-secondary gf-btn-full"
-                      style={{ minHeight: '36px', fontSize: '13px' }}
+                      style={{ minHeight: '38px', fontSize: '13px', fontWeight: 700 }}
                       onClick={() =>
                         requireLocationBeforeCarUse(() => {
                           setBookVehicleId(v.id);
@@ -10936,7 +11526,7 @@ export function App() {
         {
           letter: 'A',
           title: `Lobby Main Entrance • ${bookOrigin || 'Pickup Point'}`,
-          subtitle: 'Nearest drop-off & chauffeur staging bay • Recommended',
+          subtitle: 'Nearest drop-off & driver staging bay • Recommended',
           walk: '1 min walk',
         },
         {
@@ -10955,20 +11545,21 @@ export function App() {
 
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {/* GoCar Reference Screen 2: Top Bar with Close (X) + Title + Use GPS */}
+          {/* GoCar Reference Screen 2: Top Bar with Back Arrow + Title + Use GPS */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <button
+                id="route-back-btn"
                 type="button"
                 className="gf-icon-btn-48 pressable"
                 onClick={() => {
                   setBookingStep('HOME');
                   setSheetSnap('half');
                 }}
-                aria-label="Close route search"
+                aria-label="Back to Home"
                 style={{ width: '36px', height: '36px' }}
               >
-                <X size={18} />
+                <ArrowLeft size={18} />
               </button>
               <h1 className="type-title" style={{ fontSize: '20px' }}>
                 {routeTab === 'PICKUP' ? 'Confirm pickup spot' : 'Where to today?'}
@@ -11156,7 +11747,7 @@ export function App() {
                     Confirm pickup point
                   </div>
                   <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-                    Select a lettered gate or lobby spot for faster chauffeur rendezvous
+                    Select a lettered gate or lobby spot for faster driver rendezvous
                   </div>
                 </div>
                 <button
@@ -11366,7 +11957,7 @@ export function App() {
     }
 
     // -------------------------------------------------------------------------
-    // BOOKING FLOW STEP 2: PICK YOUR RIDE (Screens 5 & 6 of GoCar Reference PDF)
+    // BOOKING FLOW STEP 2: PICK YOUR RIDE, TRIP CATEGORY, TIME & INLINE PURPOSE / PASSENGERS FORM
     // -------------------------------------------------------------------------
     if (bookingStep === 'VEHICLE') {
       const activeDrivers = (liveAvailability?.drivers?.length ? liveAvailability.drivers : drivers).filter(
@@ -11376,6 +11967,29 @@ export function App() {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {feedbackBanner}
+
+          {/* Header with Back Button to ROUTE step */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button
+                id="vehicle-back-btn"
+                type="button"
+                className="gf-icon-btn-48 pressable"
+                style={{ width: '36px', height: '36px' }}
+                aria-label={t('Back')}
+                title={t('Back')}
+                onClick={() => {
+                  setBookingStep('ROUTE');
+                  setSheetSnap('full');
+                }}
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <h1 className="type-title" style={{ fontSize: '19px', margin: 0 }}>
+                {t('Trip Category, Time & Booking Form')}
+              </h1>
+            </div>
+          </div>
 
           {/* Prototype Vehicle Route Card (.gf-proto-rc) & Corporate Fleet Strip (.gf-proto-ban) */}
           <div className="gf-proto-rc">
@@ -11400,118 +12014,128 @@ export function App() {
               </span>
             </div>
             <div className="gf-proto-ban">
-              <span>✓ {t('Internal Work Fleet • Chauffeur Included')}</span>
+              <span>✓ {t('Internal Work Fleet • Driver Included')}</span>
               <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
                 {`${currentMetrics.distanceKm} km • ~${currentMetrics.durationMin} min`}
               </span>
             </div>
           </div>
 
-          {/* Service Category Underline Tabs (incl. Shuttle Dev tab per prototype) */}
-          <div className="gf-underline-tabs" role="tablist" aria-label="Vehicle category tabs">
-            {([
-              { id: 'ALL', label: 'All Fleet' },
-              { id: 'Electric', label: 'Electric EV ⚡' },
-              { id: 'MPV', label: 'Executive & MPV' },
-            ] as Array<{ id: 'ALL' | 'Electric' | 'MPV'; label: string }>).map((tab) => {
-              const active = vehicleFilter === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  className={`gf-underline-tab ${active ? 'is-active' : ''}`}
-                  onClick={() => setVehicleFilter(tab.id)}
-                >
-                  {t(tab.label)}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              role="tab"
-              aria-selected={false}
-              className="gf-underline-tab"
-              onClick={() =>
-                setStatusBanner({
-                  type: 'info',
-                  text: t('Shuttle Bus service is currently under development.'),
-                })
-              }
-            >
-              {t('Shuttle (Dev)')}
-            </button>
-          </div>
-
-          {/* Active Schedule Banner (Gojek Scheduled Mode) or Instant Dispatch Pill */}
-          {scheduleMode === 'SCHEDULE' ? (
-            <div className="gf-active-schedule-banner">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#0072de', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Calendar size={18} />
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#005bb5', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    {t('Departure Schedule')}
-                  </div>
-                  <div style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {getScheduleSlotDisplay(bookStart, lang)}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                    {bookReservationType === 'FULL_DAY' ? t('Full Day (Seharian)') : bookReservationType === 'DROP_AND_PICKUP' ? t('Drop & Pick Up') : t('Standard Trip')} • {bookDurationHours} {t('hours')}
-                  </div>
-                </div>
+          {/* Step 2A: Choose Trip Category (Standard Trip, Round Trip, Full Day) & Departure / Return Time */}
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: '14px',
+              background: 'var(--color-surface)',
+              border: '1.5px solid var(--color-border)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+            }}
+          >
+            <div>
+              <div className="type-caption" style={{ fontWeight: 800, marginBottom: '6px', color: 'var(--color-text-primary)' }}>
+                1. {t('Trip Category')} *
               </div>
-              <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                <button
-                  type="button"
-                  className="gf-btn gf-btn-secondary"
-                  style={{ minHeight: '32px', height: '32px', padding: '0 10px', fontSize: '11.5px', fontWeight: 700 }}
-                  onClick={() => setShowSchedulePicker(true)}
-                >
-                  {t('Change')}
-                </button>
-                <button
-                  type="button"
-                  className="gf-btn gf-btn-ghost"
-                  style={{ minHeight: '32px', height: '32px', padding: '0 8px', fontSize: '11px', color: '#dc2626', fontWeight: 600 }}
-                  title={t('Remove schedule and return to instant booking')}
-                  onClick={() => {
-                    setScheduleMode('NOW');
-                    const sMs = roundUpTo5MinMs(Date.now() + 2 * 3600000);
-                    setBookStart(toLocalDateTimeInput(new Date(sMs)));
-                    setBookEnd(toLocalDateTimeInput(new Date(sMs + 2 * 3600000)));
-                    setStatusBanner({
-                      type: 'info',
-                      text: t('Schedule cancelled. Returned to instant booking mode.'),
-                    });
-                  }}
-                >
-                  <X size={14} /> {t('Remove')}
-                </button>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px' }} role="group" aria-label="Trip Category">
+                {([
+                  { id: 'ONE_WAY', label: t('Standard Trip'), sub: t('Point-to-point') },
+                  { id: 'DROP_AND_PICKUP', label: t('Round Trip'), sub: t('Depart & return') },
+                  { id: 'FULL_DAY', label: t('Full Day'), sub: t('Full business day') },
+                ] as Array<{ id: 'ONE_WAY' | 'DROP_AND_PICKUP' | 'FULL_DAY'; label: string; sub: string }>).map((mode) => {
+                  const selected = bookReservationType === mode.id;
+                  return (
+                    <button
+                      key={mode.id}
+                      id={`reservation-mode-${mode.id.toLowerCase()}`}
+                      type="button"
+                      className="pressable"
+                      onClick={() => {
+                        setBookReservationType(mode.id);
+                        if (mode.id === 'DROP_AND_PICKUP') {
+                          const baseStartMs = bookStart && !Number.isNaN(new Date(bookStart).getTime())
+                            ? new Date(bookStart).getTime()
+                            : roundUpTo5MinMs(Date.now() + 2 * 3600000);
+                          if (!bookStart) setBookStart(toLocalDateTimeInput(new Date(baseStartMs)));
+                          const existingRpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
+                          const targetRpMs = !Number.isNaN(existingRpMs) && existingRpMs > baseStartMs
+                            ? existingRpMs
+                            : baseStartMs + 3 * 3600000;
+                          setBookReturnPickupTime(toLocalDateTimeInput(new Date(targetRpMs)));
+                          const curEndMs = bookEnd && !Number.isNaN(new Date(bookEnd).getTime()) ? new Date(bookEnd).getTime() : 0;
+                          const minEndMs = targetRpMs + 3600000;
+                          if (curEndMs < targetRpMs) {
+                            setBookEnd(toLocalDateTimeInput(new Date(minEndMs)));
+                            setBookDurationHours(Math.max(1, Math.round((minEndMs - baseStartMs) / 3600000)));
+                          }
+                        } else if (mode.id === 'FULL_DAY') {
+                          const minLeadMs = roundUpTo5MinMs(Date.now() + 2 * 3600000);
+                          const todayStart = new Date();
+                          todayStart.setHours(8, 0, 0, 0);
+                          const todayEnd = new Date();
+                          todayEnd.setHours(16, 0, 0, 0);
+                          let sMs = Math.max(todayStart.getTime(), minLeadMs);
+                          let eMs = todayEnd.getTime();
+                          if (eMs - sMs < 2 * 3600000) {
+                            const tomStart = new Date();
+                            tomStart.setDate(tomStart.getDate() + 1);
+                            tomStart.setHours(8, 0, 0, 0);
+                            const tomEnd = new Date(tomStart);
+                            tomEnd.setHours(16, 0, 0, 0);
+                            sMs = tomStart.getTime();
+                            eMs = tomEnd.getTime();
+                          }
+                          setBookStart(toLocalDateTimeInput(new Date(sMs)));
+                          setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+                          setBookDurationHours(Math.max(1, Math.round((eMs - sMs) / 3600000)));
+                        }
+                      }}
+                      style={{
+                        padding: '8px 6px',
+                        borderRadius: '10px',
+                        border: selected ? '2px solid #0072de' : '1px solid var(--color-border)',
+                        background: selected ? '#ebf5ff' : 'var(--color-surface)',
+                        color: selected ? '#005bb5' : 'var(--color-text-primary)',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '2px',
+                      }}
+                    >
+                      <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1.2 }}>{mode.label}</span>
+                      <span style={{ fontSize: '10px', opacity: 0.8, lineHeight: 1.15 }}>{mode.sub}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '14px', background: '#ebf5ff', border: '1px solid #93c5fd', fontSize: '12px', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#005bb5' }}>
-                <Clock size={16} style={{ color: '#0072de', flexShrink: 0 }} />
-                <span>
-                  <strong>{t('Default +2h Advance Schedule')}: {getScheduleSlotBrief(bookStart, lang)}</strong> • {t('Tap Change if needed urgently (< 2h)')}
-                </span>
+
+            {/* Departure & Return Time Selector Banner */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: '12px', background: '#ebf5ff', border: '1px solid #93c5fd', gap: '8px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                <Clock size={18} style={{ color: '#0072de', flexShrink: 0 }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#005bb5', textTransform: 'uppercase' }}>
+                    2. {t('Departure & Return Time')}
+                  </div>
+                  <div style={{ fontSize: '12.5px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                    {new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → {new Date(bookEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({bookDurationHours}h)
+                  </div>
+                </div>
               </div>
               <button
                 type="button"
-                className="gf-btn gf-btn-secondary gf-btn-sm"
-                style={{ padding: '0 10px', height: '30px', fontSize: '11.5px', fontWeight: 700, flexShrink: 0 }}
+                className="gf-btn gf-btn-primary gf-btn-sm pressable"
+                style={{ padding: '0 12px', height: '32px', fontSize: '12px', fontWeight: 700, flexShrink: 0 }}
                 onClick={() => setShowSchedulePicker(true)}
               >
-                {t('Change / Urgent')}
+                <Calendar size={14} /> {t('Set Time')}
               </button>
             </div>
-          )}
+          </div>
 
-          {/* Dedicated Gojek-Style Schedule Picker Sheet ("Kapan mau berangkat?") */}
+          {/* Dedicated Gojek-Style Schedule Picker Sheet (Time Scrolling Wheel Only — No Preset Chips) */}
           {showSchedulePicker && (
             <div className="gf-modal-backdrop" onClick={() => setShowSchedulePicker(false)}>
               <div
@@ -11522,13 +12146,11 @@ export function App() {
                 aria-modal="true"
                 aria-label={t('When do you want to leave?')}
               >
-                {/* 1. Gojek Priority Strip Banner */}
                 <div className="gf-gojek-priority-strip">
                   <ShieldCheck size={14} />
                   <span>{t('No worries, your booking is our priority')}</span>
                 </div>
 
-                {/* Top Header (Pinned so tabs & wheel have unobstructed scroll room below) */}
                 <div style={{ padding: '14px 20px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)' }}>
                   <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
                     {t('When do you want to leave?')}
@@ -11544,391 +12166,201 @@ export function App() {
                   </button>
                 </div>
 
-                {/* Modal Scrollable Body (Block scroll box prevents flex children from squishing vertically) */}
                 <div style={{ padding: '14px 20px 16px', flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {/* 2. 3-Tab Chips: Hari ini / Besok / Pilih tanggal */}
-                  <div className="gf-gojek-tab-group" role="tablist">
-                    {([
-                      { id: 'TODAY', label: t('Today') },
-                      { id: 'TOMORROW', label: t('Tomorrow') },
-                      { id: 'DATE', label: t('Select date'), icon: <Calendar size={14} /> },
-                    ] as Array<{ id: 'TODAY' | 'TOMORROW' | 'DATE'; label: string; icon?: React.ReactNode }>).map((tab) => {
-                      const active = schedulePickerTab === tab.id;
-                      return (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          role="tab"
-                          aria-selected={active}
-                          className={`gf-gojek-tab-chip pressable ${active ? 'is-active' : ''}`}
-                          onClick={() => {
-                            setSchedulePickerTab(tab.id);
-                            const curD = new Date(bookStart);
-                            const curH = !Number.isNaN(curD.getTime()) ? curD.getHours() : 8;
-                            const curM = !Number.isNaN(curD.getTime()) ? Math.floor(curD.getMinutes() / 5) * 5 : 0;
-                            const target = new Date();
-                            if (tab.id === 'TOMORROW') {
-                              target.setDate(target.getDate() + 1);
-                              target.setHours(curH, curM, 0, 0);
-                            } else if (tab.id === 'TODAY') {
-                              target.setHours(curH, curM, 0, 0);
-                            } else {
-                              target.setTime(!Number.isNaN(curD.getTime()) ? curD.getTime() : roundUpTo5MinMs(Date.now() + 2 * 3600000));
-                            }
-                            const sIso = toLocalDateTimeInput(target);
-                            setBookStart(sIso);
-                            const eMs = target.getTime() + bookDurationHours * 3600000;
-                            setBookEnd(toLocalDateTimeInput(new Date(eMs)));
-                            if (bookReservationType === 'DROP_AND_PICKUP') {
-                              setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
-                            }
-                          }}
-                        >
-                          {tab.icon}
-                          <span>{tab.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* 3. Gojek Estimate Card */}
-                  <div className="gf-gojek-estimate-card">
-                    <span className="gf-gojek-estimate-caption">{t('Pickup time estimate')}</span>
-                    <span className="gf-gojek-estimate-value">
-                      {schedulePickerTab === 'TODAY'
-                        ? `${t('Today')} | ${selectedTimeSlot}`
-                        : schedulePickerTab === 'TOMORROW'
-                        ? `${t('Tomorrow')} | ${selectedTimeSlot}`
-                        : `${new Date(bookStart).toLocaleDateString(lang === 'en' ? 'en-US' : lang === 'ko' ? 'ko-KR' : 'id-ID', { weekday: 'short', day: 'numeric', month: 'short' })} | ${selectedTimeSlot}`}
-                    </span>
-                  </div>
-
-                  {/* 4. Gojek Authentic Drum Wheel Picker (3 Visible Rows, Selection Lens, Dual Wheel on "Pilih tanggal") */}
-                  <div>
-                    <GojekWheelPicker
-                      mode={schedulePickerTab}
-                      timeSlots={all5MinSlots}
-                      selectedTimeSlot={selectedTimeSlot}
-                      onSelectTimeSlot={handleSelectSlot}
-                      dateList={dateList}
-                      selectedDateId={selectedDateId}
-                      onSelectDate={handleSelectDate}
-                    />
-                  </div>
-
-                  {/* 5. Reservation Mode & Preset Shortcuts */}
-                  <div>
-                    <div className="type-caption" style={{ fontWeight: 700, marginBottom: '6px' }}>
-                      {t('Trip Reservation Type')}
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px' }} role="group" aria-label="Reservation mode">
+                    {/* 3-Tab Chips: Today / Tomorrow / Select date */}
+                    <div className="gf-gojek-tab-group" role="tablist">
                       {([
-                        { id: 'ONE_WAY', label: t('Standard Trip'), sub: t('Point-to-point') },
-                        { id: 'DROP_AND_PICKUP', label: t('Drop & Pick Up'), sub: t('Drop & pick up later') },
-                        { id: 'FULL_DAY', label: t('Full Day'), sub: t('Full business day') },
-                      ] as Array<{ id: 'ONE_WAY' | 'DROP_AND_PICKUP' | 'FULL_DAY'; label: string; sub: string }>).map((mode) => {
-                        const selected = bookReservationType === mode.id;
+                        { id: 'TODAY', label: t('Today') },
+                        { id: 'TOMORROW', label: t('Tomorrow') },
+                        { id: 'DATE', label: t('Select date'), icon: <Calendar size={14} /> },
+                      ] as Array<{ id: 'TODAY' | 'TOMORROW' | 'DATE'; label: string; icon?: React.ReactNode }>).map((tab) => {
+                        const active = schedulePickerTab === tab.id;
                         return (
                           <button
-                            key={mode.id}
-                            id={`reservation-mode-${mode.id.toLowerCase()}`}
+                            key={tab.id}
                             type="button"
-                            className="pressable"
+                            role="tab"
+                            aria-selected={active}
+                            className={`gf-gojek-tab-chip pressable ${active ? 'is-active' : ''}`}
                             onClick={() => {
-                              setBookReservationType(mode.id);
-                              if (mode.id === 'DROP_AND_PICKUP') {
-                                const baseStartMs = bookStart && !Number.isNaN(new Date(bookStart).getTime())
-                                  ? new Date(bookStart).getTime()
-                                  : roundUpTo5MinMs(Date.now() + 2 * 3600000);
-                                if (!bookStart) setBookStart(toLocalDateTimeInput(new Date(baseStartMs)));
-                                const existingRpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
-                                const targetRpMs = !Number.isNaN(existingRpMs) && existingRpMs > baseStartMs
-                                  ? existingRpMs
-                                  : baseStartMs + 3 * 3600000;
-                                setBookReturnPickupTime(toLocalDateTimeInput(new Date(targetRpMs)));
-                                const curEndMs = bookEnd && !Number.isNaN(new Date(bookEnd).getTime()) ? new Date(bookEnd).getTime() : 0;
-                                const minEndMs = targetRpMs + 3600000;
-                                if (curEndMs < targetRpMs) {
-                                  setBookEnd(toLocalDateTimeInput(new Date(minEndMs)));
-                                  setBookDurationHours(Math.max(1, Math.round((minEndMs - baseStartMs) / 3600000)));
-                                }
-                              } else if (mode.id === 'FULL_DAY') {
-                                const minLeadMs = roundUpTo5MinMs(Date.now() + 2 * 3600000);
-                                const todayStart = new Date();
-                                todayStart.setHours(8, 0, 0, 0);
-                                const todayEnd = new Date();
-                                todayEnd.setHours(20, 0, 0, 0);
-                                let sMs = Math.max(todayStart.getTime(), minLeadMs);
-                                let eMs = todayEnd.getTime();
-                                if (eMs - sMs < 2 * 3600000) {
-                                  const tomStart = new Date();
-                                  tomStart.setDate(tomStart.getDate() + 1);
-                                  tomStart.setHours(8, 0, 0, 0);
-                                  const tomEnd = new Date(tomStart);
-                                  tomEnd.setHours(20, 0, 0, 0);
-                                  sMs = tomStart.getTime();
-                                  eMs = tomEnd.getTime();
-                                }
-                                setBookStart(toLocalDateTimeInput(new Date(sMs)));
-                                setBookEnd(toLocalDateTimeInput(new Date(eMs)));
-                                setBookDurationHours(Math.max(1, Math.round((eMs - sMs) / 3600000)));
+                              setSchedulePickerTab(tab.id);
+                              const curD = new Date(bookStart);
+                              const curH = !Number.isNaN(curD.getTime()) ? curD.getHours() : 8;
+                              const curM = !Number.isNaN(curD.getTime()) ? Math.floor(curD.getMinutes() / 5) * 5 : 0;
+                              const target = new Date();
+                              if (tab.id === 'TOMORROW') {
+                                target.setDate(target.getDate() + 1);
+                                target.setHours(curH, curM, 0, 0);
+                              } else if (tab.id === 'TODAY') {
+                                target.setHours(curH, curM, 0, 0);
+                              } else {
+                                target.setTime(!Number.isNaN(curD.getTime()) ? curD.getTime() : roundUpTo5MinMs(Date.now() + 2 * 3600000));
+                              }
+                              const sIso = toLocalDateTimeInput(target);
+                              setBookStart(sIso);
+                              const eMs = target.getTime() + bookDurationHours * 3600000;
+                              setBookEnd(toLocalDateTimeInput(new Date(eMs)));
+                              if (bookReservationType === 'DROP_AND_PICKUP') {
+                                setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
                               }
                             }}
-                            style={{
-                              padding: '8px 6px',
-                              borderRadius: '10px',
-                              border: selected ? '1.5px solid #0072de' : '1px solid var(--color-border)',
-                              background: selected ? '#ebf5ff' : 'var(--color-surface)',
-                              color: selected ? '#005bb5' : 'var(--color-text-primary)',
-                              textAlign: 'center',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '2px',
-                            }}
                           >
-                            <span style={{ fontSize: '11.5px', fontWeight: 800, lineHeight: 1.2 }}>{mode.label}</span>
-                            <span style={{ fontSize: '9.5px', opacity: 0.78, lineHeight: 1.15 }}>{mode.sub}</span>
+                            {tab.icon}
+                            <span>{tab.label}</span>
                           </button>
                         );
                       })}
                     </div>
-                  </div>
 
-                  {/* Quick Presets (In 2h Standard, Urgent +15m, Today Full Day, Tomorrow Full Day) */}
-                  <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
-                    <Chip
-                      active={false}
-                      onClick={() => {
-                        const hrs = bookReservationType === 'FULL_DAY' ? Math.max(8, bookDurationHours) : bookDurationHours;
-                        const sMs = roundUpTo5MinMs(Date.now() + 2 * 3600000);
-                        const eMs = sMs + hrs * 3600000;
-                        setBookStart(toLocalDateTimeInput(new Date(sMs)));
-                        setBookEnd(toLocalDateTimeInput(new Date(eMs)));
-                        if (bookReservationType === 'DROP_AND_PICKUP') {
-                          setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
-                        }
-                      }}
-                    >
-                      {t('In 2h (Standard)')}
-                    </Chip>
-                    <Chip
-                      active={false}
-                      onClick={() => {
-                        const hrs = bookReservationType === 'FULL_DAY' ? Math.max(8, bookDurationHours) : bookDurationHours;
-                        const sMs = roundUpTo5MinMs(Date.now() + 15 * 60000);
-                        const eMs = sMs + hrs * 3600000;
-                        setBookStart(toLocalDateTimeInput(new Date(sMs)));
-                        setBookEnd(toLocalDateTimeInput(new Date(eMs)));
-                        if (bookReservationType === 'DROP_AND_PICKUP') {
-                          setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
-                        }
-                      }}
-                    >
-                      🚨 {t('Urgent Now (+15m)')}
-                    </Chip>
-                    <Chip
-                      active={false}
-                      onClick={() => {
-                        const hrs = bookReservationType === 'FULL_DAY' ? Math.max(8, bookDurationHours) : bookDurationHours;
-                        const sMs = roundUpTo5MinMs(Date.now() + 4 * 3600000);
-                        const eMs = sMs + hrs * 3600000;
-                        setBookStart(toLocalDateTimeInput(new Date(sMs)));
-                        setBookEnd(toLocalDateTimeInput(new Date(eMs)));
-                        if (bookReservationType === 'DROP_AND_PICKUP') {
-                          setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
-                        }
-                      }}
-                    >
-                      {t('In 4h')}
-                    </Chip>
-                    <Chip
-                      active={false}
-                      onClick={() => {
-                        const start = new Date();
-                        const minLeadMs = roundUpTo5MinMs(Date.now() + 2 * 3600000);
-                        const todayEnd = new Date();
-                        todayEnd.setHours(20, 0, 0, 0);
-                        if (todayEnd.getTime() - minLeadMs < 2 * 3600000) {
-                          todayEnd.setHours(23, 0, 0, 0);
-                        }
-                        const sMs = Math.max(start.setHours(8, 0, 0, 0), minLeadMs);
-                        const eMs = Math.max(todayEnd.getTime(), sMs + 2 * 3600000);
-                        setBookReservationType('FULL_DAY');
-                        setBookStart(toLocalDateTimeInput(new Date(sMs)));
-                        setBookEnd(toLocalDateTimeInput(new Date(eMs)));
-                        setBookDurationHours(Math.max(1, Math.round((eMs - sMs) / 3600000)));
-                      }}
-                    >
-                      {t('Today Full Day')}
-                    </Chip>
-                    <Chip
-                      active={false}
-                      onClick={() => {
-                        const tomorrow = new Date();
-                        tomorrow.setDate(tomorrow.getDate() + 1);
-                        tomorrow.setHours(8, 0, 0, 0);
-                        const tomEnd = new Date(tomorrow);
-                        tomEnd.setHours(20, 0, 0, 0);
-                        setBookReservationType('FULL_DAY');
-                        setBookStart(toLocalDateTimeInput(tomorrow));
-                        setBookEnd(toLocalDateTimeInput(tomEnd));
-                        setBookDurationHours(12);
-                      }}
-                    >
-                      {t('Tomorrow Full Day')}
-                    </Chip>
-                  </div>
+                    {/* Gojek Estimate Card */}
+                    <div className="gf-gojek-estimate-card">
+                      <span className="gf-gojek-estimate-caption">{t('Pickup time estimate')}</span>
+                      <span className="gf-gojek-estimate-value">
+                        {schedulePickerTab === 'TODAY'
+                          ? `${t('Today')} | ${selectedTimeSlot}`
+                          : schedulePickerTab === 'TOMORROW'
+                          ? `${t('Tomorrow')} | ${selectedTimeSlot}`
+                          : `${new Date(bookStart).toLocaleDateString(lang === 'en' ? 'en-US' : lang === 'ko' ? 'ko-KR' : 'id-ID', { weekday: 'short', day: 'numeric', month: 'short' })} | ${selectedTimeSlot}`}
+                      </span>
+                    </div>
 
-                  {/* 6. Form Datetime Inputs */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                    {/* Gojek Drum Time Scrolling Wheel Picker */}
                     <div>
-                      <label className="type-caption" htmlFor="schedule-start" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                        {bookReservationType === 'DROP_AND_PICKUP' ? t('Drop-Off Departure *') : t('Departure Date & Time *')}
-                      </label>
-                      <input
-                        id="schedule-start"
-                        type="datetime-local"
-                        className="gf-input"
-                        required
-                        value={bookStart}
-                        onChange={(e) => {
-                          setBookStart(e.target.value);
-                          if (e.target.value) {
-                            const newStartMs = new Date(e.target.value).getTime();
-                            if (!Number.isNaN(newStartMs)) {
-                              const newEndMs = newStartMs + bookDurationHours * 3600000;
-                              setBookEnd(toLocalDateTimeInput(new Date(newEndMs)));
-                              if (bookReservationType === 'DROP_AND_PICKUP') {
-                                const curRpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
-                                if (Number.isNaN(curRpMs) || curRpMs <= newStartMs) {
-                                  setBookReturnPickupTime(toLocalDateTimeInput(new Date(Math.max(newStartMs + 3600000, newEndMs - 1800000))));
-                                }
-                              }
-                            }
-                          }
-                        }}
+                      <GojekWheelPicker
+                        mode={schedulePickerTab}
+                        timeSlots={all5MinSlots}
+                        selectedTimeSlot={selectedTimeSlot}
+                        onSelectTimeSlot={handleSelectSlot}
+                        dateList={dateList}
+                        selectedDateId={selectedDateId}
+                        onSelectDate={handleSelectDate}
                       />
                     </div>
 
-                    {bookReservationType === 'DROP_AND_PICKUP' && (
+                    {/* Trip Category Selector inside Schedule Sheet */}
+                    <div>
+                      <div className="type-caption" style={{ fontWeight: 700, marginBottom: '6px' }}>
+                        {t('Trip Category')}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px' }} role="group" aria-label="Reservation mode">
+                        {([
+                          { id: 'ONE_WAY', label: t('Standard Trip'), sub: t('Point-to-point') },
+                          { id: 'DROP_AND_PICKUP', label: t('Round Trip'), sub: t('Depart & return') },
+                          { id: 'FULL_DAY', label: t('Full Day'), sub: t('Full business day') },
+                        ] as Array<{ id: 'ONE_WAY' | 'DROP_AND_PICKUP' | 'FULL_DAY'; label: string; sub: string }>).map((mode) => {
+                          const selected = bookReservationType === mode.id;
+                          return (
+                            <button
+                              key={mode.id}
+                              type="button"
+                              className="pressable"
+                              onClick={() => setBookReservationType(mode.id)}
+                              style={{
+                                padding: '8px 6px',
+                                borderRadius: '10px',
+                                border: selected ? '1.5px solid #0072de' : '1px solid var(--color-border)',
+                                background: selected ? '#ebf5ff' : 'var(--color-surface)',
+                                color: selected ? '#005bb5' : 'var(--color-text-primary)',
+                                textAlign: 'center',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '2px',
+                              }}
+                            >
+                              <span style={{ fontSize: '11.5px', fontWeight: 800, lineHeight: 1.2 }}>{mode.label}</span>
+                              <span style={{ fontSize: '9.5px', opacity: 0.78, lineHeight: 1.15 }}>{mode.sub}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Departure & Return Date/Time Inputs */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
                       <div>
-                        <label className="type-caption" htmlFor="schedule-return-pickup" style={{ fontWeight: 700, display: 'block', marginBottom: '4px', color: '#005bb5' }}>
-                          {t('Post-Event Pick-Up Time *')}
+                        <label className="type-caption" htmlFor="schedule-start" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                          {t('Departure Date & Time *')}
                         </label>
                         <input
-                          id="schedule-return-pickup"
+                          id="schedule-start"
                           type="datetime-local"
                           className="gf-input"
                           required
-                          value={bookReturnPickupTime}
+                          value={bookStart}
                           onChange={(e) => {
-                            setBookReturnPickupTime(e.target.value);
+                            setBookStart(e.target.value);
                             if (e.target.value) {
-                              const rpMs = new Date(e.target.value).getTime();
-                              const curEndMs = bookEnd ? new Date(bookEnd).getTime() : 0;
-                              const sMs = bookStart ? new Date(bookStart).getTime() : 0;
-                              if (!Number.isNaN(rpMs) && curEndMs < rpMs) {
-                                const nextEndMs = rpMs + 3600000;
-                                setBookEnd(toLocalDateTimeInput(new Date(nextEndMs)));
-                                if (!Number.isNaN(sMs) && sMs > 0) {
-                                  setBookDurationHours(Math.max(1, Math.round((nextEndMs - sMs) / 3600000)));
+                              const newStartMs = new Date(e.target.value).getTime();
+                              if (!Number.isNaN(newStartMs)) {
+                                const newEndMs = newStartMs + bookDurationHours * 3600000;
+                                setBookEnd(toLocalDateTimeInput(new Date(newEndMs)));
+                                if (bookReservationType === 'DROP_AND_PICKUP') {
+                                  const curRpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
+                                  if (Number.isNaN(curRpMs) || curRpMs <= newStartMs) {
+                                    setBookReturnPickupTime(toLocalDateTimeInput(new Date(Math.max(newStartMs + 3600000, newEndMs - 1800000))));
+                                  }
                                 }
                               }
                             }
                           }}
                         />
                       </div>
-                    )}
 
-                    <div>
-                      <label className="type-caption" htmlFor="schedule-end" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                        {bookReservationType === 'DROP_AND_PICKUP'
-                          ? t('Final Return to Pool *')
-                          : bookReservationType === 'FULL_DAY'
-                          ? t('Full Day End Date & Time *')
-                          : t('Return Date & Time *')}
-                      </label>
-                      <input
-                        id="schedule-end"
-                        type="datetime-local"
-                        className="gf-input"
-                        required
-                        value={bookEnd}
-                        onChange={(e) => {
-                          setBookEnd(e.target.value);
-                          if (e.target.value && bookStart) {
-                            const diffHrs = Math.max(1, Math.round((new Date(e.target.value).getTime() - new Date(bookStart).getTime()) / 3600000));
-                            setBookDurationHours(diffHrs);
-                          }
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* 7. 2-Hour Advance Booking Policy Feedback */}
-                  {(() => {
-                    const startMs = new Date(bookStart).getTime();
-                    const nowMs = Date.now();
-                    const diffMin = Math.round((startMs - nowMs) / 60000);
-                    const isPast = diffMin < 0;
-                    const isUrgent = diffMin >= 0 && diffMin < 120;
-
-                    if (isPast) {
-                      return (
-                        <div style={{ padding: '8px 10px', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fecaca', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
-                          <span style={{ fontSize: '11.5px', color: '#991b1b', fontWeight: 600 }}>
-                            {t('Departure time cannot be in the past. Please select an upcoming departure time.')}
-                          </span>
+                      {bookReservationType === 'DROP_AND_PICKUP' && (
+                        <div>
+                          <label className="type-caption" htmlFor="schedule-return-pickup" style={{ fontWeight: 700, display: 'block', marginBottom: '4px', color: '#005bb5' }}>
+                            {t('Return Pick-Up Time *')}
+                          </label>
+                          <input
+                            id="schedule-return-pickup"
+                            type="datetime-local"
+                            className="gf-input"
+                            required
+                            value={bookReturnPickupTime}
+                            onChange={(e) => {
+                              setBookReturnPickupTime(e.target.value);
+                              if (e.target.value) {
+                                const rpMs = new Date(e.target.value).getTime();
+                                const curEndMs = bookEnd ? new Date(bookEnd).getTime() : 0;
+                                const sMs = bookStart ? new Date(bookStart).getTime() : 0;
+                                if (!Number.isNaN(rpMs) && curEndMs < rpMs) {
+                                  const nextEndMs = rpMs + 3600000;
+                                  setBookEnd(toLocalDateTimeInput(new Date(nextEndMs)));
+                                  if (!Number.isNaN(sMs) && sMs > 0) {
+                                    setBookDurationHours(Math.max(1, Math.round((nextEndMs - sMs) / 3600000)));
+                                  }
+                                }
+                              }
+                            }}
+                          />
                         </div>
-                      );
-                    }
+                      )}
 
-                    if (isUrgent) {
-                      return (
-                        <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#fef2f2', border: '1.5px solid #f87171', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                            <AlertTriangle size={16} style={{ color: '#dc2626', flexShrink: 0 }} />
-                            <span style={{ fontSize: '12px', fontWeight: 800, color: '#991b1b', textTransform: 'uppercase' }}>
-                              🚨 {t('Urgent Request (< 2h) • Mandatory Fleet PIC Approval')}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: '11.5px', color: '#7f1d1d' }}>
-                            {t('Company policy requires booking at least 2 hours in advance. This trip departs in')} <strong>{diffMin} {t('min ride')}</strong> {t('and requires urgent justification.')}
-                          </div>
-                          <div>
-                            <label className="type-caption" htmlFor="urgent-reason-input" style={{ fontWeight: 700, display: 'block', color: '#991b1b', marginBottom: '2px' }}>
-                              {t('Urgent Reason *')}
-                            </label>
-                            <input
-                              id="urgent-reason-input"
-                              type="text"
-                              className="gf-input"
-                              required
-                              placeholder={t('Enter urgent reason (e.g. client site emergency, urgent VIP transport)...')}
-                              value={bookUrgentReason}
-                              onChange={(e) => setBookUrgentReason(e.target.value)}
-                            />
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div style={{ padding: '8px 10px', borderRadius: '8px', background: '#ebf5ff', border: '1px solid #bfdbfe', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <CheckCircle2 size={15} style={{ color: '#0072de', flexShrink: 0 }} />
-                        <span style={{ fontSize: '11.5px', color: '#005bb5', fontWeight: 600 }}>
-                          ✓ {t('Standard Trip')} ({Math.floor(diffMin / 60)}h {diffMin % 60}m)
-                        </span>
+                      <div>
+                        <label className="type-caption" htmlFor="schedule-end" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                          {t('Return Date & Time *')}
+                        </label>
+                        <input
+                          id="schedule-end"
+                          type="datetime-local"
+                          className="gf-input"
+                          required
+                          value={bookEnd}
+                          onChange={(e) => {
+                            setBookEnd(e.target.value);
+                            if (e.target.value && bookStart) {
+                              const diffHrs = Math.max(1, Math.round((new Date(e.target.value).getTime() - new Date(bookStart).getTime()) / 3600000));
+                              setBookDurationHours(diffHrs);
+                            }
+                          }}
+                        />
                       </div>
-                    );
-                  })()}
+                    </div>
                   </div>
                 </div>
 
-                {/* 8. Pinned Gojek Footer Button Pair */}
                 <div
                   style={{
                     padding: '12px 20px calc(14px + var(--safe-bottom))',
@@ -11965,7 +12397,171 @@ export function App() {
             </div>
           )}
 
-          {/* GoCar Reference Screens 5 & 6: Vehicle Option Cards (Selected card has #EBF5FF tint & #0072DE border) */}
+          {/* Step 2B: Direct Inline Booking Form — Trip Purpose & Passengers Name (1, 2, 3...) */}
+          <div
+            style={{
+              padding: '14px',
+              borderRadius: '14px',
+              background: 'var(--color-surface)',
+              border: '1.5px solid #93c5fd',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '13.5px', fontWeight: 800, color: '#005bb5' }}>
+                3. {t('Trip Purpose')} &amp; {t('Passengers Name (1, 2, 3...)')}
+              </span>
+              <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#ebf5ff', color: '#0072de' }}>
+                {t('* Mandatory')}
+              </span>
+            </div>
+
+            {/* Inline Trip Purpose */}
+            <div>
+              <label htmlFor="inline-trip-purpose-input" className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '6px' }}>
+                {t('Trip Purpose')} *
+              </label>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                {['Client visit', 'Site audit', 'Airport transfer', 'Executive briefing'].map((preset) => (
+                  <Chip
+                    key={preset}
+                    active={bookPurpose === preset}
+                    onClick={() => setBookPurpose(preset)}
+                  >
+                    {t(preset)}
+                  </Chip>
+                ))}
+              </div>
+              <input
+                id="inline-trip-purpose-input"
+                type="text"
+                className="gf-input"
+                required
+                placeholder={t('Example: Cikarang Plant Visit, Client Meeting...')}
+                value={bookPurpose}
+                onChange={(e) => setBookPurpose(e.target.value)}
+              />
+            </div>
+
+            {/* Inline Passengers Name (1, 2, 3...) */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label className="type-caption" style={{ fontWeight: 700 }}>
+                  {t('Passengers Name (1, 2, 3...)')} *
+                </label>
+                {bookPassengers.length < (selectedVehicle?.seats || 7) && (
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-secondary gf-btn-sm pressable"
+                    style={{ minHeight: '28px', padding: '0 10px', fontSize: '11.5px', gap: '4px' }}
+                    onClick={() => {
+                      const nextList = [...bookPassengers, { id: bookPassengers.length + 1, nickname: '' }];
+                      setBookPassengers(nextList);
+                      setBookPax(nextList.length);
+                    }}
+                  >
+                    <Plus size={13} /> {t('Add')} Passenger {bookPassengers.length + 1}
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {bookPassengers.map((passenger, index) => (
+                  <div key={passenger.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span
+                      className="mono"
+                      style={{
+                        width: '26px',
+                        height: '26px',
+                        borderRadius: '50%',
+                        background: '#ebf5ff',
+                        color: '#005bb5',
+                        fontWeight: 800,
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {index + 1}
+                    </span>
+                    <input
+                      type="text"
+                      className="gf-input"
+                      required
+                      placeholder={`Passenger ${index + 1} Name / Nickname (e.g. ${index === 0 ? 'Budi' : index === 1 ? 'Sarah' : 'Andi'})`}
+                      value={passenger.nickname}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setBookPassengers((prev) =>
+                          prev.map((p) => (p.id === passenger.id ? { ...p, nickname: val } : p))
+                        );
+                        if (index === 0) setBookPassengerNickname(val);
+                      }}
+                    />
+                    {bookPassengers.length > 1 && (
+                      <button
+                        type="button"
+                        className="gf-btn gf-btn-outline-danger"
+                        style={{ minHeight: '34px', padding: '0 8px', fontSize: '11px', flexShrink: 0 }}
+                        onClick={() => {
+                          const filtered = bookPassengers.filter((p) => p.id !== passenger.id);
+                          const renumbered = filtered.map((p, idx) => ({ ...p, id: idx + 1 }));
+                          setBookPassengers(renumbered);
+                          setBookPax(renumbered.length);
+                          if (renumbered[0]) setBookPassengerNickname(renumbered[0].nickname);
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Service Category Underline Tabs */}
+          <div className="gf-underline-tabs" role="tablist" aria-label="Vehicle category tabs">
+            {([
+              { id: 'ALL', label: 'All Fleet' },
+              { id: 'Electric', label: 'Electric EV ⚡' },
+              { id: 'MPV', label: 'Executive & MPV' },
+            ] as Array<{ id: 'ALL' | 'Electric' | 'MPV'; label: string }>).map((tab) => {
+              const active = vehicleFilter === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className={`gf-underline-tab ${active ? 'is-active' : ''}`}
+                  onClick={() => setVehicleFilter(tab.id)}
+                >
+                  {t(tab.label)}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={false}
+              className="gf-underline-tab"
+              onClick={() =>
+                setStatusBanner({
+                  type: 'info',
+                  text: t('Shuttle Bus service is currently under development.'),
+                })
+              }
+            >
+              {t('Shuttle (Dev)')}
+            </button>
+          </div>
+
+          {/* Vehicle Option Cards */}
           {loadingData ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <Skeleton height={84} />
@@ -12005,7 +12601,7 @@ export function App() {
                 const pct = isEv ? Number(v.battery_percent ?? 100) : 85;
                 const waitRange = isAvail ? `${3 + (vIdx % 3)}-${6 + (vIdx % 3)} min` : t('Busy');
                 const availText = isAvail
-                  ? `${t('Available')} • ${v.registration_plate} • Chauffeur included`
+                  ? `${t('Available')} • ${v.registration_plate} • ${t('Driver included')}`
                   : v.status !== 'Available'
                   ? `${v.status}${v.standby_reason ? ` • ${v.standby_reason}` : ''}`
                   : v.conflictReason || 'Booked for this slot';
@@ -12075,7 +12671,7 @@ export function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
               <div>
                 <div className="type-body" style={{ fontWeight: 700 }}>Driver provided</div>
-                <div className="type-caption">Company driver assigned & schedule locked</div>
+                <div className="type-caption">Company driver assigned &amp; schedule locked</div>
               </div>
               <StatusBadge label="Included" tone="blue" />
             </div>
@@ -12109,17 +12705,6 @@ export function App() {
                     );
                   })}
               </select>
-              <div className="type-caption" style={{ marginTop: '4px', color: '#64748b' }}>
-                Drivers are filtered by the {selectedVehicle?.energy_type || 'selected'} vehicle category. Final assignment is confirmed upon Admin/Fleet Manager approval.
-              </div>
-            </div>
-
-            <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: 0.45 }}>
-              <div>
-                <div className="type-body" style={{ fontWeight: 600 }}>Self-drive</div>
-                <div className="type-caption">Disabled by company policy</div>
-              </div>
-              <Lock size={16} />
             </div>
           </div>
         </div>
@@ -12127,7 +12712,7 @@ export function App() {
     }
 
     // -------------------------------------------------------------------------
-    // BOOKING FLOW STEP 3: ORDER SUMMARY ("Almost there")
+    // BOOKING FLOW STEP 3: ORDER SUMMARY ("Almost there") WITH DIRECT INLINE FORM
     // -------------------------------------------------------------------------
     if (bookingStep === 'SUMMARY') {
       const chosenDriverObj = drivers.find((d) => String(d.id) === String(bookDriverId));
@@ -12135,7 +12720,23 @@ export function App() {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {feedbackBanner}
-          <h1 className="type-title">{t('Almost there')}</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              id="summary-back-btn"
+              type="button"
+              className="gf-icon-btn-48 pressable"
+              style={{ width: '36px', height: '36px' }}
+              aria-label={t('Back')}
+              title={t('Back')}
+              onClick={() => {
+                setBookingStep('VEHICLE');
+                setSheetSnap('half');
+              }}
+            >
+              <ArrowLeft size={18} />
+            </button>
+            <h1 className="type-title" style={{ margin: 0 }}>{t('Almost there')}</h1>
+          </div>
 
           {/* Compact prototype route card with Edit pill */}
           <div className="gf-proto-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
@@ -12158,136 +12759,131 @@ export function App() {
             </button>
           </div>
 
-          {/* Urgent Warning Banner if departing < 2h */}
-          {Math.round((new Date(bookStart).getTime() - Date.now()) / 60000) < 120 && (
-            <div
-              style={{
-                padding: '10px 12px',
-                borderRadius: '8px',
-                background: '#fef2f2',
-                border: '1.5px solid #f87171',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '4px',
-              }}
-            >
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
-                <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#991b1b', textTransform: 'uppercase' }}>
-                  🚨 {t('Urgent Short-Notice Request (< 2h Advance)') || 'Urgent Short-Notice Request (< 2h Advance)'}
-                </span>
+          {/* Direct Inline Trip Purpose & Passengers Name (1, 2, 3...) Form */}
+          <div
+            style={{
+              padding: '14px',
+              borderRadius: '14px',
+              background: 'var(--color-surface)',
+              border: '1.5px solid #93c5fd',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+            }}
+          >
+            <div>
+              <label htmlFor="summary-inline-purpose-input" className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '6px' }}>
+                {t('Trip Purpose')} *
+              </label>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                {['Client visit', 'Site audit', 'Airport transfer', 'Executive briefing'].map((preset) => (
+                  <Chip
+                    key={preset}
+                    active={bookPurpose === preset}
+                    onClick={() => setBookPurpose(preset)}
+                  >
+                    {t(preset)}
+                  </Chip>
+                ))}
               </div>
-              <div style={{ fontSize: '11.5px', color: '#7f1d1d' }}>
-                Requires mandatory Fleet Operation PIC approval. Reason: <strong>{bookUrgentReason || bookPurpose || 'Urgent Short-Notice Departure'}</strong>
+              <input
+                id="summary-inline-purpose-input"
+                type="text"
+                className="gf-input"
+                required
+                placeholder={t('Example: Cikarang Plant Visit...')}
+                value={bookPurpose}
+                onChange={(e) => setBookPurpose(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label className="type-caption" style={{ fontWeight: 700 }}>
+                  {t('Passengers Name (1, 2, 3...)')} *
+                </label>
+                {bookPassengers.length < (selectedVehicle?.seats || 7) && (
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-secondary gf-btn-sm pressable"
+                    style={{ minHeight: '28px', padding: '0 10px', fontSize: '11.5px', gap: '4px' }}
+                    onClick={() => {
+                      const nextList = [...bookPassengers, { id: bookPassengers.length + 1, nickname: '' }];
+                      setBookPassengers(nextList);
+                      setBookPax(nextList.length);
+                    }}
+                  >
+                    <Plus size={13} /> {t('Add')} Passenger {bookPassengers.length + 1}
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {bookPassengers.map((passenger, index) => (
+                  <div key={passenger.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span
+                      className="mono"
+                      style={{
+                        width: '26px',
+                        height: '26px',
+                        borderRadius: '50%',
+                        background: '#ebf5ff',
+                        color: '#005bb5',
+                        fontWeight: 800,
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {index + 1}
+                    </span>
+                    <input
+                      type="text"
+                      className="gf-input"
+                      required
+                      placeholder={`Passenger ${index + 1} Name / Nickname`}
+                      value={passenger.nickname}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setBookPassengers((prev) =>
+                          prev.map((p) => (p.id === passenger.id ? { ...p, nickname: val } : p))
+                        );
+                        if (index === 0) setBookPassengerNickname(val);
+                      }}
+                    />
+                    {bookPassengers.length > 1 && (
+                      <button
+                        type="button"
+                        className="gf-btn gf-btn-outline-danger"
+                        style={{ minHeight: '34px', padding: '0 8px', fontSize: '11px', flexShrink: 0 }}
+                        onClick={() => {
+                          const filtered = bookPassengers.filter((p) => p.id !== passenger.id);
+                          const renumbered = filtered.map((p, idx) => ({ ...p, id: idx + 1 }));
+                          setBookPassengers(renumbered);
+                          setBookPax(renumbered.length);
+                          if (renumbered[0]) setBookPassengerNickname(renumbered[0].nickname);
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
-          )}
+          </div>
 
-          {/* Mandatory Data Missing Banner */}
-          {(!bookPurpose.trim() || bookPassengers.length === 0 || bookPassengers.some((p) => !p.nickname.trim())) && (
-            <div
-              style={{
-                padding: '10px 14px',
-                borderRadius: '10px',
-                background: '#fef2f2',
-                border: '1.5px solid #fecaca',
-                display: 'flex',
-                gap: '10px',
-                alignItems: 'center',
-              }}
-            >
-              <AlertTriangle size={18} style={{ color: '#dc2626', flexShrink: 0 }} />
-              <div style={{ fontSize: '12px', color: '#991b1b', lineHeight: 1.4 }}>
-                <strong>{t('Mandatory Data Incomplete') || 'Data Wajib Belum Lengkap'}:</strong> {t('Please complete') || 'Harap lengkapi'}{' '}
-                {!bookPurpose.trim() && <strong>{t('Trip Purpose')}</strong>}
-                {!bookPurpose.trim() && (bookPassengers.length === 0 || bookPassengers.some((p) => !p.nickname.trim())) && ` ${t('and') || 'dan'} `}
-                {(bookPassengers.length === 0 || bookPassengers.some((p) => !p.nickname.trim())) && <strong>{t('Passengers')}</strong>}{' '}
-                {t('before requesting booking.') || 'sebelum melanjutkan pemesanan armada.'}
-              </div>
-            </div>
-          )}
-
-          {/* Plain ListRow Pickers */}
+          {/* Summary Rows */}
           <div>
             <ListRow
               id="summary-schedule-row"
               icon={<Calendar size={18} />}
               title={t('Schedule & Reservation')}
-              subtitle={`${new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → ${new Date(bookEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${bookDurationHours}h) • ${formatReservationModeLabel(bookReservationType, bookReservationType === 'DROP_AND_PICKUP' ? bookReturnPickupTime : null) || 'Standard Trip'}${Math.round((new Date(bookStart).getTime() - Date.now()) / 60000) < 120 ? ' • 🚨 Urgent (< 2h)' : ' • Standard'}`}
+              subtitle={`${new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → ${new Date(bookEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${bookDurationHours}h) • ${formatReservationModeLabel(bookReservationType, bookReservationType === 'DROP_AND_PICKUP' ? bookReturnPickupTime : null) || 'Standard Trip'}`}
               showChevron
               onClick={() => setBookingStep('VEHICLE')}
-            />
-            <ListRow
-              id="summary-purpose-row"
-              icon={<Briefcase size={18} style={{ color: bookPurpose.trim() ? '#0072de' : '#dc2626' }} />}
-              title={
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>{t('Trip Purpose')}</span>
-                  <span
-                    style={{
-                      fontSize: '10.5px',
-                      fontWeight: 800,
-                      padding: '2px 7px',
-                      borderRadius: '4px',
-                      background: bookPurpose.trim() ? '#ebf5ff' : '#fef2f2',
-                      color: bookPurpose.trim() ? '#0072de' : '#dc2626',
-                    }}
-                  >
-                    {bookPurpose.trim() ? t('✓ Filled') : t('* Mandatory')}
-                  </span>
-                </div>
-              }
-              subtitle={
-                bookPurpose.trim() ? (
-                  bookPurpose.trim()
-                ) : (
-                  <span style={{ color: '#dc2626', fontWeight: 600 }}>
-                    {t('⚠️ Mandatory • Tap to select or enter purpose')}
-                  </span>
-                )
-              }
-              showChevron
-              onClick={() => {
-                setPickerValidationError(null);
-                setSummaryPicker('PURPOSE');
-              }}
-            />
-            <ListRow
-              id="summary-pax-row"
-              icon={<Users size={18} style={{ color: bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim())) ? '#0072de' : '#dc2626' }} />}
-              title={
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>{t('Passengers')}</span>
-                  <span
-                    style={{
-                      fontSize: '10.5px',
-                      fontWeight: 800,
-                      padding: '2px 7px',
-                      borderRadius: '4px',
-                      background: bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim())) ? '#ebf5ff' : '#fef2f2',
-                      color: bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim())) ? '#0072de' : '#dc2626',
-                    }}
-                  >
-                    {bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim()))
-                      ? `✓ ${bookPassengers.length} ${t('Passengers')}`
-                      : t('* Mandatory')}
-                  </span>
-                </div>
-              }
-              subtitle={
-                bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim())) ? (
-                  bookPassengers.map((p) => `${p.id}. ${p.nickname.trim()}`).join(', ')
-                ) : (
-                  <span style={{ color: '#dc2626', fontWeight: 600 }}>
-                    {t('⚠️ Mandatory • Tap to enter passenger nickname')}
-                  </span>
-                )
-              }
-              showChevron
-              onClick={() => {
-                setPickerValidationError(null);
-                setSummaryPicker('PAX');
-              }}
             />
             <ListRow
               id="summary-notes-row"
@@ -12306,222 +12902,6 @@ export function App() {
               onClick={() => setSummaryPicker('CHARGE')}
             />
           </div>
-
-          {/* Small Picker Sub-Modal */}
-          {summaryPicker && (
-            <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label={`Edit ${summaryPicker.toLowerCase()}`}>
-              <div className="gf-modal-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px 12px', flexWrap: 'wrap', marginBottom: '14px' }}>
-                  <h3 className="type-section" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', minWidth: 0 }}>
-                    <span style={{ whiteSpace: 'nowrap' }}>
-                      {summaryPicker === 'PURPOSE' && t('Trip Purpose')}
-                      {summaryPicker === 'PAX' && t('Passenger Details')}
-                      {summaryPicker === 'NOTES' && t('Dispatch Notes')}
-                      {summaryPicker === 'CHARGE' && t('Group & Driver')}
-                    </span>
-                    {(summaryPicker === 'PURPOSE' || summaryPicker === 'PAX') && (
-                      <span style={{ fontSize: '11px', fontWeight: 800, lineHeight: 1.3, color: '#dc2626', background: '#fef2f2', padding: '3px 8px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                        {t('* Mandatory')}
-                      </span>
-                    )}
-                  </h3>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0, marginLeft: 'auto' }}>
-                    <button
-                      type="button"
-                      className="gf-btn gf-btn-ghost"
-                      style={{ minHeight: '36px', height: '36px', padding: '0 10px', fontSize: '12px' }}
-                      onClick={() => {
-                        setPickerValidationError(null);
-                        setSummaryPicker(null);
-                      }}
-                    >
-                      {t('Cancel')}
-                    </button>
-                    <button
-                      type="button"
-                      className="gf-btn gf-btn-primary"
-                      style={{ minHeight: '36px', height: '36px', padding: '0 16px', fontSize: '12.5px', fontWeight: 700 }}
-                      onClick={handleDoneSummaryPicker}
-                    >
-                      {t('Done')}
-                    </button>
-                  </div>
-                </div>
-
-                {pickerValidationError && (
-                  <div
-                    style={{
-                      padding: '8px 12px',
-                      borderRadius: '8px',
-                      background: '#fef2f2',
-                      border: '1px solid #fecaca',
-                      display: 'flex',
-                      gap: '8px',
-                      alignItems: 'center',
-                      marginBottom: '10px',
-                    }}
-                  >
-                    <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
-                    <span style={{ fontSize: '12px', color: '#991b1b', fontWeight: 600 }}>
-                      {pickerValidationError}
-                    </span>
-                  </div>
-                )}
-
-                {summaryPicker === 'PURPOSE' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-secondary)' }}>
-                      {t('Select operational purpose or enter custom purpose:')}
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      {['Client visit', 'Site audit', 'Airport transfer', 'Executive briefing'].map((preset) => (
-                        <Chip
-                          key={preset}
-                          active={bookPurpose === preset}
-                          onClick={() => {
-                            setBookPurpose(preset);
-                            setPickerValidationError(null);
-                          }}
-                        >
-                          {t(preset)}
-                        </Chip>
-                      ))}
-                    </div>
-                    <div>
-                      <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                        {t('Trip Purpose *')}
-                      </label>
-                      <input
-                        type="text"
-                        className="gf-input"
-                        placeholder={t('Example: Cikarang Plant Visit...')}
-                        value={bookPurpose}
-                        required
-                        onChange={(e) => {
-                          setBookPurpose(e.target.value);
-                          if (e.target.value.trim()) setPickerValidationError(null);
-                        }}
-                        autoFocus
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {summaryPicker === 'PAX' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    <div
-                      style={{
-                        padding: '10px 12px',
-                        borderRadius: 'var(--radius-control)',
-                        background: 'var(--color-status-amber-bg)',
-                        color: 'var(--color-status-amber-fg)',
-                        fontSize: '12.5px',
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      ⚠️ <strong>{t('Privacy Policy:') || 'Privacy Policy:'}</strong> {t('Privacy Policy: Mandatory to enter passenger nicknames boarding the operational vehicle. Enter nicknames only (e.g., Budi, Sarah). Do not enter full names.') || 'Wajib mengisi nama panggilan penumpang yang menaiki kendaraan operasional. Masukkan hanya nama panggilan (nickname) (contoh: Budi, Sarah). Dilarang memasukkan nama lengkap.'}
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {bookPassengers.map((passenger, index) => {
-                        const isMissing = !passenger.nickname.trim();
-                        return (
-                          <div
-                            key={passenger.id}
-                            style={{
-                              padding: '10px 12px',
-                              borderRadius: 'var(--radius-control)',
-                              border: isMissing ? '1.5px solid #f87171' : '1px solid var(--color-border)',
-                              background: 'var(--color-surface)',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '6px',
-                            }}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <label className="type-caption" style={{ fontWeight: 700, color: isMissing ? '#dc2626' : 'var(--color-primary)' }}>
-                                {index === 0 ? `1. ${t('Passengers')} 1 (Lead Passenger) *` : `${index + 1}. ${t('Passengers')} ${index + 1} *`}
-                              </label>
-                              {bookPassengers.length > 1 && (
-                                <button
-                                  type="button"
-                                  className="gf-btn gf-btn-outline-danger"
-                                  style={{ minHeight: '26px', padding: '0 8px', fontSize: '11px' }}
-                                  onClick={() => {
-                                    const filtered = bookPassengers.filter((p) => p.id !== passenger.id);
-                                    const renumbered = filtered.map((p, idx) => ({ ...p, id: idx + 1 }));
-                                    setBookPassengers(renumbered);
-                                    setBookPax(renumbered.length);
-                                    if (renumbered[0]) setBookPassengerNickname(renumbered[0].nickname);
-                                  }}
-                                >
-                                  ✕ {t('Remove')}
-                                </button>
-                              )}
-                            </div>
-                            <input
-                              type="text"
-                              className="gf-input"
-                              required
-                              placeholder={index === 0 ? 'contoh: Budi (Nickname)' : `contoh: Sarah (Nickname)`}
-                              value={passenger.nickname}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setBookPassengers((prev) =>
-                                  prev.map((p) => (p.id === passenger.id ? { ...p, nickname: val } : p))
-                                );
-                                if (index === 0) setBookPassengerNickname(val);
-                                if (val.trim()) setPickerValidationError(null);
-                              }}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '4px' }}>
-                      <span className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-                        Capacity: {bookPassengers.length} of {selectedVehicle?.seats || 7} passengers
-                      </span>
-                      {bookPassengers.length < (selectedVehicle?.seats || 7) && (
-                        <button
-                          type="button"
-                          className="gf-btn gf-btn-secondary"
-                          style={{ minHeight: '34px', padding: '0 12px', fontSize: '12.5px', gap: '6px' }}
-                          onClick={() => {
-                            const nextList = [...bookPassengers, { id: bookPassengers.length + 1, nickname: '' }];
-                            setBookPassengers(nextList);
-                            setBookPax(nextList.length);
-                          }}
-                        >
-                          <Plus size={15} /> {t('Add')} {t('Passengers')} {bookPassengers.length + 1}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {summaryPicker === 'NOTES' && (
-                  <textarea
-                    className="gf-textarea"
-                    rows={3}
-                    placeholder="Pickup gate, luggage, or contact note"
-                    value={bookNotes}
-                    onChange={(e) => setBookNotes(e.target.value)}
-                    autoFocus
-                  />
-                )}
-
-                {summaryPicker === 'CHARGE' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }} className="type-body">
-                    <div><strong>Group:</strong> {user.department_name || `Group #${user.department_id}`}</div>
-                    <div><strong>Driver:</strong> {chosenDriverObj ? chosenDriverObj.full_name : 'Assigned on approval'}</div>
-                    <p className="type-caption">Requests are routed automatically to Fleet Admin for approval.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       );
     }
@@ -12630,7 +13010,23 @@ export function App() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {feedbackBanner}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <h1 className="type-title">{title}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button
+                id="waiting-back-btn"
+                type="button"
+                className="gf-icon-btn-48 pressable"
+                style={{ width: '36px', height: '36px' }}
+                aria-label={t('Back')}
+                title={t('Back')}
+                onClick={() => {
+                  setBookingStep('HOME');
+                  setSheetSnap('full');
+                }}
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <h1 className="type-title" style={{ margin: 0 }}>{title}</h1>
+            </div>
             <StatusBadge label={badgeLabel} tone={badgeTone} />
           </div>
 
@@ -12644,11 +13040,6 @@ export function App() {
                       {formatReservationModeLabel(focusedTrip.reservation_type, focusedTrip.return_pickup_time)}
                     </span>
                   )}
-                  {focusedTrip.is_urgent === 1 && (
-                    <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' }}>
-                      🚨 URGENT (&lt; 2h)
-                    </span>
-                  )}
                 </div>
               </div>
               <div className="type-caption">{focusedTrip.make} {focusedTrip.model} • {focusedTrip.registration_plate}</div>
@@ -12659,12 +13050,7 @@ export function App() {
               )}
               {focusedTrip.reservation_type === 'DROP_AND_PICKUP' && focusedTrip.return_pickup_time && (
                 <div className="type-caption" style={{ color: '#005bb5', fontWeight: 700 }}>
-                  🔁 Post-Event Pick-Up: {new Date(focusedTrip.return_pickup_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                </div>
-              )}
-              {focusedTrip.urgent_reason && (
-                <div className="type-caption" style={{ color: '#991b1b', fontWeight: 600 }}>
-                  🚨 Urgent Justification: {focusedTrip.urgent_reason}
+                  🔁 Return Pick-Up: {new Date(focusedTrip.return_pickup_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </div>
               )}
               {focusedTrip.assigned_driver_name && (
@@ -12801,9 +13187,25 @@ export function App() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
         {feedbackBanner}
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-            <StatusBadge label={isStarted ? 'In Trip' : 'Driver Assigned'} tone={isStarted ? 'blue' : 'green'} />
-            {tripModeLabel && <StatusBadge label={tripModeLabel} tone="blue" />}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                id="in-trip-back-btn"
+                type="button"
+                className="gf-icon-btn-48 pressable"
+                style={{ width: '34px', height: '34px' }}
+                aria-label={t('Back')}
+                title={t('Back')}
+                onClick={() => {
+                  setBookingStep('HOME');
+                  setSheetSnap('full');
+                }}
+              >
+                <ArrowLeft size={17} />
+              </button>
+              <StatusBadge label={isStarted ? 'In Trip' : 'Driver Assigned'} tone={isStarted ? 'blue' : 'green'} />
+              {tripModeLabel && <StatusBadge label={tripModeLabel} tone="blue" />}
+            </div>
           </div>
           <h1 className="type-title" style={{ marginTop: '6px' }}>
             {isStarted ? `Arriving in ~${Math.max(8, currentMetrics.durationMin || 18)} min (ETA ${currentMetrics.etaText})` : t('Driver arriving in ~10 min')}

@@ -133,7 +133,7 @@ export function createApp() {
     res.setHeader('X-XSS-Protection', '1; mode=block');
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://translate.google.com https://translate.googleapis.com https://translate-pa.googleapis.com https://www.gstatic.com https://ssl.gstatic.com; style-src 'self' 'unsafe-inline' https://translate.google.com https://translate.googleapis.com https://www.gstatic.com https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com https://ssl.gstatic.com; img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://*.arcgisonline.com https://*.opentopomap.org https://*.maptiler.com https://api.maptiler.com https://*.openstreetmap.org https://www.google.com https://*.google.com https://translate.google.com https://translate.googleapis.com https://www.gstatic.com https://ssl.gstatic.com; connect-src 'self' https://api.maptiler.com https://nominatim.openstreetmap.org https://photon.komoot.io https://router.project-osrm.org https://translate.googleapis.com https://translate-pa.googleapis.com https://translate.google.com; frame-src 'self' https://translate.google.com https://translate.googleapis.com; frame-ancestors 'none'; form-action 'self'; base-uri 'self';"
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://translate.google.com https://translate.googleapis.com https://translate-pa.googleapis.com https://www.gstatic.com https://ssl.gstatic.com; style-src 'self' 'unsafe-inline' https://translate.google.com https://translate.googleapis.com https://www.gstatic.com https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com https://ssl.gstatic.com; img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://*.arcgisonline.com https://*.opentopomap.org https://*.maptiler.com https://api.maptiler.com https://*.openstreetmap.org https://www.google.com https://*.google.com https://translate.google.com https://translate.googleapis.com https://www.gstatic.com https://ssl.gstatic.com; connect-src 'self' https://api.maptiler.com https://nominatim.openstreetmap.org https://photon.komoot.io https://geocode.arcgis.com https://router.project-osrm.org https://translate.googleapis.com https://translate-pa.googleapis.com https://translate.google.com; frame-src 'self' https://translate.google.com https://translate.googleapis.com; frame-ancestors 'none'; form-action 'self'; base-uri 'self';"
     );
     res.setHeader('Permissions-Policy', 'camera=(self), geolocation=(self), microphone=()');
     next();
@@ -141,6 +141,21 @@ export function createApp() {
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+  // Normalize double slashes and subfolder prefixes (e.g., //api/..., /index.php/api/..., /fleet/api/...)
+  // so reverse proxies, cPanel Phusion Passenger, or trailing-slash client requests never trigger "API endpoint not found"
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    if (req.url.includes('//')) {
+      req.url = req.url.replace(/\/+/g, '/');
+    }
+    const apiIdx = req.url.indexOf('/api/');
+    if (apiIdx > 0) {
+      req.url = req.url.slice(apiIdx);
+    } else if (req.url === '/api' || req.url.endsWith('/api')) {
+      req.url = '/api';
+    }
+    next();
+  });
 
   // Built-in MapTiler API Key & Multi-Provider Map Tile Proxy (Streets, Satellite, Terrain)
   // Mounted before rate limiter so concurrent Leaflet tile loads never trigger HTTP 429
@@ -778,7 +793,7 @@ export function createApp() {
     cache.set(key, value);
   };
 
-  // Comprehensive Nationwide Indonesian Geocoding Proxy (Local POIs + Parallel MapTiler + Nominatim + Photon)
+  // Comprehensive Nationwide Indonesian Geocoding Proxy (Local POIs + Parallel MapTiler + Nominatim + Photon + ArcGIS)
   app.get('/api/geocode/search', requireAuth, async (req: Request, res: Response) => {
     const q = String(req.query.q || '').trim();
     if (!q || q.length < 2) {
@@ -793,8 +808,8 @@ export function createApp() {
       return;
     }
 
-    // 1. Instant Match from Nationwide Indonesian POI Directory
-    const matchedPois = searchIndonesianPois(q, 12);
+    // 1. Instant Match from Nationwide & Greater Jakarta Indonesian POI Directory
+    const matchedPois = searchIndonesianPois(q, 18);
     const results: Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }> = matchedPois
       .map(({ score: _s, ...rest }) => rest);
 
@@ -804,18 +819,18 @@ export function createApp() {
     const pushUniqueResult = (candidate: { place_id: string | number; name: string; address: string; lat: number; lon: number }) => {
       if (!isInsideIndonesia(candidate.lat, candidate.lon)) return;
       const duplicate = results.some(
-        (r) => Math.abs(r.lat - candidate.lat) < 0.0008 && Math.abs(r.lon - candidate.lon) < 0.0008
+        (r) => Math.abs(r.lat - candidate.lat) < 0.0006 && Math.abs(r.lon - candidate.lon) < 0.0006
       );
       if (!duplicate) {
         results.push(candidate);
       }
     };
 
-    // 2. Fetch MapTiler, OSM Nominatim (Nationwide ID without narrow viewbox), & Photon Komoot in parallel
+    // 2. Fetch MapTiler, OSM Nominatim, Photon Komoot (biased to Greater Jakarta), & ArcGIS World Geocoder in parallel
     const maptilerPromise = (async () => {
       const maptilerUrl = `https://api.maptiler.com/geocoding/${encodeURIComponent(q)}.json?key=${encodeURIComponent(
         MAPTILER_API_KEY
-      )}&country=id&bbox=94.5,-11.2,141.5,6.2&limit=10&language=id,en`;
+      )}&country=id&proximity=106.8456,-6.2088&bbox=94.5,-11.2,141.5,6.2&limit=12&language=id,en`;
       const mtResp = await fetch(maptilerUrl, { signal: AbortSignal.timeout(2200) });
       if (!mtResp.ok) return [] as Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }>;
       const mtData = (await mtResp.json()) as { features?: Array<any> };
@@ -840,7 +855,7 @@ export function createApp() {
     })();
 
     const nominatimPromise = (async () => {
-      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&countrycodes=id&limit=10&q=${encodeURIComponent(
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&countrycodes=id&limit=12&q=${encodeURIComponent(
         q
       )}`;
       const resp = await fetch(url, {
@@ -872,7 +887,7 @@ export function createApp() {
     })();
 
     const photonPromise = (async () => {
-      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=94.5,-11.2,141.5,6.2&limit=10`;
+      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=-6.2088&lon=106.8456&bbox=94.5,-11.2,141.5,6.2&limit=12`;
       const resp = await fetch(url, {
         headers: { Accept: 'application/json' },
         signal: AbortSignal.timeout(2200),
@@ -911,7 +926,37 @@ export function createApp() {
       return list;
     })();
 
-    const settled = await Promise.allSettled([maptilerPromise, nominatimPromise, photonPromise]);
+    const arcgisPromise = (async () => {
+      const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?SingleLine=${encodeURIComponent(
+        q
+      )}&countryCode=IDN&location=106.8456,-6.2088&maxLocations=10&outFields=PlaceName,Place_addr,Match_addr&f=pjson`;
+      const resp = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(2200),
+      });
+      if (!resp.ok) return [] as Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }>;
+      const data = (await resp.json()) as { candidates?: Array<any> };
+      const list: Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }> = [];
+      for (const cand of Array.isArray(data.candidates) ? data.candidates : []) {
+        const lat = Number(cand.location?.y);
+        const lon = Number(cand.location?.x);
+        const attrs = cand.attributes || {};
+        const primary = String(attrs.PlaceName || cand.address?.split(',')[0] || q).trim();
+        const address = String(attrs.Place_addr || attrs.Match_addr || cand.address || primary).trim();
+        if (isInsideIndonesia(lat, lon)) {
+          list.push({
+            place_id: `arc_${lat.toFixed(4)}_${lon.toFixed(4)}`,
+            name: primary,
+            address,
+            lat,
+            lon,
+          });
+        }
+      }
+      return list;
+    })();
+
+    const settled = await Promise.allSettled([maptilerPromise, nominatimPromise, photonPromise, arcgisPromise]);
     for (const outcome of settled) {
       if (outcome.status === 'fulfilled') {
         for (const item of outcome.value) {
@@ -920,7 +965,7 @@ export function createApp() {
       }
     }
 
-    const finalResults = results.slice(0, 20);
+    const finalResults = results.slice(0, 30);
     if (finalResults.length > 0) {
       setBoundedCache(geocodeSearchCache, cacheKey, {
         expiresAt: Date.now() + 10 * 60_000,
@@ -2229,9 +2274,15 @@ export function createApp() {
       return;
     }
 
-    const finalReservationType = reservation_type ? String(reservation_type).trim().toUpperCase() : 'ONE_WAY';
+    const rawReservationType = reservation_type ? String(reservation_type).trim().toUpperCase() : 'ONE_WAY';
+    const finalReservationType =
+      rawReservationType === 'ROUND_TRIP'
+        ? 'DROP_AND_PICKUP'
+        : rawReservationType === 'STANDARD_TRIP'
+        ? 'ONE_WAY'
+        : rawReservationType;
     if (!['ONE_WAY', 'DROP_AND_PICKUP', 'FULL_DAY'].includes(finalReservationType)) {
-      res.status(400).json({ error: 'reservation_type must be ONE_WAY, DROP_AND_PICKUP, or FULL_DAY' });
+      res.status(400).json({ error: 'reservation_type must be ONE_WAY, DROP_AND_PICKUP (Round Trip), or FULL_DAY' });
       return;
     }
 
@@ -2239,7 +2290,7 @@ export function createApp() {
     if (finalReservationType === 'DROP_AND_PICKUP') {
       const rpMs = return_pickup_time ? new Date(return_pickup_time).getTime() : NaN;
       if (!return_pickup_time || Number.isNaN(rpMs)) {
-        res.status(400).json({ error: 'return_pickup_time is required for Drop & Pick Up After Event bookings' });
+        res.status(400).json({ error: 'return_pickup_time is required for Round Trip (Drop & Pick Up) bookings' });
         return;
       }
       if (rpMs <= startMs) {
@@ -2257,7 +2308,7 @@ export function createApp() {
       finalReservationType === 'FULL_DAY'
         ? ' [Full Day]'
         : finalReservationType === 'DROP_AND_PICKUP'
-        ? ` [Drop & Pick Up After Event • Return Pick-Up: ${new Date(finalReturnPickupTime!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}]`
+        ? ` [Round Trip • Return Pick-Up: ${new Date(finalReturnPickupTime!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}]`
         : '';
 
     const now = Date.now();
@@ -2373,13 +2424,13 @@ export function createApp() {
 
         const bookingId = Number(bookingRes.lastInsertRowid);
 
-        // Revision #4: If driver is requested/selected at booking time, immediately block that driver's schedule too
+        // Revision #4 & Item #10: If driver is requested/selected at booking time, immediately block that driver's schedule and auto-accept (acknowledged_at = datetime('now'))
         let assignmentId: number | null = null;
         if (chosenDriverId) {
           const asnRes = db
             .prepare(
-              `INSERT INTO assignments (trip_request_id, booking_id, vehicle_id, driver_profile_id, assigned_by, reason, effective_start, effective_end, is_current)
-               VALUES (?, ?, ?, ?, ?, 'Reserved upon trip booking submission (Pending Approval)', ?, ?, 1)`
+              `INSERT INTO assignments (trip_request_id, booking_id, vehicle_id, driver_profile_id, assigned_by, reason, effective_start, effective_end, is_current, acknowledged_at)
+               VALUES (?, ?, ?, ?, ?, 'Reserved upon trip booking submission (Pending Approval)', ?, ?, 1, datetime('now'))`
             )
             .run(tripId, bookingId, Number(vehicle_id), chosenDriverId, user.id, start_time, end_time);
           assignmentId = Number(asnRes.lastInsertRowid);
@@ -2464,7 +2515,7 @@ export function createApp() {
       trip.reservation_type === 'FULL_DAY'
         ? ' [Full Day]'
         : trip.reservation_type === 'DROP_AND_PICKUP'
-        ? ` [Drop & Pick Up After Event${
+        ? ` [Round Trip${
             trip.return_pickup_time
               ? ` • Return Pick-Up ${new Date(trip.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
               : ''
@@ -2625,9 +2676,10 @@ export function createApp() {
         let assignedDriverUserId: number | null = null;
         if (targetDriverProfileId) {
           db.prepare('UPDATE assignments SET is_current = 0 WHERE trip_request_id = ?').run(tripId);
+          // Item #10: Auto-accept driver dispatch upon assignment (acknowledged_at = datetime('now'))
           db.prepare(
-            `INSERT INTO assignments (trip_request_id, booking_id, vehicle_id, driver_profile_id, assigned_by, reason, effective_start, effective_end, is_current)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`
+            `INSERT INTO assignments (trip_request_id, booking_id, vehicle_id, driver_profile_id, assigned_by, reason, effective_start, effective_end, is_current, acknowledged_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))`
           ).run(
             tripId,
             bookingId,
@@ -2722,8 +2774,8 @@ export function createApp() {
           sendUserNotification(db, {
             userId: outcome.assignedDriverUserId,
             triggerType: 'DISPATCH_ORDER_ASSIGNED',
-            title: 'New Dispatch Order Assigned',
-            body: `Dispatch order for "${trip.purpose}"${modeTag} (${trip.origin} -> ${trip.destination}) starting at ${trip.start_time}. Please acknowledge in the Driver PWA.`,
+            title: 'New Dispatch Order Assigned (Auto-Accepted)',
+            body: `Dispatch order for "${trip.purpose}"${modeTag} (${trip.origin} -> ${trip.destination}) starting at ${trip.start_time} has been automatically accepted. Upload start odometer photo to begin trip.`,
             relatedEntityType: 'TRIP_REQUEST',
             relatedEntityId: tripId,
           });
@@ -2800,11 +2852,17 @@ export function createApp() {
     const nextStart = req.body?.start_time || trip.start_time;
     const nextEnd = req.body?.end_time || trip.end_time;
     const nextVehicleId = req.body?.vehicle_id ? Number(req.body.vehicle_id) : trip.vehicle_id;
-    const nextReservationType = req.body?.reservation_type
+    const rawNextResType = req.body?.reservation_type
       ? String(req.body.reservation_type).trim().toUpperCase()
       : (trip.reservation_type || 'ONE_WAY');
+    const nextReservationType =
+      rawNextResType === 'ROUND_TRIP'
+        ? 'DROP_AND_PICKUP'
+        : rawNextResType === 'STANDARD_TRIP'
+        ? 'ONE_WAY'
+        : rawNextResType;
     if (!['ONE_WAY', 'DROP_AND_PICKUP', 'FULL_DAY'].includes(nextReservationType)) {
-      res.status(400).json({ error: 'reservation_type must be ONE_WAY, DROP_AND_PICKUP, or FULL_DAY' });
+      res.status(400).json({ error: 'reservation_type must be ONE_WAY, DROP_AND_PICKUP (Round Trip), or FULL_DAY' });
       return;
     }
     const nextStartMs = new Date(nextStart).getTime();
@@ -2818,7 +2876,7 @@ export function createApp() {
       const rawReturn = req.body?.return_pickup_time !== undefined ? req.body.return_pickup_time : trip.return_pickup_time;
       const rpMs = rawReturn ? new Date(rawReturn).getTime() : NaN;
       if (!rawReturn || Number.isNaN(rpMs)) {
-        res.status(400).json({ error: 'return_pickup_time is required for Drop & Pick Up After Event bookings' });
+        res.status(400).json({ error: 'return_pickup_time is required for Round Trip (Drop & Pick Up) bookings' });
         return;
       }
       if (rpMs <= nextStartMs) {
@@ -2931,8 +2989,8 @@ export function createApp() {
     const db = getDb();
     const user = req.user!;
     const tripId = Number(req.params.id);
-    const cancellationReason = req.body?.reason
-      ? String(req.body.reason).trim()
+    const cancellationReason = req.body?.reason || req.body?.cancellation_reason
+      ? String(req.body.reason || req.body.cancellation_reason).trim()
       : 'Cancelled by passenger (schedule/plan changed)';
 
     const trip = db.prepare('SELECT * FROM trip_requests WHERE id = ?').get(tripId) as
@@ -3019,8 +3077,231 @@ export function createApp() {
     res.status(405).json({ error: 'Approval decisions are immutable and can never be modified or deleted (REQ-06)' });
   });
 
+  // Item #5: Google Calendar-style Schedule Endpoint (07:00 AM to 04:00 PM)
+  // - Employees, Admins, FM, HWS see all active bookings across all cars (Group, PIC, Passengers, Destination, Duration)
+  // - Drivers (DRV) see only their own assigned schedule
+  // - Completed, Cancelled, and Rejected bookings are automatically excluded (removed from schedule)
+  app.get('/api/schedule/calendar', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const user = req.user!;
+    const canViewAllSchedules = user.role !== 'DRV';
+
+    const baseSelect = `
+      SELECT tr.id, tr.requester_id, tr.department_id, tr.vehicle_id, tr.preferred_driver_id,
+             tr.passenger_nickname, tr.passengers_json, tr.purpose, tr.origin, tr.destination,
+             tr.start_time, tr.end_time, tr.passenger_count, tr.status, tr.reservation_type, tr.return_pickup_time,
+             u.nickname as requester_name,
+             u.group_username as requester_username,
+             d.name as department_name,
+             v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.seats,
+             b.id as booking_id, b.status as booking_status,
+             a.id as assignment_id, a.driver_profile_id,
+             COALESCE(dp.full_name, def_dp.full_name, 'Pool Driver') as assigned_driver_name
+      FROM trip_requests tr
+      JOIN users u ON u.id = tr.requester_id
+      JOIN departments d ON d.id = tr.department_id
+      JOIN vehicles v ON v.id = tr.vehicle_id
+      LEFT JOIN bookings b ON b.trip_request_id = tr.id AND b.status NOT IN ('CANCELLED', 'COMPLETED')
+      LEFT JOIN assignments a ON a.trip_request_id = tr.id AND a.is_current = 1
+      LEFT JOIN driver_profiles dp ON dp.id = a.driver_profile_id
+      LEFT JOIN driver_profiles def_dp ON def_dp.id = v.default_driver_id
+      WHERE tr.status IN ('PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS')
+        AND (b.status IS NULL OR b.status NOT IN ('CANCELLED', 'COMPLETED'))
+    `;
+
+    const rows =
+      user.role === 'DRV'
+        ? db
+            .prepare(`${baseSelect} AND (a.driver_profile_id = ? OR tr.preferred_driver_id = ? OR v.default_driver_id = ?) ORDER BY tr.start_time ASC`)
+            .all(user.driver_profile_id ?? -1, user.driver_profile_id ?? -1, user.driver_profile_id ?? -1)
+        : db.prepare(`${baseSelect} ORDER BY tr.start_time ASC`).all();
+
+    res.json({ scheduleTrips: rows, can_view_all_schedules: canViewAllSchedules });
+  });
+
+  // Item #5: Negotiate with current booking holder to Hitchhike (Join Ride if same destination) or Request Cancellation
+  app.post('/api/trips/:id/negotiate', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const user = req.user!;
+    const tripId = Number(req.params.id);
+    const { action_type, passenger_nickname, message, destination } = req.body ?? {};
+    const actionNorm = String(action_type || 'HITCHHIKE').toUpperCase();
+
+    if (!['HITCHHIKE', 'REQUEST_CANCEL'].includes(actionNorm)) {
+      res.status(400).json({ error: 'action_type must be HITCHHIKE or REQUEST_CANCEL' });
+      return;
+    }
+
+    const trip = db
+      .prepare(
+        `SELECT tr.*, u.nickname as requester_name, d.name as department_name, v.registration_plate, v.make, v.model, v.seats
+         FROM trip_requests tr
+         JOIN users u ON u.id = tr.requester_id
+         JOIN departments d ON d.id = tr.department_id
+         JOIN vehicles v ON v.id = tr.vehicle_id
+         WHERE tr.id = ?`
+      )
+      .get(tripId) as any;
+
+    if (!trip) {
+      res.status(404).json({ error: 'Booking not found' });
+      return;
+    }
+
+    if (!['PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS'].includes(trip.status)) {
+      res.status(400).json({ error: 'This booking is no longer active on the schedule' });
+      return;
+    }
+
+    const reqDept = db.prepare('SELECT name FROM departments WHERE id = ?').get(user.department_id) as { name: string } | undefined;
+    const reqDeptName = reqDept?.name || 'Group';
+    const paxName = (passenger_nickname ? String(passenger_nickname).trim() : user.nickname) || user.nickname;
+    const noteText = message ? String(message).trim() : '';
+
+    if (actionNorm === 'HITCHHIKE') {
+      const title = `🤝 Hitchhike (Join Ride) Request: ${user.nickname} (${reqDeptName})`;
+      const body = `${user.nickname} (${reqDeptName}) would like to hitchhike / join your booked car (${trip.registration_plate} • ${trip.make} ${trip.model}) heading to "${trip.destination}" (${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}). Passenger to add: ${paxName}.${noteText ? ` Note: "${noteText}"` : ''}`;
+
+      const notifId = sendUserNotification(db, {
+        userId: trip.requester_id,
+        triggerType: 'NEGOTIATE_HITCHHIKE_REQUEST',
+        title,
+        body,
+        relatedEntityType: 'TRIP_REQUEST',
+        relatedEntityId: tripId,
+      });
+
+      recordAudit(db, user, 'TRIP_HITCHHIKE_REQUESTED', 'TRIP_REQUEST', tripId, null, {
+        requester_id: user.id,
+        requester_name: user.nickname,
+        passenger_nickname: paxName,
+        destination: destination || trip.destination,
+        message: noteText,
+      });
+
+      res.status(201).json({
+        ok: true,
+        action_type: 'HITCHHIKE',
+        notificationId: notifId,
+        message: `Hitchhike request sent to ${trip.requester_name} (${trip.department_name}).`,
+      });
+      return;
+    }
+
+    // REQUEST_CANCEL negotiation
+    const title = `🔄 Schedule Negotiation (Cancel Request): ${user.nickname} (${reqDeptName})`;
+    const body = `${user.nickname} (${reqDeptName}) is requesting to negotiate your booking on ${trip.registration_plate} (${trip.make} ${trip.model}, ${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}) to "${trip.destination}".${noteText ? ` Reason / Message: "${noteText}"` : ' Please cancel if your schedule has changed so they can book the vehicle.'}`;
+
+    const notifId = sendUserNotification(db, {
+      userId: trip.requester_id,
+      triggerType: 'NEGOTIATE_CANCEL_REQUEST',
+      title,
+      body,
+      relatedEntityType: 'TRIP_REQUEST',
+      relatedEntityId: tripId,
+    });
+
+    recordAudit(db, user, 'TRIP_CANCEL_NEGOTIATION_REQUESTED', 'TRIP_REQUEST', tripId, null, {
+      requester_id: user.id,
+      requester_name: user.nickname,
+      message: noteText,
+    });
+
+    res.status(201).json({
+      ok: true,
+      action_type: 'REQUEST_CANCEL',
+      notificationId: notifId,
+      message: `Cancellation negotiation request sent to ${trip.requester_name} (${trip.department_name}).`,
+    });
+  });
+
+  // Allow current booking holder (or Admin) to approve a hitchhiker and add them to the trip's passenger list
+  app.post('/api/trips/:id/hitchhike-accept', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const user = req.user!;
+    const tripId = Number(req.params.id);
+    const { passenger_nickname, hitchhiker_user_id } = req.body ?? {};
+
+    if (!passenger_nickname || !String(passenger_nickname).trim()) {
+      res.status(400).json({ error: 'passenger_nickname is required to add hitchhiker' });
+      return;
+    }
+
+    const trip = db
+      .prepare(
+        `SELECT tr.*, v.seats, v.registration_plate
+         FROM trip_requests tr
+         JOIN vehicles v ON v.id = tr.vehicle_id
+         WHERE tr.id = ?`
+      )
+      .get(tripId) as any;
+
+    if (!trip) {
+      res.status(404).json({ error: 'Trip request not found' });
+      return;
+    }
+
+    if (trip.requester_id !== user.id && !isPrivilegedRole(user)) {
+      res.status(403).json({ error: 'Only the current booking holder or an Admin can accept a hitchhike request' });
+      return;
+    }
+
+    let currentList: Array<{ id: number; nickname: string }> = [];
+    if (trip.passengers_json) {
+      try {
+        const parsed = JSON.parse(trip.passengers_json);
+        if (Array.isArray(parsed)) {
+          currentList = parsed.map((p: any, idx: number) => ({
+            id: idx + 1,
+            nickname: String(p?.nickname || p?.name || p || '').trim(),
+          })).filter((p) => Boolean(p.nickname));
+        }
+      } catch {}
+    }
+    if (currentList.length === 0 && trip.passenger_nickname) {
+      currentList = [{ id: 1, nickname: String(trip.passenger_nickname).replace(/^1\.\s*/, '').trim() }];
+    }
+
+    const maxSeats = Number(trip.seats || 7);
+    if (currentList.length >= maxSeats) {
+      res.status(400).json({ error: `Vehicle ${trip.registration_plate} is already at full passenger capacity (${maxSeats} seats)` });
+      return;
+    }
+
+    const cleanNick = String(passenger_nickname).trim();
+    currentList.push({ id: currentList.length + 1, nickname: cleanNick });
+    const nextPaxCount = currentList.length;
+    const nextPaxJson = JSON.stringify(currentList);
+    const nextPaxNickname = currentList.map((p, idx) => `${idx + 1}. ${p.nickname}`).join(', ');
+
+    db.prepare(
+      `UPDATE trip_requests
+       SET passenger_count = ?, passengers_json = ?, passenger_nickname = ?, updated_at = datetime('now')
+       WHERE id = ?`
+    ).run(nextPaxCount, nextPaxJson, nextPaxNickname, tripId);
+
+    if (hitchhiker_user_id) {
+      sendUserNotification(db, {
+        userId: Number(hitchhiker_user_id),
+        triggerType: 'HITCHHIKE_ACCEPTED',
+        title: '✅ Hitchhike Ride Accepted!',
+        body: `${user.nickname} accepted your hitchhike request on ${trip.registration_plate} to "${trip.destination}". You (${cleanNick}) have been added to the passenger list.`,
+        relatedEntityType: 'TRIP_REQUEST',
+        relatedEntityId: tripId,
+      });
+    }
+
+    recordAudit(db, user, 'TRIP_HITCHHIKE_ACCEPTED', 'TRIP_REQUEST', tripId, null, {
+      added_passenger: cleanNick,
+      passenger_count: nextPaxCount,
+    });
+
+    const enriched = broadcastTripUpdate(db, tripId, 'TRIP_UPDATED');
+    res.json({ ok: true, trip: enriched });
+  });
+
   // Direct Bookings & Schedule endpoints (BKG-01 to BKG-11)
-  // Item #10: Drivers (DRV) can only view their own schedule; full schedule of all drivers/vehicles is restricted to ADM, FM, and HWS
+  // Item #10: Drivers (DRV) can only view their own schedule; Employees, Admins, FM, and HWS can view all schedules
   app.get('/api/bookings', requireAuth, (req: Request, res: Response) => {
     const db = getDb();
     const user = req.user!;
@@ -3028,11 +3309,15 @@ export function createApp() {
 
     const baseQuery = `
       SELECT b.*, v.registration_plate, v.make, v.model, v.car_type, v.energy_type,
-             u.nickname as booked_by_name,
+             u.nickname as booked_by_name, d.name as department_name,
+             tr.destination, tr.origin, tr.passenger_nickname, tr.passengers_json, tr.passenger_count,
+             tr.reservation_type, tr.return_pickup_time,
              a.driver_profile_id, dp.full_name as driver_name
       FROM bookings b
       JOIN vehicles v ON v.id = b.vehicle_id
       JOIN users u ON u.id = b.booked_by
+      LEFT JOIN departments d ON d.id = u.department_id
+      LEFT JOIN trip_requests tr ON tr.id = b.trip_request_id
       LEFT JOIN assignments a ON (a.booking_id = b.id OR (a.trip_request_id = b.trip_request_id AND b.trip_request_id IS NOT NULL)) AND a.is_current = 1
       LEFT JOIN driver_profiles dp ON dp.id = a.driver_profile_id
     `;
@@ -3287,8 +3572,8 @@ export function createApp() {
         const ins = db
           .prepare(
             `INSERT INTO assignments (
-              trip_request_id, booking_id, vehicle_id, driver_profile_id, assigned_by, reason, effective_start, effective_end, is_current
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`
+              trip_request_id, booking_id, vehicle_id, driver_profile_id, assigned_by, reason, effective_start, effective_end, is_current, acknowledged_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))`
           )
           .run(
             trip_request_id ? Number(trip_request_id) : null,

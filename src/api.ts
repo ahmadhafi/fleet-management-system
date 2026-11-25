@@ -22,7 +22,9 @@ export async function apiRequest<T = any>(path: string, options: RequestInit = {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(path, {
+  const normalizedPath = path.startsWith('http') || path.startsWith('/') ? path : `/${path}`;
+
+  const res = await fetch(normalizedPath, {
     ...options,
     headers,
   });
@@ -36,6 +38,13 @@ export async function apiRequest<T = any>(path: string, options: RequestInit = {
       const trimmed = rawText.trim();
       if (trimmed && !trimmed.startsWith('<')) {
         data = { error: trimmed.slice(0, 300) };
+      } else if (trimmed.startsWith('<')) {
+        data = {
+          error:
+            res.status === 404
+              ? 'Requested service endpoint was not found. Please refresh the page.'
+              : `Server returned status ${res.status}. Please try again.`,
+        };
       }
     }
   }

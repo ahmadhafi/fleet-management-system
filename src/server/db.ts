@@ -660,6 +660,14 @@ function initializeSchema(db: AppDatabase) {
   try {
     db.exec('ALTER TABLE expenses ADD COLUMN driver_profile_id INTEGER REFERENCES driver_profiles(id);');
   } catch {}
+  try {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_bookings_vehicle_status_time ON bookings (vehicle_id, status, start_time, end_time);
+      CREATE INDEX IF NOT EXISTS idx_assignments_driver_current_time ON assignments (driver_profile_id, is_current, effective_start, effective_end);
+      CREATE INDEX IF NOT EXISTS idx_trip_requests_vehicle_status_time ON trip_requests (vehicle_id, status, start_time, end_time);
+      CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications (user_id, is_read);
+    `);
+  } catch {}
 }
 
 export const COMPANY_GROUPS: ReadonlyArray<readonly [string, string]> = [

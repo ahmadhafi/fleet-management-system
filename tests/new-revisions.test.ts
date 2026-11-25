@@ -1329,7 +1329,7 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(appTsx).toContain('id="submit-booking-btn"');
         expect(appTsx).toContain('id="schedule-start"');
         expect(appTsx).toContain('id="schedule-end"');
-        expect(appTsx).toContain('id="urgent-reason-input"');
+        expect(appTsx).toContain('id="inline-trip-purpose-input"');
       });
     });
 
@@ -1401,11 +1401,14 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(appTsx).toContain('Department & Driver');
         expect(appTsx).toContain('Use typed address:');
 
-        // Reservation mode UI controls present
+        // Reservation mode UI controls present (Standard Trip, Round Trip, Full Day) without preset chips
         expect(appTsx).toContain('id={`reservation-mode-${mode.id.toLowerCase()}`}');
         expect(appTsx).toContain('id="schedule-return-pickup"');
-        expect(appTsx).toContain('Today Full Day');
-        expect(appTsx).toContain('Tomorrow Full Day');
+        expect(appTsx).toContain('Standard Trip');
+        expect(appTsx).toContain('Round Trip');
+        expect(appTsx).toContain('Full Day');
+        expect(appTsx).not.toContain('In 2h (Standard)');
+        expect(appTsx).not.toContain('Urgent Now (+15m)');
 
         // Admin IDR reporting ledger strictly preserved
         expect(appTsx).toContain('export function formatIdr');
@@ -2400,6 +2403,181 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(appTsx).toContain('confirm-boarding');
         expect(appTsx).toContain('driver-online-toggle-sheet-btn');
       }, 30000);
+    });
+
+    describe('11 User Bug Fixes & Operational Enhancements (Geocoding, Round Trip, 07:00-16:00 Calendar Schedule, Negotiation/Hitchhike, Auto-Accept Driver & Odometer Photo)', () => {
+      it('verifies vast Greater Jakarta & Indonesia geocoding, Round Trip alias, 07:00-16:00 Schedule Calendar, Hitchhike/Cancel negotiation, Auto-Accept Driver orders, mandatory Odometer photos, Back buttons, and API URL normalization', async () => {
+        const fs = await import('fs');
+        const path = await import('path');
+        const { searchIndonesianPois } = await import('../src/server/indonesian-pois.ts');
+
+        resetDbForTesting(':memory:');
+        const testApp = createApp();
+        const db = getDb();
+
+        const admRes = await request(testApp).post('/api/auth/login').send({ group_username: 'admin', password: 'Admin@123' });
+        const empRes = await request(testApp).post('/api/auth/login').send({ group_username: 'emp_alex', password: 'Emp@123' });
+        const drvRes = await request(testApp).post('/api/auth/login').send({ group_username: 'drv_budi', password: 'Driver@123' });
+        expect(admRes.status).toBe(200);
+        expect(empRes.status).toBe(200);
+        expect(drvRes.status).toBe(200);
+
+        const localAdmToken = admRes.body.token;
+        const localEmpToken = empRes.body.token;
+        const localDrvToken = drvRes.body.token;
+        const drvProfileId = Number(drvRes.body.user.driver_profile_id || 1);
+
+        // 1. Vast Greater Jakarta (Jabodetabek) & Indonesia Geocoding
+        for (const query of ['Kebayoran Baru', 'Cilandak', 'Kelapa Gading', 'Bintaro', 'BSD', 'PIK 2', 'Cikarang', 'Cibubur', 'Depok', 'Bogor', 'Karawang', 'pim', 'kokas', 'ganci']) {
+          const hits = searchIndonesianPois(query);
+          expect(hits.length).toBeGreaterThan(0);
+        }
+
+        // 2. API URL Normalization (prevents "API Not Found" on double slashes or proxy subpaths)
+        const doubleSlashHealth = await request(testApp).get('//api//health');
+        expect(doubleSlashHealth.status).toBe(200);
+        expect(doubleSlashHealth.body.status).toBe('ok');
+
+        const proxyPrefixHealth = await request(testApp).get('/fleet/api/health');
+        expect(proxyPrefixHealth.status).toBe(200);
+        expect(proxyPrefixHealth.body.status).toBe('ok');
+
+        // 3. Round Trip reservation mode alias (ROUND_TRIP -> DROP_AND_PICKUP) & Auto-Acknowledged Driver Assignment
+        const baseStartMs = Date.now() + 36 * 3600_000;
+        const startIso = new Date(baseStartMs).toISOString();
+        const rpIso = new Date(baseStartMs + 2 * 3600_000).toISOString();
+        const endIso = new Date(baseStartMs + 3 * 3600_000).toISOString();
+
+        const roundTripRes = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${localEmpToken}`)
+          .send({
+            vehicle_id: 3,
+            purpose: 'Round Trip Client Visit to BSD City',
+            origin: 'PT Samsung Electronics Indonesia - Jababeka Plant',
+            destination: 'BSD City & Green Office Park (GOP), Tangerang Selatan',
+            start_time: startIso,
+            return_pickup_time: rpIso,
+            end_time: endIso,
+            reservation_type: 'ROUND_TRIP',
+            passengers: [{ id: 1, nickname: 'Ahmad' }, { id: 2, nickname: 'Riza' }],
+            passenger_nickname: '1. Ahmad, 2. Riza',
+          });
+        expect(roundTripRes.status).toBe(201);
+        const rtTripId = roundTripRes.body.tripId;
+        expect(roundTripRes.body.trip.reservation_type).toBe('DROP_AND_PICKUP');
+
+        // Verify assignment is auto-acknowledged immediately (no manual Acknowledge Order needed)
+        const autoAsn = db.prepare('SELECT acknowledged_at FROM assignments WHERE trip_request_id = ? AND is_current = 1').get(rtTripId) as any;
+        if (autoAsn) {
+          expect(autoAsn.acknowledged_at).toBeTruthy();
+        }
+
+        // 4. Google Calendar Schedule endpoint (/api/schedule/calendar) shows active bookings with Group, PIC, Passengers, Destination, Duration
+        const calRes = await request(testApp)
+          .get('/api/schedule/calendar')
+          .set('Authorization', `Bearer ${localEmpToken}`);
+        expect(calRes.status).toBe(200);
+        expect(calRes.body.can_view_all_schedules).toBe(true);
+        const calTrip = calRes.body.scheduleTrips.find((t: any) => Number(t.id) === Number(rtTripId));
+        expect(calTrip).toBeTruthy();
+        expect(calTrip.requester_name).toBeTruthy();
+        expect(calTrip.department_name).toBeTruthy();
+        expect(calTrip.destination).toContain('BSD City');
+
+        // 5. Hitchhike & Cancel Negotiation workflow
+        const negotiateRes = await request(testApp)
+          .post(`/api/trips/${rtTripId}/negotiate`)
+          .set('Authorization', `Bearer ${localAdmToken}`)
+          .send({
+            action_type: 'HITCHHIKE',
+            passenger_nickname: 'Sarah',
+            message: 'Going to BSD City too, can I join?',
+          });
+        expect(negotiateRes.status).toBe(201);
+        expect(negotiateRes.body.ok).toBe(true);
+
+        const acceptHitchhikeRes = await request(testApp)
+          .post(`/api/trips/${rtTripId}/hitchhike-accept`)
+          .set('Authorization', `Bearer ${localEmpToken}`)
+          .send({
+            passenger_nickname: 'Sarah',
+          });
+        expect(acceptHitchhikeRes.status).toBe(200);
+        expect(acceptHitchhikeRes.body.trip.passenger_nickname).toContain('Sarah');
+        expect(acceptHitchhikeRes.body.trip.passenger_count).toBe(3);
+
+        // 6. Mandatory Odometer Photo & Manual Input when enforce_photo is true on Start & Complete Trip
+        await request(testApp)
+          .post(`/api/trips/${rtTripId}/decision`)
+          .set('Authorization', `Bearer ${localAdmToken}`)
+          .send({
+            decision: 'APPROVED',
+            vehicle_id: 3,
+            driver_profile_id: drvProfileId,
+            reason: 'Approved for Round Trip test',
+          });
+
+        const failStartNoPhoto = await request(testApp)
+          .post(`/api/driver/trips/${rtTripId}/start`)
+          .set('Authorization', `Bearer ${localDrvToken}`)
+          .send({
+            start_odometer: 50000,
+            enforce_photo: true,
+          });
+        expect(failStartNoPhoto.status).toBe(400);
+        expect(failStartNoPhoto.body.error).toContain('Mandatory photo');
+
+        const okStartWithPhoto = await request(testApp)
+          .post(`/api/driver/trips/${rtTripId}/start`)
+          .set('Authorization', `Bearer ${localDrvToken}`)
+          .send({
+            start_odometer: 50000,
+            start_odometer_photo: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==',
+            enforce_photo: true,
+          });
+        expect(okStartWithPhoto.status).toBe(200);
+
+        const failCompleteNoPhoto = await request(testApp)
+          .post(`/api/driver/trips/${rtTripId}/complete`)
+          .set('Authorization', `Bearer ${localDrvToken}`)
+          .send({
+            end_odometer: 50045,
+            enforce_photo: true,
+          });
+        expect(failCompleteNoPhoto.status).toBe(400);
+        expect(failCompleteNoPhoto.body.error).toContain('Mandatory photo');
+
+        const okCompleteWithPhoto = await request(testApp)
+          .post(`/api/driver/trips/${rtTripId}/complete`)
+          .set('Authorization', `Bearer ${localDrvToken}`)
+          .send({
+            end_odometer: 50045,
+            end_odometer_photo: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==',
+            enforce_photo: true,
+          });
+        expect(okCompleteWithPhoto.status).toBe(200);
+
+        // 7. Once trip is COMPLETED (or CANCELLED), it is automatically removed from /api/schedule/calendar
+        const calAfterComplete = await request(testApp)
+          .get('/api/schedule/calendar')
+          .set('Authorization', `Bearer ${localEmpToken}`);
+        expect(calAfterComplete.status).toBe(200);
+        expect(calAfterComplete.body.scheduleTrips.some((t: any) => Number(t.id) === Number(rtTripId))).toBe(false);
+
+        // 8. Verify UI terminology ("Chauffeur" replaced by "Driver", Back buttons present, Auto-Accepted Order present)
+        const appTsx = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf8');
+        expect(appTsx.toLowerCase()).not.toContain('chauffeur');
+        expect(appTsx).toContain('Auto-Accepted Order');
+        expect(appTsx).not.toContain(">Acknowledge Order<");
+        expect(appTsx).toContain('id="route-back-btn"');
+        expect(appTsx).toContain('id="vehicle-back-btn"');
+        expect(appTsx).toContain('id="summary-back-btn"');
+        expect(appTsx).toContain('id="schedule-back-btn"');
+        expect(appTsx).toContain('id="activity-back-btn"');
+        expect(appTsx).toContain('id="inbox-back-btn"');
+        expect(appTsx).toContain('id="profile-back-btn"');
+      });
     });
   });
 });

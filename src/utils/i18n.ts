@@ -609,6 +609,21 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
   { en: 'Stage 2/2: Fleet PIC Consented', id: 'Tahap 2/2: PIC Fleet Setuju', ko: '2/2단계: 차량 담당자 동의 완료' },
   { en: 'Awaiting Head of WS', id: 'Menunggu Head of WS', ko: 'WS 부서장 승인 대기' },
   { en: 'Stage 2/2: Fleet PIC Consented • Awaiting Head of WS', id: 'Tahap 2/2: PIC Fleet Setuju • Menunggu Head of WS', ko: '2/2단계: 차량 담당자 동의 완료 • WS 부서장 승인 대기' },
+  { en: 'Internal Work Fleet • Driver Included', id: 'Armada Dinas Internal • Termasuk Driver', ko: '사내 업무용 차량 • 전담 기사 포함' },
+  { en: 'Driver included', id: 'Termasuk Driver', ko: '전담 기사 포함' },
+  { en: 'Round Trip', id: 'Pulang Pergi (Round Trip)', ko: '왕복 운행' },
+  { en: 'Standard Trip', id: 'Perjalanan Standar', ko: '일반 편도 운행' },
+  { en: 'Full Day', id: 'Seharian Penuh (Full Day)', ko: '전일 대절 (Full Day)' },
+  { en: 'Trip Category', id: 'Kategori Perjalanan', ko: '운행 유형' },
+  { en: 'Departure & Return Time', id: 'Waktu Berangkat & Kembali', ko: '출발 및 복귀 시간' },
+  { en: 'Passengers Name (1, 2, 3...)', id: 'Nama Penumpang (1, 2, 3...)', ko: '탑승자 이름 (1, 2, 3...)' },
+  { en: 'Set Schedule (07:00 AM - 04:00 PM)', id: 'Jadwal Booking (07:00 - 16:00)', ko: '배차 시간표 (07:00 AM - 04:00 PM)' },
+  { en: 'Negotiate / Hitchhike', id: 'Negosiasi / Nebeng (Hitchhike)', ko: '일정 협의 / 합승 요청' },
+  { en: 'Hitchhike (Same Destination)', id: 'Nebeng / Gabung Trip (Tujuan Sama)', ko: '합승 요청 (동일 목적지)' },
+  { en: 'Negotiate to Cancel', id: 'Negosiasi Batalkan / Tukar Slot', ko: '예약 양보/취소 협의' },
+  { en: 'Accept Hitchhike', id: 'Terima Nebeng (Tambah Penumpang)', ko: '합승 수락 (동승자 추가)' },
+  { en: 'Auto-Accepted Order', id: 'Order Otomatis Diterima', ko: '자동 수락된 배차' },
+  { en: 'Back', id: 'Kembali', ko: '뒤로' },
 ];
 
 /**

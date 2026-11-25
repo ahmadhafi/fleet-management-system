@@ -416,6 +416,7 @@ interface AdminShellProps {
   userNickname: string;
   userRole: string;
   onOpenProfile?: () => void;
+  onBackToApp?: () => void;
   children: React.ReactNode;
 }
 
@@ -429,6 +430,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
   userNickname,
   userRole,
   onOpenProfile,
+  onBackToApp,
   children,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
@@ -436,6 +438,21 @@ export const AdminShell: React.FC<AdminShellProps> = ({
 
   const navButtons = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      {onBackToApp && (
+        <button
+          type="button"
+          id="admin-back-to-app-btn"
+          className="gf-btn gf-btn-secondary pressable"
+          style={{ justifyContent: 'flex-start', gap: '10px', fontSize: '14px', padding: '10px 14px', borderColor: '#0072de', color: '#0072de' }}
+          onClick={() => {
+            onBackToApp();
+            setMobileMenuOpen(false);
+          }}
+        >
+          <Home size={18} />
+          <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>← {t('Back to Home App')}</span>
+        </button>
+      )}
       {/* 1. Overall Live Fleet Map */}
       <button
         type="button"
@@ -585,6 +602,20 @@ export const AdminShell: React.FC<AdminShellProps> = ({
           </div>
 
           <div className="gf-admin-topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+            {onBackToApp && (
+              <button
+                id="admin-topbar-back-btn"
+                type="button"
+                className="gf-btn gf-btn-secondary gf-btn-sm pressable gf-admin-action-btn"
+                onClick={onBackToApp}
+                style={{ fontSize: '12.5px', padding: '4px 10px', minHeight: '32px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                title={t('Back to Home')}
+                aria-label={t('Back')}
+              >
+                <Home size={14} />
+                <span className="gf-topbar-btn-text">{t('Back')}</span>
+              </button>
+            )}
             <DisplayModeToggle variant="icon" id="admin-topbar-display-mode-toggle" />
             <div className="gf-topbar-lang-wrap">
               <LanguageSwitcher compact />

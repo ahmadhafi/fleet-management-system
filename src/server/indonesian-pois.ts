@@ -15,10 +15,12 @@ const ABBREVIATION_MAP: Record<string, string[]> = {
   rsu: ['rumah', 'sakit'],
   rsud: ['rumah', 'sakit'],
   rsup: ['rumah', 'sakit'],
+  rsia: ['rumah', 'sakit'],
   gt: ['gerbang', 'tol'],
   ki: ['kawasan', 'industri'],
   kab: ['kabupaten'],
   kec: ['kecamatan'],
+  kel: ['kelurahan'],
   bdr: ['bandara', 'airport'],
   airport: ['bandara'],
   port: ['pelabuhan'],
@@ -30,14 +32,38 @@ const ABBREVIATION_MAP: Record<string, string[]> = {
   its: ['institut', 'teknologi', 'sepuluh', 'nopember', 'surabaya'],
   unair: ['universitas', 'airlangga', 'surabaya'],
   ub: ['universitas', 'brawijaya', 'malang'],
+  binus: ['bina', 'nusantara', 'universitas'],
+  trisakti: ['universitas', 'trisakti', 'grogol'],
+  untar: ['universitas', 'tarumanagara', 'grogol'],
+  atma: ['universitas', 'atma', 'jaya', 'semanggi', 'bsd'],
+  uph: ['universitas', 'pelita', 'harapan', 'karawaci'],
+  umn: ['universitas', 'multimedia', 'nusantara', 'serpong'],
+  presuniv: ['president', 'university', 'jababeka', 'cikarang'],
+  ipb: ['institut', 'pertanian', 'bogor', 'dramaga'],
+  unpad: ['universitas', 'padjadjaran', 'jatinangor', 'bandung'],
+  undip: ['universitas', 'diponegoro', 'semarang'],
+  uns: ['universitas', 'sebelas', 'maret', 'solo'],
+  unhas: ['universitas', 'hasanuddin', 'makassar'],
+  usu: ['universitas', 'sumatera', 'utara', 'medan'],
   ikn: ['ibu', 'kota', 'nusantara', 'sepaku', 'kalimantan'],
   jogja: ['yogyakarta'],
+  yogya: ['yogyakarta'],
   sby: ['surabaya'],
   bdg: ['bandung'],
   smg: ['semarang'],
   jkt: ['jakarta'],
+  jakpus: ['jakarta', 'pusat'],
+  jaksel: ['jakarta', 'selatan'],
+  jakbar: ['jakarta', 'barat'],
+  jaktim: ['jakarta', 'timur'],
+  jakut: ['jakarta', 'utara'],
   tgr: ['tangerang'],
+  tangsel: ['tangerang', 'selatan'],
   bks: ['bekasi'],
+  dpk: ['depok'],
+  bgr: ['bogor'],
+  krw: ['karawang'],
+  ckr: ['cikarang'],
   mks: ['makassar'],
   mdn: ['medan'],
   dps: ['denpasar', 'bali'],
@@ -49,6 +75,36 @@ const ABBREVIATION_MAP: Record<string, string[]> = {
   pnk: ['pontianak'],
   mdc: ['manado'],
   djj: ['jayapura', 'sentani'],
+  cgk: ['soekarno', 'hatta', 'bandara', 'tangerang'],
+  soetta: ['soekarno', 'hatta', 'bandara', 'tangerang'],
+  hlp: ['halim', 'perdanakusuma', 'bandara', 'jakarta', 'timur'],
+  kcic: ['whoosh', 'kereta', 'cepat', 'halim', 'karawang', 'padalarang', 'tegalluar'],
+  mrt: ['stasiun', 'mrt', 'jakarta'],
+  lrt: ['stasiun', 'lrt', 'jabodebek', 'jakarta'],
+  krl: ['stasiun', 'commuter', 'line', 'krl'],
+  pim: ['pondok', 'indah', 'mall', 'jakarta', 'selatan'],
+  gi: ['grand', 'indonesia', 'thamrin', 'jakarta', 'pusat'],
+  pi: ['plaza', 'indonesia', 'thamrin', 'jakarta', 'pusat'],
+  ps: ['plaza', 'senayan', 'jakarta', 'pusat'],
+  senci: ['senayan', 'city', 'jakarta', 'pusat'],
+  kokas: ['kota', 'kasablanka', 'tebet', 'jakarta', 'selatan'],
+  ganci: ['gandaria', 'city', 'kebayoran', 'jakarta', 'selatan'],
+  cp: ['central', 'park', 'tanjung', 'duren', 'jakarta', 'barat'],
+  ta: ['taman', 'anggrek', 'tanjung', 'duren', 'jakarta', 'barat'],
+  mkg: ['mall', 'kelapa', 'gading', 'jakarta', 'utara'],
+  moi: ['mall', 'of', 'indonesia', 'kelapa', 'gading', 'jakarta', 'utara'],
+  pik: ['pantai', 'indah', 'kapuk', 'jakarta', 'utara'],
+  bsd: ['bumi', 'serpong', 'damai', 'tangerang'],
+  bxc: ['bintaro', 'jaya', 'xchange', 'tangerang', 'selatan'],
+  sms: ['summarecon', 'mall', 'serpong', 'tangerang'],
+  smb: ['summarecon', 'mall', 'bekasi'],
+  citos: ['cilandak', 'town', 'square', 'simatupang', 'jakarta', 'selatan'],
+  pp: ['pacific', 'place', 'scbd', 'sudirman', 'jakarta', 'selatan'],
+  scbd: ['sudirman', 'central', 'business', 'district', 'senayan', 'jakarta', 'selatan'],
+  gbk: ['gelora', 'bung', 'karno', 'senayan', 'jakarta', 'pusat'],
+  monas: ['monumen', 'nasional', 'gambir', 'jakarta', 'pusat'],
+  tmii: ['taman', 'mini', 'indonesia', 'indah', 'jakarta', 'timur'],
+  sein: ['samsung', 'electronics', 'indonesia', 'jababeka', 'cikarang'],
 };
 
 export function normalizeIndoQuery(raw: string): { lower: string; tokens: string[]; expandedTokens: string[] } {
@@ -371,6 +427,118 @@ export const INDONESIAN_POIS: IndonesianPoi[] = [
   { name: 'Paskal 23 Hypersquare & Braga Culinary Night Bandung', address: 'Jl. Pasir Kaliki No. 25-27, Ciroyom, Andir, Kota Bandung', lat: -6.91512, lon: 107.59541, keywords: '23 paskal hypersquare food market pasir kaliki bandung mall restaurant' },
   { name: 'Layar Seafood & Boncafe Surabaya', address: 'Jl. KH Abdul Wahab Siamin No. 216 / Jl. Manyar Kertoarjo, Surabaya', lat: -7.28512, lon: 112.70541, keywords: 'layar seafood boncafe steak manyar bukit darmo surabaya restaurant' },
   { name: 'Bebek Tepi Sawah & Potato Head Beach Club Bali', address: 'Jl. Petitenget No. 51B Seminyak / Goa Gajah Ubud, Bali', lat: -8.67951, lon: 115.14941, keywords: 'potato head beach club finns atlas bebek tepi sawah naughty nuris bali restaurant' },
+
+  // -------------------------------------------------------------------------
+  // Comprehensive Greater Jakarta (Jabodetabek) Subdistricts, Kecamatan & Hubs
+  // -------------------------------------------------------------------------
+  // Jakarta Pusat
+  { name: 'Menteng & Cikini', address: 'Jl. Cikini Raya / Menteng, Kec. Menteng, Jakarta Pusat', lat: -6.19721, lon: 106.83842, keywords: 'menteng cikini gondangdia pegangsaan taman ismail marzuki tim stasiun cikini jakarta pusat' },
+  { name: 'Tanah Abang & Kebon Kacang', address: 'Jl. K.H. Mas Mansyur, Kec. Tanah Abang, Jakarta Pusat', lat: -6.19125, lon: 106.81432, keywords: 'tanah abang kebon kacang kebon melati bendungan hilir benhil karet tengsin petamburan gelora jakarta pusat' },
+  { name: 'Gambir, Cideng & Petojo', address: 'Jl. Cideng Timur / Gambir, Kec. Gambir, Jakarta Pusat', lat: -6.17315, lon: 106.81412, keywords: 'gambir cideng petojo utara selatan kebon kelapa duri pulo harmoni jakarta pusat' },
+  { name: 'Senen, Salemba & Kramat', address: 'Jl. Salemba Raya / Kramat Raya, Kec. Senen, Jakarta Pusat', lat: -6.18945, lon: 106.84612, keywords: 'senen salemba kramat kwitang kenari paseban bungur fkui rscm jakarta pusat' },
+  { name: 'Cempaka Putih & Rawasari', address: 'Jl. Cempaka Putih Raya / Letjen Suprapto, Kec. Cempaka Putih, Jakarta Pusat', lat: -6.17489, lon: 106.87123, keywords: 'cempaka putih timur barat rawasari green pramuka square jakarta pusat' },
+  { name: 'Kemayoran & Gunung Sahari', address: 'Jl. Benyamin Sueb / Gunung Sahari, Kec. Kemayoran, Jakarta Pusat', lat: -6.15612, lon: 106.84812, keywords: 'kemayoran gunung sahari serdang harapan mulia cempaka baru utan panjang sumur batu jiexpo jakarta pusat' },
+  { name: 'Sawah Besar, Pasar Baru & Mangga Dua Selatan', address: 'Jl. Gunung Sahari / Pasar Baru, Kec. Sawah Besar, Jakarta Pusat', lat: -6.15112, lon: 106.83245, keywords: 'sawah besar pasar baru mangga dua selatan karang anyar kartini katedral masjid istiqlal jakarta pusat' },
+  { name: 'Johar Baru & Galur', address: 'Jl. Johar Baru / Percetakan Negara, Kec. Johar Baru, Jakarta Pusat', lat: -6.18412, lon: 106.85612, keywords: 'johar baru galur tanah tinggi kampung rawa percetakan negara jakarta pusat' },
+
+  // Jakarta Selatan
+  { name: 'Kebayoran Baru (Blok M, Senopati, Melawai, Dharmawangsa)', address: 'Jl. Panglima Polim / Blok M, Kec. Kebayoran Baru, Jakarta Selatan', lat: -6.24412, lon: 106.79912, keywords: 'kebayoran baru blok m melawai selong gunung kramat pela gandaria utara cipete utara pulo petogogan rawa barat senayan senopati wolter monginsidi wijaya dharmawangsa jakarta selatan' },
+  { name: 'Kebayoran Lama (Pondok Indah, Tanah Kusir, Permata Hijau)', address: 'Jl. Ciputat Raya / Pondok Pinang, Kec. Kebayoran Lama, Jakarta Selatan', lat: -6.25412, lon: 106.77412, keywords: 'kebayoran lama utara selatan pondok pinang pondok indah grogol utara selatan cipulir permata hijau tanah kusir seskoal jakarta selatan' },
+  { name: 'Setiabudi & Kuningan (Karet, Guntur, Menteng Atas)', address: 'Jl. H.R. Rasuna Said, Kec. Setiabudi, Jakarta Selatan', lat: -6.21612, lon: 106.83012, keywords: 'setiabudi karet semanggi karet kuningan kuningan timur guntur pasar manggis menteng atas rasuna said jakarta selatan' },
+  { name: 'Tebet, Bukit Duri & Kampung Melayu', address: 'Jl. Tebet Raya / Abdullah Syafei, Kec. Tebet, Jakarta Selatan', lat: -6.22612, lon: 106.85412, keywords: 'tebet timur barat manggarai selatan bukit duri kebon baru menteng dalam Casablanca stasiun tebet jakarta selatan' },
+  { name: 'Pancoran, Kalibata & Duren Tiga', address: 'Jl. Raya Pasar Minggu / Gatot Subroto Pancoran, Kec. Pancoran, Jakarta Selatan', lat: -6.25212, lon: 106.84212, keywords: 'pancoran kalibata rawa jati duren tiga cikoko pengadegan tugu pancoran kalibata city stasiun duren kalibata jakarta selatan' },
+  { name: 'Mampang Prapatan, Tegal Parang & Bangka', address: 'Jl. Mampang Prapatan Raya / Kapten Tendean, Kec. Mampang Prapatan, Jakarta Selatan', lat: -6.25012, lon: 106.82412, keywords: 'mampang prapatan kuningan barat pela mampang bangka tegal parang kapten tendean trans tv jakarta selatan' },
+  { name: 'Cilandak, Cipete, Fatmawati & Lebak Bulus', address: 'Jl. RS. Fatmawati Raya / TB Simatupang, Kec. Cilandak, Jakarta Selatan', lat: -6.29012, lon: 106.79512, keywords: 'cilandak barat timur cipete selatan gandaria selatan lebak bulus fatmawati pondok labu mrt lebak bulus mrt fatmawati poin square jakarta selatan' },
+  { name: 'Pasar Minggu, Pejaten, Ragunan & Tanjung Barat', address: 'Jl. Raya Pasar Minggu / Pejaten Barat, Kec. Pasar Minggu, Jakarta Selatan', lat: -6.28412, lon: 106.83812, keywords: 'pasar minggu pejaten barat timur kebagusan jati padang ragunan cilandak timur tanjung barat pejaten village aeon tanjung barat kebun binatang ragunan jakarta selatan' },
+  { name: 'Jagakarsa, Lenteng Agung, Ciganjur & Cinere Border', address: 'Jl. Raya Lenteng Agung / Moh. Kahfi, Kec. Jagakarsa, Jakarta Selatan', lat: -6.33212, lon: 106.82812, keywords: 'jagakarsa tanjung barat lenteng agung srengseng sawah ciganjur cipedak moh kahfi stasiun lenteng agung stasiun tanjung barat jakarta selatan' },
+  { name: 'Pesanggrahan, Bintaro, Ulujami & Petukangan', address: 'Jl. RC. Veteran Raya / Bintaro Permai, Kec. Pesanggrahan, Jakarta Selatan', lat: -6.26212, lon: 106.75812, keywords: 'pesanggrahan ulujami petukangan utara selatan bintaro rc veteran rempoa jakarta selatan' },
+
+  // Jakarta Barat
+  { name: 'Grogol Petamburan, Tanjung Duren & Tomang', address: 'Jl. Letjen S. Parman / Daan Mogot, Kec. Grogol Petamburan, Jakarta Barat', lat: -6.17012, lon: 106.78812, keywords: 'grogol petamburan tomang tanjung duren utara selatan jelambar wijaya kusuma trisakti untar ukrida mall taman anggrek central park jakarta barat' },
+  { name: 'Kebon Jeruk, Kedoya, Panjang & Meruya', address: 'Jl. Panjang Arteri Kelapa Dua / Kebon Jeruk, Kec. Kebon Jeruk, Jakarta Barat', lat: -6.19212, lon: 106.76812, keywords: 'kebon jeruk duri kepa kedoya utara selatan sukabumi utara selatan kelapa dua rcti metro tv binus anggrek syahdan jakarta barat' },
+  { name: 'Kembangan, Puri Indah, Meruya & Joglo', address: 'Jl. Puri Indah Raya / Meruya Ilir, Kec. Kembangan, Jakarta Barat', lat: -6.19012, lon: 106.73812, keywords: 'kembangan utara selatan meruya utara selatan srengseng joglo puri indah lippo mall puri kantor walikota jakarta barat' },
+  { name: 'Palmerah, Slipi & Kemanggisan', address: 'Jl. Letjen S. Parman Slipi / Palmerah, Kec. Palmerah, Jakarta Barat', lat: -6.19812, lon: 106.79612, keywords: 'palmerah slipi kota bambu utara selatan jati pulo kemanggisan rs harapan kita rs dharmais wisma asia menara peninsula jakarta barat' },
+  { name: 'Cengkareng, Duri Kosambi & Rawa Buaya', address: 'Jl. Outer Ring Road Cengkareng / Daan Mogot, Kec. Cengkareng, Jakarta Barat', lat: -6.14812, lon: 106.73212, keywords: 'cengkareng barat timur rawa buaya kedaung kali angke kapuk duri kosambi taman palem green sedayu pik otw bandara jakarta barat' },
+  { name: 'Kalideres, Citra Garden & Pegadungan', address: 'Jl. Daan Mogot KM 16 / Citra Garden City, Kec. Kalideres, Jakarta Barat', lat: -6.14212, lon: 106.70212, keywords: 'kalideres semanan tegal alur pegadungan kamal citra garden city terminal kalideres daan mogot jakarta barat' },
+  { name: 'Taman Sari, Glodok, Kota Tua & Mangga Besar', address: 'Jl. Gajah Mada / Hayam Wuruk / Kota Tua, Kec. Taman Sari, Jakarta Barat', lat: -6.14412, lon: 106.81612, keywords: 'taman sari pinangsia glodok keagunganrukut tangki mangga besar kota tua stasiun jakarta kota ltc glodok hayam wuruk gajah mada jakarta barat' },
+  { name: 'Tambora, Jembatan Lima & Season City', address: 'Jl. Prof. Dr. Latumenten, Kec. Tambora, Jakarta Barat', lat: -6.15012, lon: 106.79812, keywords: 'tambora tanah sereal roa malaka pekojan jembatan lima kerendang duri utara selatan kali anyar jembatan besi angke seasons city jakarta barat' },
+
+  // Jakarta Utara
+  { name: 'Kelapa Gading (Boulevard, Pegangsaan Dua, Gading Kirana)', address: 'Jl. Boulevard Raya / Pegangsaan Dua, Kec. Kelapa Gading, Jakarta Utara', lat: -6.16012, lon: 106.90512, keywords: 'kelapa gading barat timur pegangsaan dua mkg moi artha gading la piazza gading kirana jakarta utara' },
+  { name: 'Tanjung Priok, Sunter Agung & Sunter Jaya', address: 'Jl. Danau Sunter Utara / Yos Sudarso, Kec. Tanjung Priok, Jakarta Utara', lat: -6.13812, lon: 106.87512, keywords: 'tanjung priok sunter agung sunter jaya kebon bawang sungai bambu papanggo warakas astra honda motor toyota ahm jis jakarta international stadium jakarta utara' },
+  { name: 'Penjaringan, Pluit, Muara Karang & Pantai Indah Kapuk (PIK)', address: 'Jl. Pluit Indah / Pantai Indah Kapuk, Kec. Penjaringan, Jakarta Utara', lat: -6.11812, lon: 106.77512, keywords: 'penjaringan pluit pejagalan kapuk muara kamal muara karang pantai indah kapuk pik emporium pluit mall pluit village baywalk jakarta utara' },
+  { name: 'Pademangan, Ancol & Mangga Dua Square', address: 'Jl. Gunung Sahari Raya / Lodan Raya, Kec. Pademangan, Jakarta Utara', lat: -6.13412, lon: 106.83512, keywords: 'pademangan timur barat ancol mangga dua square wtc mangga dua itc mangga dua jis dufan seaworld jakarta utara' },
+  { name: 'Koja & Kelapa Gading Utara', address: 'Jl. Yos Sudarso / Kramat Jaya, Kec. Koja, Jakarta Utara', lat: -6.12012, lon: 106.90512, keywords: 'koja rawa badak utara selatan tugu utara selatan lagoa jakarta Islamic center jakarta utara' },
+  { name: 'Cilincing, Marunda & KBN Cakung', address: 'Jl. Raya Cakung Cilincing, Kec. Cilincing, Jakarta Utara', lat: -6.12512, lon: 106.94212, keywords: 'cilincing sukapura marunda kalibaru semper barat timur rorotan kbn kawasan berikat nusantara jakarta utara' },
+
+  // Jakarta Timur
+  { name: 'Cakung, Pulogebang & Jakarta Garden City (JGC)', address: 'Jl. Bekasi Raya / Boulevard Jakarta Garden City, Kec. Cakung, Jakarta Timur', lat: -6.18512, lon: 106.95212, keywords: 'cakung barat timur rawa terate jatinegara kawasan industri pulogadung penggilingan pulo gebang ujung menteng aeon mall jgc ikea jgc jakarta garden city jakarta timur' },
+  { name: 'Pulo Gadung, Rawamangun & Kayu Putih', address: 'Jl. Pemuda / Perintis Kemerdekaan, Kec. Pulo Gadung, Jakarta Timur', lat: -6.19212, lon: 106.89012, keywords: 'pulo gadung kayu putih jati rawamangun pisangan timur cipinang jatinegara kaum unj universitas negeri jakarta arion mall velodrome lrt jakarta timur' },
+  { name: 'Jatinegara, Cawang, Kampung Melayu & Cipinang', address: 'Jl. Jatinegara Timur / MT Haryono Cawang, Kec. Jatinegara, Jakarta Timur', lat: -6.22812, lon: 106.87012, keywords: 'jatinegara bali mester kampung melayu bidaracina cipinang cempedak cipinang muara cipinang besar utara selatan cawang mt haryono bnn stasiun jatinegara bassura city jakarta timur' },
+  { name: 'Kramat Jati, Cililitan & Cawang', address: 'Jl. Raya Bogor / Mayjen Sutoyo Cililitan, Kec. Kramat Jati, Jakarta Timur', lat: -6.26212, lon: 106.86612, keywords: 'kramat jati batu ampar balekambang condet kampung tengah dukuh cawang cililitan pgc pusat grosir cililitan rs polri pasar induk kramat jati uki jakarta timur' },
+  { name: 'Matraman, Pramuka & Utan Kayu', address: 'Jl. Matraman Raya / Pramuka, Kec. Matraman, Jakarta Timur', lat: -6.20212, lon: 106.86212, keywords: 'matraman pisangan baru utan kayu utara selatan kayu manis pal meriam kebon manggis gramedia matraman pramuka jakarta timur' },
+  { name: 'Duren Sawit, Pondok Bambu, Klender & Pondok Kelapa', address: 'Jl. Raden Inten II / Kalimalang, Kec. Duren Sawit, Jakarta Timur', lat: -6.23212, lon: 106.92012, keywords: 'duren sawit pondok bambu klender pondok kelapa malaka sari malaka jaya pondok kopi kalimalang buaran plaza cipinang indah jakarta timur' },
+  { name: 'Makasar, Halim Perdanakusuma & Cipinang Melayu', address: 'Jl. Raya Pondok Gede / Halim, Kec. Makasar, Jakarta Timur', lat: -6.25812, lon: 106.89512, keywords: 'makasar pinang ranti kebon pala halim perdanakusuma cipinang melayu stasiun whoosh halim bandara halim tamini square jakarta timur' },
+  { name: 'Pasar Rebo, Cijantung & Gedong', address: 'Jl. Raya Bogor KM 24 Cijantung, Kec. Pasar Rebo, Jakarta Timur', lat: -6.31212, lon: 106.85812, keywords: 'pasar rebo pekayan gedong cijantung baru kalisari mall cijantung kopassus pabrik panasonic lotte grosir pasar rebo jakarta timur' },
+  { name: 'Ciracas, Cibubur & Kelapa Dua Wetan', address: 'Jl. Raya Lapangan Tembak Cibubur, Kec. Ciracas, Jakarta Timur', lat: -6.34512, lon: 106.87812, keywords: 'ciracas cibubur kelapa dua wetan susukan rambutan terminal kampung rambutan lrt harjamukti cibubur junction jakarta timur' },
+  { name: 'Cipayung, Lubang Buaya, Ceger & Bambu Apus', address: 'Jl. Raya Hankam / Mabes Hankam Cilangkap, Kec. Cipayung, Jakarta Timur', lat: -6.31212, lon: 106.90512, keywords: 'cipayung lubang buaya ceger munjul pondok ranggon cilangkap setu bambu apus tmii mabes tni cilangkap jakarta timur' },
+
+  // Bekasi Kota & Kabupaten Bekasi (Cikarang, Cibitung, Tambun)
+  { name: 'Bekasi Barat, Kranji & Bintara', address: 'Jl. Jenderal Sudirman / KH Noer Ali Kalimalang, Bekasi Barat, Kota Bekasi', lat: -6.23812, lon: 106.97212, keywords: 'bekasi barat kota baru bintara kranji jaka sampurna grand metropolitan mega bekasi hypertmall stasiun kranji stasiun cakung kota bekasi' },
+  { name: 'Bekasi Selatan, Pekayon, Kayuringin & Galaxy', address: 'Jl. Ahmad Yani / Grand Galaxy City, Bekasi Selatan, Kota Bekasi', lat: -6.25412, lon: 106.98812, keywords: 'bekasi selatan kayuringin jaya marga jaya jaka mulya jaka setia pekayon jaya grand galaxy park metropolitan mall pakuwon mall bekasi revo town stasiun lrt bekasi barat kota bekasi' },
+  { name: 'Bekasi Timur, Duren Jaya & Bulak Kapal', address: 'Jl. Ir. H. Juanda / HM Joyomartono, Bekasi Timur, Kota Bekasi', lat: -6.24612, lon: 107.02212, keywords: 'bekasi timur aren jaya bojong rawalumbu duren jaya margahayu stasiun bekasi timur lrt jatimulya trans park juanda kota bekasi' },
+  { name: 'Bekasi Utara, Summarecon Bekasi & Harapan Indah', address: 'Jl. Boulevard Ahmad Yani Summarecon / Harapan Indah, Bekasi Utara', lat: -6.21512, lon: 106.99812, keywords: 'bekasi utara harapan baru harapan jaya kaliabang tengah marga mulya perwira teluk pucung summarecon mall bekasi smb kota harapan indah medan satria kota bekasi' },
+  { name: 'Rawalumbu, Kemang Pratama & Narogong', address: 'Jl. Raya Siliwangi Narogong / Kemang Pratama, Rawalumbu, Kota Bekasi', lat: -6.27812, lon: 106.99512, keywords: 'rawalumbu bojong menteng bojong rawalumbu pengasinan sepanjang jaya kemang pratama narogong bantargebang kota bekasi' },
+  { name: 'Pondok Gede, Jatiwaringin & Jatibening', address: 'Jl. Raya Jatiwaringin / Caman Jatibening, Pondok Gede, Kota Bekasi', lat: -6.26812, lon: 106.91812, keywords: 'pondok gede jatibening jatibening baru jaticempaka Jatimakmur jatiwaringin plaza pondok gede lrt jatibening baru kota bekasi' },
+  { name: 'Jatisampurna, Cibubur Transyogi & Kranggan', address: 'Jl. Alternatif Cibubur Transyogi, Jatisampurna, Kota Bekasi', lat: -6.37212, lon: 106.92512, keywords: 'jatisampurna jatikarya jatiraden jatirangga jatiranggon kranggan plaza cibubur trans studio mall cibubur rs mitra keluarga cibubur kota bekasi' },
+  { name: 'Jatiasih, Komsen & Galaxy', address: 'Jl. Raya Jatiasih / Wibawa Mukti, Jatiasih, Kota Bekasi', lat: -6.29512, lon: 106.96212, keywords: 'jatiasih jatikramat jatiluhur jatimekar jatirasa jatisari komsen gerbang tol jatiasih kota bekasi' },
+  { name: 'Mustikajaya, Grand Wisata & Dukuh Zamrud', address: 'Boulevard Grand Wisata / Mustikajaya, Bekasi', lat: -6.28512, lon: 107.04212, keywords: 'mustikajaya cimuning mustikasari padurenan pedurenan grand wisata tambun dukuh zamrud bekasi' },
+  { name: 'Tambun Selatan & Tambun Utara (Kabupaten Bekasi)', address: 'Jl. Sultan Hasanudin Tambun, Kabupaten Bekasi', lat: -6.25812, lon: 107.05812, keywords: 'tambun selatan utara Jatimulya lambangsari mangunjaya megarsari setiadarma sumberjaya tambun stasiun tambun metland tambun kabupaten bekasi' },
+  { name: 'Cibitung & Kawasan Industri Gobel / MM2100', address: 'Jl. Teuku Umar Cibitung, Kabupaten Bekasi', lat: -6.26212, lon: 107.09512, keywords: 'cibitung wanasari wanajaya cibuntu stasiun cibitung stasiun metland telagamurni kawasan industri gobel mm2100 kabupaten bekasi' },
+  { name: 'Cikarang Barat (MM2100, Telaga Asih, Cibitung)', address: 'Kawasan Industri MM2100 / Jl. Imam Bonjol, Cikarang Barat, Kabupaten Bekasi', lat: -6.28512, lon: 107.09812, keywords: 'cikarang barat telaga asih telagamurni gandasari gandamekar cikedokan jatiwangi danau indah mm2100 gerbang tol cibitung cikarang barat kabupaten bekasi' },
+  { name: 'Cikarang Utara (Jababeka 1, 2, 3, President University, SGC)', address: 'Jl. Jababeka Raya / Jl. RE. Martadinata, Cikarang Utara, Kabupaten Bekasi', lat: -6.29212, lon: 107.14812, keywords: 'cikarang utara harja mekar pasirgombong mekar mukti simpangan tanjung sari wangunjaya karangasih karangbaru karangraharja waluya stasiun cikarang sentra grosir cikarang sgc president university jababeka samsung electronics sein kabupaten bekasi' },
+  { name: 'Cikarang Selatan (Lippo Cikarang, EJIP, Hyundai, Meikarta)', address: 'Jl. MH. Thamrin Lippo Cikarang / EJIP, Cikarang Selatan, Kabupaten Bekasi', lat: -6.33212, lon: 107.13212, keywords: 'cikarang selatan cibatu sukasejati sukaresmi serang sukaragam sukadami ciantra lippo cikarang ejip biiie hyundai delta silicon meikarta distrik 1 orange county mall lippo cikarang waterboom kabupaten bekasi' },
+  { name: 'Cikarang Pusat (Kota Deltamas, GIIC, Pemda Kabupaten Bekasi)', address: 'Boulevard Kota Deltamas / Kawasan Industri GIIC, Cikarang Pusat, Kabupaten Bekasi', lat: -6.36512, lon: 107.17512, keywords: 'cikarang pusat sukamahi hegarmukti cicau jayanti pasirranji пасirtanjung kota deltamas giic aeon mall deltamas pemda kabupaten bekasi suzuki hyundai motor manufacturing astra daihatsu mitsubishi' },
+  { name: 'Cikarang Timur & Stadion Wibawa Mukti', address: 'Jl. Science Boulevard Jababeka / Cikarang Timur, Kabupaten Bekasi', lat: -6.30812, lon: 107.18512, keywords: 'cikarang timur sertajaya jatireja jatibaru tanjungbaru cipayung hegarmanah karangsari stadion wibawa mukti jababeka residence golf kabupaten bekasi' },
+  { name: 'Babelan, Tarumajaya & Harapan Indah Utara', address: 'Kec. Babelan / Tarumajaya, Kabupaten Bekasi', lat: -6.16512, lon: 107.01812, keywords: 'babelan kebalen bahagian tarumajaya segara makmur marunda center muara gembong kabupaten bekasi' },
+  { name: 'Setu & Serang Baru (Kabupaten Bekasi)', address: 'Jl. MT. Haryono Setu / Cibarusah, Kabupaten Bekasi', lat: -6.35212, lon: 107.05212, keywords: 'setu lubangsari cibening cijengkol burangkeng serang baru cikarang cibarusah harvest city kabupaten bekasi' },
+
+  // Tangerang Kota, Tangerang Selatan & Kabupaten Tangerang
+  { name: 'Tangerang Kota Pusat (Pasar Lama, Cikokol, Tangcity)', address: 'Jl. Jend. Sudirman Cikokol / Pasar Lama, Kec. Tangerang, Kota Tangerang', lat: -6.18812, lon: 106.63212, keywords: 'tangerang kota sukasari babakan buaran cikokol kelapa indah sukaasih sukarasa tanah tinggi pasar lama tangcity mall metropolis town square bale kota stasiun tangerang' },
+  { name: 'Cipondoh, Green Lake City & Poris Plawad', address: 'Jl. KH. Hasyim Ashari / Green Lake City, Kec. Cipondoh, Kota Tangerang', lat: -6.18512, lon: 106.68212, keywords: 'cipondoh indah makmur kenanga ketapang petir poris plawad utara indah green lake city stasiun batu ceper terminal poris plawad kota tangerang' },
+  { name: 'Ciledug, Karang Tengah & CBD Ciledug', address: 'Jl. HOS Cokroaminoto Ciledug / Karang Tengah, Kota Tangerang', lat: -6.22812, lon: 106.70812, keywords: 'ciledug peninggilan sudimara barat timur selatan jaya tajur paninggilan karang tengah karang mulya pondok bahar metro permata cbd ciledug larangan kresek kota tangerang' },
+  { name: 'Karawaci, Cimone & Lippo Village', address: 'Jl. Imam Bonjol / Boulevard Palem Raya, Kec. Karawaci, Kota Tangerang', lat: -6.21212, lon: 106.61212, keywords: 'karawaci baru bojong jaya bugel cimone jaya gerendeng margasari nambo jaya pabuaran sumur pacing lippo karawaci supermal karawaci uph rs siloam karawaci kota tangerang' },
+  { name: 'Jatiuwung & Kawasan Industri Jatake', address: 'Jl. Gatot Subroto Jatake, Kec. Jatiuwung, Kota Tangerang', lat: -6.19212, lon: 106.57812, keywords: 'jatiuwung alam jaya gandasari jatake keroncong manis jaya pasir jaya kawasan industri jatake gajah tunggal indofood kota tangerang' },
+  { name: 'Benda,Neglasari & Bandara Soekarno-Hatta Cargo Area', address: 'Jl. Marsekal Suryadarma / Perimeter Bandara, Kec. Benda, Kota Tangerang', lat: -6.13512, lon: 106.66512, keywords: 'benda belendung jurumudi pajang neglasari batu ceper soekarno hatta cargo area sheraton bandara anara hotel jakarta airport kota tangerang' },
+  { name: 'Pinang, Alam Sutera & Kunciran', address: 'Jl. Jalur Sutera Boulevard, Kec. Pinang, Kota Tangerang', lat: -6.22212, lon: 106.65812, keywords: 'pinang cipete kunciran indah jaya pakojan panunggangan utara timur alam sutera ikea alam sutera decathlon mall @ alam sutera binus alam sutera promominence tower synergy building kota tangerang' },
+  { name: 'Serpong & BSD City (Green Office Park, AEON, ICE BSD)', address: 'Jl. BSD Grand Boulevard, Kec. Serpong / Pagedangan, Tangerang Selatan', lat: -6.30112, lon: 106.65012, keywords: 'serpong bsd city bumi serpong damai rawa buntu cilenggang lengkong gudang timur buaran ciater mekar jaya green office park gop unilever traveloka apple academy the breeze aeon bsd ice bsd qbig stasiun rawa buntu stasiun serpong tangerang selatan' },
+  { name: 'Serpong Utara, Alam Sutera & Living World', address: 'Jl. Alam Sutera Boulevard, Kec. Serpong Utara, Tangerang Selatan', lat: -6.24212, lon: 106.65812, keywords: 'serpong utara pakulonan pakualam jelupang pondok jagung lengkong karya living world alam sutera flavor bliss rs omni emc alam sutera tangerang selatan' },
+  { name: 'Kelapa Dua, Gading Serpong & Summarecon Serpong', address: 'Jl. Boulevard Gading Serpong, Kec. Kelapa Dua, Kabupaten Tangerang', lat: -6.24212, lon: 106.62812, keywords: 'kelapa dua bencongan pakulonan barat bojong nangka curug sangereng gading serpong summarecon mall serpong sms umn universitas multimedia nusantara jhl solitaire bethsaida hospital paramount land kabupaten tangerang' },
+  { name: 'Pondok Aren & Bintaro Jaya (Sektor 1 - 9, BXc)', address: 'Boulevard Bintaro Jaya, Kec. Pondok Aren, Tangerang Selatan', lat: -6.27812, lon: 106.71812, keywords: 'pondok aren jurang mangu barat timur pondok kacang barat timur perigi baru pondok jaya pondok pucung pondok betung Parigi bintaro jaya sektor 1 2 3 5 7 9 bxc bintaro xchange rs premier bintaro rs pondok indah bintaro stasiun jurangmangu stasiun pondok ranji stan tangerang selatan' },
+  { name: 'Ciputat & Ciputat Timur (UIN, Situ Gintung, Cirendeu)', address: 'Jl. Ir. H. Juanda Ciputat, Kec. Ciputat, Tangerang Selatan', lat: -6.30812, lon: 106.75212, keywords: 'ciputat cipayung serua sawah baru lama jombang sarua indah ciputat timur cempaka putih pondok ranji pisangan cirendeu rempoa uin syarif hidayatullah situ gintung tangerang selatan' },
+  { name: 'Pamulang & Pondok Cabe', address: 'Jl. Siliwangi Pamulang / Pondok Cabe Raya, Kec. Pamulang, Tangerang Selatan', lat: -6.34212, lon: 106.73812, keywords: 'pamulang barat timur benda baru pondok benda bambu apus kedaung pondok cabe udik ilir unpam universitas pamulang lapangan terbang pondok cabe cinangka tangerang selatan' },
+  { name: 'Setu Tangsel & Puspiptek BRIN', address: 'Kawasan Sains dan Teknologi Puspiptek BRIN, Kec. Setu, Tangerang Selatan', lat: -6.35212, lon: 106.66812, keywords: 'setu munul babakan bakti jaya kademangan keranggan puspiptek brin serpong teknopark tangerang selatan' },
+  { name: 'Cikupa, Citra Raya & Balaraja (Kabupaten Tangerang)', address: 'Jl. Raya Serang KM 14 Cikupa / Citra Raya, Kabupaten Tangerang', lat: -6.22812, lon: 106.52212, keywords: 'cikupa bitung jaya budimulya cibadak dukuh pasir gadung sukamulya talaga citra raya tangerang pasar kemis curug legok panongan tigaraksa balaraja kawasan industri millenium cikupa mas kabupaten tangerang' },
+  { name: 'Kosambi, Teluknaga & PIK 2 Tangerang', address: 'Jl. Raya Salembaran / Boulevard PIK 2, Kec. Kosambi, Kabupaten Tangerang', lat: -6.06212, lon: 106.69512, keywords: 'kosambi dadap salembaran cengklong jatimulya teluknaga tanjung pasir pik 2 tokyo hubグリーン belt pantjoran pik 2 cbd pik 2 nice pik 2 kabupaten tangerang' },
+
+  // Depok & Bogor (Kota & Kabupaten)
+  { name: 'Margonda, Beji & Kampus UI Depok', address: 'Jl. Margonda Raya, Kec. Beji / Pancoran Mas, Kota Depok', lat: -6.37212, lon: 106.83212, keywords: 'margonda beji timur kemiri muka kukusan pondok cina tanah baru universitas indonesia ui gunadarma margo city depok town square detos pesona square stasiun pondok cina stasiun ui stasiun depok baru kota depok' },
+  { name: 'Cinere, Limo & Gandul', address: 'Jl. Cinere Raya / Meruyung, Kec. Cinere, Kota Depok', lat: -6.33212, lon: 106.78212, keywords: 'cinere gandul pangkalan jati baru limo meruyung grogol krukut mall cinere bellevue rs puri cinere gerbang tol brigif limo kota depok' },
+  { name: 'Cimanggis, Cibubur & Kelapa Dua Depok', address: 'Jl. Raya Bogor / Jl. Akses UI Kelapa Dua, Kec. Cimanggis, Kota Depok', lat: -6.36212, lon: 106.86512, keywords: 'cimanggis cisalak pasar mekarsari tugu harjamukti curug пасir gunung selatan kelapa dua depok mako brimob rs bhayangkara brimob podomoro golf view kota depok' },
+  { name: 'Sukmajaya, Cilodong & Juanda Depok', address: 'Jl. Ir. H. Juanda / Tole Iskandar, Kec. Sukmajaya, Kota Depok', lat: -6.39212, lon: 106.84812, keywords: 'sukmajaya abadijayairtajaya bakti jaya cisalak mekar jaya cilodong sukamaju kalimulya jatijajar terminal jatijajar kota depok' },
+  { name: 'Sawangan, Bojongsari & The Park Sawangan', address: 'Jl. Raya Ciputat Parung / Mochtar Sawangan, Kota Depok', lat: -6.39812, lon: 106.75212, keywords: 'sawangan baru lama bedahan cinangka kedaung pasir putih pengasinan bojongsari curug duren mekar serua pondok petir the park sawangan telaga golf sawangan kota depok' },
+  { name: 'Cibinong, Pemda Bogor & Stadion Pakansari', address: 'Jl. Tegar Beriman / Pakansari, Kec. Cibinong, Kabupaten Bogor', lat: -6.48212, lon: 106.83812, keywords: 'cibinong pakansari tengah nanggewer karadenan cirimekar ciriung harapan jaya pondok rajeg cibinong city mall ccm pemda kabupaten bogor stadion pakansari brin cibinong' },
+  { name: 'Gunung Putri, Citeureup & Kawasan Industri Bogorindo', address: 'Jl. Mercedes Benz Wanaherang / Citeureup, Kec. Gunung Putri, Kabupaten Bogor', lat: -6.43212, lon: 106.92212, keywords: 'gunung putri wanaherang cicadas cikeas udik nagrag tlajung udik bojong kulur karanggan puspasari citeureup sentul indocement mercedes benz podomoro river view kota wisata legenda wisata kabupaten bogor' },
+  { name: 'Cileungsi, Jonggol & Taman Buah Mekarsari', address: 'Jl. Raya Alternatif Cibubur Cileungsi, Kec. Cileungsi, Kabupaten Bogor', lat: -6.39812, lon: 106.96812, keywords: 'cileungsi kidul cipeucang dayeuh gandoang jatisari收获 limus nunggal mekar sari pasir angin setu sari metland cileungsi metland transyogi taman buah mekarsari harvest city jonggol kabupaten bogor' },
+  { name: 'Bogor Tengah, Botani Square & Baranangsiang', address: 'Jl. Raya Pajajaran / Baranangsiang, Kec. Bogor Tengah, Kota Bogor', lat: -6.60212, lon: 106.80812, keywords: 'bogor tengah babakan cibogor gudang kebon kelapa pabaton paledang panaragan sempur tegallega باباكان madang botani square terminal baranangsiang kebun raya bogor stasiun bogor suryakencana kota bogor' },
+  { name: 'Bogor Utara, Tanah Baru & Sentul Barat', address: 'Jl. Pajajaran Indah / Pandu Raya, Kec. Bogor Utara, Kota Bogor', lat: -6.57812, lon: 106.81212, keywords: 'bogor utara bantarjati cibuluh ciluar cimahpar ciparigi kedunghalang tanah baru warung jambu pandu raya bogor raya lakeside kota bogor' },
+  { name: 'Dramaga & Kampus IPB Bogor', address: 'Jl. Raya Dramaga Kampus IPB, Kec. Dramaga, Kabupaten Bogor', lat: -6.55812, lon: 106.72512, keywords: 'dramaga babakan ciherangシкар cikarawang negalsari petir purwasari sinarsari suhadamahi kampus ipb universitas institut pertanian bogor yasmin bogor barat kabupaten bogor' },
+  { name: 'Ciawi, Gadog & Megamendung Puncak', address: 'Simpang Gadog / Tol Jagorawi Ciawi, Kabupaten Bogor', lat: -6.65512, lon: 106.85212, keywords: 'ciawi banjar waruga bendunganندونغ ciawi gadog pandansari megamendung cipayung girang puncak bogor pullman vimala hills rsud ciawi kabupaten bogor' },
+
+  // Karawang & Purwakarta Industrial Corridor
+  { name: 'Kawasan Industri Indotaisei & Bukit Indah City (BIC) Cikampek', address: 'Kalihurip, Cikampek, Karawang / Bungursari, Purwakarta, Jawa Barat', lat: -6.42512, lon: 107.43212, keywords: 'indotaisei bukit indah city bic kalihurip cikampek dawuan karawang purwakarta nissan hpj pupukkujang kawasan industri' },
+  { name: 'Kawasan Industri Mitra Karawang (KIM)', address: 'Parungmulya, Ciampel, Kabupaten Karawang, Jawa Barat', lat: -6.38212, lon: 107.33512, keywords: 'kim kawasan industri mitra karawang parungmulya ciampel karawang timur' },
+  { name: 'Karawang New Industry City (KNIC) & KJIE', address: 'Wanakerta, Telukjambe Barat, Kabupaten Karawang, Jawa Barat', lat: -6.36212, lon: 107.25212, keywords: 'knic karawang new industry city kjie karawang jabar industrial estate telukjambe barat' },
 ];
 
 export function reverseGeocodeIndonesianPoi(lat: number, lon: number): { name: string; address: string; distanceKm: number } | null {
@@ -389,14 +557,14 @@ export function reverseGeocodeIndonesianPoi(lat: number, lon: number): { name: s
     }
   }
   if (!best) return null;
-  if (best.distKm <= 0.35) {
+  if (best.distKm <= 0.45) {
     return {
       name: best.poi.name,
       address: `${best.poi.name} — ${best.poi.address}`,
       distanceKm: best.distKm,
     };
   }
-  if (best.distKm <= 8) {
+  if (best.distKm <= 10) {
     return {
       name: `Near ${best.poi.name}`,
       address: `Near ${best.poi.name} (${best.distKm.toFixed(1)} km) — ${best.poi.address}`,
@@ -412,7 +580,7 @@ export function reverseGeocodeIndonesianPoi(lat: number, lon: number): { name: s
 
 export function searchIndonesianPois(
   query: string,
-  limit = 12
+  limit = 16
 ): Array<{ place_id: string; name: string; address: string; lat: number; lon: number; score: number }> {
   const { lower, tokens, expandedTokens } = normalizeIndoQuery(query);
   if (!lower || lower.length < 2) return [];
@@ -427,41 +595,57 @@ export function searchIndonesianPois(
 
     let score = 0;
     if (nameLower.startsWith(lower)) {
-      score += 140;
+      score += 150;
     } else if (nameLower.includes(lower)) {
-      score += 90;
+      score += 95;
     } else if (addrLower.includes(lower)) {
-      score += 65;
+      score += 70;
     } else if (kwLower.includes(lower)) {
-      score += 55;
+      score += 60;
     }
 
     let matchedConcepts = 0;
     for (const tok of tokens) {
       const candidates = ABBREVIATION_MAP[tok] ? [tok, ...ABBREVIATION_MAP[tok]] : [tok];
       const matchedName = candidates.some((c) => nameLower.includes(c));
-      const matchedAny = matchedName || candidates.some((c) => haystack.includes(c));
+      const matchedAddr = !matchedName && candidates.some((c) => addrLower.includes(c));
+      const matchedAny = matchedName || matchedAddr || candidates.some((c) => haystack.includes(c));
       if (matchedAny) {
-        score += matchedName ? 28 : 18;
+        score += matchedName ? 32 : matchedAddr ? 24 : 18;
         matchedConcepts += 1;
+      } else if (tok.length >= 4) {
+        // Prefix / fuzzy token match for typos or partial Indonesian words
+        const prefix = tok.slice(0, Math.max(3, tok.length - 1));
+        if (nameLower.includes(prefix)) {
+          score += 16;
+          matchedConcepts += 0.8;
+        } else if (haystack.includes(prefix)) {
+          score += 10;
+          matchedConcepts += 0.6;
+        }
       }
     }
 
     let matchedExpandedExtra = 0;
     for (const exp of expandedTokens) {
       if (!tokens.includes(exp) && haystack.includes(exp)) {
-        score += 8;
+        score += 10;
         matchedExpandedExtra += 1;
       }
     }
 
-    if (tokens.length > 1 && matchedConcepts === tokens.length) {
-      score += 55;
+    if (tokens.length > 1 && matchedConcepts >= tokens.length) {
+      score += 60;
     }
 
-    // Require strong concept match so single common words like "jl" don't crowd out specific multi-word searches
+    // Boost Greater Jakarta / Jabodetabek locations slightly when tied
+    const isGreaterJakarta = poi.lat >= -6.75 && poi.lat <= -5.95 && poi.lon >= 106.4 && poi.lon <= 107.45;
+    if (score > 0 && isGreaterJakarta) {
+      score += 3;
+    }
+
     if (score > 0 && (matchedConcepts > 0 || matchedExpandedExtra > 0)) {
-      if (tokens.length >= 2 && matchedConcepts < Math.min(2, tokens.length) && score < 50) {
+      if (tokens.length >= 2 && matchedConcepts < Math.min(1.4, tokens.length) && score < 45) {
         continue;
       }
       matches.push({

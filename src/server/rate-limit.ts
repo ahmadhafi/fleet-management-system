@@ -30,7 +30,7 @@ export interface RateLimitOptions {
  */
 export function createRateLimiter(options: RateLimitOptions = {}) {
   const windowMs = options.windowMs || 60 * 1000; // 1 minute default window
-  const maxRequests = options.maxRequests || 200; // 200 requests / minute default
+  const maxRequests = options.maxRequests || 1200; // 1200 requests / minute default for corporate NAT busy hours
   const message = options.message || 'Too many requests from this IP, please try again later.';
   const skipInTests = options.skipInTests !== false;
 
