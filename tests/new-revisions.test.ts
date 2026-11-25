@@ -2467,6 +2467,25 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         const rtTripId = roundTripRes.body.tripId;
         expect(roundTripRes.body.trip.reservation_type).toBe('DROP_AND_PICKUP');
 
+        // 3B. Auto-Assign Available Car & Driver (vehicle_id omitted / 'AUTO') assigns a different conflict-free car automatically
+        const autoAssignRes = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${localEmpToken}`)
+          .send({
+            vehicle_id: 'AUTO',
+            purpose: 'Auto-Assigned Standard Trip to Senayan',
+            origin: 'Headquarters',
+            destination: 'Plaza Senayan, Jakarta Pusat',
+            start_time: startIso,
+            end_time: endIso,
+            reservation_type: 'STANDARD_TRIP',
+            passengers: [{ id: 1, nickname: 'Budi' }],
+            passenger_nickname: '1. Budi',
+          });
+        expect(autoAssignRes.status).toBe(201);
+        expect(autoAssignRes.body.trip.vehicle_id).toBeTruthy();
+        expect(Number(autoAssignRes.body.trip.vehicle_id)).not.toBe(3);
+
         // Verify assignment is auto-acknowledged immediately (no manual Acknowledge Order needed)
         const autoAsn = db.prepare('SELECT acknowledged_at FROM assignments WHERE trip_request_id = ? AND is_current = 1').get(rtTripId) as any;
         if (autoAsn) {

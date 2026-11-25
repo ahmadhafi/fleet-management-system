@@ -2262,8 +2262,8 @@ export function createApp() {
       return;
     }
 
-    if (!purpose || !origin || !destination || !start_time || !end_time || !vehicle_id) {
-      res.status(400).json({ error: 'purpose, origin, destination, start_time, end_time, and vehicle_id are mandatory (REQ-02)' });
+    if (!purpose || !origin || !destination || !start_time || !end_time) {
+      res.status(400).json({ error: 'purpose, origin, destination, start_time, and end_time are mandatory (REQ-02)' });
       return;
     }
 
@@ -2358,29 +2358,65 @@ export function createApp() {
 
     try {
       const createdPayload = runInTransaction(db, () => {
-        const vConflict = checkVehicleConflict(db, Number(vehicle_id), start_time, end_time);
-        if (vConflict.hasConflict) {
-          const err = new Error(vConflict.reason || 'Vehicle conflict');
-          (err as Error & { status?: number }).status = 409;
-          throw err;
-        }
-
+        let resolvedVehicleId: number | null =
+          vehicle_id && String(vehicle_id).toUpperCase() !== 'AUTO' ? Number(vehicle_id) : null;
         let chosenDriverId: number | null = preferred_driver_id ? Number(preferred_driver_id) : null;
-        if (!chosenDriverId) {
-          const veh = db.prepare('SELECT default_driver_id FROM vehicles WHERE id = ?').get(Number(vehicle_id)) as
-            | { default_driver_id: number | null }
-            | undefined;
-          if (veh?.default_driver_id) {
-            chosenDriverId = veh.default_driver_id;
-          }
-        }
 
-        if (chosenDriverId) {
-          const dConflict = checkDriverConflict(db, chosenDriverId, start_time, end_time);
-          if (dConflict.hasConflict) {
-            const err = new Error(dConflict.reason || 'Driver conflict');
+        if (!resolvedVehicleId) {
+          // Item #4: Auto-assign any available conflict-free car/driver so user doesn't have to manually pick a car
+          const candidateVehicles = db
+            .prepare("SELECT id, seats, default_driver_id FROM vehicles WHERE status = 'Available' ORDER BY seats >= ? DESC, id ASC")
+            .all(pax) as Array<{ id: number; seats: number; default_driver_id: number | null }>;
+
+          for (const cand of candidateVehicles) {
+            const vc = checkVehicleConflict(db, cand.id, start_time, end_time);
+            if (vc.hasConflict) continue;
+            const candDriverId = chosenDriverId || cand.default_driver_id;
+            if (candDriverId) {
+              const dc = checkDriverConflict(db, candDriverId, start_time, end_time);
+              if (dc.hasConflict) {
+                // Vehicle is free, let Fleet Manager assign another driver if default driver is busy
+                resolvedVehicleId = cand.id;
+                chosenDriverId = null;
+                break;
+              }
+              resolvedVehicleId = cand.id;
+              chosenDriverId = candDriverId;
+              break;
+            }
+            resolvedVehicleId = cand.id;
+            break;
+          }
+
+          if (!resolvedVehicleId) {
+            const err = new Error('All company vehicles are currently booked for this time slot. Open "Set Schedule" to hitchhike or negotiate with the current holder.');
             (err as Error & { status?: number }).status = 409;
             throw err;
+          }
+        } else {
+          const vConflict = checkVehicleConflict(db, resolvedVehicleId, start_time, end_time);
+          if (vConflict.hasConflict) {
+            const err = new Error(vConflict.reason || 'Vehicle conflict');
+            (err as Error & { status?: number }).status = 409;
+            throw err;
+          }
+
+          if (!chosenDriverId) {
+            const veh = db.prepare('SELECT default_driver_id FROM vehicles WHERE id = ?').get(resolvedVehicleId) as
+              | { default_driver_id: number | null }
+              | undefined;
+            if (veh?.default_driver_id) {
+              chosenDriverId = veh.default_driver_id;
+            }
+          }
+
+          if (chosenDriverId) {
+            const dConflict = checkDriverConflict(db, chosenDriverId, start_time, end_time);
+            if (dConflict.hasConflict) {
+              const err = new Error(dConflict.reason || 'Driver conflict');
+              (err as Error & { status?: number }).status = 409;
+              throw err;
+            }
           }
         }
 
@@ -2395,7 +2431,7 @@ export function createApp() {
           .run(
             user.id,
             user.department_id,
-            Number(vehicle_id),
+            resolvedVehicleId,
             chosenDriverId,
             finalPaxNickname,
             passengersJson,
@@ -2420,7 +2456,7 @@ export function createApp() {
             `INSERT INTO bookings (trip_request_id, vehicle_id, booked_by, purpose, start_time, end_time, buffer_minutes, status)
              VALUES (?, ?, ?, ?, ?, ?, 15, 'PENDING_APPROVAL')`
           )
-          .run(tripId, Number(vehicle_id), user.id, String(purpose).trim(), start_time, end_time);
+          .run(tripId, resolvedVehicleId, user.id, String(purpose).trim(), start_time, end_time);
 
         const bookingId = Number(bookingRes.lastInsertRowid);
 
@@ -2432,7 +2468,7 @@ export function createApp() {
               `INSERT INTO assignments (trip_request_id, booking_id, vehicle_id, driver_profile_id, assigned_by, reason, effective_start, effective_end, is_current, acknowledged_at)
                VALUES (?, ?, ?, ?, ?, 'Reserved upon trip booking submission (Pending Approval)', ?, ?, 1, datetime('now'))`
             )
-            .run(tripId, bookingId, Number(vehicle_id), chosenDriverId, user.id, start_time, end_time);
+            .run(tripId, bookingId, resolvedVehicleId, chosenDriverId, user.id, start_time, end_time);
           assignmentId = Number(asnRes.lastInsertRowid);
         }
 

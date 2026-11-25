@@ -483,6 +483,7 @@ export function App() {
   const [schedulePickerTab, setSchedulePickerTab] = useState<'TODAY' | 'TOMORROW' | 'DATE'>('TODAY');
   const [multiStopToast, setMultiStopToast] = useState<string | null>(null);
   const [vehicleFilter, setVehicleFilter] = useState<'ALL' | 'Electric' | 'MPV'>('ALL');
+  const [showOptionalVehiclePicker, setShowOptionalVehiclePicker] = useState<boolean>(false);
   const [activityTab, setActivityTab] = useState<'ONGOING' | 'HISTORY'>('ONGOING');
   const [summaryPicker, setSummaryPicker] = useState<'PURPOSE' | 'PAX' | 'NOTES' | 'CHARGE' | null>(null);
   const [_pickerValidationError, setPickerValidationError] = useState<string | null>(null);
@@ -1840,10 +1841,6 @@ export function App() {
 
   const handleCreateTripBooking = async (_confirmed?: boolean | React.MouseEvent) => {
     setStatusBanner(null);
-    if (!selectedVehicle) {
-      setStatusBanner({ type: 'danger', text: 'Please select an available vehicle first.' });
-      return;
-    }
     if (!bookOrigin.trim() || !bookDest.trim()) {
       setStatusBanner({ type: 'danger', text: 'Please enter both pickup and destination locations.' });
       return;
@@ -1924,12 +1921,17 @@ export function App() {
         ? cleanPassengers.map((p) => `${p.id}. ${p.nickname}`).join(', ')
         : bookPassengerNickname.trim();
 
+    const chosenVehiclePayload =
+      showOptionalVehiclePicker && selectedVehicle && selectedVehicle.isAvailable !== false && selectedVehicle.status === 'Available'
+        ? Number(selectedVehicle.id)
+        : 'AUTO';
+
     try {
       const created = await apiRequest('/api/trips', {
         method: 'POST',
         body: JSON.stringify({
-          vehicle_id: Number(selectedVehicle.id),
-          preferred_driver_id: bookDriverId ? Number(bookDriverId) : null,
+          vehicle_id: chosenVehiclePayload,
+          preferred_driver_id: showOptionalVehiclePicker && bookDriverId ? Number(bookDriverId) : null,
           purpose: effectivePurpose,
           origin: bookOrigin.trim(),
           destination: bookDest.trim(),
@@ -7841,8 +7843,8 @@ export function App() {
           </StickyActionBar>
         );
       }
-    } else if (bookingStep === 'VEHICLE' && selectedVehicle) {
-      const availSelected = selectedVehicle.isAvailable !== false && selectedVehicle.status === 'Available';
+    } else if (bookingStep === 'VEHICLE') {
+      const availSelected = !showOptionalVehiclePicker || !selectedVehicle || (selectedVehicle.isAvailable !== false && selectedVehicle.status === 'Available');
       const isPurposeFilled = Boolean(bookPurpose.trim());
       const isPassengerFilled = bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim()));
       const canDirectSubmit = availSelected && isPurposeFilled && isPassengerFilled;
@@ -7870,16 +7872,20 @@ export function App() {
                 if (canDirectSubmit) {
                   handleCreateTripBooking(true);
                 } else {
-                  setBookingStep('SUMMARY');
-                  setSheetSnap('half');
+                  setStatusBanner({
+                    type: 'danger',
+                    text: !isPurposeFilled
+                      ? 'Please fill in Trip Purpose before submitting.'
+                      : 'Please fill in at least Passenger 1 Name before submitting.',
+                  });
                 }
               }}
             >
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, overflow: 'hidden' }}>
                 <span style={{ width: '100%', textAlign: 'left', fontSize: '14.5px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {canDirectSubmit
+                  {showOptionalVehiclePicker && selectedVehicle
                     ? `${t('Request GalaxyFleet')} • ${selectedVehicle.make} ${selectedVehicle.model}`
-                    : `${t('Book')} ${selectedVehicle.make} ${selectedVehicle.model}`}
+                    : `${t('Request GalaxyFleet')} • ${t('Auto-Assign Car')}`}
                 </span>
                 <span style={{ width: '100%', textAlign: 'left', fontSize: '11.5px', fontWeight: 600, opacity: 0.9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {getScheduleSlotBrief(bookStart, lang)} • ETA {currentMetrics.etaText}
@@ -12524,6 +12530,48 @@ export function App() {
             </div>
           </div>
 
+          {/* Auto-Assigned Car & Driver Banner (User does NOT need to manually pick a car) */}
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: '14px',
+              background: '#f8fafc',
+              border: '1px solid var(--color-border)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '10px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+              <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#ebf5ff', color: '#0072de', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                <Car size={18} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                  {showOptionalVehiclePicker && selectedVehicle
+                    ? `${selectedVehicle.make} ${selectedVehicle.model} (${selectedVehicle.registration_plate})`
+                    : t('Auto-Assigned Available Car & Driver')}
+                </div>
+                <div className="type-caption" style={{ fontSize: '11.5px' }}>
+                  {t('Automatically assigns an available car & driver for your time slot (Fleet Manager may adjust on approval)')}
+                </div>
+              </div>
+            </div>
+            <button
+              id="toggle-optional-vehicle-picker-btn"
+              type="button"
+              className="gf-btn gf-btn-secondary gf-btn-sm pressable"
+              style={{ minHeight: '30px', padding: '0 10px', fontSize: '11.5px', fontWeight: 700, flexShrink: 0 }}
+              onClick={() => setShowOptionalVehiclePicker((prev) => !prev)}
+            >
+              {showOptionalVehiclePicker ? t('Use Auto-Assign') : t('Choose Car (Optional)')}
+            </button>
+          </div>
+
+          {showOptionalVehiclePicker && (
+            <>
           {/* Service Category Underline Tabs */}
           <div className="gf-underline-tabs" role="tablist" aria-label="Vehicle category tabs">
             {([
@@ -12707,6 +12755,8 @@ export function App() {
               </select>
             </div>
           </div>
+            </>
+          )}
         </div>
       );
     }
