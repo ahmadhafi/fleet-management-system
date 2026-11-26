@@ -417,9 +417,18 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
-  gap: 16px;
+  padding: 0 16px;
+  gap: 12px;
   user-select: none;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.gf-embedded-topbar::-webkit-scrollbar {
+  display: none;
 }
 
 :root[data-theme='dark'] .gf-embedded-topbar {
@@ -2190,19 +2199,25 @@ iframe.goog-te-banner-frame {
   box-shadow: none !important;
 }
 
-/* Responsive Language Switcher Labels */
+/* Responsive Language Switcher Labels (works both inside @container gfapp and standalone Auth screen) */
+@media (max-width: 1380px) {
+  .gf-lang-label-full {
+    display: none !important;
+  }
+}
+
 @container gfapp (max-width: 767px) {
   .gf-lang-label-full {
     display: none !important;
   }
   .gf-topbar-lang-wrap .notranslate {
-    height: 34px !important;
+    height: 32px !important;
     padding: 2px 3px !important;
   }
   .gf-topbar-lang-wrap .notranslate button {
-    padding: 4px 7px !important;
+    padding: 3px 6px !important;
     font-size: 11px !important;
-    min-width: 26px !important;
+    min-width: 24px !important;
   }
 }
 

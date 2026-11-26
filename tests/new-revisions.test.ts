@@ -2597,6 +2597,145 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(appTsx).toContain('id="inbox-back-btn"');
         expect(appTsx).toContain('id="profile-back-btn"');
       });
+
+      it('verifies resilient trip cancel (zero API endpoint not found), compact uncropped LanguageSwitcher, no employee car selection, and Fleet Manager available-car-only assignment', async () => {
+        const fs = await import('fs');
+        const path = await import('path');
+
+        resetDbForTesting(':memory:');
+        const testApp = createApp();
+
+        const empRes = await request(testApp).post('/api/auth/login').send({ group_username: 'emp_alex', password: 'Emp@123' });
+        const fmRes = await request(testApp).post('/api/auth/login').send({ group_username: 'fleetmgr', password: 'Fleet@123' });
+        const admRes = await request(testApp).post('/api/auth/login').send({ group_username: 'admin', password: 'Admin@123' });
+        expect(empRes.status).toBe(200);
+        expect(fmRes.status).toBe(200);
+        expect(admRes.status).toBe(200);
+
+        const empTok = empRes.body.token;
+        const fmTok = fmRes.body.token;
+        const admTok = admRes.body.token;
+
+        const baseMs = Date.now() + 48 * 3600_000;
+        const sIso = new Date(baseMs).toISOString();
+        const eIso = new Date(baseMs + 2 * 3600_000).toISOString();
+
+        // 1. Test cancel with trailing slash (/api/trips/:id/cancel/) and DELETE /api/trips/:id -> zero "API endpoint not found"
+        const t1 = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${empTok}`)
+          .send({
+            vehicle_id: 'AUTO',
+            purpose: 'Cancel trailing slash test',
+            origin: 'Headquarters',
+            destination: 'SCBD, Jakarta Selatan',
+            start_time: sIso,
+            end_time: eIso,
+            passengers: [{ id: 1, nickname: 'Alex' }],
+          });
+        expect(t1.status).toBe(201);
+
+        const cancelTrailing = await request(testApp)
+          .post(`/api/trips/${t1.body.tripId}/cancel/`)
+          .set('Authorization', `Bearer ${empTok}`)
+          .send({ reason: 'Changed schedule' });
+        expect(cancelTrailing.status).toBe(200);
+        expect(cancelTrailing.body.status).toBe('CANCELLED');
+
+        const t2 = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${empTok}`)
+          .send({
+            vehicle_id: 'AUTO',
+            purpose: 'Cancel DELETE alias test',
+            origin: 'Headquarters',
+            destination: 'BSD City',
+            start_time: sIso,
+            end_time: eIso,
+            passengers: [{ id: 1, nickname: 'Alex' }],
+          });
+        expect(t2.status).toBe(201);
+
+        const cancelDelete = await request(testApp)
+          .delete(`/api/trips/${t2.body.tripId}`)
+          .set('Authorization', `Bearer ${empTok}`)
+          .send({ cancellation_reason: 'Deleted by user' });
+        expect(cancelDelete.status).toBe(200);
+        expect(cancelDelete.body.status).toBe('CANCELLED');
+
+        // 2. Fleet Manager can ONLY assign an available car during approval
+        // Book car #1 for another trip in the same slot so car #1 is BUSY
+        const busyTrip = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${admTok}`)
+          .send({
+            vehicle_id: 1,
+            purpose: 'Blocking Car 1',
+            origin: 'Headquarters',
+            destination: 'Cikarang',
+            start_time: sIso,
+            end_time: eIso,
+            passengers: [{ id: 1, nickname: 'Admin' }],
+          });
+        expect(busyTrip.status).toBe(201);
+
+        // Employee submits a request without picking a car (AUTO)
+        const pendingTrip = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${empTok}`)
+          .send({
+            vehicle_id: 'AUTO',
+            purpose: 'Employee trip awaiting FM car assignment',
+            origin: 'Headquarters',
+            destination: 'Senayan',
+            start_time: sIso,
+            end_time: eIso,
+            passengers: [{ id: 1, nickname: 'Alex' }],
+          });
+        expect(pendingTrip.status).toBe(201);
+        const pendingId = pendingTrip.body.tripId;
+
+        // Availability endpoint with exclude_trip_id marks car #1 unavailable and pendingTrip's car available
+        const availRes = await request(testApp)
+          .get(`/api/availability?start_time=${encodeURIComponent(sIso)}&end_time=${encodeURIComponent(eIso)}&exclude_trip_id=${pendingId}`)
+          .set('Authorization', `Bearer ${fmTok}`);
+        expect(availRes.status).toBe(200);
+        const car1Avail = availRes.body.vehicles.find((v: any) => Number(v.id) === 1);
+        expect(car1Avail.isAvailable).toBe(false);
+        const freeCar = availRes.body.vehicles.find((v: any) => v.status === 'Available' && v.isAvailable === true);
+        expect(freeCar).toBeTruthy();
+
+        // FM attempting to assign BUSY car #1 in Stage 1 must be blocked with 409
+        const fmBusyAttempt = await request(testApp)
+          .post(`/api/trips/${pendingId}/decision`)
+          .set('Authorization', `Bearer ${fmTok}`)
+          .send({
+            decision: 'APPROVED',
+            vehicle_id: 1,
+            reason: 'Trying busy car',
+          });
+        expect(fmBusyAttempt.status).toBe(409);
+
+        // FM assigning an AVAILABLE car succeeds cleanly
+        const fmAvailAssign = await request(testApp)
+          .post(`/api/trips/${pendingId}/decision`)
+          .set('Authorization', `Bearer ${fmTok}`)
+          .send({
+            decision: 'APPROVED',
+            vehicle_id: freeCar.id,
+            reason: 'Assigned available car by Fleet Manager',
+          });
+        expect(fmAvailAssign.status).toBe(200);
+        expect(Number(fmAvailAssign.body.trip.vehicle_id)).toBe(Number(freeCar.id));
+
+        // 3. UI Verification: No employee car picker, compact LanguageSwitcher, FM available-car-only select
+        const appTsx = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf8');
+        const appShellTsx = fs.readFileSync(path.resolve(__dirname, '../src/components/AppShell.tsx'), 'utf8');
+        expect(appTsx).toContain('id="fleet-manager-car-assignment-notice"');
+        expect(appTsx).not.toContain('toggle-optional-vehicle-picker-btn');
+        expect(appTsx).toContain('id="dispatch-available-vehicle-select"');
+        expect(appShellTsx).toContain('<LanguageSwitcher compact />');
+      });
     });
   });
 });

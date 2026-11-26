@@ -135,7 +135,7 @@ export const EmbeddedTopNav: React.FC<EmbeddedTopNavProps> = ({
       <div className="gf-topbar-right">
         <DisplayModeToggle variant="compact" id="topbar-display-mode-toggle" />
         <div className="gf-topbar-lang-wrap">
-          <LanguageSwitcher compact={false} />
+          <LanguageSwitcher compact />
         </div>
 
         {onOpenProfile && (

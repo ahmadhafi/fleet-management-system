@@ -142,18 +142,26 @@ export function createApp() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-  // Normalize double slashes and subfolder prefixes (e.g., //api/..., /index.php/api/..., /fleet/api/...)
+  // Normalize double slashes, trailing slashes, and subfolder prefixes (e.g., //api/..., /index.php/api/..., /fleet/api/...)
   // so reverse proxies, cPanel Phusion Passenger, or trailing-slash client requests never trigger "API endpoint not found"
   app.use((req: Request, _res: Response, next: NextFunction) => {
-    if (req.url.includes('//')) {
-      req.url = req.url.replace(/\/+/g, '/');
+    const qIdx = req.url.indexOf('?');
+    let pathPart = qIdx >= 0 ? req.url.slice(0, qIdx) : req.url;
+    const queryPart = qIdx >= 0 ? req.url.slice(qIdx) : '';
+
+    if (pathPart.includes('//')) {
+      pathPart = pathPart.replace(/\/+/g, '/');
     }
-    const apiIdx = req.url.indexOf('/api/');
+    const apiIdx = pathPart.indexOf('/api/');
     if (apiIdx > 0) {
-      req.url = req.url.slice(apiIdx);
-    } else if (req.url === '/api' || req.url.endsWith('/api')) {
-      req.url = '/api';
+      pathPart = pathPart.slice(apiIdx);
+    } else if (pathPart === '/api' || pathPart.endsWith('/api')) {
+      pathPart = '/api';
     }
+    if (pathPart.startsWith('/api/') && pathPart.length > 5 && pathPart.endsWith('/')) {
+      pathPart = pathPart.slice(0, -1);
+    }
+    req.url = `${pathPart}${queryPart}`;
     next();
   });
 
@@ -2085,6 +2093,8 @@ export function createApp() {
     const db = getDb();
     const startTime = String(req.query.start_time || '');
     const endTime = String(req.query.end_time || '');
+    const excludeTripIdRaw = req.query.exclude_trip_id ? Number(req.query.exclude_trip_id) : undefined;
+    const excludeTripId = excludeTripIdRaw && Number.isFinite(excludeTripIdRaw) ? excludeTripIdRaw : undefined;
     if (!startTime || !endTime) {
       res.status(400).json({ error: 'start_time and end_time query parameters are required' });
       return;
@@ -2102,7 +2112,7 @@ export function createApp() {
       .all() as Array<{ id: number } & Record<string, unknown>>;
 
     const vehicleAvailability = vehicles.map((v) => {
-      const check = checkVehicleConflict(db, v.id, startTime, endTime);
+      const check = checkVehicleConflict(db, v.id, startTime, endTime, undefined, excludeTripId);
       return {
         ...v,
         isAvailable: !check.hasConflict,
@@ -2111,7 +2121,7 @@ export function createApp() {
     });
 
     const driverAvailability = drivers.map((d) => {
-      const check = checkDriverConflict(db, d.id, startTime, endTime);
+      const check = checkDriverConflict(db, d.id, startTime, endTime, excludeTripId);
       return {
         ...d,
         isAvailable: !check.hasConflict,
@@ -2612,6 +2622,32 @@ export function createApp() {
             }
             if (hasHwsAccount && !hwsApprovedPrior) {
               // Stage 1: Consented by Fleet Operation PIC, awaiting Head Of WS Part final approval
+              const targetVehicleId = vehicle_id ? Number(vehicle_id) : trip.vehicle_id;
+              const vConflictStage1 = checkVehicleConflict(db, targetVehicleId, trip.start_time, trip.end_time, undefined, tripId);
+              if (vConflictStage1.hasConflict) {
+                const err = new Error(vConflictStage1.reason || 'Selected vehicle is not available for this time slot');
+                (err as Error & { status?: number }).status = 409;
+                throw err;
+              }
+
+              let stage1DriverId: number | null = driver_profile_id ? Number(driver_profile_id) : trip.preferred_driver_id;
+              if (!stage1DriverId) {
+                const vehRow = db.prepare('SELECT default_driver_id FROM vehicles WHERE id = ?').get(targetVehicleId) as
+                  | { default_driver_id: number | null }
+                  | undefined;
+                if (vehRow?.default_driver_id) {
+                  stage1DriverId = vehRow.default_driver_id;
+                }
+              }
+              if (stage1DriverId) {
+                const dConflictStage1 = checkDriverConflict(db, stage1DriverId, trip.start_time, trip.end_time, tripId);
+                if (dConflictStage1.hasConflict) {
+                  const err = new Error(dConflictStage1.reason || 'Selected driver is not available for this time slot');
+                  (err as Error & { status?: number }).status = 409;
+                  throw err;
+                }
+              }
+
               const baseReason = reason ? String(reason).trim() : 'Consented by Fleet Operation PIC';
               const stage1Reason = tripIsUrgent
                 ? `${baseReason} [Urgent Request Approved by Fleet Operation PIC]`.trim()
@@ -2623,17 +2659,45 @@ export function createApp() {
                 )
                 .run(tripId, user.id, stage1Reason);
 
-              if (vehicle_id || driver_profile_id) {
-                db.prepare(
-                  `UPDATE trip_requests
-                   SET vehicle_id = COALESCE(?, vehicle_id),
-                       preferred_driver_id = COALESCE(?, preferred_driver_id),
-                       updated_at = datetime('now')
-                   WHERE id = ?`
-                ).run(vehicle_id ? Number(vehicle_id) : null, driver_profile_id ? Number(driver_profile_id) : null, tripId);
+              db.prepare(
+                `UPDATE trip_requests
+                 SET vehicle_id = ?,
+                     preferred_driver_id = ?,
+                     updated_at = datetime('now')
+                 WHERE id = ?`
+              ).run(targetVehicleId, stage1DriverId, tripId);
+
+              const existingBkg = db.prepare("SELECT id FROM bookings WHERE trip_request_id = ? AND status != 'CANCELLED'").get(tripId) as
+                | { id: number }
+                | undefined;
+              let stage1BookingId: number;
+              if (existingBkg) {
+                stage1BookingId = existingBkg.id;
+                db.prepare("UPDATE bookings SET vehicle_id = ?, updated_at = datetime('now') WHERE id = ?").run(targetVehicleId, stage1BookingId);
+              } else {
+                const bRes = db
+                  .prepare(
+                    `INSERT INTO bookings (trip_request_id, vehicle_id, booked_by, purpose, start_time, end_time, buffer_minutes, status)
+                     VALUES (?, ?, ?, ?, ?, ?, 15, 'PENDING_APPROVAL')`
+                  )
+                  .run(tripId, targetVehicleId, trip.requester_id, trip.purpose, trip.start_time, trip.end_time);
+                stage1BookingId = Number(bRes.lastInsertRowid);
               }
 
-              recordAudit(db, user, 'TRIP_STAGE_APPROVED', 'TRIP_REQUEST', tripId, { status: trip.status }, { stage: 'AWAITING_HWS', is_urgent: tripIsUrgent });
+              if (stage1DriverId) {
+                db.prepare('UPDATE assignments SET is_current = 0 WHERE trip_request_id = ?').run(tripId);
+                db.prepare(
+                  `INSERT INTO assignments (trip_request_id, booking_id, vehicle_id, driver_profile_id, assigned_by, reason, effective_start, effective_end, is_current, acknowledged_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))`
+                ).run(tripId, stage1BookingId, targetVehicleId, stage1DriverId, user.id, stage1Reason, trip.start_time, trip.end_time);
+              }
+
+              recordAudit(db, user, 'TRIP_STAGE_APPROVED', 'TRIP_REQUEST', tripId, { status: trip.status }, {
+                stage: 'AWAITING_HWS',
+                is_urgent: tripIsUrgent,
+                vehicle_id: targetVehicleId,
+                driver_profile_id: stage1DriverId,
+              });
               return { status: 'PENDING_APPROVAL', isFinal: false, stage: 'AWAITING_HWS', decisionId: Number(decRes.lastInsertRowid) };
             }
           } else if (user.role === 'HWS') {
@@ -3021,10 +3085,15 @@ export function createApp() {
   });
 
   // Cancel a trip request (Employee can cancel both PENDING_APPROVAL and APPROVED bookings; frees vehicle & driver slot immediately)
-  app.post('/api/trips/:id/cancel', requireAuth, (req: Request, res: Response) => {
+  const handleCancelTripRequest = (req: Request, res: Response) => {
     const db = getDb();
     const user = req.user!;
-    const tripId = Number(req.params.id);
+    const rawId = req.params.id ?? req.body?.trip_id ?? req.body?.id ?? req.query?.trip_id;
+    const tripId = Number(rawId);
+    if (!tripId || !Number.isFinite(tripId)) {
+      res.status(400).json({ error: 'Valid trip ID is required to cancel a trip' });
+      return;
+    }
     const cancellationReason = req.body?.reason || req.body?.cancellation_reason
       ? String(req.body.reason || req.body.cancellation_reason).trim()
       : 'Cancelled by passenger (schedule/plan changed)';
@@ -3061,12 +3130,12 @@ export function createApp() {
       .prepare(
         `SELECT a.id, a.driver_profile_id, dp.user_id as driver_user_id, v.registration_plate
          FROM trip_requests tr
-         JOIN vehicles v ON v.id = tr.vehicle_id
+         LEFT JOIN vehicles v ON v.id = tr.vehicle_id
          LEFT JOIN assignments a ON a.trip_request_id = tr.id AND a.is_current = 1
          LEFT JOIN driver_profiles dp ON dp.id = a.driver_profile_id
          WHERE tr.id = ?`
       )
-      .get(tripId) as { id: number | null; driver_profile_id: number | null; driver_user_id: number | null; registration_plate: string } | undefined;
+      .get(tripId) as { id: number | null; driver_profile_id: number | null; driver_user_id: number | null; registration_plate: string | null } | undefined;
 
     runInTransaction(db, () => {
       db.prepare("UPDATE trip_requests SET status = 'CANCELLED', notes = COALESCE(notes || ' | ', '') || ?, updated_at = datetime('now') WHERE id = ?").run(
@@ -3089,7 +3158,7 @@ export function createApp() {
         userId: activeAssignment.driver_user_id,
         triggerType: 'DISPATCH_CANCELLED_BY_PASSENGER',
         title: 'Booking Cancelled by Passenger',
-        body: `Trip "${trip.purpose}" (${activeAssignment.registration_plate}) scheduled for ${trip.start_time} was cancelled by ${user.nickname}. Reason: ${cancellationReason}. Your slot is now free.`,
+        body: `Trip "${trip.purpose}" (${activeAssignment.registration_plate || 'Fleet Car'}) scheduled for ${trip.start_time} was cancelled by ${user.nickname}. Reason: ${cancellationReason}. Your slot is now free.`,
         relatedEntityType: 'TRIP_REQUEST',
         relatedEntityId: tripId,
       });
@@ -3105,6 +3174,26 @@ export function createApp() {
 
     const enriched = broadcastTripUpdate(db, tripId, 'TRIP_UPDATED', { status: 'CANCELLED', cancellation_reason: cancellationReason });
     res.json({ ok: true, status: 'CANCELLED', trip: enriched });
+  };
+
+  app.post('/api/trips/:id/cancel', requireAuth, handleCancelTripRequest);
+  app.patch('/api/trips/:id/cancel', requireAuth, handleCancelTripRequest);
+  app.put('/api/trips/:id/cancel', requireAuth, handleCancelTripRequest);
+  app.delete('/api/trips/:id/cancel', requireAuth, handleCancelTripRequest);
+  app.delete('/api/trips/:id', requireAuth, handleCancelTripRequest);
+  app.post('/api/trips/cancel', requireAuth, handleCancelTripRequest);
+  app.post('/api/bookings/:id/cancel', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const bookingId = Number(req.params.id);
+    const bkg = db.prepare('SELECT id, trip_request_id FROM bookings WHERE id = ?').get(bookingId) as
+      | { id: number; trip_request_id: number | null }
+      | undefined;
+    if (bkg?.trip_request_id) {
+      req.params.id = String(bkg.trip_request_id);
+      handleCancelTripRequest(req, res);
+      return;
+    }
+    res.status(404).json({ error: 'Booking not found' });
   });
 
   // Protect approval_decisions against any attempt to edit or delete via API (REQ-06, TC-REQ-02)

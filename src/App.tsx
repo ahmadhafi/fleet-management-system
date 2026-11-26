@@ -9,8 +9,6 @@ import {
   CheckCircle2,
   Clock,
   AlertTriangle,
-  BatteryCharging,
-  Fuel,
   UserCheck,
   Users,
   MapPin,
@@ -73,7 +71,6 @@ import { useAppLanguage, startDomTranslationObserver, translateDomTree, type Sup
 import { SamsungBusLogo } from './components/SamsungBusLogo';
 import { CompanyCarIcon } from './components/CompanyCarIcon';
 import { RouteFields } from './components/RouteFields';
-import { VehicleArt } from './components/VehicleArt';
 import { getDriverAvatarDataUri, getVehiclePhotoIconUrl } from './components/CarAvatarArt';
 import { triggerSystemNotification } from './utils/notification';
 import { GojekWheelPicker, type DateOption } from './components/GojekWheelPicker';
@@ -83,7 +80,6 @@ import {
   toneFromStatus,
   Segmented,
   ListRow,
-  OptionRow,
   StickyActionBar,
   Skeleton,
   EmptyState,
@@ -482,8 +478,8 @@ export function App() {
   const [showSchedulePicker, setShowSchedulePicker] = useState<boolean>(false);
   const [schedulePickerTab, setSchedulePickerTab] = useState<'TODAY' | 'TOMORROW' | 'DATE'>('TODAY');
   const [multiStopToast, setMultiStopToast] = useState<string | null>(null);
-  const [vehicleFilter, setVehicleFilter] = useState<'ALL' | 'Electric' | 'MPV'>('ALL');
-  const [showOptionalVehiclePicker, setShowOptionalVehiclePicker] = useState<boolean>(false);
+  const [vehicleFilter, _setVehicleFilter] = useState<'ALL' | 'Electric' | 'MPV'>('ALL');
+  void _setVehicleFilter;
   const [activityTab, setActivityTab] = useState<'ONGOING' | 'HISTORY'>('ONGOING');
   const [summaryPicker, setSummaryPicker] = useState<'PURPOSE' | 'PAX' | 'NOTES' | 'CHARGE' | null>(null);
   const [_pickerValidationError, setPickerValidationError] = useState<string | null>(null);
@@ -567,7 +563,8 @@ export function App() {
     toLocalDateTimeInput(new Date(defaultStartMs + 3 * 3600000))
   );
   const [bookVehicleId, setBookVehicleId] = useState<number>(0);
-  const [bookDriverId, setBookDriverId] = useState<string>('');
+  const [bookDriverId, _setBookDriverId] = useState<string>('');
+  void _setBookDriverId;
   const [bookPax, setBookPax] = useState<number>(1);
   const [bookNotes, setBookNotes] = useState('');
   const [bookUrgentReason, setBookUrgentReason] = useState<string>('');
@@ -617,6 +614,8 @@ export function App() {
   const [dispatchVehicleId, setDispatchVehicleId] = useState<number>(0);
   const [dispatchDriverId, setDispatchDriverId] = useState<string>('');
   const [dispatchDecisionReason, setDispatchDecisionReason] = useState('');
+  const [dispatchAvailability, setDispatchAvailability] = useState<{ vehicles: any[]; drivers: any[] } | null>(null);
+  const [dispatchAvailabilityLoading, setDispatchAvailabilityLoading] = useState<boolean>(false);
   const [pendingRoleSelections, setPendingRoleSelections] = useState<Record<number, string>>({});
   const [pendingGroupSelections, setPendingGroupSelections] = useState<Record<number, number>>({});
   const [userFilterTab, setUserFilterTab] = useState<'ALL' | 'PENDING' | 'DRIVERS' | 'INACTIVE'>('ALL');
@@ -1051,6 +1050,47 @@ export function App() {
       .then((res) => setLiveAvailability(res))
       .catch(() => {});
   }, [user, bookStart, bookEnd, scheduleMode, trips, bookings, vehicles]);
+
+  // Fleet Manager / Admin Dispatch Modal: load ONLY available cars & drivers for this trip's exact time window
+  useEffect(() => {
+    if (!user || !dispatchModalTrip?.id || !dispatchModalTrip?.start_time || !dispatchModalTrip?.end_time) {
+      setDispatchAvailability(null);
+      setDispatchAvailabilityLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setDispatchAvailabilityLoading(true);
+    const qs = `start_time=${encodeURIComponent(dispatchModalTrip.start_time)}&end_time=${encodeURIComponent(dispatchModalTrip.end_time)}&exclude_trip_id=${encodeURIComponent(String(dispatchModalTrip.id))}`;
+    apiRequest(`/api/availability?${qs}`)
+      .then((res) => {
+        if (cancelled) return;
+        setDispatchAvailability(res);
+        const availCars = (res?.vehicles || []).filter((v: any) => v.status === 'Available' && v.isAvailable !== false);
+        const availDrivers = (res?.drivers || []).filter((d: any) => d.availability_status === 'Active' && d.isAvailable !== false);
+        if (availCars.length > 0) {
+          const preferredCar =
+            availCars.find((v: any) => Number(v.id) === Number(dispatchModalTrip.vehicle_id)) || availCars[0];
+          setDispatchVehicleId(Number(preferredCar.id));
+          const defaultDrv =
+            availDrivers.find((d: any) => Number(d.id) === Number(dispatchModalTrip.preferred_driver_id || dispatchModalTrip.driver_profile_id)) ||
+            availDrivers.find((d: any) => Number(d.id) === Number(preferredCar.default_driver_id)) ||
+            null;
+          setDispatchDriverId(defaultDrv ? String(defaultDrv.id) : '');
+        } else {
+          setDispatchVehicleId(0);
+          setDispatchDriverId('');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setDispatchAvailability(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDispatchAvailabilityLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, dispatchModalTrip?.id, dispatchModalTrip?.start_time, dispatchModalTrip?.end_time]);
 
   // Periodic 20-Minute GPS Reporting + Screen WakeLock for Driver PWA
   const sendDriverLocationReport = useCallback(
@@ -1921,17 +1961,12 @@ export function App() {
         ? cleanPassengers.map((p) => `${p.id}. ${p.nickname}`).join(', ')
         : bookPassengerNickname.trim();
 
-    const chosenVehiclePayload =
-      showOptionalVehiclePicker && selectedVehicle && selectedVehicle.isAvailable !== false && selectedVehicle.status === 'Available'
-        ? Number(selectedVehicle.id)
-        : 'AUTO';
-
     try {
       const created = await apiRequest('/api/trips', {
         method: 'POST',
         body: JSON.stringify({
-          vehicle_id: chosenVehiclePayload,
-          preferred_driver_id: showOptionalVehiclePicker && bookDriverId ? Number(bookDriverId) : null,
+          vehicle_id: 'AUTO',
+          preferred_driver_id: null,
           purpose: effectivePurpose,
           origin: bookOrigin.trim(),
           destination: bookDest.trim(),
@@ -1962,7 +1997,7 @@ export function App() {
       setSheetSnap('half');
       setStatusBanner({
         type: 'success',
-        text: 'Request sent! Vehicle schedule slot locked pending approval.',
+        text: 'Request sent! Awaiting Fleet Manager approval & car assignment.',
       });
       await loadAllData(user);
     } catch (err: any) {
@@ -1971,33 +2006,86 @@ export function App() {
   };
 
   const handleCancelBookingRequest = async (trip: any) => {
-    if (!trip?.id && !trip?.booking_id) {
+    const tripId = Number(trip?.trip_request_id || trip?.id || 0);
+    let bookingId = Number(
+      trip?.booking_id ||
+        bookings.find((b) => Number(b.trip_request_id) === tripId && b.status !== 'CANCELLED')?.id ||
+        0
+    );
+
+    if (!tripId && !bookingId) {
       setBookingStep('HOME');
       setSheetSnap('half');
       return;
     }
+
+    const cancelReason = 'Cancelled by requester (plan changed)';
     try {
-      if (trip?.id) {
-        await apiRequest(`/api/trips/${trip.id}/cancel`, {
-          method: 'POST',
-          body: JSON.stringify({
-            cancellation_reason: 'Cancelled by requester (plan changed)',
-          }),
-        });
-      } else if (trip?.booking_id) {
-        await apiRequest(`/api/bookings/${trip.booking_id}`, {
+      let cancelledOk = false;
+      if (tripId > 0) {
+        try {
+          await apiRequest(`/api/trips/${tripId}/cancel`, {
+            method: 'POST',
+            body: JSON.stringify({
+              reason: cancelReason,
+              cancellation_reason: cancelReason,
+            }),
+          });
+          cancelledOk = true;
+        } catch (primaryErr: any) {
+          const msg = String(primaryErr?.message || '').toLowerCase();
+          const isRouteNotFound = msg.includes('not found') || msg.includes('404');
+          if (!isRouteNotFound) {
+            throw primaryErr;
+          }
+          // Fallback for proxies/rolling restarts: resolve linked booking ID and cancel via PATCH /api/bookings/:id
+          if (!bookingId) {
+            const bkgRes = await apiRequest('/api/bookings').catch(() => ({ bookings: [] }));
+            const matchedBkg = (bkgRes?.bookings || []).find(
+              (b: any) => Number(b.trip_request_id) === tripId && b.status !== 'CANCELLED'
+            );
+            if (matchedBkg?.id) {
+              bookingId = Number(matchedBkg.id);
+            }
+          }
+          if (bookingId > 0) {
+            await apiRequest(`/api/bookings/${bookingId}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                status: 'CANCELLED',
+                cancellation_reason: cancelReason,
+              }),
+            });
+            cancelledOk = true;
+          } else {
+            await apiRequest(`/api/trips/${tripId}`, {
+              method: 'DELETE',
+              body: JSON.stringify({
+                reason: cancelReason,
+                cancellation_reason: cancelReason,
+              }),
+            });
+            cancelledOk = true;
+          }
+        }
+      } else if (bookingId > 0) {
+        await apiRequest(`/api/bookings/${bookingId}`, {
           method: 'PATCH',
           body: JSON.stringify({
             status: 'CANCELLED',
-            cancellation_reason: 'Cancelled by requester',
+            cancellation_reason: cancelReason,
           }),
         });
+        cancelledOk = true;
       }
-      setFocusedTripId(null);
-      setBookingStep('HOME');
-      setSheetSnap('half');
-      setStatusBanner({ type: 'info', text: t('Booking cancelled and vehicle/driver slot released.') });
-      await loadAllData(user);
+
+      if (cancelledOk) {
+        setFocusedTripId(null);
+        setBookingStep('HOME');
+        setSheetSnap('half');
+        setStatusBanner({ type: 'info', text: t('Booking cancelled and vehicle/driver slot released.') });
+        await loadAllData(user);
+      }
     } catch (err: any) {
       setStatusBanner({ type: 'danger', text: err.message });
     }
@@ -2169,13 +2257,27 @@ export function App() {
 
   const handleAdminTripDecision = async (decision: 'APPROVED' | 'REJECTED') => {
     if (!dispatchModalTrip) return;
+    const availCarsForTrip = (dispatchAvailability?.vehicles || vehicles).filter(
+      (v: any) => v.status === 'Available' && v.isAvailable !== false
+    );
+    const chosenVehicleId = Number(dispatchVehicleId || 0);
+    if (decision === 'APPROVED') {
+      if (availCarsForTrip.length === 0) {
+        setStatusBanner({ type: 'danger', text: 'No available vehicles for this time slot. Cannot approve without an available car.' });
+        return;
+      }
+      if (!chosenVehicleId || !availCarsForTrip.some((v: any) => Number(v.id) === chosenVehicleId)) {
+        setStatusBanner({ type: 'danger', text: 'Please select an available vehicle from the list before approving.' });
+        return;
+      }
+    }
     try {
       const res = await apiRequest(`/api/trips/${dispatchModalTrip.id}/decision`, {
         method: 'POST',
         body: JSON.stringify({
           decision,
           reason: dispatchDecisionReason || (decision === 'APPROVED' ? `Approved by ${user.role}` : ''),
-          vehicle_id: Number(dispatchVehicleId || dispatchModalTrip.vehicle_id),
+          vehicle_id: chosenVehicleId || Number(dispatchModalTrip.vehicle_id),
           driver_profile_id: dispatchDriverId ? Number(dispatchDriverId) : null,
         }),
       });
@@ -2526,9 +2628,9 @@ export function App() {
     return (
       <div className="gf-auth-screen">
         <div className="gf-auth-card">
-          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '12px', width: '100%' }}>
             <DisplayModeToggle variant="compact" id="auth-display-mode-toggle" />
-            <LanguageSwitcher />
+            <LanguageSwitcher compact />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
             <SamsungBusLogo size={52} />
@@ -2906,61 +3008,138 @@ export function App() {
               </div>
             )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div>
-                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Assigned Vehicle</label>
-                <select className="gf-select" value={dispatchVehicleId} onChange={(e) => setDispatchVehicleId(Number(e.target.value))}>
-                  {vehicles.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.registration_plate} — {v.make} {v.model} ({v.energy_type}, {v.status})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Assigned Driver</label>
-                <select className="gf-select" value={dispatchDriverId} onChange={(e) => setDispatchDriverId(e.target.value)}>
-                  <option value="">No driver assigned yet (Vehicle only / Assign later)</option>
-                  {drivers.map((d) => (
-                    <option key={d.id} value={String(d.id)}>
-                      {d.full_name} (Class {d.licence_class} • {d.availability_status})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Approval Note / Rejection Reason</label>
-                <input
-                  type="text"
-                  className="gf-input"
-                  placeholder="Enter note or mandatory reason if rejecting"
-                  value={dispatchDecisionReason}
-                  onChange={(e) => setDispatchDecisionReason(e.target.value)}
-                />
-              </div>
-              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
-                <button type="button" className="gf-btn gf-btn-outline-danger" style={{ flex: 1 }} onClick={() => handleAdminTripDecision('REJECTED')}>
-                  Reject
-                </button>
-                <button
-                  type="button"
-                  className="gf-btn gf-btn-primary"
-                  style={{ flex: 1 }}
-                  disabled={user.role === 'HWS' && dispatchModalTrip.requires_dual_approval && !dispatchModalTrip.pic_approved}
-                  onClick={() => handleAdminTripDecision('APPROVED')}
-                >
-                  {user.role === 'ADM' && dispatchModalTrip.requires_dual_approval && (!dispatchModalTrip.pic_approved || !dispatchModalTrip.hws_approved)
-                    ? 'Approve & Delegate as Admin'
-                    : user.role === 'FM'
-                    ? 'Stage 1: Consent as Fleet Operation PIC'
-                    : user.role === 'HWS'
-                    ? dispatchModalTrip.pic_approved
-                      ? 'Stage 2: Authorize & Finalize Dispatch'
-                      : 'Locked (Await Fleet PIC Stage 1)'
-                    : 'Approve & Dispatch'}
-                </button>
-              </div>
-            </div>
+            {(() => {
+              const allPoolVehicles = dispatchAvailability?.vehicles?.length ? dispatchAvailability.vehicles : vehicles;
+              const availableDispatchVehicles = allPoolVehicles.filter(
+                (v: any) => v.status === 'Available' && v.isAvailable !== false
+              );
+              const unavailableVehiclesCount = Math.max(0, allPoolVehicles.length - availableDispatchVehicles.length);
+
+              const allPoolDrivers = dispatchAvailability?.drivers?.length ? dispatchAvailability.drivers : drivers;
+              const availableDispatchDrivers = allPoolDrivers.filter(
+                (d: any) => d.availability_status === 'Active' && d.isAvailable !== false
+              );
+              const noAvailableCar = !dispatchAvailabilityLoading && availableDispatchVehicles.length === 0;
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      <label className="type-caption" htmlFor="dispatch-available-vehicle-select" style={{ fontWeight: 700 }}>
+                        {t('Assign Available Vehicle')} *
+                      </label>
+                      <span
+                        style={{
+                          fontSize: '10.5px',
+                          fontWeight: 700,
+                          color: noAvailableCar ? '#dc2626' : '#005bb5',
+                          background: noAvailableCar ? '#fef2f2' : '#ebf5ff',
+                          padding: '2px 7px',
+                          borderRadius: '99px',
+                        }}
+                      >
+                        {dispatchAvailabilityLoading
+                          ? t('Checking availability...')
+                          : `${availableDispatchVehicles.length} ${t('Available')}`}
+                      </span>
+                    </div>
+                    <select
+                      id="dispatch-available-vehicle-select"
+                      className="gf-select"
+                      value={dispatchVehicleId}
+                      disabled={dispatchAvailabilityLoading || noAvailableCar}
+                      onChange={(e) => {
+                        const nextVehId = Number(e.target.value);
+                        setDispatchVehicleId(nextVehId);
+                        const chosenCar = availableDispatchVehicles.find((v: any) => Number(v.id) === nextVehId);
+                        if (chosenCar?.default_driver_id) {
+                          const defaultDrvAvail = availableDispatchDrivers.find(
+                            (d: any) => Number(d.id) === Number(chosenCar.default_driver_id)
+                          );
+                          if (defaultDrvAvail) {
+                            setDispatchDriverId(String(defaultDrvAvail.id));
+                          }
+                        }
+                      }}
+                    >
+                      {noAvailableCar ? (
+                        <option value={0}>No available cars for this time window</option>
+                      ) : (
+                        availableDispatchVehicles.map((v: any) => (
+                          <option key={v.id} value={v.id}>
+                            {v.registration_plate} — {v.make} {v.model} ({v.energy_type} • {v.seats} seats • Available)
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    {noAvailableCar ? (
+                      <div style={{ fontSize: '11.5px', color: '#dc2626', fontWeight: 700, marginTop: '4px' }}>
+                        ⚠️ All company vehicles are booked or unavailable during this schedule window. Reject this request or wait for a car to be released.
+                      </div>
+                    ) : (
+                      <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
+                        ✓ Only available cars for this schedule can be assigned{unavailableVehiclesCount > 0 ? ` (${unavailableVehiclesCount} busy/standby car${unavailableVehiclesCount > 1 ? 's' : ''} hidden)` : ''}.
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="type-caption" htmlFor="dispatch-available-driver-select" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                      {t('Assigned Driver')} ({availableDispatchDrivers.length} {t('Available')})
+                    </label>
+                    <select
+                      id="dispatch-available-driver-select"
+                      className="gf-select"
+                      value={dispatchDriverId}
+                      disabled={dispatchAvailabilityLoading}
+                      onChange={(e) => setDispatchDriverId(e.target.value)}
+                    >
+                      <option value="">Auto-assign vehicle default driver (or assign later)</option>
+                      {availableDispatchDrivers.map((d: any) => (
+                        <option key={d.id} value={String(d.id)}>
+                          {d.full_name} (Class {d.licence_class} • Available)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Approval Note / Rejection Reason</label>
+                    <input
+                      type="text"
+                      className="gf-input"
+                      placeholder="Enter note or mandatory reason if rejecting"
+                      value={dispatchDecisionReason}
+                      onChange={(e) => setDispatchDecisionReason(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                    <button type="button" className="gf-btn gf-btn-outline-danger" style={{ flex: 1 }} onClick={() => handleAdminTripDecision('REJECTED')}>
+                      Reject
+                    </button>
+                    <button
+                      type="button"
+                      className="gf-btn gf-btn-primary"
+                      style={{ flex: 1 }}
+                      disabled={
+                        dispatchAvailabilityLoading ||
+                        noAvailableCar ||
+                        (user.role === 'HWS' && dispatchModalTrip.requires_dual_approval && !dispatchModalTrip.pic_approved)
+                      }
+                      onClick={() => handleAdminTripDecision('APPROVED')}
+                    >
+                      {user.role === 'ADM' && dispatchModalTrip.requires_dual_approval && (!dispatchModalTrip.pic_approved || !dispatchModalTrip.hws_approved)
+                        ? 'Approve & Delegate as Admin'
+                        : user.role === 'FM'
+                        ? 'Stage 1: Assign Car & Consent (Fleet PIC)'
+                        : user.role === 'HWS'
+                        ? dispatchModalTrip.pic_approved
+                          ? 'Stage 2: Authorize & Finalize Dispatch'
+                          : 'Locked (Await Fleet PIC Stage 1)'
+                        : 'Approve & Assign Car'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -7837,17 +8016,16 @@ export function App() {
                   setSheetSnap('half');
                 }}
               >
-                {t('Continue to Vehicle')}
+                {t('Continue to Trip Form')}
               </button>
             </div>
           </StickyActionBar>
         );
       }
     } else if (bookingStep === 'VEHICLE') {
-      const availSelected = !showOptionalVehiclePicker || !selectedVehicle || (selectedVehicle.isAvailable !== false && selectedVehicle.status === 'Available');
       const isPurposeFilled = Boolean(bookPurpose.trim());
       const isPassengerFilled = bookPassengers.length > 0 && bookPassengers.every((p) => Boolean(p.nickname.trim()));
-      const canDirectSubmit = availSelected && isPurposeFilled && isPassengerFilled;
+      const canDirectSubmit = isPurposeFilled && isPassengerFilled;
 
       stickyFooter = (
         <StickyActionBar>
@@ -7867,7 +8045,6 @@ export function App() {
               id="vehicle-continue-btn"
               type="button"
               className="gf-gocar-book-cta pressable"
-              disabled={!availSelected}
               onClick={() => {
                 if (canDirectSubmit) {
                   handleCreateTripBooking(true);
@@ -7883,12 +8060,10 @@ export function App() {
             >
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, overflow: 'hidden' }}>
                 <span style={{ width: '100%', textAlign: 'left', fontSize: '14.5px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {showOptionalVehiclePicker && selectedVehicle
-                    ? `${t('Request GalaxyFleet')} • ${selectedVehicle.make} ${selectedVehicle.model}`
-                    : `${t('Request GalaxyFleet')} • ${t('Auto-Assign Car')}`}
+                  {t('Submit Trip Request')}
                 </span>
                 <span style={{ width: '100%', textAlign: 'left', fontSize: '11.5px', fontWeight: 600, opacity: 0.9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {getScheduleSlotBrief(bookStart, lang)} • ETA {currentMetrics.etaText}
+                  {getScheduleSlotBrief(bookStart, lang)} • {t('Car assigned by Fleet Manager')}
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
@@ -11966,10 +12141,6 @@ export function App() {
     // BOOKING FLOW STEP 2: PICK YOUR RIDE, TRIP CATEGORY, TIME & INLINE PURPOSE / PASSENGERS FORM
     // -------------------------------------------------------------------------
     if (bookingStep === 'VEHICLE') {
-      const activeDrivers = (liveAvailability?.drivers?.length ? liveAvailability.drivers : drivers).filter(
-        (d) => d.isAvailable !== false && d.availability_status === 'Active'
-      );
-
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {feedbackBanner}
@@ -12530,233 +12701,31 @@ export function App() {
             </div>
           </div>
 
-          {/* Auto-Assigned Car & Driver Banner (User does NOT need to manually pick a car) */}
+          {/* Fleet Manager Car Assignment Notice (Users cannot choose a car directly) */}
           <div
+            id="fleet-manager-car-assignment-notice"
             style={{
               padding: '12px 14px',
               borderRadius: '14px',
-              background: '#f8fafc',
-              border: '1px solid var(--color-border)',
+              background: '#ebf5ff',
+              border: '1.5px solid #93c5fd',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
               gap: '10px',
-              flexWrap: 'wrap',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-              <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#ebf5ff', color: '#0072de', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                <Car size={18} />
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                  {showOptionalVehiclePicker && selectedVehicle
-                    ? `${selectedVehicle.make} ${selectedVehicle.model} (${selectedVehicle.registration_plate})`
-                    : t('Auto-Assigned Available Car & Driver')}
-                </div>
-                <div className="type-caption" style={{ fontSize: '11.5px' }}>
-                  {t('Automatically assigns an available car & driver for your time slot (Fleet Manager may adjust on approval)')}
-                </div>
-              </div>
+            <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: '#0072de', color: '#ffffff', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+              <Car size={18} />
             </div>
-            <button
-              id="toggle-optional-vehicle-picker-btn"
-              type="button"
-              className="gf-btn gf-btn-secondary gf-btn-sm pressable"
-              style={{ minHeight: '30px', padding: '0 10px', fontSize: '11.5px', fontWeight: 700, flexShrink: 0 }}
-              onClick={() => setShowOptionalVehiclePicker((prev) => !prev)}
-            >
-              {showOptionalVehiclePicker ? t('Use Auto-Assign') : t('Choose Car (Optional)')}
-            </button>
-          </div>
-
-          {showOptionalVehiclePicker && (
-            <>
-          {/* Service Category Underline Tabs */}
-          <div className="gf-underline-tabs" role="tablist" aria-label="Vehicle category tabs">
-            {([
-              { id: 'ALL', label: 'All Fleet' },
-              { id: 'Electric', label: 'Electric EV ⚡' },
-              { id: 'MPV', label: 'Executive & MPV' },
-            ] as Array<{ id: 'ALL' | 'Electric' | 'MPV'; label: string }>).map((tab) => {
-              const active = vehicleFilter === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  className={`gf-underline-tab ${active ? 'is-active' : ''}`}
-                  onClick={() => setVehicleFilter(tab.id)}
-                >
-                  {t(tab.label)}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              role="tab"
-              aria-selected={false}
-              className="gf-underline-tab"
-              onClick={() =>
-                setStatusBanner({
-                  type: 'info',
-                  text: t('Shuttle Bus service is currently under development.'),
-                })
-              }
-            >
-              {t('Shuttle (Dev)')}
-            </button>
-          </div>
-
-          {/* Vehicle Option Cards */}
-          {loadingData ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <Skeleton height={84} />
-              <Skeleton height={84} />
-              <Skeleton height={84} />
-            </div>
-          ) : filteredVehicles.length === 0 ? (
-            <EmptyState
-              message="No vehicles registered in this category yet."
-              action={
-                isPrivileged ? (
-                  <button type="button" className="gf-btn gf-btn-primary" onClick={() => { setNavSection('ADMIN'); setAdminModule('FLEET_OPS'); setOpsSubTab('VEHICLES'); }}>
-                    Add Vehicle in Admin Console
-                  </button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <div className="gf-proto-svc">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px' }}>
-                <div style={{ width: '42px', height: '28px', borderRadius: '8px', background: '#0072de', color: '#ffffff', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                  <Car size={18} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>{t('Operational Car')}</span>
-                  </div>
-                  <div className="type-caption" style={{ fontSize: '11.5px' }}>
-                    {selectedVehicle?.seats ? `${selectedVehicle.seats} ${t('Seats')}` : `4-7 ${t('Seats')}`} • {t('Free Corporate Facility')}
-                  </div>
-                </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: '#005bb5' }}>
+                {t('Vehicle & Driver Assigned by Fleet Manager')}
               </div>
-              {filteredVehicles.map((v, vIdx) => {
-                const isAvail = v.isAvailable !== false && v.status === 'Available';
-                const isSelected = Number(selectedVehicle?.id) === v.id;
-                const isEv = v.energy_type === 'Electric';
-                const pct = isEv ? Number(v.battery_percent ?? 100) : 85;
-                const waitRange = isAvail ? `${3 + (vIdx % 3)}-${6 + (vIdx % 3)} min` : t('Busy');
-                const availText = isAvail
-                  ? `${t('Available')} • ${v.registration_plate} • ${t('Driver included')}`
-                  : v.status !== 'Available'
-                  ? `${v.status}${v.standby_reason ? ` • ${v.standby_reason}` : ''}`
-                  : v.conflictReason || 'Booked for this slot';
-
-                return (
-                  <OptionRow
-                    key={v.id}
-                    id={`vehicle-opt-${v.id}`}
-                    selected={isSelected}
-                    disabled={!isAvail}
-                    onClick={() => setBookVehicleId(v.id)}
-                    leading={<VehicleArt carType={v.car_type} energyType={v.energy_type} size={64} />}
-                    title={`${v.make} ${v.model}`}
-                    badge={
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
-                        <span
-                          style={{
-                            padding: '1px 7px',
-                            borderRadius: '9999px',
-                            background: isSelected ? '#0072de' : 'var(--color-bg-subtle)',
-                            color: isSelected ? '#ffffff' : 'var(--color-text-secondary)',
-                            fontSize: '10.5px',
-                            fontWeight: 700,
-                          }}
-                        >
-                          {waitRange}
-                        </span>
-                        <span className="type-caption">• 👤 {v.seats}</span>
-                        <span
-                          style={{
-                            fontSize: '10px',
-                            fontWeight: 800,
-                            fontStyle: 'italic',
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                            background: isEv ? '#0072de' : '#0a0a0a',
-                            color: '#ffffff',
-                          }}
-                        >
-                          {isEv ? 'ECO EV' : 'FAST DISPATCH'}
-                        </span>
-                      </span>
-                    }
-                    subtitle={availText}
-                    rightMetric={
-                      <div style={{ textAlign: 'right', minWidth: '64px' }}>
-                        <div style={{ fontSize: '12.5px', fontWeight: 800, color: !isAvail ? '#9ca3af' : isSelected ? '#0072de' : 'var(--color-text-primary)' }}>
-                          {isAvail ? t('Ready') : t('Busy')}
-                        </div>
-                        <div style={{ fontSize: '10.5px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
-                          {v.car_type || (isEv ? 'EV Fleet' : 'Fleet')}
-                        </div>
-                        <div className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '2px', marginTop: '2px', fontSize: '10.5px' }}>
-                          {isEv ? <BatteryCharging size={11} /> : <Fuel size={11} />}
-                          {isEv ? `${pct}%` : 'Full'}
-                        </div>
-                      </div>
-                    }
-                  />
-                );
-              })}
-            </div>
-          )}
-
-          {/* Driver provided / Self-drive policy row */}
-          <div style={{ borderRadius: 'var(--radius-card)', border: '1px solid var(--color-divider)', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-              <div>
-                <div className="type-body" style={{ fontWeight: 700 }}>Driver provided</div>
-                <div className="type-caption">Company driver assigned &amp; schedule locked</div>
+              <div className="type-caption" style={{ fontSize: '11.5px', color: '#1e3a8a', marginTop: '2px' }}>
+                {t('You do not need to pick a car. When approving your request, Fleet Manager will assign an available company car & driver for your schedule.')}
               </div>
-              <StatusBadge label="Included" tone="blue" />
-            </div>
-
-            <div>
-              <label className="type-caption" htmlFor="driver-pick-select" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                Preferred Driver ({selectedVehicle ? selectedVehicle.energy_type : ''} Category)
-              </label>
-              <select
-                id="driver-pick-select"
-                className="gf-select"
-                value={bookDriverId}
-                onChange={(e) => setBookDriverId(e.target.value)}
-              >
-                <option value="">Auto-assign on Admin approval</option>
-                {activeDrivers
-                  .filter((d) => {
-                    if (!selectedVehicle) return true;
-                    const assignedCar = vehicles.find((v) => v.default_driver_id === d.id);
-                    if (assignedCar) {
-                      return assignedCar.energy_type === selectedVehicle.energy_type;
-                    }
-                    return true;
-                  })
-                  .map((d) => {
-                    const assignedCar = vehicles.find((v) => v.default_driver_id === d.id);
-                    return (
-                      <option key={d.id} value={d.id}>
-                        {d.full_name} ({selectedVehicle?.energy_type || 'Fleet'} Driver{assignedCar ? ` • ${assignedCar.registration_plate}` : ''})
-                      </option>
-                    );
-                  })}
-              </select>
             </div>
           </div>
-            </>
-          )}
         </div>
       );
     }

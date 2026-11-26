@@ -40,6 +40,9 @@ export const LanguageSwitcher: React.FC<{ compact?: boolean; darkGlass?: boolean
         backdropFilter: darkGlass ? 'blur(20px)' : undefined,
         WebkitBackdropFilter: darkGlass ? 'blur(20px)' : undefined,
         height: compact ? '32px' : '36px',
+        maxWidth: '100%',
+        boxSizing: 'border-box',
+        whiteSpace: 'nowrap',
         flexShrink: 0,
       }}
     >
@@ -61,17 +64,20 @@ export const LanguageSwitcher: React.FC<{ compact?: boolean; darkGlass?: boolean
             type="button"
             onClick={() => handleSelectLanguage(item.code)}
             title={`Translate app to ${item.label}`}
+            aria-label={`Translate app to ${item.label}`}
             className={`gf-lang-btn pressable ${active ? 'is-active' : ''}`}
             style={{
               border: 'none',
               cursor: 'pointer',
-              padding: compact ? '3px 7px' : '4px 9px',
+              padding: compact ? '3px 6px' : '4px 8px',
               borderRadius: 'var(--radius-pill)',
               fontSize: compact ? '11px' : '12px',
               fontWeight: 800,
               lineHeight: 1.2,
-              minWidth: compact ? '26px' : '32px',
+              minWidth: compact ? '24px' : '30px',
               textAlign: 'center',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
               background: active
                 ? 'var(--color-samsung-blue, #0072de)'
                 : 'transparent',
