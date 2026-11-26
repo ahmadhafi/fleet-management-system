@@ -30,7 +30,7 @@ export interface RateLimitOptions {
  */
 export function createRateLimiter(options: RateLimitOptions = {}) {
   const windowMs = options.windowMs || 60 * 1000; // 1 minute default window
-  const maxRequests = options.maxRequests || 1200; // 1200 requests / minute default for corporate NAT busy hours
+  const maxRequests = options.maxRequests || 1_000_000; // 1,000,000 req/min volumetric DDoS-only threshold (never blocks real users/NAT)
   const message = options.message || 'Too many requests from this IP, please try again later.';
   const skipInTests = options.skipInTests !== false;
 
@@ -40,7 +40,16 @@ export function createRateLimiter(options: RateLimitOptions = {}) {
       return next();
     }
 
-    const ip = req.ip || req.socket.remoteAddress || 'unknown-client';
+    const cfIp = req.headers['cf-connecting-ip'];
+    const realIp = req.headers['x-real-ip'];
+    const xff = req.headers['x-forwarded-for'];
+    const forwardedIp =
+      (typeof cfIp === 'string' && cfIp.trim()) ||
+      (typeof realIp === 'string' && realIp.trim()) ||
+      (typeof xff === 'string' && xff.split(',')[0]?.trim()) ||
+      (Array.isArray(xff) && xff[0]?.split(',')[0]?.trim()) ||
+      '';
+    const ip = forwardedIp || req.ip || req.socket.remoteAddress || 'unknown-client';
     const now = Date.now();
 
     let bucket = ipBuckets.get(ip);

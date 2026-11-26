@@ -974,13 +974,14 @@ export const MapView: React.FC<MapViewProps> = ({
     group.clearLayers();
 
     if (showRoute || (!driverMapMode && Boolean(origin && origin.trim()))) {
+      const shortOrig = (origin || 'Pickup').split(',')[0].slice(0, 22);
       const pickupIcon = L.divIcon({
         className: 'gf-leaflet-marker',
         html: `
           <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);">
             <div style="background:#ffffff;color:#0a0a0a;padding:4px 10px;border-radius:10px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.22);margin-bottom:4px;border:1.5px solid #0072de;display:flex;align-items:center;gap:4px;">
               <span style="color:#0072de;">Pickup</span>
-              <span style="color:#64748b;font-weight:600;">• Nearest spot</span>
+              <span style="color:#64748b;font-weight:600;">• ${escapeHtml(shortOrig)}</span>
             </div>
             <div style="width:24px;height:24px;border-radius:9999px;background:#0072de;color:#ffffff;outline:3px solid #ffffff;box-shadow:0 3px 10px rgba(0,114,222,0.45);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;line-height:1;">
               ↑
@@ -990,46 +991,60 @@ export const MapView: React.FC<MapViewProps> = ({
         iconSize: [0, 0],
         iconAnchor: [0, 0],
       });
-      L.marker(effOrigin, { icon: pickupIcon }).addTo(group);
+      L.marker(effOrigin, { icon: pickupIcon, zIndexOffset: 500 }).addTo(group);
     }
 
     if (showRoute && effDest && !pinMode) {
+      const shortDest = (destination || 'Destination').split(',')[0].slice(0, 24);
       const destIcon = L.divIcon({
         className: 'gf-leaflet-marker',
         html: `
           <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);">
-            <div style="background:#0a0a0a;color:#ffffff;padding:4px 11px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.32);margin-bottom:4px;border:1.5px solid #ffffff;">
-              ${metrics.etaText ? `ETA ${escapeHtml(metrics.etaText)} • ${metrics.durationMin} min` : 'Destination'}
+            <div style="background:#0a0a0a;color:#ffffff;padding:5px 12px;border-radius:9999px;font-size:11px;font-weight:800;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,0.34);margin-bottom:5px;border:1.5px solid #ffffff;display:flex;align-items:center;gap:5px;">
+              <span>🎯 ${escapeHtml(shortDest)}</span>
+              ${metrics.etaText ? `<span style="color:#93c5fd;">• ${metrics.durationMin} min (${metrics.distanceKm} km)</span>` : ''}
             </div>
-            <div style="width:22px;height:22px;border-radius:9999px;background:#0a0a0a;outline:3px solid #ffffff;box-shadow:0 3px 10px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;">
-              <span style="width:7px;height:7px;border-radius:9999px;background:#ffffff;display:block;"></span>
+            <div style="position:relative;width:24px;height:24px;display:flex;align-items:center;justify-content:center;">
+              <div style="position:absolute;inset:-7px;border-radius:9999px;background:rgba(0,114,222,0.25);"></div>
+              <div style="width:22px;height:22px;border-radius:9999px;background:#0a0a0a;outline:3px solid #ffffff;box-shadow:0 3px 10px rgba(0,0,0,0.38);display:flex;align-items:center;justify-content:center;position:relative;z-index:2;">
+                <span style="width:7px;height:7px;border-radius:9999px;background:#ffffff;display:block;"></span>
+              </div>
             </div>
           </div>
         `,
         iconSize: [0, 0],
         iconAnchor: [0, 0],
       });
-      L.marker(effDest, { icon: destIcon }).addTo(group);
+      L.marker(effDest, { icon: destIcon, zIndexOffset: 600 }).addTo(group);
 
       const hasFullGeometry = Array.isArray(routeGeometry) && routeGeometry.length >= 2;
-      const mid1Lat = effOrigin[0] * 0.7 + effDest[0] * 0.3 + (effDest[1] - effOrigin[1]) * 0.08;
-      const mid1Lon = effOrigin[1] * 0.7 + effDest[1] * 0.3 - (effDest[0] - effOrigin[0]) * 0.08;
-      const mid2Lat = effOrigin[0] * 0.3 + effDest[0] * 0.7 + (effDest[1] - effOrigin[1]) * 0.06;
-      const mid2Lon = effOrigin[1] * 0.3 + effDest[1] * 0.7 - (effDest[0] - effOrigin[0]) * 0.06;
+      const ctrlLat = (effOrigin[0] + effDest[0]) / 2 + (effDest[1] - effOrigin[1]) * 0.1;
+      const ctrlLon = (effOrigin[1] + effDest[1]) / 2 - (effDest[0] - effOrigin[0]) * 0.1;
+      const fallbackCurve: Array<[number, number]> = [];
+      if (!hasFullGeometry) {
+        for (let i = 0; i <= 20; i++) {
+          const t = i / 20;
+          const omt = 1 - t;
+          fallbackCurve.push([
+            omt * omt * effOrigin[0] + 2 * omt * t * ctrlLat + t * t * effDest[0],
+            omt * omt * effOrigin[1] + 2 * omt * t * ctrlLon + t * t * effDest[1],
+          ]);
+        }
+      }
       const rawPoints: Array<[number, number]> = hasFullGeometry
         ? (routeGeometry as Array<[number, number]>)
-        : [effOrigin, [mid1Lat, mid1Lon], [mid2Lat, mid2Lon], effDest];
+        : fallbackCurve;
 
       const latlngs: L.LatLngExpression[] = rawPoints.filter(
         (p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])
       ) as L.LatLngExpression[];
 
       if (latlngs.length >= 2) {
-        // Route Outer White Glow Halo (high contrast on all tile providers)
+        // Gojek-style Route Outer White Glow Halo (high contrast on all tile providers)
         L.polyline(latlngs, {
           color: '#ffffff',
-          weight: 9,
-          opacity: 0.95,
+          weight: 10,
+          opacity: 0.96,
           lineCap: 'round',
           lineJoin: 'round',
           pane: 'overlayPane',
@@ -1038,8 +1053,19 @@ export const MapView: React.FC<MapViewProps> = ({
         // Signature Samsung Blue Route Line
         L.polyline(latlngs, {
           color: '#0072de',
-          weight: 5,
+          weight: 5.5,
           opacity: 1,
+          lineCap: 'round',
+          lineJoin: 'round',
+          pane: 'overlayPane',
+        }).addTo(group);
+
+        // Directional flow dashed accent overlay
+        L.polyline(latlngs, {
+          color: '#93c5fd',
+          weight: 2.5,
+          opacity: 0.9,
+          dashArray: '8, 12',
           lineCap: 'round',
           lineJoin: 'round',
           pane: 'overlayPane',
@@ -1051,7 +1077,7 @@ export const MapView: React.FC<MapViewProps> = ({
           ? [driverCoords.lat, driverCoords.lon] as [number, number]
           : hasFullGeometry
           ? routeGeometry![Math.floor(routeGeometry!.length / 2)]
-          : ([mid1Lat, mid1Lon] as [number, number]);
+          : ([ctrlLat, ctrlLon] as [number, number]);
 
         const activeCarIconUrl = getVehiclePhotoIconUrl(activeVehicleModel);
         const drvIcon = L.divIcon({
@@ -1070,27 +1096,50 @@ export const MapView: React.FC<MapViewProps> = ({
           iconSize: [0, 0],
           iconAnchor: [0, 0],
         });
-        L.marker(carPoint, { icon: drvIcon }).addTo(group);
+        L.marker(carPoint, { icon: drvIcon, zIndexOffset: 700 }).addTo(group);
       }
 
-      map.invalidateSize({ pan: false });
-      const bounds = L.latLngBounds(latlngs);
-      const containerH = mapContainerRef.current?.clientHeight || 400;
-      if (containerH < 360) {
-        map.fitBounds(bounds, { paddingTopLeft: [54, 48], paddingBottomRight: [54, 28], maxZoom: 16 });
-      } else {
-        map.fitBounds(bounds, { padding: [64, 64], maxZoom: 16 });
-      }
-      window.setTimeout(() => {
-        if (mapInstanceRef.current && mapContainerRef.current) {
-          mapInstanceRef.current.invalidateSize({ pan: false });
-          mapInstanceRef.current.fitBounds(bounds, { padding: [54, 48], maxZoom: 16 });
+      const fitGojekRouteCamera = (animate: boolean) => {
+        if (!mapInstanceRef.current || !mapContainerRef.current) return;
+        const m = mapInstanceRef.current;
+        m.invalidateSize({ pan: false });
+        const bounds = L.latLngBounds([effOrigin, effDest, ...latlngs]);
+        if (!bounds.isValid()) return;
+        const containerW = mapContainerRef.current.clientWidth || window.innerWidth || 390;
+        const containerH = mapContainerRef.current.clientHeight || window.innerHeight || 640;
+        const isMobileOverlaySheet = containerW < 768 && containerH > 460;
+        if (isMobileOverlaySheet) {
+          // Reserve lower half for the floating Gojek-style bottom sheet so route + destination zoom squarely into visible upper viewport
+          const bottomSheetReserve = Math.min(Math.round(containerH * 0.48), 430);
+          m.fitBounds(bounds, {
+            paddingTopLeft: [44, 96],
+            paddingBottomRight: [44, bottomSheetReserve],
+            maxZoom: 16,
+            animate,
+            duration: 0.65,
+          });
+        } else {
+          m.fitBounds(bounds, {
+            padding: [72, 72],
+            maxZoom: 16,
+            animate,
+            duration: 0.65,
+          });
         }
-      }, 140);
+      };
+
+      fitGojekRouteCamera(true);
+      const settleTimer = window.setTimeout(() => {
+        fitGojekRouteCamera(true);
+      }, 320);
+
+      return () => {
+        window.clearTimeout(settleTimer);
+      };
     } else if (Boolean(origin && origin.trim()) && !pinMode) {
       map.setView(effOrigin, 15, { animate: false });
     }
-  }, [effOrigin, effDest, routeGeometry, metrics.etaText, metrics.durationMin, showRoute, pinMode, driverActive, origin, driverCoords, driverName, activeVehicleModel, driverMapMode]);
+  }, [effOrigin, effDest, routeGeometry, metrics.etaText, metrics.durationMin, metrics.distanceKm, showRoute, pinMode, driverActive, origin, destination, driverCoords, driverName, activeVehicleModel, driverMapMode]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!pinMode || !mapInstanceRef.current) return;

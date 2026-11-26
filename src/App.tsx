@@ -905,7 +905,7 @@ export function App() {
       .finally(() => setLoadingAuth(false));
   }, [loadAllData]);
 
-  // Live MapTiler / Nominatim / Photon / Indonesian POI address search when typing in RouteFields
+  // Live Nationwide Indonesia Maps Search (Server POIs + MapTiler + Nominatim + Browser-Direct Free ArcGIS & Photon)
   useEffect(() => {
     if (bookingStep !== 'ROUTE' || routeTab === 'PIN') return;
     const queryText = (activeRouteField === 'pickup' ? bookOrigin : bookDest).trim();
@@ -916,18 +916,95 @@ export function App() {
     }
     let cancelled = false;
     setGeoLoading(true);
+    const isInsideIndonesia = (lat: number, lon: number) =>
+      Number.isFinite(lat) && Number.isFinite(lon) && lat >= -11.5 && lat <= 6.5 && lon >= 94.5 && lon <= 141.5;
+
     const timer = window.setTimeout(async () => {
       try {
-        const res = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(queryText)}`);
+        const serverPromise = apiRequest(`/api/geocode/search?q=${encodeURIComponent(queryText)}`)
+          .then((res) => (Array.isArray(res?.results) ? (res.results as GeoPlace[]) : []))
+          .catch(() => [] as GeoPlace[]);
+
+        // Direct browser-to-ArcGIS World Geocoder (100% free, zero API key, CORS-enabled, complete all-Indonesia streets/POIs/malls/hotels/offices)
+        const browserArcgisPromise = fetch(
+          `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?SingleLine=${encodeURIComponent(
+            queryText
+          )}&countryCode=IDN&maxLocations=12&outFields=PlaceName,Place_addr,Match_addr&f=pjson`,
+          { headers: { Accept: 'application/json' } }
+        )
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data: any) => {
+            const list: GeoPlace[] = [];
+            for (const cand of Array.isArray(data?.candidates) ? data.candidates : []) {
+              const lat = Number(cand.location?.y);
+              const lon = Number(cand.location?.x);
+              if (!isInsideIndonesia(lat, lon)) continue;
+              const attrs = cand.attributes || {};
+              const name = String(attrs.PlaceName || cand.address?.split(',')[0] || queryText).trim();
+              const address = String(attrs.Place_addr || attrs.Match_addr || cand.address || name).trim();
+              list.push({ name, address, lat, lon });
+            }
+            return list;
+          })
+          .catch(() => [] as GeoPlace[]);
+
+        // Direct browser-to-Photon Komoot OpenStreetMap geocoder (100% free, zero API key, CORS-enabled, all Indonesia)
+        const browserPhotonPromise = fetch(
+          `https://photon.komoot.io/api/?q=${encodeURIComponent(queryText)}&bbox=94.5,-11.2,141.5,6.2&limit=10`,
+          { headers: { Accept: 'application/json' } }
+        )
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data: any) => {
+            const list: GeoPlace[] = [];
+            for (const feat of Array.isArray(data?.features) ? data.features : []) {
+              const coords = feat.geometry?.coordinates || [];
+              const lon = Number(coords[0]);
+              const lat = Number(coords[1]);
+              const props = feat.properties || {};
+              if (!isInsideIndonesia(lat, lon)) continue;
+              if (props.countrycode && String(props.countrycode).toUpperCase() !== 'ID') continue;
+              const name = String(props.name || props.street || props.city || props.county || queryText).trim();
+              const parts = Array.from(
+                new Set([props.name, props.street, props.district || props.locality, props.city || props.county, props.state, props.country].filter(Boolean).map((s) => String(s).trim()))
+              );
+              list.push({
+                name,
+                address: parts.join(', ') || name,
+                lat,
+                lon,
+              });
+            }
+            return list;
+          })
+          .catch(() => [] as GeoPlace[]);
+
+        const [serverItems, arcItems, photonItems] = await Promise.all([
+          serverPromise,
+          browserArcgisPromise,
+          browserPhotonPromise,
+        ]);
         if (cancelled) return;
-        const items: GeoPlace[] = res.results || [];
-        setGeoResults(items);
+
+        const merged: GeoPlace[] = [];
+        const addUnique = (p: GeoPlace) => {
+          if (!isInsideIndonesia(p.lat, p.lon)) return;
+          const dup = merged.some(
+            (m) => Math.abs(m.lat - p.lat) < 0.0006 && Math.abs(m.lon - p.lon) < 0.0006
+          );
+          if (!dup) merged.push(p);
+        };
+        for (const p of serverItems) addUnique(p);
+        for (const p of arcItems) addUnique(p);
+        for (const p of photonItems) addUnique(p);
+
+        const finalList = merged.slice(0, 30);
+        setGeoResults(finalList);
         // Automatically resolve coordinates for typed addresses so route path & ETA calculate immediately
-        if (items.length > 0 && Number.isFinite(items[0].lat) && Number.isFinite(items[0].lon)) {
+        if (finalList.length > 0 && Number.isFinite(finalList[0].lat) && Number.isFinite(finalList[0].lon)) {
           if (activeRouteField === 'pickup') {
-            setOriginCoords({ lat: items[0].lat, lon: items[0].lon });
+            setOriginCoords({ lat: finalList[0].lat, lon: finalList[0].lon });
           } else if (activeRouteField === 'destination') {
-            setDestCoords({ lat: items[0].lat, lon: items[0].lon });
+            setDestCoords({ lat: finalList[0].lat, lon: finalList[0].lon });
           }
         }
       } catch {
@@ -935,7 +1012,7 @@ export function App() {
       } finally {
         if (!cancelled) setGeoLoading(false);
       }
-    }, 150);
+    }, 180);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
@@ -962,19 +1039,39 @@ export function App() {
           setOriginCoords(resolvedOrig);
         }
 
+        const quickResolveCoords = async (queryStr: string): Promise<{ lat: number; lon: number } | null> => {
+          const gServer = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(queryStr)}`).catch(() => null);
+          if (gServer?.results?.[0]) {
+            return { lat: Number(gServer.results[0].lat), lon: Number(gServer.results[0].lon) };
+          }
+          // Fallback directly to free ArcGIS World Geocoder if server search had no hit
+          const gArc = await fetch(
+            `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?SingleLine=${encodeURIComponent(
+              queryStr
+            )}&countryCode=IDN&maxLocations=1&f=pjson`
+          )
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null);
+          const cand = gArc?.candidates?.[0];
+          if (cand && Number.isFinite(Number(cand.location?.y)) && Number.isFinite(Number(cand.location?.x))) {
+            return { lat: Number(cand.location.y), lon: Number(cand.location.x) };
+          }
+          return null;
+        };
+
         if (!resolvedOrig && bookOrigin.trim().length >= 2) {
           const cleanOrigQuery = bookOrigin.replace(/\s*\(Spot [ABC]\)$/i, '').replace(/\s*\(Main Lobby Gate\)$/i, '').trim();
-          const g1 = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(cleanOrigQuery)}`).catch(() => null);
-          if (g1?.results?.[0]) {
-            resolvedOrig = { lat: Number(g1.results[0].lat), lon: Number(g1.results[0].lon) };
+          const hit = await quickResolveCoords(cleanOrigQuery);
+          if (hit) {
+            resolvedOrig = hit;
             if (!cancelled) setOriginCoords(resolvedOrig);
           }
         }
         if (!resolvedDest && bookDest.trim().length >= 2) {
           const cleanDestQuery = bookDest.replace(/\s*\(Main Lobby Gate\)$/i, '').trim();
-          const g2 = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(cleanDestQuery)}`).catch(() => null);
-          if (g2?.results?.[0]) {
-            resolvedDest = { lat: Number(g2.results[0].lat), lon: Number(g2.results[0].lon) };
+          const hit = await quickResolveCoords(cleanDestQuery);
+          if (hit) {
+            resolvedDest = hit;
             if (!cancelled) setDestCoords(resolvedDest);
           }
         }
@@ -984,13 +1081,54 @@ export function App() {
         const dstLat = resolvedDest?.lat ?? origLat - 0.018;
         const dstLon = resolvedDest?.lon ?? origLon + 0.022;
         const depTime = scheduleMode === 'SCHEDULE' && bookStart ? new Date(bookStart).toISOString() : new Date().toISOString();
+        const baseDepMs = new Date(depTime).getTime() || Date.now();
 
-        const routeRes = await apiRequest(
+        let routeRes = await apiRequest(
           `/api/route?originLat=${encodeURIComponent(origLat)}&originLon=${encodeURIComponent(origLon)}&destLat=${encodeURIComponent(dstLat)}&destLon=${encodeURIComponent(dstLon)}&departureTime=${encodeURIComponent(depTime)}`
         ).catch(() => null);
 
+        // If server routing failed or fell back (e.g. cPanel outbound restriction), fetch real turn-by-turn road geometry directly in browser
+        if (!routeRes || routeRes.source === 'fallback') {
+          const directUrls = [
+            `https://routing.openstreetmap.de/routed-car/route/v1/driving/${origLon},${origLat};${dstLon},${dstLat}?overview=full&geometries=geojson`,
+            `https://router.project-osrm.org/route/v1/driving/${origLon},${origLat};${dstLon},${dstLat}?overview=full&geometries=geojson`,
+          ];
+          for (const dUrl of directUrls) {
+            try {
+              const dr = await fetch(dUrl, { headers: { Accept: 'application/json' } });
+              if (dr.ok) {
+                const dd = await dr.json();
+                const rt = dd?.routes?.[0];
+                if (rt && typeof rt.distance === 'number' && typeof rt.duration === 'number') {
+                  const dKm = Math.max(0.2, Number((rt.distance / 1000).toFixed(1)));
+                  const dMin = Math.max(2, Math.round((rt.duration * 1.2) / 60));
+                  const etaDate = new Date(baseDepMs + dMin * 60_000);
+                  const geom = Array.isArray(rt.geometry?.coordinates)
+                    ? rt.geometry.coordinates
+                        .filter((pt: any) => Array.isArray(pt) && pt.length >= 2)
+                        .map((pt: any) => [Number(pt[1]), Number(pt[0])] as [number, number])
+                    : undefined;
+                  if (geom && geom.length >= 2) {
+                    routeRes = {
+                      distanceKm: dKm,
+                      durationMin: dMin,
+                      etaIso: etaDate.toISOString(),
+                      etaText: etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                      geometry: geom,
+                      source: 'browser-osrm',
+                    };
+                    break;
+                  }
+                }
+              }
+            } catch {
+              // try next direct router
+            }
+          }
+        }
+
         if (!cancelled && routeRes && routeRes.distanceKm > 0) {
-          const etaDate = routeRes.etaIso ? new Date(routeRes.etaIso) : new Date(Date.now() + Number(routeRes.durationMin || 10) * 60_000);
+          const etaDate = routeRes.etaIso ? new Date(routeRes.etaIso) : new Date(baseDepMs + Number(routeRes.durationMin || 10) * 60_000);
           setCalculatedRoute({
             distanceKm: Number(routeRes.distanceKm || 0),
             durationMin: Number(routeRes.durationMin || 0),
@@ -1000,15 +1138,24 @@ export function App() {
           });
         } else if (!cancelled) {
           const est = estimateRouteMetrics(bookOrigin || 'Samsung Office Jakarta (Lobby)', bookDest, { lat: origLat, lon: origLon }, { lat: dstLat, lon: dstLon });
-          const etaDate = new Date(Date.now() + est.durationMin * 60_000);
-          const midLat = (origLat + dstLat) / 2 + (dstLon - origLon) * 0.08;
-          const midLon = (origLon + dstLon) / 2 - (dstLat - origLat) * 0.08;
+          const etaDate = new Date(baseDepMs + est.durationMin * 60_000);
+          const ctrlLat = (origLat + dstLat) / 2 + (dstLon - origLon) * 0.1;
+          const ctrlLon = (origLon + dstLon) / 2 - (dstLat - origLat) * 0.1;
+          const curve: Array<[number, number]> = [];
+          for (let i = 0; i <= 20; i++) {
+            const t = i / 20;
+            const omt = 1 - t;
+            curve.push([
+              omt * omt * origLat + 2 * omt * t * ctrlLat + t * t * dstLat,
+              omt * omt * origLon + 2 * omt * t * ctrlLon + t * t * dstLon,
+            ]);
+          }
           setCalculatedRoute({
             distanceKm: est.distanceKm,
             durationMin: est.durationMin,
             etaIso: etaDate.toISOString(),
             etaText: etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            geometry: [[origLat, origLon], [midLat, midLon], [dstLat, dstLon]],
+            geometry: curve,
           });
         }
       } catch {
@@ -1067,15 +1214,27 @@ export function App() {
         setDispatchAvailability(res);
         const availCars = (res?.vehicles || []).filter((v: any) => v.status === 'Available' && v.isAvailable !== false);
         const availDrivers = (res?.drivers || []).filter((d: any) => d.availability_status === 'Active' && d.isAvailable !== false);
-        if (availCars.length > 0) {
+        // 1 Driver = 1 Fixed Car: pair each available driver with their fixed available car
+        const availDriverCarPairs = availDrivers
+          .map((d: any) => {
+            const fixedCar = availCars.find((v: any) => Number(v.default_driver_id) === Number(d.id));
+            return fixedCar ? { driver: d, vehicle: fixedCar } : null;
+          })
+          .filter(Boolean) as Array<{ driver: any; vehicle: any }>;
+
+        if (availDriverCarPairs.length > 0) {
+          const preferredPair =
+            availDriverCarPairs.find((p) => Number(p.driver.id) === Number(dispatchModalTrip.preferred_driver_id || dispatchModalTrip.driver_profile_id)) ||
+            availDriverCarPairs.find((p) => Number(p.vehicle.id) === Number(dispatchModalTrip.vehicle_id)) ||
+            availDriverCarPairs[0];
+          setDispatchDriverId(String(preferredPair.driver.id));
+          setDispatchVehicleId(Number(preferredPair.vehicle.id));
+        } else if (availCars.length > 0) {
+          // Fallback only if fleet vehicles have no default_driver_id configured yet
           const preferredCar =
             availCars.find((v: any) => Number(v.id) === Number(dispatchModalTrip.vehicle_id)) || availCars[0];
           setDispatchVehicleId(Number(preferredCar.id));
-          const defaultDrv =
-            availDrivers.find((d: any) => Number(d.id) === Number(dispatchModalTrip.preferred_driver_id || dispatchModalTrip.driver_profile_id)) ||
-            availDrivers.find((d: any) => Number(d.id) === Number(preferredCar.default_driver_id)) ||
-            null;
-          setDispatchDriverId(defaultDrv ? String(defaultDrv.id) : '');
+          setDispatchDriverId('');
         } else {
           setDispatchVehicleId(0);
           setDispatchDriverId('');
@@ -2319,17 +2478,24 @@ export function App() {
 
   const handleAdminTripDecision = async (decision: 'APPROVED' | 'REJECTED') => {
     if (!dispatchModalTrip) return;
-    const availCarsForTrip = (dispatchAvailability?.vehicles || vehicles).filter(
+    const allCarsPool = dispatchAvailability?.vehicles?.length ? dispatchAvailability.vehicles : vehicles;
+    const availCarsForTrip = allCarsPool.filter(
       (v: any) => v.status === 'Available' && v.isAvailable !== false
     );
-    const chosenVehicleId = Number(dispatchVehicleId || 0);
+    const chosenDriverNum = dispatchDriverId ? Number(dispatchDriverId) : null;
+    // 1 Driver = 1 Fixed Car: always resolve the car fixed to the chosen driver
+    const fixedCarForDriver = chosenDriverNum
+      ? availCarsForTrip.find((v: any) => Number(v.default_driver_id) === chosenDriverNum)
+      : null;
+    const chosenVehicleId = Number(fixedCarForDriver?.id || dispatchVehicleId || 0);
+
     if (decision === 'APPROVED') {
       if (availCarsForTrip.length === 0) {
-        setStatusBanner({ type: 'danger', text: 'No available vehicles for this time slot. Cannot approve without an available car.' });
+        setStatusBanner({ type: 'danger', text: 'No available driver/vehicle pairs for this time slot. Cannot approve.' });
         return;
       }
       if (!chosenVehicleId || !availCarsForTrip.some((v: any) => Number(v.id) === chosenVehicleId)) {
-        setStatusBanner({ type: 'danger', text: 'Please select an available vehicle from the list before approving.' });
+        setStatusBanner({ type: 'danger', text: 'Please select an available driver (with an available fixed car) before approving.' });
         return;
       }
     }
@@ -2340,7 +2506,8 @@ export function App() {
           decision,
           reason: dispatchDecisionReason || (decision === 'APPROVED' ? `Approved by ${user.role}` : ''),
           vehicle_id: chosenVehicleId || Number(dispatchModalTrip.vehicle_id),
-          driver_profile_id: dispatchDriverId ? Number(dispatchDriverId) : null,
+          driver_profile_id: chosenDriverNum,
+          enforce_fixed_driver_car: Boolean(chosenDriverNum),
         }),
       });
       setDispatchModalTrip(null);
@@ -3075,94 +3242,186 @@ export function App() {
               const availableDispatchVehicles = allPoolVehicles.filter(
                 (v: any) => v.status === 'Available' && v.isAvailable !== false
               );
-              const unavailableVehiclesCount = Math.max(0, allPoolVehicles.length - availableDispatchVehicles.length);
-
               const allPoolDrivers = dispatchAvailability?.drivers?.length ? dispatchAvailability.drivers : drivers;
               const availableDispatchDrivers = allPoolDrivers.filter(
                 (d: any) => d.availability_status === 'Active' && d.isAvailable !== false
               );
-              const noAvailableCar = !dispatchAvailabilityLoading && availableDispatchVehicles.length === 0;
+
+              // 1 Driver = 1 Fixed Car: pair each available driver strictly with their fixed available car
+              const availableDriverCarPairs = availableDispatchDrivers
+                .map((d: any) => {
+                  const fixedCar = availableDispatchVehicles.find(
+                    (v: any) => Number(v.default_driver_id) === Number(d.id)
+                  );
+                  return fixedCar ? { driver: d, vehicle: fixedCar } : null;
+                })
+                .filter(Boolean) as Array<{ driver: any; vehicle: any }>;
+
+              const hasDriverCarPairs = availableDriverCarPairs.length > 0;
+              const selectedPair =
+                availableDriverCarPairs.find((p) => String(p.driver.id) === String(dispatchDriverId)) ||
+                availableDriverCarPairs.find((p) => Number(p.vehicle.id) === Number(dispatchVehicleId)) ||
+                availableDriverCarPairs[0] ||
+                null;
+              const fixedVehicle =
+                selectedPair?.vehicle ||
+                availableDispatchVehicles.find((v: any) => Number(v.id) === Number(dispatchVehicleId)) ||
+                availableDispatchVehicles[0] ||
+                null;
+
+              const totalDriversCount = allPoolDrivers.length;
+              const unavailablePairsCount = Math.max(0, totalDriversCount - availableDriverCarPairs.length);
+              const noAvailableOption = !dispatchAvailabilityLoading && !fixedVehicle;
 
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                      <label className="type-caption" htmlFor="dispatch-available-vehicle-select" style={{ fontWeight: 700 }}>
-                        {t('Assign Available Vehicle')} *
-                      </label>
-                      <span
-                        style={{
-                          fontSize: '10.5px',
-                          fontWeight: 700,
-                          color: noAvailableCar ? '#dc2626' : '#005bb5',
-                          background: noAvailableCar ? '#fef2f2' : '#ebf5ff',
-                          padding: '2px 7px',
-                          borderRadius: '99px',
-                        }}
+                  {/* Step 1: Select Available Driver FIRST (Car follows automatically and is FIXED) */}
+                  {hasDriverCarPairs ? (
+                    <>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                          <label className="type-caption" htmlFor="dispatch-available-driver-select" style={{ fontWeight: 700 }}>
+                            1. {t('Select Available Driver')} *
+                          </label>
+                          <span
+                            style={{
+                              fontSize: '10.5px',
+                              fontWeight: 700,
+                              color: '#005bb5',
+                              background: '#ebf5ff',
+                              padding: '2px 7px',
+                              borderRadius: '99px',
+                            }}
+                          >
+                            {dispatchAvailabilityLoading
+                              ? t('Checking availability...')
+                              : `${availableDriverCarPairs.length} ${t('Available')}`}
+                          </span>
+                        </div>
+                        <select
+                          id="dispatch-available-driver-select"
+                          className="gf-select"
+                          value={selectedPair ? String(selectedPair.driver.id) : dispatchDriverId}
+                          disabled={dispatchAvailabilityLoading}
+                          onChange={(e) => {
+                            const nextDrvId = e.target.value;
+                            setDispatchDriverId(nextDrvId);
+                            const matchedPair = availableDriverCarPairs.find(
+                              (p) => String(p.driver.id) === nextDrvId
+                            );
+                            if (matchedPair) {
+                              setDispatchVehicleId(Number(matchedPair.vehicle.id));
+                            }
+                          }}
+                        >
+                          {availableDriverCarPairs.map(({ driver: d, vehicle: v }) => (
+                            <option key={d.id} value={String(d.id)}>
+                              {d.full_name} — {v.registration_plate} • {v.make} {v.model} ({v.energy_type} • {v.seats} seats • Available)
+                            </option>
+                          ))}
+                        </select>
+                        <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
+                          ✓ Only available drivers with an available assigned car are listed{unavailablePairsCount > 0 ? ` (${unavailablePairsCount} busy/off-duty hidden)` : ''}.
+                        </div>
+                      </div>
+
+                      {/* Step 2: Fixed Vehicle Card (Automatically follows selected Driver — READ-ONLY / CANNOT CHANGE) */}
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                          <span className="type-caption" style={{ fontWeight: 700 }}>
+                            2. {t('Assigned Vehicle (Fixed to Driver)')}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 800,
+                              color: '#005bb5',
+                              background: '#ebf5ff',
+                              border: '1px solid #bfdbfe',
+                              padding: '1px 7px',
+                              borderRadius: '99px',
+                            }}
+                          >
+                            🔒 Fixed • 1 Driver = 1 Car
+                          </span>
+                        </div>
+                        <div
+                          id="dispatch-fixed-vehicle-display"
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '10px',
+                            background: '#f8fafc',
+                            border: '1.5px solid #cbd5e1',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '10px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                            <div style={{ width: '34px', height: '34px', borderRadius: '8px', background: '#0072de', color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                              <Car size={17} />
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--color-text-primary)' }}>
+                                {fixedVehicle.registration_plate} — {fixedVehicle.make} {fixedVehicle.model}
+                              </div>
+                              <div className="type-caption" style={{ fontSize: '11.5px' }}>
+                                {fixedVehicle.energy_type} • {fixedVehicle.seats} seats • Assigned permanently to {selectedPair?.driver?.full_name}
+                              </div>
+                            </div>
+                          </div>
+                          <Lock size={15} style={{ color: '#64748b', flexShrink: 0 }} />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    /* Edge-case fallback: fleet has available cars with no default driver linked yet, or 0 available */
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <label className="type-caption" htmlFor="dispatch-available-vehicle-select" style={{ fontWeight: 700 }}>
+                          {t('Assign Available Vehicle')} *
+                        </label>
+                        <span
+                          style={{
+                            fontSize: '10.5px',
+                            fontWeight: 700,
+                            color: noAvailableOption ? '#dc2626' : '#005bb5',
+                            background: noAvailableOption ? '#fef2f2' : '#ebf5ff',
+                            padding: '2px 7px',
+                            borderRadius: '99px',
+                          }}
+                        >
+                          {dispatchAvailabilityLoading
+                            ? t('Checking availability...')
+                            : `${availableDispatchVehicles.length} ${t('Available')}`}
+                        </span>
+                      </div>
+                      <select
+                        id="dispatch-available-vehicle-select"
+                        className="gf-select"
+                        value={dispatchVehicleId}
+                        disabled={dispatchAvailabilityLoading || noAvailableOption}
+                        onChange={(e) => setDispatchVehicleId(Number(e.target.value))}
                       >
-                        {dispatchAvailabilityLoading
-                          ? t('Checking availability...')
-                          : `${availableDispatchVehicles.length} ${t('Available')}`}
-                      </span>
-                    </div>
-                    <select
-                      id="dispatch-available-vehicle-select"
-                      className="gf-select"
-                      value={dispatchVehicleId}
-                      disabled={dispatchAvailabilityLoading || noAvailableCar}
-                      onChange={(e) => {
-                        const nextVehId = Number(e.target.value);
-                        setDispatchVehicleId(nextVehId);
-                        const chosenCar = availableDispatchVehicles.find((v: any) => Number(v.id) === nextVehId);
-                        if (chosenCar?.default_driver_id) {
-                          const defaultDrvAvail = availableDispatchDrivers.find(
-                            (d: any) => Number(d.id) === Number(chosenCar.default_driver_id)
-                          );
-                          if (defaultDrvAvail) {
-                            setDispatchDriverId(String(defaultDrvAvail.id));
-                          }
-                        }
-                      }}
-                    >
-                      {noAvailableCar ? (
-                        <option value={0}>No available cars for this time window</option>
-                      ) : (
-                        availableDispatchVehicles.map((v: any) => (
-                          <option key={v.id} value={v.id}>
-                            {v.registration_plate} — {v.make} {v.model} ({v.energy_type} • {v.seats} seats • Available)
-                          </option>
-                        ))
+                        {noAvailableOption ? (
+                          <option value={0}>No available driver/car pairs for this time window</option>
+                        ) : (
+                          availableDispatchVehicles.map((v: any) => (
+                            <option key={v.id} value={v.id}>
+                              {v.registration_plate} — {v.make} {v.model} ({v.energy_type} • {v.seats} seats • Available)
+                            </option>
+                          ))
+                        )}
+                      </select>
+                      {noAvailableOption && (
+                        <div style={{ fontSize: '11.5px', color: '#dc2626', fontWeight: 700, marginTop: '4px' }}>
+                          ⚠️ All drivers &amp; vehicles are booked or unavailable during this schedule window. Reject this request or wait for a slot to open.
+                        </div>
                       )}
-                    </select>
-                    {noAvailableCar ? (
-                      <div style={{ fontSize: '11.5px', color: '#dc2626', fontWeight: 700, marginTop: '4px' }}>
-                        ⚠️ All company vehicles are booked or unavailable during this schedule window. Reject this request or wait for a car to be released.
-                      </div>
-                    ) : (
-                      <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
-                        ✓ Only available cars for this schedule can be assigned{unavailableVehiclesCount > 0 ? ` (${unavailableVehiclesCount} busy/standby car${unavailableVehiclesCount > 1 ? 's' : ''} hidden)` : ''}.
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <label className="type-caption" htmlFor="dispatch-available-driver-select" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                      {t('Assigned Driver')} ({availableDispatchDrivers.length} {t('Available')})
-                    </label>
-                    <select
-                      id="dispatch-available-driver-select"
-                      className="gf-select"
-                      value={dispatchDriverId}
-                      disabled={dispatchAvailabilityLoading}
-                      onChange={(e) => setDispatchDriverId(e.target.value)}
-                    >
-                      <option value="">Auto-assign vehicle default driver (or assign later)</option>
-                      {availableDispatchDrivers.map((d: any) => (
-                        <option key={d.id} value={String(d.id)}>
-                          {d.full_name} (Class {d.licence_class} • Available)
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                    </div>
+                  )}
+
                   <div>
                     <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Approval Note / Rejection Reason</label>
                     <input
@@ -3183,7 +3442,7 @@ export function App() {
                       style={{ flex: 1 }}
                       disabled={
                         dispatchAvailabilityLoading ||
-                        noAvailableCar ||
+                        noAvailableOption ||
                         (user.role === 'HWS' && dispatchModalTrip.requires_dual_approval && !dispatchModalTrip.pic_approved)
                       }
                       onClick={() => handleAdminTripDecision('APPROVED')}
@@ -3191,12 +3450,12 @@ export function App() {
                       {user.role === 'ADM' && dispatchModalTrip.requires_dual_approval && (!dispatchModalTrip.pic_approved || !dispatchModalTrip.hws_approved)
                         ? 'Approve & Delegate as Admin'
                         : user.role === 'FM'
-                        ? 'Stage 1: Assign Car & Consent (Fleet PIC)'
+                        ? 'Stage 1: Assign Driver & Consent (Fleet PIC)'
                         : user.role === 'HWS'
                         ? dispatchModalTrip.pic_approved
                           ? 'Stage 2: Authorize & Finalize Dispatch'
                           : 'Locked (Await Fleet PIC Stage 1)'
-                        : 'Approve & Assign Car'}
+                        : 'Approve & Assign Driver'}
                     </button>
                   </div>
                 </div>
@@ -11828,7 +12087,7 @@ export function App() {
             }}
             onDestinationChange={(val) => {
               setBookDest(val);
-              if (!val.trim()) setDestCoords(null);
+              setDestCoords(null);
             }}
             activeField={activeRouteField}
             onFocusField={(field) => {

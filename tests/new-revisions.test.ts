@@ -2736,6 +2736,104 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(appTsx).toContain('id="dispatch-available-vehicle-select"');
         expect(appShellTsx).toContain('<LanguageSwitcher compact />');
       });
+
+      it('verifies 1-Driver-1-Fixed-Car Fleet PIC selection, 1M req/min scalable DDoS limiter, nationwide Indonesia geocoding, and Gojek-style route & destination zoom', async () => {
+        const fs = await import('fs');
+        const path = await import('path');
+        const express = (await import('express')).default;
+        const { createRateLimiter } = await import('../src/server/rate-limit.ts');
+
+        resetDbForTesting(':memory:');
+        const testApp = createApp();
+        const db = getDb();
+
+        const empRes = await request(testApp).post('/api/auth/login').send({ group_username: 'emp_alex', password: 'Emp@123' });
+        const fmRes = await request(testApp).post('/api/auth/login').send({ group_username: 'fleetmgr', password: 'Fleet@123' });
+        expect(empRes.status).toBe(200);
+        expect(fmRes.status).toBe(200);
+        const empTok = empRes.body.token;
+        const fmTok = fmRes.body.token;
+
+        // 1. 1 Driver = 1 Fixed Car: Selecting a driver automatically locks the trip to that driver's fixed vehicle
+        const fixedVehRow = db
+          .prepare('SELECT id, default_driver_id FROM vehicles WHERE default_driver_id IS NOT NULL ORDER BY id ASC LIMIT 2')
+          .all() as Array<{ id: number; default_driver_id: number }>;
+        expect(fixedVehRow.length).toBeGreaterThanOrEqual(2);
+        const targetDriverId = fixedVehRow[1].default_driver_id;
+        const targetDriverFixedCarId = fixedVehRow[1].id;
+        const differentCarId = fixedVehRow[0].id;
+
+        const baseMs = Date.now() + 72 * 3600_000;
+        const sIso = new Date(baseMs).toISOString();
+        const eIso = new Date(baseMs + 2 * 3600_000).toISOString();
+
+        const tripRes = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${empTok}`)
+          .send({
+            vehicle_id: differentCarId,
+            auto_assign: true,
+            purpose: 'Fixed Driver-Car Pair Test',
+            origin: 'Headquarters',
+            destination: 'Bandung, Jawa Barat',
+            start_time: sIso,
+            end_time: eIso,
+            passengers: [{ id: 1, nickname: 'Alex' }],
+          });
+        expect(tripRes.status).toBe(201);
+
+        // Even if an arbitrary vehicle_id is sent, enforce_fixed_driver_car locks vehicle_id to the driver's fixed car
+        const fmDecision = await request(testApp)
+          .post(`/api/trips/${tripRes.body.tripId}/decision`)
+          .set('Authorization', `Bearer ${fmTok}`)
+          .send({
+            decision: 'APPROVED',
+            driver_profile_id: targetDriverId,
+            vehicle_id: differentCarId,
+            enforce_fixed_driver_car: true,
+            reason: 'Assigned driver with fixed car',
+          });
+        expect(fmDecision.status).toBe(200);
+        expect(Number(fmDecision.body.trip.vehicle_id)).toBe(Number(targetDriverFixedCarId));
+
+        // 2. Scalable DDoS-Only Rate Limiter: default limit is 1,000,000 req/min and respects X-Forwarded-For
+        const rlApp = express();
+        rlApp.use(createRateLimiter({ skipInTests: false }));
+        rlApp.get('/ping', (_req, res) => res.json({ ok: true }));
+        const rlRes = await request(rlApp).get('/ping').set('X-Forwarded-For', '203.0.113.42, 10.0.0.1');
+        expect(rlRes.status).toBe(200);
+        expect(Number(rlRes.headers['x-ratelimit-limit'])).toBeGreaterThanOrEqual(1_000_000);
+
+        // 3. Nationwide Indonesia Geocoding (outside Greater Jakarta: Bandung, Surabaya, Bali, Yogyakarta, Medan)
+        for (const city of ['Bandung', 'Surabaya', 'Denpasar', 'Yogyakarta', 'Medan']) {
+          const geoRes = await request(testApp)
+            .get(`/api/geocode/search?q=${encodeURIComponent(city)}`)
+            .set('Authorization', `Bearer ${empTok}`);
+          expect(geoRes.status).toBe(200);
+          expect(geoRes.body.results.length).toBeGreaterThan(0);
+        }
+
+        // 4. Route calculation returns smooth valid geometry without error
+        const routeRes = await request(testApp)
+          .get('/api/route?originLat=-6.2088&originLon=106.8456&destLat=-6.9175&destLon=107.6191')
+          .set('Authorization', `Bearer ${empTok}`);
+        expect(routeRes.status).toBe(200);
+        expect(routeRes.body.distanceKm).toBeGreaterThan(0);
+        expect(routeRes.body.durationMin).toBeGreaterThan(0);
+        expect(Array.isArray(routeRes.body.geometry)).toBe(true);
+        expect(routeRes.body.geometry.length).toBeGreaterThanOrEqual(2);
+
+        // 5. Verify UI source for Driver-first fixed car display, free ArcGIS/Photon client search, and Gojek map zoom
+        const appTsx = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf8');
+        const mapViewTsx = fs.readFileSync(path.resolve(__dirname, '../src/components/MapView.tsx'), 'utf8');
+        expect(appTsx).toContain('id="dispatch-available-driver-select"');
+        expect(appTsx).toContain('id="dispatch-fixed-vehicle-display"');
+        expect(appTsx).toContain('enforce_fixed_driver_car');
+        expect(appTsx).toContain('geocode.arcgis.com');
+        expect(appTsx).toContain('photon.komoot.io');
+        expect(appTsx).toContain('routing.openstreetmap.de');
+        expect(mapViewTsx).toContain('fitGojekRouteCamera');
+      });
     });
   });
 });

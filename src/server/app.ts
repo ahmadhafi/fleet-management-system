@@ -123,6 +123,7 @@ export function broadcastTripUpdate(db: AppDatabase, tripId: number, eventType =
 
 export function createApp() {
   const app = express();
+  app.set('trust proxy', true);
 
   // Security headers (NFR-02, NFR-04, TC-SEC-01) - Comprehensive Cyber Defense
   app.use((_req, res, next) => {
@@ -133,7 +134,7 @@ export function createApp() {
     res.setHeader('X-XSS-Protection', '1; mode=block');
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://translate.google.com https://translate.googleapis.com https://translate-pa.googleapis.com https://www.gstatic.com https://ssl.gstatic.com; style-src 'self' 'unsafe-inline' https://translate.google.com https://translate.googleapis.com https://www.gstatic.com https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com https://ssl.gstatic.com; img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://*.arcgisonline.com https://*.opentopomap.org https://*.maptiler.com https://api.maptiler.com https://*.openstreetmap.org https://www.google.com https://*.google.com https://translate.google.com https://translate.googleapis.com https://www.gstatic.com https://ssl.gstatic.com; connect-src 'self' https://api.maptiler.com https://nominatim.openstreetmap.org https://photon.komoot.io https://geocode.arcgis.com https://router.project-osrm.org https://translate.googleapis.com https://translate-pa.googleapis.com https://translate.google.com; frame-src 'self' https://translate.google.com https://translate.googleapis.com; frame-ancestors 'none'; form-action 'self'; base-uri 'self';"
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://translate.google.com https://translate.googleapis.com https://translate-pa.googleapis.com https://www.gstatic.com https://ssl.gstatic.com; style-src 'self' 'unsafe-inline' https://translate.google.com https://translate.googleapis.com https://www.gstatic.com https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com https://ssl.gstatic.com; img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://*.arcgisonline.com https://*.opentopomap.org https://*.maptiler.com https://api.maptiler.com https://*.openstreetmap.org https://www.google.com https://*.google.com https://translate.google.com https://translate.googleapis.com https://www.gstatic.com https://ssl.gstatic.com; connect-src 'self' https://api.maptiler.com https://nominatim.openstreetmap.org https://photon.komoot.io https://geocode.arcgis.com https://router.project-osrm.org https://routing.openstreetmap.de https://translate.googleapis.com https://translate-pa.googleapis.com https://translate.google.com; frame-src 'self' https://translate.google.com https://translate.googleapis.com; frame-ancestors 'none'; form-action 'self'; base-uri 'self';"
     );
     res.setHeader('Permissions-Policy', 'camera=(self), geolocation=(self), microphone=()');
     next();
@@ -834,12 +835,42 @@ export function createApp() {
       }
     };
 
-    // 2. Fetch MapTiler, OSM Nominatim, Photon Komoot (biased to Greater Jakarta), & ArcGIS World Geocoder in parallel
+    // 2. Fetch ArcGIS World Geocoder, MapTiler, OSM Nominatim, & Photon Komoot across ALL of Indonesia in parallel (no Jabodetabek-only lock)
+    const arcgisPromise = (async () => {
+      const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?SingleLine=${encodeURIComponent(
+        q
+      )}&countryCode=IDN&maxLocations=15&outFields=PlaceName,Place_addr,Match_addr,City,Region&f=pjson`;
+      const resp = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(4500),
+      });
+      if (!resp.ok) return [] as Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }>;
+      const data = (await resp.json()) as { candidates?: Array<any> };
+      const list: Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }> = [];
+      for (const cand of Array.isArray(data.candidates) ? data.candidates : []) {
+        const lat = Number(cand.location?.y);
+        const lon = Number(cand.location?.x);
+        const attrs = cand.attributes || {};
+        const primary = String(attrs.PlaceName || cand.address?.split(',')[0] || q).trim();
+        const address = String(attrs.Place_addr || attrs.Match_addr || cand.address || primary).trim();
+        if (isInsideIndonesia(lat, lon)) {
+          list.push({
+            place_id: `arc_${lat.toFixed(4)}_${lon.toFixed(4)}`,
+            name: primary,
+            address,
+            lat,
+            lon,
+          });
+        }
+      }
+      return list;
+    })();
+
     const maptilerPromise = (async () => {
       const maptilerUrl = `https://api.maptiler.com/geocoding/${encodeURIComponent(q)}.json?key=${encodeURIComponent(
         MAPTILER_API_KEY
-      )}&country=id&proximity=106.8456,-6.2088&bbox=94.5,-11.2,141.5,6.2&limit=12&language=id,en`;
-      const mtResp = await fetch(maptilerUrl, { signal: AbortSignal.timeout(2200) });
+      )}&country=id&bbox=94.5,-11.2,141.5,6.2&limit=12&language=id,en`;
+      const mtResp = await fetch(maptilerUrl, { signal: AbortSignal.timeout(4500) });
       if (!mtResp.ok) return [] as Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }>;
       const mtData = (await mtResp.json()) as { features?: Array<any> };
       const list: Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }> = [];
@@ -863,7 +894,7 @@ export function createApp() {
     })();
 
     const nominatimPromise = (async () => {
-      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&countrycodes=id&limit=12&q=${encodeURIComponent(
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&countrycodes=id&limit=15&q=${encodeURIComponent(
         q
       )}`;
       const resp = await fetch(url, {
@@ -871,7 +902,7 @@ export function createApp() {
           'User-Agent': 'GalaxyFleet/2.0 (Corporate Fleet Management System)',
           'Accept-Language': 'id,en',
         },
-        signal: AbortSignal.timeout(2200),
+        signal: AbortSignal.timeout(4500),
       });
       if (!resp.ok) return [] as Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }>;
       const data = (await resp.json()) as Array<any>;
@@ -895,10 +926,10 @@ export function createApp() {
     })();
 
     const photonPromise = (async () => {
-      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=-6.2088&lon=106.8456&bbox=94.5,-11.2,141.5,6.2&limit=12`;
+      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=94.5,-11.2,141.5,6.2&limit=15`;
       const resp = await fetch(url, {
         headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(2200),
+        signal: AbortSignal.timeout(4500),
       });
       if (!resp.ok) return [] as Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }>;
       const data = (await resp.json()) as { features?: Array<any> };
@@ -934,37 +965,7 @@ export function createApp() {
       return list;
     })();
 
-    const arcgisPromise = (async () => {
-      const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?SingleLine=${encodeURIComponent(
-        q
-      )}&countryCode=IDN&location=106.8456,-6.2088&maxLocations=10&outFields=PlaceName,Place_addr,Match_addr&f=pjson`;
-      const resp = await fetch(url, {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(2200),
-      });
-      if (!resp.ok) return [] as Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }>;
-      const data = (await resp.json()) as { candidates?: Array<any> };
-      const list: Array<{ place_id: string | number; name: string; address: string; lat: number; lon: number }> = [];
-      for (const cand of Array.isArray(data.candidates) ? data.candidates : []) {
-        const lat = Number(cand.location?.y);
-        const lon = Number(cand.location?.x);
-        const attrs = cand.attributes || {};
-        const primary = String(attrs.PlaceName || cand.address?.split(',')[0] || q).trim();
-        const address = String(attrs.Place_addr || attrs.Match_addr || cand.address || primary).trim();
-        if (isInsideIndonesia(lat, lon)) {
-          list.push({
-            place_id: `arc_${lat.toFixed(4)}_${lon.toFixed(4)}`,
-            name: primary,
-            address,
-            lat,
-            lon,
-          });
-        }
-      }
-      return list;
-    })();
-
-    const settled = await Promise.allSettled([maptilerPromise, nominatimPromise, photonPromise, arcgisPromise]);
+    const settled = await Promise.allSettled([arcgisPromise, maptilerPromise, nominatimPromise, photonPromise]);
     for (const outcome of settled) {
       if (outcome.status === 'fulfilled') {
         for (const item of outcome.value) {
@@ -973,7 +974,7 @@ export function createApp() {
       }
     }
 
-    const finalResults = results.slice(0, 30);
+    const finalResults = results.slice(0, 35);
     if (finalResults.length > 0) {
       setBoundedCache(geocodeSearchCache, cacheKey, {
         expiresAt: Date.now() + 10 * 60_000,
@@ -1127,66 +1128,79 @@ export function createApp() {
       return;
     }
 
-    try {
-      const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${encodeURIComponent(String(originLon))},${encodeURIComponent(String(originLat))};${encodeURIComponent(String(destLon))},${encodeURIComponent(String(destLat))}?overview=simplified&geometries=geojson`;
-      const resp = await fetch(osrmUrl, {
-        headers: {
-          'User-Agent': 'GalaxyFleetManagement/2.0 (Indonesian Fleet System)',
-          Accept: 'application/json',
-        },
-        signal: AbortSignal.timeout(2200),
-      });
+    const routingEndpoints = [
+      {
+        name: 'osrm',
+        url: `https://router.project-osrm.org/route/v1/driving/${encodeURIComponent(String(originLon))},${encodeURIComponent(String(originLat))};${encodeURIComponent(String(destLon))},${encodeURIComponent(String(destLat))}?overview=full&geometries=geojson`,
+      },
+      {
+        name: 'osm-de-car',
+        url: `https://routing.openstreetmap.de/routed-car/route/v1/driving/${encodeURIComponent(String(originLon))},${encodeURIComponent(String(originLat))};${encodeURIComponent(String(destLon))},${encodeURIComponent(String(destLat))}?overview=full&geometries=geojson`,
+      },
+    ];
 
-      if (resp.ok) {
-        const data = (await resp.json()) as {
-          code?: string;
-          routes?: Array<{
-            distance?: number;
-            duration?: number;
-            geometry?: { coordinates?: Array<[number, number]> };
-          }>;
-        };
-        const route = data.routes?.[0];
-        if (route && typeof route.distance === 'number' && typeof route.duration === 'number') {
-          const distanceKm = Math.max(0.2, Number((route.distance / 1000).toFixed(1)));
-          // Apply realistic urban traffic factor (1.20x on raw free-flow OSRM duration)
-          const durationMin = Math.max(2, Math.round((route.duration * 1.20) / 60));
-          const etaDate = new Date(baseDepartureMs + durationMin * 60_000);
-          const etaText = etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          const coords = Array.isArray(route.geometry?.coordinates)
-            ? route.geometry!.coordinates
-              .filter((pt) => Array.isArray(pt) && pt.length >= 2)
-              .map((pt) => [Number(pt[1]), Number(pt[0])] as [number, number])
-            : ([
-                [originLat, originLon],
-                [destLat, destLon],
-              ] as Array<[number, number]>);
-          const finalGeometry = coords.length >= 2 ? coords : [[originLat, originLon], [destLat, destLon]] as Array<[number, number]>;
+    for (const provider of routingEndpoints) {
+      try {
+        const resp = await fetch(provider.url, {
+          headers: {
+            'User-Agent': 'GalaxyFleetManagement/2.0 (Indonesian Fleet System)',
+            Accept: 'application/json',
+          },
+          signal: AbortSignal.timeout(4000),
+        });
 
-          setBoundedCache(routeCalcCache, routeCacheKey, {
-            expiresAt: Date.now() + 15 * 60_000,
-            distanceKm,
-            durationMin,
-            geometry: finalGeometry,
-            source: 'osrm',
-          });
+        if (resp.ok) {
+          const data = (await resp.json()) as {
+            code?: string;
+            routes?: Array<{
+              distance?: number;
+              duration?: number;
+              geometry?: { coordinates?: Array<[number, number]> };
+            }>;
+          };
+          const route = data.routes?.[0];
+          if (route && typeof route.distance === 'number' && typeof route.duration === 'number') {
+            const distanceKm = Math.max(0.2, Number((route.distance / 1000).toFixed(1)));
+            // Apply realistic urban traffic factor (1.20x on raw free-flow OSRM duration)
+            const durationMin = Math.max(2, Math.round((route.duration * 1.20) / 60));
+            const etaDate = new Date(baseDepartureMs + durationMin * 60_000);
+            const etaText = etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const coords = Array.isArray(route.geometry?.coordinates)
+              ? route.geometry!.coordinates
+                  .filter((pt) => Array.isArray(pt) && pt.length >= 2)
+                  .map((pt) => [Number(pt[1]), Number(pt[0])] as [number, number])
+              : ([
+                  [originLat, originLon],
+                  [destLat, destLon],
+                ] as Array<[number, number]>);
+            const finalGeometry =
+              coords.length >= 2 ? coords : ([[originLat, originLon], [destLat, destLon]] as Array<[number, number]>);
 
-          res.json({
-            distanceKm,
-            durationMin,
-            etaIso: etaDate.toISOString(),
-            etaText,
-            geometry: finalGeometry,
-            source: 'osrm',
-          });
-          return;
+            setBoundedCache(routeCalcCache, routeCacheKey, {
+              expiresAt: Date.now() + 15 * 60_000,
+              distanceKm,
+              durationMin,
+              geometry: finalGeometry,
+              source: provider.name,
+            });
+
+            res.json({
+              distanceKm,
+              durationMin,
+              etaIso: etaDate.toISOString(),
+              etaText,
+              geometry: finalGeometry,
+              source: provider.name,
+            });
+            return;
+          }
         }
+      } catch {
+        // Try next routing provider
       }
-    } catch {
-      // Fallback to Nationwide Indonesian Highway-Aware Corridor Routing below
     }
 
-    // Fallback: Real road calculation using Nationwide Indonesian toll & arterial network corridors
+    // Smooth non-zigzagging Bezier arc fallback when external routing servers are temporarily unreachable
     const toRad = (deg: number) => (deg * Math.PI) / 180;
     const dLat = toRad(destLat - originLat);
     const dLon = toRad(destLon - originLon);
@@ -1201,74 +1215,17 @@ export function createApp() {
     const etaDate = new Date(baseDepartureMs + durationMin * 60_000);
     const etaText = etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // Nationwide Indonesian road and tollway corridor pivot nodes
-    const CORRIDOR_NODES: Array<[number, number]> = [
-      // Jabodetabek & Banten
-      [-6.01542, 106.04812], // Cilegon / Tol Tangerang-Merak
-      [-6.11528, 106.15417], // Serang
-      [-6.13012, 106.65421], // Bandara Soetta / Soedyatmo
-      [-6.15542, 106.74512], // Pluit - Cengkareng
-      [-6.17743, 106.79012], // Tomang Interchange
-      [-6.21987, 106.81543], // Semanggi
-      [-6.24123, 106.86541], // Cawang
-      [-6.19834, 106.88873], // Pulogadung
-      [-6.24876, 106.88765], // Halim / Jagorawi
-      [-6.56817, 106.85483], // Sentul / Jagorawi Selatan
-      [-6.24812, 106.99234], // Bekasi Barat
-      [-6.30541, 107.09845], // Cikarang Barat MM2100
-      [-6.36845, 107.16541], // Cikarang Pusat / Deltamas
-      [-6.34215, 107.27812], // Karawang Barat KIIC
-      [-6.38891, 107.34567], // Karawang Timur / Cikampek
-      // Cipularang & Trans-Java
-      [-6.55405, 107.44149], // Sadang Purwakarta
-      [-6.89304, 107.58989], // Pasteur Bandung
-      [-6.71541, 108.48122], // Palimanan / Cipali Cirebon
-      [-6.95624, 109.96935], // Batang / Trans-Jawa
-      [-6.99028, 110.42294], // Semarang Krapyak / Kalikangkung
-      [-7.55704, 110.82206], // Solo / Kartasura
-      [-7.37983, 112.78686], // Waru / Juanda Surabaya
-      [-7.97713, 112.63398], // Singosari / Malang
-      // Bali, Sumatra, Kalimantan, Sulawesi
-      [-8.74489, 115.21164], // Tol Bali Mandara / Benoa
-      [-5.42944, 105.26111], // Bandar Lampung / Bakauheni
-      [-2.99111, 104.76342], // Palembang
-      [3.59125, 98.67668],   // Medan
-      [-1.26827, 116.89448], // Balikpapan / Samboja IKN
-      [-5.14361, 119.40711], // Makassar
-    ];
-
-    const latPad = Math.max(0.03, Math.abs(destLat - originLat) * 0.15);
-    const lonPad = Math.max(0.03, Math.abs(destLon - originLon) * 0.15);
-    const minLat = Math.min(originLat, destLat) - latPad;
-    const maxLat = Math.max(originLat, destLat) + latPad;
-    const minLon = Math.min(originLon, destLon) - lonPad;
-    const maxLon = Math.max(originLon, destLon) + lonPad;
-
-    const intermediateNodes = CORRIDOR_NODES.filter(([nLat, nLon]) => {
-      return nLat >= minLat && nLat <= maxLat && nLon >= minLon && nLon <= maxLon;
-    })
-      .sort((a, b) => {
-        const distA = Math.hypot(a[0] - originLat, a[1] - originLon);
-        const distB = Math.hypot(b[0] - originLat, b[1] - originLon);
-        return distA - distB;
-      })
-      .slice(0, 6);
-
-    const anchors: Array<[number, number]> = [[originLat, originLon], ...intermediateNodes, [destLat, destLon]];
-
+    const ctrlLat = (originLat + destLat) / 2 + (destLon - originLon) * 0.1;
+    const ctrlLon = (originLon + destLon) / 2 - (destLat - originLat) * 0.1;
+    const steps = 24;
     const geometry: Array<[number, number]> = [];
-    for (let seg = 0; seg < anchors.length - 1; seg++) {
-      const p1 = anchors[seg];
-      const p2 = anchors[seg + 1];
-      const subSteps = Math.max(3, Math.min(10, Math.round(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) * 60)));
-      for (let s = 0; s < subSteps; s++) {
-        const t = s / subSteps;
-        const curLat = p1[0] + (p2[0] - p1[0]) * t;
-        const curLon = p1[1] + (p2[1] - p1[1]) * t;
-        geometry.push([Number(curLat.toFixed(6)), Number(curLon.toFixed(6))]);
-      }
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const omt = 1 - t;
+      const lat = omt * omt * originLat + 2 * omt * t * ctrlLat + t * t * destLat;
+      const lon = omt * omt * originLon + 2 * omt * t * ctrlLon + t * t * destLon;
+      geometry.push([Number(lat.toFixed(6)), Number(lon.toFixed(6))]);
     }
-    geometry.push([destLat, destLon]);
 
     res.json({
       distanceKm,
@@ -2643,7 +2600,19 @@ export function createApp() {
             }
             if (hasHwsAccount && !hwsApprovedPrior) {
               // Stage 1: Consented by Fleet Operation PIC, awaiting Head Of WS Part final approval
-              const targetVehicleId = vehicle_id ? Number(vehicle_id) : trip.vehicle_id;
+              const enforceFixedDriverCar = req.body?.enforce_fixed_driver_car === true;
+              let stage1DriverId: number | null = driver_profile_id ? Number(driver_profile_id) : trip.preferred_driver_id;
+              let targetVehicleId = vehicle_id ? Number(vehicle_id) : trip.vehicle_id;
+
+              if (enforceFixedDriverCar && stage1DriverId) {
+                const fixedVeh = db
+                  .prepare('SELECT id FROM vehicles WHERE default_driver_id = ? LIMIT 1')
+                  .get(stage1DriverId) as { id: number } | undefined;
+                if (fixedVeh?.id) {
+                  targetVehicleId = fixedVeh.id;
+                }
+              }
+
               const vConflictStage1 = checkVehicleConflict(db, targetVehicleId, trip.start_time, trip.end_time, undefined, tripId);
               if (vConflictStage1.hasConflict) {
                 const err = new Error(vConflictStage1.reason || 'Selected vehicle is not available for this time slot');
@@ -2651,7 +2620,6 @@ export function createApp() {
                 throw err;
               }
 
-              let stage1DriverId: number | null = driver_profile_id ? Number(driver_profile_id) : trip.preferred_driver_id;
               if (!stage1DriverId) {
                 const vehRow = db.prepare('SELECT default_driver_id FROM vehicles WHERE id = ?').get(targetVehicleId) as
                   | { default_driver_id: number | null }
@@ -2751,7 +2719,19 @@ export function createApp() {
           )
           .run(tripId, user.id, user.role, finalReason);
 
-        const targetVehicleId = vehicle_id ? Number(vehicle_id) : trip.vehicle_id;
+        const enforceFixedDriverCarFinal = req.body?.enforce_fixed_driver_car === true;
+        let targetDriverProfileId = driver_profile_id ? Number(driver_profile_id) : trip.preferred_driver_id;
+        let targetVehicleId = vehicle_id ? Number(vehicle_id) : trip.vehicle_id;
+
+        if (enforceFixedDriverCarFinal && targetDriverProfileId) {
+          const fixedVehFinal = db
+            .prepare('SELECT id FROM vehicles WHERE default_driver_id = ? LIMIT 1')
+            .get(targetDriverProfileId) as { id: number } | undefined;
+          if (fixedVehFinal?.id) {
+            targetVehicleId = fixedVehFinal.id;
+          }
+        }
+
         const vConflict = checkVehicleConflict(db, targetVehicleId, trip.start_time, trip.end_time, undefined, tripId);
         if (vConflict.hasConflict) {
           const err = new Error(vConflict.reason || 'Vehicle conflict');
@@ -2759,7 +2739,6 @@ export function createApp() {
           throw err;
         }
 
-        let targetDriverProfileId = driver_profile_id ? Number(driver_profile_id) : trip.preferred_driver_id;
         if (!targetDriverProfileId) {
           const veh = db.prepare('SELECT default_driver_id FROM vehicles WHERE id = ?').get(targetVehicleId) as
             | { default_driver_id: number | null }
