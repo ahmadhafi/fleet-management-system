@@ -2763,17 +2763,151 @@ export function App() {
     [trips, focusedTripId, ongoingTrips]
   );
 
-  const activeTripDriverCoords = useMemo(() => {
-    if (!focusedTrip) return null;
-    const carPos = fleetPositions.find((p) => p.id === focusedTrip.vehicle_id);
-    if (carPos && Number.isFinite(carPos.latitude) && Number.isFinite(carPos.longitude)) {
-      return { lat: carPos.latitude, lon: carPos.longitude };
-    }
-    const drvPin = userPins.find((p) =>
-      (focusedTrip.assigned_driver_name && p.nickname.toLowerCase() === focusedTrip.assigned_driver_name.toLowerCase()) || p.role === 'DRV'
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  const [driverToPickupEta, setDriverToPickupEta] = useState<{
+    distanceKm: number;
+    durationMin: number;
+    etaText: string;
+  } | null>(null);
+
+  const canShowAssignedDriverLive = useMemo(() => {
+    if (!focusedTrip) return false;
+    const hasAssignedDriver = Boolean(
+      focusedTrip.driver_profile_id || focusedTrip.assigned_driver_user_id || focusedTrip.assigned_driver_name
     );
-    return drvPin ? { lat: drvPin.latitude, lon: drvPin.longitude } : null;
-  }, [focusedTrip, fleetPositions, userPins]);
+    if (!hasAssignedDriver) return false;
+    if (focusedTrip.status === 'IN_PROGRESS') return true;
+    if (focusedTrip.status !== 'APPROVED') return false;
+    if (focusedTrip.live_driver_tracking_visible === true) return true;
+    const startMs = focusedTrip.start_time ? new Date(focusedTrip.start_time).getTime() : NaN;
+    if (!Number.isFinite(startMs)) return false;
+    return startMs - nowTick <= 10 * 60_000;
+  }, [focusedTrip, nowTick]);
+
+  const driverTrackingUnlocksAtText = useMemo(() => {
+    if (!focusedTrip) return null;
+    const unlockIso =
+      focusedTrip.tracking_unlocks_at ||
+      (focusedTrip.start_time ? new Date(new Date(focusedTrip.start_time).getTime() - 10 * 60_000).toISOString() : null);
+    if (!unlockIso) return null;
+    const d = new Date(unlockIso);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }, [focusedTrip]);
+
+  // Periodically update clock & refresh trip GPS while viewing an APPROVED / IN_PROGRESS booking
+  useEffect(() => {
+    if (!focusedTrip || (focusedTrip.status !== 'APPROVED' && focusedTrip.status !== 'IN_PROGRESS')) return;
+    const id = window.setInterval(async () => {
+      setNowTick(Date.now());
+      if (bookingStep === 'IN_TRIP') {
+        try {
+          const res = await apiRequest('/api/trips');
+          if (res.trips) setTrips(res.trips);
+        } catch {
+          // ignore transient poll error
+        }
+      }
+    }, 15_000);
+    return () => window.clearInterval(id);
+  }, [focusedTrip?.id, focusedTrip?.status, bookingStep]);
+
+  // Trigger an immediate /api/trips refresh right when crossing into the 10-minute pre-departure window
+  useEffect(() => {
+    if (!canShowAssignedDriverLive || !focusedTrip) return;
+    if (focusedTrip.assigned_driver_lat == null || focusedTrip.assigned_driver_lon == null) {
+      apiRequest('/api/trips')
+        .then((res) => {
+          if (res?.trips) setTrips(res.trips);
+        })
+        .catch(() => {});
+    }
+  }, [canShowAssignedDriverLive, focusedTrip?.id]);
+
+  // Strictly show ONLY the assigned driver's live GPS and ONLY inside the 10-minute window (or IN_PROGRESS)
+  const activeTripDriverCoords = useMemo(() => {
+    if (!focusedTrip || !canShowAssignedDriverLive) return null;
+    if (
+      focusedTrip.assigned_driver_lat != null &&
+      focusedTrip.assigned_driver_lon != null &&
+      Number.isFinite(Number(focusedTrip.assigned_driver_lat)) &&
+      Number.isFinite(Number(focusedTrip.assigned_driver_lon))
+    ) {
+      return { lat: Number(focusedTrip.assigned_driver_lat), lon: Number(focusedTrip.assigned_driver_lon) };
+    }
+    if (focusedTrip.vehicle_id) {
+      const carPos = fleetPositions.find((p) => p.id === focusedTrip.vehicle_id);
+      if (carPos && Number.isFinite(carPos.latitude) && Number.isFinite(carPos.longitude)) {
+        return { lat: carPos.latitude, lon: carPos.longitude };
+      }
+    }
+    if (focusedTrip.assigned_driver_user_id) {
+      const drvPin = userPins.find((p) => p.user_id === focusedTrip.assigned_driver_user_id);
+      if (drvPin && Number.isFinite(drvPin.latitude) && Number.isFinite(drvPin.longitude)) {
+        return { lat: drvPin.latitude, lon: drvPin.longitude };
+      }
+    }
+    return null;
+  }, [focusedTrip, canShowAssignedDriverLive, fleetPositions, userPins]);
+
+  // Compute live ETA & distance from assigned driver's position to user's pickup position
+  useEffect(() => {
+    if (!canShowAssignedDriverLive || !activeTripDriverCoords) {
+      setDriverToPickupEta(null);
+      return;
+    }
+    const pickupPoint =
+      originCoords && Number.isFinite(originCoords.lat) && Number.isFinite(originCoords.lon)
+        ? originCoords
+        : myCoords && Number.isFinite(myCoords.lat) && Number.isFinite(myCoords.lon)
+        ? { lat: myCoords.lat, lon: myCoords.lon }
+        : { lat: -6.22728, lon: 106.80816 };
+
+    const est = estimateRouteMetrics('Driver', 'Pickup', activeTripDriverCoords, pickupPoint);
+    const estEta = new Date(Date.now() + est.durationMin * 60_000).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    setDriverToPickupEta({
+      distanceKm: est.distanceKm,
+      durationMin: est.durationMin,
+      etaText: estEta,
+    });
+
+    let cancelled = false;
+    apiRequest(
+      `/api/route?originLat=${encodeURIComponent(activeTripDriverCoords.lat)}&originLon=${encodeURIComponent(
+        activeTripDriverCoords.lon
+      )}&destLat=${encodeURIComponent(pickupPoint.lat)}&destLon=${encodeURIComponent(pickupPoint.lon)}`
+    )
+      .then((res) => {
+        if (!cancelled && res && Number(res.distanceKm) > 0 && Number(res.durationMin) > 0) {
+          const dMin = Math.max(1, Math.round(Number(res.durationMin)));
+          const etaText = new Date(Date.now() + dMin * 60_000).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+          setDriverToPickupEta({
+            distanceKm: Number(Number(res.distanceKm).toFixed(1)),
+            durationMin: dMin,
+            etaText,
+          });
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    canShowAssignedDriverLive,
+    activeTripDriverCoords?.lat,
+    activeTripDriverCoords?.lon,
+    originCoords?.lat,
+    originCoords?.lon,
+    myCoords?.lat,
+    myCoords?.lon,
+  ]);
 
   // Auto-transition user view when trip status changes (e.g. Approved, Dispatched, In Progress, Completed, Rejected)
   useEffect(() => {
@@ -2812,6 +2946,19 @@ export function App() {
       }
     }
   }, [focusedTrip?.status, focusedTrip?.id, bookingStep]);
+
+  // Ensure route origin/destination coordinates resolve accurately when opening an existing trip in WAITING / IN_TRIP
+  useEffect(() => {
+    if ((bookingStep !== 'WAITING' && bookingStep !== 'IN_TRIP') || !focusedTrip) return;
+    if (focusedTrip.origin && focusedTrip.origin !== bookOrigin) {
+      setBookOrigin(focusedTrip.origin);
+      setOriginCoords(null);
+    }
+    if (focusedTrip.destination && focusedTrip.destination !== bookDest) {
+      setBookDest(focusedTrip.destination);
+      setDestCoords(null);
+    }
+  }, [bookingStep, focusedTrip?.id, focusedTrip?.origin, focusedTrip?.destination]);
 
   // Real user recent destinations from their actual trip history (no dummy places)
   const recentDestinationChips = useMemo(() => {
@@ -13548,7 +13695,13 @@ export function App() {
             </div>
           </div>
           <h1 className="type-title" style={{ marginTop: '6px' }}>
-            {isStarted ? `Arriving in ~${Math.max(8, currentMetrics.durationMin || 18)} min (ETA ${currentMetrics.etaText})` : t('Driver arriving in ~10 min')}
+            {isStarted
+              ? `Arriving in ~${Math.max(8, currentMetrics.durationMin || 18)} min (ETA ${currentMetrics.etaText})`
+              : canShowAssignedDriverLive && driverToPickupEta
+              ? `Driver arriving in ~${driverToPickupEta.durationMin} min (${driverToPickupEta.distanceKm} km)`
+              : canShowAssignedDriverLive
+              ? t('Driver assigned — live location active')
+              : t('Booking Approved — Driver Assigned')}
           </h1>
           {tripToShow && (
             <div className="type-caption">{tripToShow.origin} → {tripToShow.destination}</div>
@@ -13617,6 +13770,77 @@ export function App() {
             </div>
           </div>
         )}
+
+        {/* Live Assigned Driver Position & Pickup ETA (unlocked 10 min before departure or while IN_PROGRESS) */}
+        {canShowAssignedDriverLive ? (
+          <div
+            id="live-driver-eta-card"
+            style={{
+              padding: '12px 14px',
+              borderRadius: 'var(--radius-card)',
+              background: '#ebf5ff',
+              border: '1.5px solid #93c5fd',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+              <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#005bb5', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                🚗 {isStarted ? t('Assigned Driver Live Position') : t('Driver ETA to Your Pickup')}
+              </span>
+              <span
+                style={{
+                  fontSize: '10px',
+                  fontWeight: 800,
+                  padding: '2px 7px',
+                  borderRadius: '9999px',
+                  background: '#0072de',
+                  color: '#ffffff',
+                }}
+              >
+                LIVE
+              </span>
+            </div>
+            {driverToPickupEta ? (
+              <>
+                <div style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a' }}>
+                  ~{driverToPickupEta.durationMin} min ({driverToPickupEta.distanceKm} km) • ETA {driverToPickupEta.etaText}
+                </div>
+                <div style={{ fontSize: '11.5px', color: '#334155' }}>
+                  {t('Showing live GPS position of your assigned driver on the map.')}
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                {t('Waiting for assigned driver GPS signal — live position & ETA will appear as soon as driver is online.')}
+              </div>
+            )}
+          </div>
+        ) : tripToShow?.status === 'APPROVED' ? (
+          <div
+            id="driver-tracking-locked-notice"
+            style={{
+              padding: '12px 14px',
+              borderRadius: 'var(--radius-card)',
+              background: '#f8fafc',
+              border: '1.5px solid #cbd5e1',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px',
+            }}
+          >
+            <Lock size={16} style={{ color: '#0072de', flexShrink: 0, marginTop: '2px' }} />
+            <div style={{ fontSize: '12px', color: '#334155', lineHeight: 1.45 }}>
+              <strong style={{ color: '#0f172a' }}>{t('Driver Live Location Unlocks 10 Minutes Before Schedule')}</strong>
+              <div style={{ marginTop: '2px' }}>
+                {driverTrackingUnlocksAtText
+                  ? `${t('Your assigned driver position and pickup ETA will appear on the map starting at')} ${driverTrackingUnlocksAtText}.`
+                  : t('Your assigned driver position and pickup ETA will appear on the map 10 minutes before scheduled departure.')}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {/* Driver Row: Round Photo, Name, Rating, Bold Plate Box */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '14px', borderRadius: 'var(--radius-card)', border: '1px solid var(--color-divider)' }}>
@@ -13982,8 +14206,8 @@ export function App() {
                   originCoords={originCoords}
                   destCoords={destCoords}
                   myCoords={myCoords}
-                  userPins={userPins}
-                  fleetPositions={fleetPositions}
+                  userPins={[]}
+                  fleetPositions={undefined}
                   currentUserId={user.id}
                   onLocateMe={() => detectAndReportUserLocation(false)}
                   locatingUser={locatingUser}
@@ -14001,9 +14225,10 @@ export function App() {
                     }
                   }}
                   waitingRadar={navSection === 'HOME' && bookingStep === 'WAITING'}
-                  driverActive={navSection === 'HOME' && bookingStep === 'IN_TRIP'}
+                  driverActive={navSection === 'HOME' && bookingStep === 'IN_TRIP' && canShowAssignedDriverLive}
                   driverName={focusedTrip?.assigned_driver_name}
-                  driverCoords={activeTripDriverCoords}
+                  driverCoords={canShowAssignedDriverLive ? activeTripDriverCoords : null}
+                  driverToPickupEta={canShowAssignedDriverLive ? driverToPickupEta : null}
                   activeVehicleModel={focusedTrip?.model || 'Stargazer'}
                   showBackButton={inActiveBookingFlow && !isDriverOnly}
                   onBack={handleMapBack}

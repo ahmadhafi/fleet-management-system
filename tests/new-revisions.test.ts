@@ -2833,6 +2833,128 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(appTsx).toContain('photon.komoot.io');
         expect(appTsx).toContain('routing.openstreetmap.de');
         expect(mapViewTsx).toContain('fitGojekRouteCamera');
+      }, 15000);
+
+      it('hides other users and all drivers during booking, and unlocks assigned driver live GPS & pickup ETA only within 10 minutes before scheduled departure or IN_PROGRESS', async () => {
+        const fs = await import('fs');
+        const path = await import('path');
+
+        resetDbForTesting(':memory:');
+        const testApp = createApp();
+        const db = getDb();
+
+        const empRes = await request(testApp).post('/api/auth/login').send({ group_username: 'emp_alex', password: 'Emp@123' });
+        const fmRes = await request(testApp).post('/api/auth/login').send({ group_username: 'fleetmgr', password: 'Fleet@123' });
+        const hwsRes = await request(testApp).post('/api/auth/login').send({ group_username: 'hws_head', password: 'Hws@123' });
+        const drvRes = await request(testApp).post('/api/auth/login').send({ group_username: 'drv_budi', password: 'Driver@123' });
+        expect(empRes.status).toBe(200);
+        expect(fmRes.status).toBe(200);
+        expect(drvRes.status).toBe(200);
+        const empTok = empRes.body.token;
+        const fmTok = fmRes.body.token;
+        const hwsTok = hwsRes.status === 200 ? hwsRes.body.token : null;
+        const drvTok = drvRes.body.token;
+
+        // Find Budi's driver_profile_id and fixed car
+        const budiRow = db
+          .prepare(`SELECT dp.id as driver_profile_id, v.id as vehicle_id FROM driver_profiles dp JOIN users u ON u.id = dp.user_id JOIN vehicles v ON v.default_driver_id = dp.id WHERE u.group_username = 'drv_budi' LIMIT 1`)
+          .get() as { driver_profile_id: number; vehicle_id: number };
+        expect(budiRow).toBeDefined();
+
+        // Driver reports live GPS near SCBD Jakarta
+        const pingRes = await request(testApp)
+          .post('/api/location/ping')
+          .set('Authorization', `Bearer ${drvTok}`)
+          .send({ latitude: -6.2241, longitude: 106.8099, accuracy: 8 });
+        expect([200, 201]).toContain(pingRes.status);
+
+        // Case A: Trip scheduled 2 hours from now (> 10 minutes away)
+        const farStart = new Date(Date.now() + 120 * 60_000).toISOString();
+        const farEnd = new Date(Date.now() + 240 * 60_000).toISOString();
+        const farTripRes = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${empTok}`)
+          .send({
+            vehicle_id: budiRow.vehicle_id,
+            auto_assign: true,
+            purpose: 'Future meeting 2h ahead',
+            origin: 'Samsung Office Jakarta (Lobby)',
+            destination: 'Plaza Indonesia',
+            start_time: farStart,
+            end_time: farEnd,
+            passengers: [{ id: 1, nickname: 'Alex' }],
+          });
+        expect(farTripRes.status).toBe(201);
+        const farTripId = farTripRes.body.tripId;
+
+        // While PENDING_APPROVAL: driver live tracking must be hidden
+        const pendingList = await request(testApp).get('/api/trips').set('Authorization', `Bearer ${empTok}`);
+        expect(pendingList.status).toBe(200);
+        const pendingTrip = pendingList.body.trips.find((t: any) => t.id === farTripId);
+        expect(pendingTrip).toBeDefined();
+        expect(pendingTrip.live_driver_tracking_visible).toBe(false);
+        expect(pendingTrip.assigned_driver_lat).toBeNull();
+        expect(pendingTrip.assigned_driver_lon).toBeNull();
+
+        // Approve the future trip and assign Budi
+        const approveFarFm = await request(testApp)
+          .post(`/api/trips/${farTripId}/decision`)
+          .set('Authorization', `Bearer ${fmTok}`)
+          .send({
+            decision: 'APPROVED',
+            driver_profile_id: budiRow.driver_profile_id,
+            enforce_fixed_driver_car: true,
+            reason: 'Assigned Budi',
+          });
+        expect(approveFarFm.status).toBe(200);
+        if (hwsTok && approveFarFm.body.trip?.status !== 'APPROVED') {
+          const approveFarHws = await request(testApp)
+            .post(`/api/trips/${farTripId}/decision`)
+            .set('Authorization', `Bearer ${hwsTok}`)
+            .send({ decision: 'APPROVED', reason: 'HWS approved' });
+          expect(approveFarHws.status).toBe(200);
+        }
+
+        // Still > 10 minutes before start_time -> MUST still hide driver GPS & provide tracking_unlocks_at
+        const approvedFarList = await request(testApp).get('/api/trips').set('Authorization', `Bearer ${empTok}`);
+        const approvedFarTrip = approvedFarList.body.trips.find((t: any) => t.id === farTripId);
+        expect(approvedFarTrip.status).toBe('APPROVED');
+        expect(approvedFarTrip.live_driver_tracking_visible).toBe(false);
+        expect(approvedFarTrip.assigned_driver_lat).toBeNull();
+        expect(approvedFarTrip.assigned_driver_lon).toBeNull();
+        expect(typeof approvedFarTrip.tracking_unlocks_at).toBe('string');
+
+        // Case B: Move start_time to 5 minutes from now (inside the 10-minute pre-departure window)
+        const nearStart = new Date(Date.now() + 5 * 60_000).toISOString();
+        const nearEnd = new Date(Date.now() + 90 * 60_000).toISOString();
+        db.prepare('UPDATE trip_requests SET start_time = ?, end_time = ? WHERE id = ?').run(nearStart, nearEnd, farTripId);
+
+        const withinTenMinList = await request(testApp).get('/api/trips').set('Authorization', `Bearer ${empTok}`);
+        const withinTenMinTrip = withinTenMinList.body.trips.find((t: any) => t.id === farTripId);
+        expect(withinTenMinTrip.status).toBe('APPROVED');
+        expect(withinTenMinTrip.live_driver_tracking_visible).toBe(true);
+        expect(withinTenMinTrip.assigned_driver_lat).toBeCloseTo(-6.2241, 4);
+        expect(withinTenMinTrip.assigned_driver_lon).toBeCloseTo(106.8099, 4);
+
+        // Case C: IN_PROGRESS trip -> live driver GPS remains visible
+        db.prepare("UPDATE trip_requests SET status = 'IN_PROGRESS' WHERE id = ?").run(farTripId);
+        const inProgressList = await request(testApp).get('/api/trips').set('Authorization', `Bearer ${empTok}`);
+        const inProgressTrip = inProgressList.body.trips.find((t: any) => t.id === farTripId);
+        expect(inProgressTrip.live_driver_tracking_visible).toBe(true);
+        expect(inProgressTrip.assigned_driver_lat).toBeCloseTo(-6.2241, 4);
+        expect(inProgressTrip.assigned_driver_lon).toBeCloseTo(106.8099, 4);
+
+        // Verify frontend enforces clean passenger map (no other users / no all-fleet cars) and gated ETA UI
+        const appTsx = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf8');
+        const mapViewTsx = fs.readFileSync(path.resolve(__dirname, '../src/components/MapView.tsx'), 'utf8');
+        expect(appTsx).toContain('userPins={[]}');
+        expect(appTsx).toContain('fleetPositions={undefined}');
+        expect(appTsx).toContain('canShowAssignedDriverLive');
+        expect(appTsx).toContain('id="live-driver-eta-card"');
+        expect(appTsx).toContain('id="driver-tracking-locked-notice"');
+        expect(appTsx).toContain('driverToPickupEta');
+        expect(mapViewTsx).toContain('gf-assigned-driver-marker');
+        expect(mapViewTsx).toContain('driverToPickupEta');
       });
     });
   });

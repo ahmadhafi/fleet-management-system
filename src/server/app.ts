@@ -2105,6 +2105,7 @@ export function createApp() {
              v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.battery_percent,
              b.id as booking_id, b.status as booking_status,
              a.id as assignment_id, a.driver_profile_id, a.acknowledged_at,
+             dp.user_id as assigned_driver_user_id,
              dp.full_name as assigned_driver_name,
              dp.contact_number as assigned_driver_phone
       FROM trip_requests tr
@@ -2130,6 +2131,8 @@ export function createApp() {
 
     const hwsCountRow = db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'HWS' AND is_active = 1 AND approval_status = 'APPROVED'").get() as { c: number };
     const hasHwsAccount = (hwsCountRow?.c ?? 0) > 0;
+    const nowMs = Date.now();
+    const TEN_MINUTES_MS = 10 * 60 * 1000;
 
     const enriched = rows.map((r) => {
       const decisions = db
@@ -2145,6 +2148,67 @@ export function createApp() {
       const picApproved = decisions.some((d: any) => d.decider_role === 'FM' && d.decision === 'APPROVED');
       const hwsApproved = decisions.some((d: any) => d.decider_role === 'HWS' && d.decision === 'APPROVED');
       const admDelegated = decisions.some((d: any) => d.decider_role === 'ADM' && d.decision === 'APPROVED');
+
+      const startMs = r.start_time ? new Date(String(r.start_time)).getTime() : NaN;
+      const trackingUnlocksAt = Number.isFinite(startMs) ? new Date(startMs - TEN_MINUTES_MS).toISOString() : null;
+      const hasAssignedDriver = Boolean(r.driver_profile_id || r.assigned_driver_user_id);
+      const isWithinTenMinWindow =
+        r.status === 'IN_PROGRESS' ||
+        (r.status === 'APPROVED' && Number.isFinite(startMs) && startMs - nowMs <= TEN_MINUTES_MS);
+      const liveDriverTrackingVisible = hasAssignedDriver && isWithinTenMinWindow;
+
+      let assignedDriverLat: number | null = null;
+      let assignedDriverLon: number | null = null;
+      let assignedDriverGpsUpdatedAt: string | null = null;
+
+      if (liveDriverTrackingVisible) {
+        const latestGps = r.driver_profile_id
+          ? (db
+              .prepare(
+                `SELECT latitude, longitude, server_receipt_time as updated_at
+                 FROM location_reports
+                 WHERE driver_profile_id = ? AND latitude IS NOT NULL AND longitude IS NOT NULL AND is_flagged_implausible = 0
+                 ORDER BY id DESC LIMIT 1`
+              )
+              .get(Number(r.driver_profile_id)) as { latitude: number; longitude: number; updated_at: string } | undefined)
+          : undefined;
+
+        const latestPin = r.assigned_driver_user_id
+          ? (db
+              .prepare(
+                `SELECT latitude, longitude, updated_at
+                 FROM user_locations
+                 WHERE user_id = ? AND latitude IS NOT NULL AND longitude IS NOT NULL
+                 LIMIT 1`
+              )
+              .get(Number(r.assigned_driver_user_id)) as { latitude: number; longitude: number; updated_at: string } | undefined)
+          : undefined;
+
+        const latestVehGps =
+          !latestGps && !latestPin && r.vehicle_id
+            ? (db
+                .prepare(
+                  `SELECT latitude, longitude, server_receipt_time as updated_at
+                   FROM location_reports
+                   WHERE vehicle_id = ? AND latitude IS NOT NULL AND longitude IS NOT NULL AND is_flagged_implausible = 0
+                   ORDER BY id DESC LIMIT 1`
+                )
+                .get(Number(r.vehicle_id)) as { latitude: number; longitude: number; updated_at: string } | undefined)
+            : undefined;
+
+        const candidates = [latestGps, latestPin, latestVehGps].filter(Boolean) as Array<{
+          latitude: number;
+          longitude: number;
+          updated_at: string;
+        }>;
+        if (candidates.length > 0) {
+          candidates.sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime());
+          assignedDriverLat = Number(candidates[0].latitude);
+          assignedDriverLon = Number(candidates[0].longitude);
+          assignedDriverGpsUpdatedAt = candidates[0].updated_at || null;
+        }
+      }
+
       return {
         ...r,
         decisions,
@@ -2158,6 +2222,11 @@ export function createApp() {
         requires_pic_urgent_approval: Number(r.is_urgent || 0) === 1 && !picApproved,
         reservation_type: (r.reservation_type as string) || 'ONE_WAY',
         return_pickup_time: (r.return_pickup_time as string) || null,
+        live_driver_tracking_visible: liveDriverTrackingVisible,
+        tracking_unlocks_at: trackingUnlocksAt,
+        assigned_driver_lat: assignedDriverLat,
+        assigned_driver_lon: assignedDriverLon,
+        assigned_driver_gps_updated_at: assignedDriverGpsUpdatedAt,
       };
     });
 

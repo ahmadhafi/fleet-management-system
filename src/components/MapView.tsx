@@ -243,6 +243,7 @@ interface MapViewProps {
   driverActive?: boolean;
   driverName?: string;
   driverCoords?: { lat: number; lon: number } | null;
+  driverToPickupEta?: { distanceKm: number; durationMin: number; etaText: string } | null;
   activeVehicleModel?: string;
   showBackButton?: boolean;
   onBack?: () => void;
@@ -276,6 +277,7 @@ export const MapView: React.FC<MapViewProps> = ({
   driverActive = false,
   driverName,
   driverCoords,
+  driverToPickupEta = null,
   activeVehicleModel,
   showBackButton = false,
   onBack,
@@ -1072,38 +1074,55 @@ export const MapView: React.FC<MapViewProps> = ({
         }).addTo(group);
       }
 
-      if (driverActive) {
-        const carPoint = (driverCoords && Number.isFinite(driverCoords.lat) && Number.isFinite(driverCoords.lon))
-          ? [driverCoords.lat, driverCoords.lon] as [number, number]
-          : hasFullGeometry
-          ? routeGeometry![Math.floor(routeGeometry!.length / 2)]
-          : ([ctrlLat, ctrlLon] as [number, number]);
+      const hasRealDriverCoords = Boolean(
+        driverActive && driverCoords && Number.isFinite(driverCoords.lat) && Number.isFinite(driverCoords.lon)
+      );
+      const liveCarPoint: [number, number] | null = hasRealDriverCoords
+        ? [driverCoords!.lat, driverCoords!.lon]
+        : null;
+
+      if (liveCarPoint) {
+        // Subtle dashed approach line from assigned driver's live location to passenger pickup
+        L.polyline([liveCarPoint, effOrigin], {
+          color: '#258cfb',
+          weight: 3.5,
+          opacity: 0.85,
+          dashArray: '6, 8',
+          lineCap: 'round',
+          pane: 'overlayPane',
+        }).addTo(group);
 
         const activeCarIconUrl = getVehiclePhotoIconUrl(activeVehicleModel);
+        const etaSuffix = driverToPickupEta
+          ? `~${driverToPickupEta.durationMin} min (${driverToPickupEta.distanceKm} km) to pickup`
+          : 'On the way';
         const drvIcon = L.divIcon({
           className: 'gf-leaflet-marker',
           html: `
-            <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
-              <div style="background:#0f172a;color:#ffffff;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 3px 8px rgba(0,0,0,0.3);margin-bottom:3px;display:flex;align-items:center;gap:4px;border:1.5px solid #258cfb;">
-                <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#258cfb;animation:pulse 1.5s infinite;"></span>
-                <span>${escapeHtml(driverName || 'Driver')} (Live Car)</span>
+            <div class="gf-assigned-driver-marker" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
+              <div style="background:#0f172a;color:#ffffff;padding:3px 10px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.34);margin-bottom:4px;display:flex;align-items:center;gap:5px;border:1.5px solid #258cfb;">
+                <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#258cfb;animation:pulse 1.5s infinite;"></span>
+                <span>${escapeHtml(driverName || 'Driver')}</span>
+                <span style="color:#93c5fd;">• ${escapeHtml(etaSuffix)}</span>
               </div>
               <div style="width:50px;height:50px;border-radius:50%;background:#ffffff;border:2.5px solid #0072de;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,114,222,0.35);padding:4px;overflow:hidden;">
-                <img src="${activeCarIconUrl}" alt="Live Car" style="width:40px;height:40px;object-fit:contain;display:block;" />
+                <img src="${activeCarIconUrl}" alt="Assigned Driver Live Car" style="width:40px;height:40px;object-fit:contain;display:block;" />
               </div>
             </div>
           `,
           iconSize: [0, 0],
           iconAnchor: [0, 0],
         });
-        L.marker(carPoint, { icon: drvIcon, zIndexOffset: 700 }).addTo(group);
+        L.marker(liveCarPoint, { icon: drvIcon, zIndexOffset: 700 }).addTo(group);
       }
 
       const fitGojekRouteCamera = (animate: boolean) => {
         if (!mapInstanceRef.current || !mapContainerRef.current) return;
         const m = mapInstanceRef.current;
         m.invalidateSize({ pan: false });
-        const bounds = L.latLngBounds([effOrigin, effDest, ...latlngs]);
+        const boundPoints: L.LatLngExpression[] = [effOrigin, effDest, ...latlngs];
+        if (liveCarPoint) boundPoints.push(liveCarPoint);
+        const bounds = L.latLngBounds(boundPoints);
         if (!bounds.isValid()) return;
         const containerW = mapContainerRef.current.clientWidth || window.innerWidth || 390;
         const containerH = mapContainerRef.current.clientHeight || window.innerHeight || 640;
@@ -1136,10 +1155,48 @@ export const MapView: React.FC<MapViewProps> = ({
       return () => {
         window.clearTimeout(settleTimer);
       };
+    } else if (driverActive && driverCoords && Number.isFinite(driverCoords.lat) && Number.isFinite(driverCoords.lon) && !pinMode) {
+      const liveCarPoint: [number, number] = [driverCoords.lat, driverCoords.lon];
+      L.polyline([liveCarPoint, effOrigin], {
+        color: '#258cfb',
+        weight: 3.5,
+        opacity: 0.85,
+        dashArray: '6, 8',
+        lineCap: 'round',
+        pane: 'overlayPane',
+      }).addTo(group);
+
+      const activeCarIconUrl = getVehiclePhotoIconUrl(activeVehicleModel);
+      const etaSuffix = driverToPickupEta
+        ? `~${driverToPickupEta.durationMin} min (${driverToPickupEta.distanceKm} km) to pickup`
+        : 'On the way';
+      const drvIcon = L.divIcon({
+        className: 'gf-leaflet-marker',
+        html: `
+          <div class="gf-assigned-driver-marker" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
+            <div style="background:#0f172a;color:#ffffff;padding:3px 10px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.34);margin-bottom:4px;display:flex;align-items:center;gap:5px;border:1.5px solid #258cfb;">
+              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#258cfb;animation:pulse 1.5s infinite;"></span>
+              <span>${escapeHtml(driverName || 'Driver')}</span>
+              <span style="color:#93c5fd;">• ${escapeHtml(etaSuffix)}</span>
+            </div>
+            <div style="width:50px;height:50px;border-radius:50%;background:#ffffff;border:2.5px solid #0072de;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,114,222,0.35);padding:4px;overflow:hidden;">
+              <img src="${activeCarIconUrl}" alt="Assigned Driver Live Car" style="width:40px;height:40px;object-fit:contain;display:block;" />
+            </div>
+          </div>
+        `,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
+      });
+      L.marker(liveCarPoint, { icon: drvIcon, zIndexOffset: 700 }).addTo(group);
+
+      const bounds = L.latLngBounds([effOrigin, liveCarPoint]);
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [72, 72], maxZoom: 16, animate: true });
+      }
     } else if (Boolean(origin && origin.trim()) && !pinMode) {
       map.setView(effOrigin, 15, { animate: false });
     }
-  }, [effOrigin, effDest, routeGeometry, metrics.etaText, metrics.durationMin, metrics.distanceKm, showRoute, pinMode, driverActive, origin, destination, driverCoords, driverName, activeVehicleModel, driverMapMode]);
+  }, [effOrigin, effDest, routeGeometry, metrics.etaText, metrics.durationMin, metrics.distanceKm, showRoute, pinMode, driverActive, origin, destination, driverCoords, driverName, driverToPickupEta, activeVehicleModel, driverMapMode]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!pinMode || !mapInstanceRef.current) return;
