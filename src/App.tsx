@@ -3305,82 +3305,206 @@ export function App() {
 
       {dispatchModalTrip && (
         <div className="gf-modal-backdrop" role="dialog" aria-modal="true" aria-label="Dispatch approval">
-          <div className="gf-modal-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <h3 className="type-title">Dispatch Trip #{dispatchModalTrip.id}</h3>
-              <button type="button" className="gf-btn gf-btn-secondary" onClick={() => setDispatchModalTrip(null)}>
-                Close
-              </button>
-            </div>
-            <div style={{ padding: '12px', borderRadius: 'var(--radius-control)', background: 'var(--color-bg-subtle)', marginBottom: '14px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <div className="type-body" style={{ fontWeight: 700 }}>{dispatchModalTrip.purpose}</div>
+          <div className="gf-modal-card" style={{ maxWidth: '460px', padding: '18px 20px' }}>
+            {/* Clean Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h3 className="type-title" style={{ margin: 0, fontSize: '18px' }}>
+                  {t('Booking Approval')} #{dispatchModalTrip.id}
+                </h3>
                 {formatReservationModeLabel(dispatchModalTrip.reservation_type, dispatchModalTrip.return_pickup_time) && (
-                  <StatusBadge label={formatReservationModeLabel(dispatchModalTrip.reservation_type, dispatchModalTrip.return_pickup_time)!} tone="blue" />
+                  <StatusBadge
+                    label={formatReservationModeLabel(dispatchModalTrip.reservation_type, dispatchModalTrip.return_pickup_time)!}
+                    tone="blue"
+                  />
                 )}
               </div>
-              <div className="type-caption">{dispatchModalTrip.origin} → {dispatchModalTrip.destination}</div>
-              <div className="type-caption">{dispatchModalTrip.requester_name} ({dispatchModalTrip.department_name})</div>
+              <button
+                type="button"
+                className="gf-icon-btn-48 pressable"
+                style={{ width: '34px', height: '34px' }}
+                onClick={() => setDispatchModalTrip(null)}
+                aria-label="Close"
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Compact Executive Trip Summary Card */}
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: '12px',
+                background: 'var(--color-bg-subtle)',
+                border: '1px solid var(--color-divider)',
+                marginBottom: '14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span className="type-body" style={{ fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                  {dispatchModalTrip.purpose}
+                </span>
+                <span className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-secondary)' }}>
+                  {dispatchModalTrip.requester_name} • {dispatchModalTrip.department_name}
+                </span>
+              </div>
+              <div className="type-caption" style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>
+                {dispatchModalTrip.origin} → {dispatchModalTrip.destination}
+              </div>
               {dispatchModalTrip.start_time && dispatchModalTrip.end_time && (
-                <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
-                  🕒 Schedule: {new Date(dispatchModalTrip.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → {new Date(dispatchModalTrip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </div>
-              )}
-              {dispatchModalTrip.reservation_type === 'DROP_AND_PICKUP' && dispatchModalTrip.return_pickup_time && (
-                <div className="type-caption" style={{ marginTop: '3px', color: '#005bb5', fontWeight: 700 }}>
-                  🔁 Post-Event Pick-Up: {new Date(dispatchModalTrip.return_pickup_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                  <Clock size={13} style={{ color: '#0072de', flexShrink: 0 }} />
+                  <span>
+                    {new Date(dispatchModalTrip.start_time).toLocaleString([], {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}{' '}
+                    – {new Date(dispatchModalTrip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  {dispatchModalTrip.reservation_type === 'DROP_AND_PICKUP' && dispatchModalTrip.return_pickup_time && (
+                    <span style={{ color: '#258cfb', fontWeight: 700 }}>
+                      • Return {new Date(dispatchModalTrip.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
 
+            {/* Compact Urgent Pill (Only when < 2h lead time) */}
             {dispatchModalTrip.is_urgent === 1 && (
-              <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#fef2f2', border: '1.5px solid #f87171', marginBottom: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                  <AlertTriangle size={15} style={{ color: '#dc2626' }} />
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: '#991b1b', textTransform: 'uppercase' }}>
-                    🚨 Urgent Short-Notice Booking (&lt; 2h Departure)
-                  </span>
-                </div>
-                <div style={{ fontSize: '11.5px', color: '#7f1d1d' }}>
-                  <strong>Mandatory Fleet Operation PIC Approval Required.</strong> This trip was booked with less than 2 hours lead time before departure.
+              <div
+                style={{
+                  padding: '9px 12px',
+                  borderRadius: '10px',
+                  background: 'rgba(220, 38, 38, 0.1)',
+                  border: '1px solid rgba(248, 113, 113, 0.45)',
+                  marginBottom: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '8px',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 800, color: '#ef4444' }}>
+                  <AlertTriangle size={14} />
+                  <span>{t('Urgent Booking (< 2h)')}</span>
                 </div>
                 {dispatchModalTrip.urgent_reason && (
-                  <div style={{ fontSize: '11.5px', color: '#991b1b', marginTop: '4px' }}>
-                    <strong>Justification:</strong> {dispatchModalTrip.urgent_reason}
-                  </div>
+                  <span style={{ fontSize: '11.5px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+                    {dispatchModalTrip.urgent_reason}
+                  </span>
                 )}
               </div>
             )}
 
+            {/* Sleek Horizontal 2-Step Approval Stepper (Fleet PIC -> Head of WS) */}
             {dispatchModalTrip.requires_dual_approval && (
-              <div style={{ padding: '10px 12px', borderRadius: '8px', background: '#eff6ff', border: '1.5px solid #bfdbfe', marginBottom: '12px' }}>
-                <div style={{ fontSize: '11px', fontWeight: 800, color: '#1e40af', textTransform: 'uppercase', marginBottom: '6px' }}>
-                  {t('Strict Sequential Approval Hierarchy (1. Fleet PIC Consent -> 2. Head Of WS Approval)')}
+              <div
+                id="dispatch-approval-stepper"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto 1fr',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 12px',
+                  borderRadius: '12px',
+                  background: 'var(--color-bg-subtle)',
+                  border: '1px solid var(--color-divider)',
+                  marginBottom: '14px',
+                }}
+              >
+                {/* Step 1: Fleet PIC */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                  <div
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '9999px',
+                      background: dispatchModalTrip.pic_approved ? '#0072de' : 'rgba(0, 114, 222, 0.14)',
+                      color: dispatchModalTrip.pic_approved ? '#ffffff' : '#258cfb',
+                      border: dispatchModalTrip.pic_approved ? 'none' : '1.5px solid #0072de',
+                      display: 'grid',
+                      placeItems: 'center',
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {dispatchModalTrip.pic_approved ? <CheckCircle2 size={14} /> : '1'}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {t('Fleet PIC')}
+                    </div>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: dispatchModalTrip.pic_approved ? '#258cfb' : '#d97706' }}>
+                      {dispatchModalTrip.pic_approved ? t('Approved') : t('Pending')}
+                    </div>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11.5px' }}>
-                  <div style={{ color: dispatchModalTrip.pic_approved ? '#0072de' : '#0f172a', fontWeight: 700 }}>
-                    {dispatchModalTrip.pic_approved
-                      ? `✓ ${t('Stage 1: Fleet Operation PIC Consent')} — ${t('Consented')}`
-                      : `⏳ ${t('Stage 1: Fleet Operation PIC Consent')} — ${t('Pending Stage 1')}`}
+
+                <ChevronRight size={15} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+
+                {/* Step 2: Head of WS */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                  <div
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '9999px',
+                      background: dispatchModalTrip.hws_approved
+                        ? '#0072de'
+                        : dispatchModalTrip.pic_approved
+                        ? 'rgba(0, 114, 222, 0.14)'
+                        : 'var(--color-bg-elevated)',
+                      color: dispatchModalTrip.hws_approved
+                        ? '#ffffff'
+                        : dispatchModalTrip.pic_approved
+                        ? '#258cfb'
+                        : 'var(--color-text-muted)',
+                      border: dispatchModalTrip.hws_approved
+                        ? 'none'
+                        : dispatchModalTrip.pic_approved
+                        ? '1.5px solid #0072de'
+                        : '1px solid var(--color-divider)',
+                      display: 'grid',
+                      placeItems: 'center',
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {dispatchModalTrip.hws_approved ? <CheckCircle2 size={14} /> : '2'}
                   </div>
-                  <div style={{ color: dispatchModalTrip.hws_approved ? '#0072de' : dispatchModalTrip.pic_approved ? '#d97706' : '#64748b', fontWeight: 700 }}>
-                    {dispatchModalTrip.hws_approved
-                      ? `✓ ${t('Stage 2: Head Of WS Part Final Approval')} — ${t('APPROVED')}`
-                      : dispatchModalTrip.pic_approved
-                      ? `⏳ ${t('Stage 2: Head Of WS Part Final Approval')} — ${t('Ready for Stage 2')}`
-                      : `🔒 ${t('Stage 2: Head Of WS Part Final Approval')} — ${t('Locked until Stage 1 (Fleet PIC) consents')}`}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {t('Head of WS')}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        color: dispatchModalTrip.hws_approved
+                          ? '#258cfb'
+                          : dispatchModalTrip.pic_approved
+                          ? '#d97706'
+                          : 'var(--color-text-muted)',
+                      }}
+                    >
+                      {dispatchModalTrip.hws_approved
+                        ? t('Approved')
+                        : dispatchModalTrip.pic_approved
+                        ? t('Ready')
+                        : t('Waiting Step 1')}
+                    </div>
                   </div>
                 </div>
-                {user.role === 'HWS' && !dispatchModalTrip.pic_approved && (
-                  <div style={{ fontSize: '11px', color: '#b45309', marginTop: '6px', fontWeight: 700 }}>
-                    ⚠️ {t('Approval Hierarchy: Fleet Operation PIC must consent first before Head Of WS Part can approve.')}
-                  </div>
-                )}
-                {user.role === 'ADM' && (
-                  <div style={{ fontSize: '11px', color: '#1e3a8a', marginTop: '4px', fontStyle: 'italic' }}>
-                    Admin Delegation: Approving now immediately authorizes the trip and delegates for any pending approver.
-                  </div>
-                )}
               </div>
             )}
 
@@ -3416,8 +3540,6 @@ export function App() {
                 availableDispatchVehicles[0] ||
                 null;
 
-              const totalDriversCount = allPoolDrivers.length;
-              const unavailablePairsCount = Math.max(0, totalDriversCount - availableDriverCarPairs.length);
               const noAvailableOption = !dispatchAvailabilityLoading && !fixedVehicle;
 
               return (
@@ -3426,22 +3548,22 @@ export function App() {
                   {hasDriverCarPairs ? (
                     <>
                       <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                          <label className="type-caption" htmlFor="dispatch-available-driver-select" style={{ fontWeight: 700 }}>
-                            1. {t('Select Available Driver')} *
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                          <label className="type-caption" htmlFor="dispatch-available-driver-select" style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                            {t('Assign Driver')}
                           </label>
                           <span
                             style={{
-                              fontSize: '10.5px',
+                              fontSize: '11px',
                               fontWeight: 700,
-                              color: '#005bb5',
-                              background: '#ebf5ff',
-                              padding: '2px 7px',
+                              color: '#258cfb',
+                              background: 'rgba(0, 114, 222, 0.12)',
+                              padding: '2px 8px',
                               borderRadius: '99px',
                             }}
                           >
                             {dispatchAvailabilityLoading
-                              ? t('Checking availability...')
+                              ? t('Checking...')
                               : `${availableDriverCarPairs.length} ${t('Available')}`}
                           </span>
                         </div>
@@ -3463,33 +3585,29 @@ export function App() {
                         >
                           {availableDriverCarPairs.map(({ driver: d, vehicle: v }) => (
                             <option key={d.id} value={String(d.id)}>
-                              {d.full_name} — {v.registration_plate} • {v.make} {v.model} ({v.energy_type} • {v.seats} seats • Available)
+                              {d.full_name} • {v.registration_plate} ({v.model})
                             </option>
                           ))}
                         </select>
-                        <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
-                          ✓ Only available drivers with an available assigned car are listed{unavailablePairsCount > 0 ? ` (${unavailablePairsCount} busy/off-duty hidden)` : ''}.
-                        </div>
                       </div>
 
                       {/* Step 2: Fixed Vehicle Card (Automatically follows selected Driver — READ-ONLY / CANNOT CHANGE) */}
                       <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                          <span className="type-caption" style={{ fontWeight: 700 }}>
-                            2. {t('Assigned Vehicle (Fixed to Driver)')}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                          <span className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                            {t('Paired Vehicle')}
                           </span>
                           <span
                             style={{
-                              fontSize: '10px',
-                              fontWeight: 800,
-                              color: '#005bb5',
-                              background: '#ebf5ff',
-                              border: '1px solid #bfdbfe',
-                              padding: '1px 7px',
-                              borderRadius: '99px',
+                              fontSize: '10.5px',
+                              fontWeight: 700,
+                              color: 'var(--color-text-secondary)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
                             }}
                           >
-                            🔒 Fixed • 1 Driver = 1 Car
+                            <Lock size={11} /> {t('Auto-paired')}
                           </span>
                         </div>
                         <div
@@ -3497,8 +3615,8 @@ export function App() {
                           style={{
                             padding: '10px 12px',
                             borderRadius: '10px',
-                            background: '#f8fafc',
-                            border: '1.5px solid #cbd5e1',
+                            background: 'var(--color-bg-subtle)',
+                            border: '1px solid var(--color-divider)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
@@ -3506,41 +3624,52 @@ export function App() {
                           }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                            <div style={{ width: '34px', height: '34px', borderRadius: '8px', background: '#0072de', color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                            <div
+                              style={{
+                                width: '34px',
+                                height: '34px',
+                                borderRadius: '8px',
+                                background: '#0072de',
+                                color: '#fff',
+                                display: 'grid',
+                                placeItems: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
                               <Car size={17} />
                             </div>
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--color-text-primary)' }}>
-                                {fixedVehicle.registration_plate} — {fixedVehicle.make} {fixedVehicle.model}
+                                {fixedVehicle.registration_plate} • {fixedVehicle.make} {fixedVehicle.model}
                               </div>
-                              <div className="type-caption" style={{ fontSize: '11.5px' }}>
-                                {fixedVehicle.energy_type} • {fixedVehicle.seats} seats • Assigned permanently to {selectedPair?.driver?.full_name}
+                              <div className="type-caption" style={{ fontSize: '11.5px', color: 'var(--color-text-secondary)' }}>
+                                {fixedVehicle.energy_type} • {fixedVehicle.seats} {t('seats')}
                               </div>
                             </div>
                           </div>
-                          <Lock size={15} style={{ color: '#64748b', flexShrink: 0 }} />
+                          <Lock size={14} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
                         </div>
                       </div>
                     </>
                   ) : (
                     /* Edge-case fallback: fleet has available cars with no default driver linked yet, or 0 available */
                     <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                         <label className="type-caption" htmlFor="dispatch-available-vehicle-select" style={{ fontWeight: 700 }}>
-                          {t('Assign Available Vehicle')} *
+                          {t('Vehicle')}
                         </label>
                         <span
                           style={{
                             fontSize: '10.5px',
                             fontWeight: 700,
-                            color: noAvailableOption ? '#dc2626' : '#005bb5',
-                            background: noAvailableOption ? '#fef2f2' : '#ebf5ff',
-                            padding: '2px 7px',
+                            color: noAvailableOption ? '#ef4444' : '#258cfb',
+                            background: noAvailableOption ? 'rgba(239, 68, 68, 0.12)' : 'rgba(0, 114, 222, 0.12)',
+                            padding: '2px 8px',
                             borderRadius: '99px',
                           }}
                         >
                           {dispatchAvailabilityLoading
-                            ? t('Checking availability...')
+                            ? t('Checking...')
                             : `${availableDispatchVehicles.length} ${t('Available')}`}
                         </span>
                       </div>
@@ -3552,41 +3681,44 @@ export function App() {
                         onChange={(e) => setDispatchVehicleId(Number(e.target.value))}
                       >
                         {noAvailableOption ? (
-                          <option value={0}>No available driver/car pairs for this time window</option>
+                          <option value={0}>No available driver/car for this schedule</option>
                         ) : (
                           availableDispatchVehicles.map((v: any) => (
                             <option key={v.id} value={v.id}>
-                              {v.registration_plate} — {v.make} {v.model} ({v.energy_type} • {v.seats} seats • Available)
+                              {v.registration_plate} • {v.make} {v.model} ({v.seats} seats)
                             </option>
                           ))
                         )}
                       </select>
-                      {noAvailableOption && (
-                        <div style={{ fontSize: '11.5px', color: '#dc2626', fontWeight: 700, marginTop: '4px' }}>
-                          ⚠️ All drivers &amp; vehicles are booked or unavailable during this schedule window. Reject this request or wait for a slot to open.
-                        </div>
-                      )}
                     </div>
                   )}
 
                   <div>
-                    <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Approval Note / Rejection Reason</label>
+                    <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '5px', color: 'var(--color-text-primary)' }}>
+                      {t('Note')} <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>({t('required if rejecting')})</span>
+                    </label>
                     <input
                       type="text"
                       className="gf-input"
-                      placeholder="Enter note or mandatory reason if rejecting"
+                      placeholder={t('Optional approval note or rejection reason...')}
                       value={dispatchDecisionReason}
                       onChange={(e) => setDispatchDecisionReason(e.target.value)}
                     />
                   </div>
-                  <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
-                    <button type="button" className="gf-btn gf-btn-outline-danger" style={{ flex: 1 }} onClick={() => handleAdminTripDecision('REJECTED')}>
-                      Reject
+
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                    <button
+                      type="button"
+                      className="gf-btn gf-btn-outline-danger"
+                      style={{ flex: 1 }}
+                      onClick={() => handleAdminTripDecision('REJECTED')}
+                    >
+                      {t('Reject')}
                     </button>
                     <button
                       type="button"
                       className="gf-btn gf-btn-primary"
-                      style={{ flex: 1 }}
+                      style={{ flex: 1.4 }}
                       disabled={
                         dispatchAvailabilityLoading ||
                         noAvailableOption ||
@@ -3595,14 +3727,14 @@ export function App() {
                       onClick={() => handleAdminTripDecision('APPROVED')}
                     >
                       {user.role === 'ADM' && dispatchModalTrip.requires_dual_approval && (!dispatchModalTrip.pic_approved || !dispatchModalTrip.hws_approved)
-                        ? 'Approve & Delegate as Admin'
+                        ? t('Approve (Admin)')
                         : user.role === 'FM'
-                        ? 'Stage 1: Assign Driver & Consent (Fleet PIC)'
+                        ? t('Approve & Assign')
                         : user.role === 'HWS'
                         ? dispatchModalTrip.pic_approved
-                          ? 'Stage 2: Authorize & Finalize Dispatch'
-                          : 'Locked (Await Fleet PIC Stage 1)'
-                        : 'Approve & Assign Driver'}
+                          ? t('Final Approve')
+                          : t('Await Fleet PIC')
+                        : t('Approve & Dispatch')}
                     </button>
                   </div>
                 </div>
@@ -6350,18 +6482,15 @@ export function App() {
                                 </td>
                                 <td>
                                   <StatusBadge label={t.status} tone={toneFromStatus(t.status)} />
-                                  {t.status === 'PENDING_APPROVAL' && t.is_urgent === 1 && (
-                                    <div style={{ marginTop: '3px', fontSize: '11px', fontWeight: 700, color: '#dc2626' }}>
-                                      ⚠️ Requires Fleet Operation PIC Urgent Approval
-                                    </div>
-                                  )}
                                   {t.status === 'PENDING_APPROVAL' && t.requires_dual_approval && (
-                                    <div style={{ marginTop: '4px', fontSize: '11px', fontWeight: 600 }}>
-                                      {t.pic_approved && !t.hws_approved ? (
-                                        <span style={{ color: '#0072de' }}>✓ Stage 1: Fleet PIC Consented • Awaiting Stage 2: Head Of WS Part</span>
-                                      ) : (
-                                        <span style={{ color: '#d97706' }}>⏳ Stage 1: Awaiting Fleet Operation PIC Consent first (then Stage 2: Head Of WS Part)</span>
-                                      )}
+                                    <div style={{ marginTop: '4px', fontSize: '11px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                                      <span style={{ color: t.pic_approved ? '#258cfb' : '#d97706' }}>
+                                        {t.pic_approved ? '✓ Fleet PIC' : '1. Fleet PIC'}
+                                      </span>
+                                      <span style={{ color: 'var(--color-text-muted)' }}>→</span>
+                                      <span style={{ color: t.hws_approved ? '#258cfb' : t.pic_approved ? '#d97706' : 'var(--color-text-muted)' }}>
+                                        {t.hws_approved ? '✓ Head of WS' : '2. Head of WS'}
+                                      </span>
                                     </div>
                                   )}
                                 </td>
@@ -6398,12 +6527,12 @@ export function App() {
                           {(tr.is_urgent === 1 || formatReservationModeLabel(tr.reservation_type, tr.return_pickup_time)) && (
                             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                               {tr.is_urgent === 1 && (
-                                <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca' }}>
+                                <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(248,113,113,0.4)' }}>
                                   🚨 URGENT (&lt; 2h)
                                 </span>
                               )}
                               {formatReservationModeLabel(tr.reservation_type, tr.return_pickup_time) && (
-                                <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #bfdbfe' }}>
+                                <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: 'rgba(0,114,222,0.12)', color: '#258cfb', border: '1px solid rgba(37,140,251,0.35)' }}>
                                   {formatReservationModeLabel(tr.reservation_type, tr.return_pickup_time)}
                                 </span>
                               )}
@@ -6423,19 +6552,15 @@ export function App() {
                             {new Date(tr.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} – {new Date(tr.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {tr.passenger_count} pax · {tr.requester_name} ({tr.department_name})
                           </div>
 
-                          {tr.urgent_reason && (
-                            <div className="type-caption" style={{ color: '#b91c1c', fontStyle: 'italic' }}>
-                              Urgent Reason: {tr.urgent_reason}
-                            </div>
-                          )}
-
                           {tr.status === 'PENDING_APPROVAL' && tr.requires_dual_approval && (
-                            <div style={{ fontSize: '11.5px', fontWeight: 600 }}>
-                              {tr.pic_approved && !tr.hws_approved ? (
-                                <span style={{ color: '#0072de' }}>✓ Stage 1: Fleet PIC Consented • Awaiting Stage 2: Head Of WS Part</span>
-                              ) : (
-                                <span style={{ color: '#d97706' }}>⏳ Stage 1: Awaiting Fleet Operation PIC Consent first (then Stage 2: Head Of WS Part)</span>
-                              )}
+                            <div style={{ fontSize: '11.5px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ color: tr.pic_approved ? '#258cfb' : '#d97706' }}>
+                                {tr.pic_approved ? '✓ Fleet PIC' : '1. Fleet PIC'}
+                              </span>
+                              <span style={{ color: 'var(--color-text-muted)' }}>→</span>
+                              <span style={{ color: tr.hws_approved ? '#258cfb' : tr.pic_approved ? '#d97706' : 'var(--color-text-muted)' }}>
+                                {tr.hws_approved ? '✓ Head of WS' : '2. Head of WS'}
+                              </span>
                             </div>
                           )}
 
@@ -13415,86 +13540,72 @@ export function App() {
       } else if (isRejected) {
         badgeLabel = 'REJECTED';
         badgeTone = 'red';
-        title = 'Booking Request Rejected';
+        title = 'Request Rejected';
       } else if (isUrgent && !picApproved) {
         badgeLabel = '🚨 URGENT (< 2h)';
         badgeTone = 'red';
-        title = 'Awaiting Fleet Operation PIC Urgent Approval';
+        title = 'Fleet PIC Review';
       } else if (isDual && picApproved) {
-        badgeLabel = t('Stage 1: Fleet PIC Consented');
+        badgeLabel = t('Step 2 of 2');
         badgeTone = 'amber';
-        title = t('Stage 2: Awaiting Head Of WS Approval');
+        title = t('Awaiting Head of WS');
       } else if (isDual && !picApproved) {
-        badgeLabel = t('Stage 1: Awaiting Fleet PIC Consent');
+        badgeLabel = t('Step 1 of 2');
         badgeTone = 'amber';
-        title = t('Stage 1: Awaiting Fleet PIC Consent');
+        title = t('Awaiting Fleet PIC');
       }
 
       const timelineSteps = isApproved
         ? [
-            { label: t('Request sent & schedule locked'), sub: t('Car and driver slot reserved immediately'), done: true },
+            { label: t('Request Submitted'), sub: t('Schedule reserved'), done: true },
             {
-              label: t('Approvals completed'),
+              label: t('Approved'),
               sub: focusedTrip?.adm_delegated
-                ? t('Authorized & delegated directly by System Admin')
+                ? t('Authorized by Admin')
                 : isDual
-                ? t('Approved by both Fleet Operation PIC and Head Of WS Part')
-                : isUrgent
-                ? t('Approved by Fleet Operation PIC (Urgent Short-Notice Authorization)')
-                : t('Approved by Fleet Administration'),
+                ? t('Fleet PIC & Head of WS')
+                : t('Fleet Operations'),
               done: true,
             },
             {
-              label: t('Driver dispatched'),
+              label: t('Driver Assigned'),
               sub: focusedTrip?.assigned_driver_name
-                ? `${t('Driver')} ${focusedTrip.assigned_driver_name} (${focusedTrip.registration_plate || t('Company Car')})`
-                : t('Driver dispatched and arriving'),
+                ? `${focusedTrip.assigned_driver_name} • ${focusedTrip.registration_plate || t('Company Car')}`
+                : t('Ready for departure'),
               done: true,
             },
           ]
         : isDual
         ? [
-            { label: t('Request sent & schedule locked'), sub: t('Car and driver slot reserved immediately'), done: true },
+            { label: t('Request Submitted'), sub: t('Schedule reserved'), done: true },
             {
-              label: isUrgent ? t('Fleet Operation PIC urgent approval') : t('Stage 1: Fleet Operation PIC Consent'),
-              sub: picApproved
-                ? t('Consented by Fleet Operation PIC (Stage 1 Complete)')
-                : isUrgent
-                ? t('Mandatory Fleet Operation PIC authorization required (< 2h departure)')
-                : t('Awaiting Fleet Operation PIC consent first'),
+              label: t('1. Fleet PIC'),
+              sub: picApproved ? t('Approved & driver paired') : t('Pending review'),
               done: Boolean(picApproved),
               active: !picApproved,
             },
             {
-              label: t('Stage 2: Head Of WS Part Final Approval'),
+              label: t('2. Head of WS'),
               sub: hwsApproved
-                ? t('Approved by Head Of WS Part')
+                ? t('Approved')
                 : picApproved
-                ? t('Fleet PIC has consented — Now awaiting Head Of WS Part final approval')
-                : t('Locked until Fleet Operation PIC consents first'),
+                ? t('Pending final sign-off')
+                : t('Waiting Step 1'),
               done: Boolean(hwsApproved),
               active: Boolean(picApproved) && !hwsApproved,
             },
-            {
-              label: t('Driver dispatched'),
-              sub: t('Driver is assigned immediately upon final approval'),
-              done: false,
-            },
           ]
         : [
-            { label: t('Request sent & schedule locked'), sub: t('Car and driver slot reserved immediately'), done: true },
+            { label: t('Request Submitted'), sub: t('Schedule reserved'), done: true },
             {
-              label: isUrgent ? t('Fleet Operation PIC urgent approval') : t('Admin review in progress'),
-              sub: isUrgent
-                ? t('Mandatory Fleet Operation PIC authorization required (< 2h departure)')
-                : t('Fleet Admin verifies & dispatches your driver'),
+              label: t('Fleet Review'),
+              sub: t('Assigning driver & vehicle'),
               active: true,
             },
-            { label: t('Driver dispatched'), sub: t('You will get a push notification once assigned'), done: false },
           ];
 
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {feedbackBanner}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -13518,61 +13629,58 @@ export function App() {
           </div>
 
           {focusedTrip && (
-            <div style={{ padding: '12px 14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ padding: '12px 14px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-divider)', display: 'flex', flexDirection: 'column', gap: '5px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                 <div className="type-body" style={{ fontWeight: 700 }}>{focusedTrip.origin} → {focusedTrip.destination}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                  {formatReservationModeLabel(focusedTrip.reservation_type, focusedTrip.return_pickup_time) && (
-                    <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #bfdbfe' }}>
-                      {formatReservationModeLabel(focusedTrip.reservation_type, focusedTrip.return_pickup_time)}
+                {formatReservationModeLabel(focusedTrip.reservation_type, focusedTrip.return_pickup_time) && (
+                  <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '99px', background: 'rgba(0, 114, 222, 0.12)', color: '#258cfb' }}>
+                    {formatReservationModeLabel(focusedTrip.reservation_type, focusedTrip.return_pickup_time)}
+                  </span>
+                )}
+              </div>
+              {focusedTrip.start_time && focusedTrip.end_time && (
+                <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+                  🕒 {new Date(focusedTrip.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} – {new Date(focusedTrip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {focusedTrip.reservation_type === 'DROP_AND_PICKUP' && focusedTrip.return_pickup_time && (
+                    <span style={{ color: '#258cfb', fontWeight: 700 }}>
+                      {' '}• Return {new Date(focusedTrip.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   )}
                 </div>
-              </div>
-              <div className="type-caption">{focusedTrip.make} {focusedTrip.model} • {focusedTrip.registration_plate}</div>
-              {focusedTrip.start_time && focusedTrip.end_time && (
-                <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-                  🕒 Schedule: {new Date(focusedTrip.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → {new Date(focusedTrip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </div>
-              )}
-              {focusedTrip.reservation_type === 'DROP_AND_PICKUP' && focusedTrip.return_pickup_time && (
-                <div className="type-caption" style={{ color: '#005bb5', fontWeight: 700 }}>
-                  🔁 Return Pick-Up: {new Date(focusedTrip.return_pickup_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                </div>
               )}
               {focusedTrip.assigned_driver_name && (
-                <div className="type-caption" style={{ color: 'var(--color-green-text)', fontWeight: 600, marginTop: '3px' }}>
-                  👤 Assigned Driver: {focusedTrip.assigned_driver_name} {focusedTrip.assigned_driver_phone ? `(${focusedTrip.assigned_driver_phone})` : ''}
+                <div className="type-caption" style={{ color: '#258cfb', fontWeight: 700 }}>
+                  👤 {focusedTrip.assigned_driver_name} • {focusedTrip.registration_plate}
                 </div>
               )}
             </div>
           )}
 
-          {/* Timeline */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '4px 0' }}>
+          {/* Compact Approval Stepper */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '4px 0' }}>
             {timelineSteps.map((st, idx) => (
-              <div key={st.label} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              <div key={st.label} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <div
                   style={{
                     width: '24px',
                     height: '24px',
                     borderRadius: '9999px',
                     background: st.done ? 'var(--color-green)' : st.active ? 'var(--color-green-tint)' : 'var(--color-bg-subtle)',
-                    border: st.active ? '2px solid var(--color-green)' : 'none',
+                    border: st.active ? '2px solid var(--color-green)' : '1px solid var(--color-divider)',
                     color: st.done ? '#ffffff' : 'var(--color-green-text)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '12px',
-                    fontWeight: 700,
+                    fontSize: '11px',
+                    fontWeight: 800,
                     flexShrink: 0,
                   }}
                 >
                   {st.done ? <CheckCircle2 size={14} /> : idx + 1}
                 </div>
-                <div>
-                  <div className="type-body" style={{ fontWeight: 700 }}>{st.label}</div>
-                  <div className="type-caption">{st.sub}</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flex: 1, gap: '8px', flexWrap: 'wrap' }}>
+                  <span className="type-body" style={{ fontWeight: 700, fontSize: '13.5px' }}>{st.label}</span>
+                  <span className="type-caption" style={{ fontSize: '12px' }}>{st.sub}</span>
                 </div>
               </div>
             ))}
@@ -13588,7 +13696,7 @@ export function App() {
                   setSheetSnap('half');
                 }}
               >
-                <Car size={16} /> {t('Open Active Trip & Driver Info')}
+                <Car size={16} /> {t('View Driver & Trip')}
               </button>
               {focusedTrip?.status === 'APPROVED' && !focusedTrip?.passenger_boarded_at && (
                 <button
@@ -13597,7 +13705,7 @@ export function App() {
                   className="gf-btn gf-btn-secondary gf-btn-full"
                   onClick={() => handleConfirmPassengerBoarding(focusedTrip)}
                 >
-                  <CheckCircle2 size={16} /> {t('I Am Here / Confirm Boarding')}
+                  <CheckCircle2 size={16} /> {t('Confirm Boarding')}
                 </button>
               )}
               {focusedTrip?.status === 'APPROVED' && (
@@ -13612,10 +13720,10 @@ export function App() {
             </div>
           ) : isRejected ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px 14px' }}>
-                <div style={{ fontWeight: 700, color: '#991b1b', fontSize: '13px' }}>{t('Rejection Reason')}:</div>
-                <div style={{ color: '#7f1d1d', fontSize: '13px', marginTop: '2px' }}>
-                  {focusedTrip?.decisions?.find((d: any) => d.decision === 'REJECTED')?.reason || 'Booking request was rejected by fleet administration.'}
+              <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(248, 113, 113, 0.4)', borderRadius: '10px', padding: '10px 12px' }}>
+                <div style={{ fontWeight: 700, color: '#ef4444', fontSize: '12.5px' }}>{t('Rejected')}:</div>
+                <div style={{ color: 'var(--color-text-secondary)', fontSize: '12.5px', marginTop: '2px' }}>
+                  {focusedTrip?.decisions?.find((d: any) => d.decision === 'REJECTED')?.reason || 'Declined by fleet administration.'}
                 </div>
               </div>
               <button
@@ -13627,7 +13735,7 @@ export function App() {
                   setSheetSnap('half');
                 }}
               >
-                {t('Dismiss & Return to Home')}
+                {t('Back to Home')}
               </button>
             </div>
           ) : (
@@ -13645,7 +13753,7 @@ export function App() {
                   } catch {}
                 }}
               >
-                <RefreshCw size={14} /> {t('Sync Status')}
+                <RefreshCw size={14} /> {t('Refresh')}
               </button>
               <button
                 type="button"
@@ -13671,7 +13779,7 @@ export function App() {
     const tripModeLabel = formatReservationModeLabel(tripToShow?.reservation_type, tripToShow?.return_pickup_time);
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         {feedbackBanner}
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
@@ -13700,8 +13808,8 @@ export function App() {
               : canShowAssignedDriverLive && driverToPickupEta
               ? `Driver arriving in ~${driverToPickupEta.durationMin} min (${driverToPickupEta.distanceKm} km)`
               : canShowAssignedDriverLive
-              ? t('Driver assigned — live location active')
-              : t('Booking Approved — Driver Assigned')}
+              ? t('Driver En Route')
+              : t('Booking Confirmed')}
           </h1>
           {tripToShow && (
             <div className="type-caption">{tripToShow.origin} → {tripToShow.destination}</div>
@@ -13710,137 +13818,123 @@ export function App() {
             <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
               🕒 {new Date(tripToShow.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} – {new Date(tripToShow.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               {tripToShow.reservation_type === 'DROP_AND_PICKUP' && tripToShow.return_pickup_time && (
-                <span style={{ color: '#005bb5', fontWeight: 700 }}>
-                  {' '}• Return Pick-Up: {new Date(tripToShow.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <span style={{ color: '#258cfb', fontWeight: 700 }}>
+                  {' '}• Return {new Date(tripToShow.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
               )}
             </div>
           )}
         </div>
 
-        {/* Item 1 & Item 2: 10-Min Reminder & 20-Min Auto-Cancel Policy + Confirm Boarding + Cancel Approved Booking */}
-        {!isStarted && tripToShow?.status === 'APPROVED' && (
-          <div
-            style={{
-              padding: '12px 14px',
-              borderRadius: 'var(--radius-card)',
-              background: tripToShow?.passenger_boarded_at ? '#ebf5ff' : '#fffbeb',
-              border: tripToShow?.passenger_boarded_at ? '1.5px solid #93c5fd' : '1.5px solid #fde68a',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '10px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-              <Clock size={16} style={{ color: tripToShow?.passenger_boarded_at ? '#0072de' : '#d97706', flexShrink: 0, marginTop: '2px' }} />
-              <div style={{ fontSize: '12px', color: tripToShow?.passenger_boarded_at ? '#005bb5' : '#92400e', lineHeight: 1.4 }}>
-                {tripToShow?.passenger_boarded_at ? (
-                  <>
-                    <strong>✓ {t('Boarding Confirmed')}</strong> — {t('Your presence is recorded. Auto-cancellation timer is stopped.')}
-                  </>
-                ) : (
-                  <>
-                    <strong>⏰ {t('10-Min Departure Reminder & 20-Min Auto-Cancel')}:</strong>{' '}
-                    {t('Repeated reminders are sent starting 10 minutes before departure. Bookings are auto-cancelled if you do not confirm boarding or start the trip within 20 minutes after departure.')}
-                  </>
-                )}
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {!tripToShow?.passenger_boarded_at && (
-                <button
-                  id="confirm-boarding-btn"
-                  type="button"
-                  className="gf-btn gf-btn-primary"
-                  style={{ flex: 1, minHeight: '38px', fontSize: '12.5px' }}
-                  onClick={() => handleConfirmPassengerBoarding(tripToShow)}
-                >
-                  <CheckCircle2 size={15} /> {t('I Am Here / Confirm Boarding')}
-                </button>
-              )}
-              <button
-                id="cancel-approved-booking-btn"
-                type="button"
-                className="gf-btn gf-btn-outline-danger"
-                style={{ flex: tripToShow?.passenger_boarded_at ? 1 : undefined, minHeight: '38px', fontSize: '12.5px', padding: '0 14px' }}
-                onClick={() => handleCancelBookingRequest(tripToShow)}
-              >
-                <X size={15} /> {t('Cancel Booking')}
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Live Assigned Driver Position & Pickup ETA (unlocked 10 min before departure or while IN_PROGRESS) */}
         {canShowAssignedDriverLive ? (
           <div
             id="live-driver-eta-card"
             style={{
-              padding: '12px 14px',
-              borderRadius: 'var(--radius-card)',
-              background: '#ebf5ff',
-              border: '1.5px solid #93c5fd',
+              padding: '10px 14px',
+              borderRadius: '12px',
+              background: 'rgba(0, 114, 222, 0.1)',
+              border: '1px solid rgba(37, 140, 251, 0.35)',
               display: 'flex',
-              flexDirection: 'column',
-              gap: '4px',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '10px',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-              <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#005bb5', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                🚗 {isStarted ? t('Assigned Driver Live Position') : t('Driver ETA to Your Pickup')}
-              </span>
-              <span
-                style={{
-                  fontSize: '10px',
-                  fontWeight: 800,
-                  padding: '2px 7px',
-                  borderRadius: '9999px',
-                  background: '#0072de',
-                  color: '#ffffff',
-                }}
-              >
-                LIVE
-              </span>
-            </div>
-            {driverToPickupEta ? (
-              <>
-                <div style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a' }}>
-                  ~{driverToPickupEta.durationMin} min ({driverToPickupEta.distanceKm} km) • ETA {driverToPickupEta.etaText}
-                </div>
-                <div style={{ fontSize: '11.5px', color: '#334155' }}>
-                  {t('Showing live GPS position of your assigned driver on the map.')}
-                </div>
-              </>
-            ) : (
-              <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
-                {t('Waiting for assigned driver GPS signal — live position & ETA will appear as soon as driver is online.')}
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#258cfb', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                🚗 {isStarted ? t('Live Trip GPS') : t('Driver Pickup ETA')}
               </div>
-            )}
+              <div style={{ fontSize: '14.5px', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '2px' }}>
+                {driverToPickupEta
+                  ? `~${driverToPickupEta.durationMin} min (${driverToPickupEta.distanceKm} km) • ${driverToPickupEta.etaText}`
+                  : t('Connecting to driver GPS...')}
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: '10px',
+                fontWeight: 800,
+                padding: '3px 8px',
+                borderRadius: '9999px',
+                background: '#0072de',
+                color: '#ffffff',
+                flexShrink: 0,
+              }}
+            >
+              LIVE
+            </span>
           </div>
         ) : tripToShow?.status === 'APPROVED' ? (
           <div
             id="driver-tracking-locked-notice"
             style={{
-              padding: '12px 14px',
-              borderRadius: 'var(--radius-card)',
-              background: '#f8fafc',
-              border: '1.5px solid #cbd5e1',
+              padding: '10px 12px',
+              borderRadius: '12px',
+              background: 'var(--color-bg-subtle)',
+              border: '1px solid var(--color-divider)',
               display: 'flex',
-              alignItems: 'flex-start',
+              alignItems: 'center',
+              justifyContent: 'space-between',
               gap: '10px',
             }}
           >
-            <Lock size={16} style={{ color: '#0072de', flexShrink: 0, marginTop: '2px' }} />
-            <div style={{ fontSize: '12px', color: '#334155', lineHeight: 1.45 }}>
-              <strong style={{ color: '#0f172a' }}>{t('Driver Live Location Unlocks 10 Minutes Before Schedule')}</strong>
-              <div style={{ marginTop: '2px' }}>
-                {driverTrackingUnlocksAtText
-                  ? `${t('Your assigned driver position and pickup ETA will appear on the map starting at')} ${driverTrackingUnlocksAtText}.`
-                  : t('Your assigned driver position and pickup ETA will appear on the map 10 minutes before scheduled departure.')}
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+              <Lock size={14} style={{ color: '#258cfb', flexShrink: 0 }} />
+              <span>{t('Live driver GPS & ETA active 10m before departure')}</span>
             </div>
+            {driverTrackingUnlocksAtText && (
+              <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#258cfb', whiteSpace: 'nowrap' }}>
+                {driverTrackingUnlocksAtText}
+              </span>
+            )}
           </div>
         ) : null}
+
+        {/* Clean Boarding Confirmation & Cancel Row (Zero Verbose Paragraphs) */}
+        {!isStarted && tripToShow?.status === 'APPROVED' && (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {tripToShow?.passenger_boarded_at ? (
+              <div
+                style={{
+                  flex: 1,
+                  minHeight: '38px',
+                  padding: '0 12px',
+                  borderRadius: '10px',
+                  background: 'rgba(0, 114, 222, 0.12)',
+                  border: '1px solid rgba(37, 140, 251, 0.35)',
+                  color: '#258cfb',
+                  fontSize: '12.5px',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <CheckCircle2 size={15} /> {t('Boarding Confirmed')}
+              </div>
+            ) : (
+              <button
+                id="confirm-boarding-btn"
+                type="button"
+                className="gf-btn gf-btn-primary"
+                style={{ flex: 1, minHeight: '38px', fontSize: '12.5px' }}
+                onClick={() => handleConfirmPassengerBoarding(tripToShow)}
+              >
+                <CheckCircle2 size={15} /> {t('Confirm Boarding')}
+              </button>
+            )}
+            <button
+              id="cancel-approved-booking-btn"
+              type="button"
+              className="gf-btn gf-btn-outline-danger"
+              style={{ minHeight: '38px', fontSize: '12.5px', padding: '0 14px' }}
+              onClick={() => handleCancelBookingRequest(tripToShow)}
+            >
+              <X size={15} /> {t('Cancel Booking')}
+            </button>
+          </div>
+        )}
 
         {/* Driver Row: Round Photo, Name, Rating, Bold Plate Box */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '14px', borderRadius: 'var(--radius-card)', border: '1px solid var(--color-divider)' }}>
