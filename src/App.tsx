@@ -1961,11 +1961,45 @@ export function App() {
         ? cleanPassengers.map((p) => `${p.id}. ${p.nickname}`).join(', ')
         : bookPassengerNickname.trim();
 
+    const reqPax = Math.max(1, cleanPassengers.length || Number(bookPax));
+
+    const pickAutoAvailableVehicleId = (pool: any[]): number | null => {
+      const avail = (pool || []).filter((v: any) => v.status === 'Available' && v.isAvailable !== false);
+      if (avail.length === 0) return null;
+      const enoughSeats = avail.find((v: any) => Number(v.seats || 4) >= reqPax);
+      return Number((enoughSeats || avail[0]).id);
+    };
+
     try {
-      const created = await apiRequest('/api/trips', {
-        method: 'POST',
-        body: JSON.stringify({
-          vehicle_id: 'AUTO',
+      let autoVehicleId = pickAutoAvailableVehicleId(liveAvailability?.vehicles || []);
+      if (!autoVehicleId) {
+        const freshAvail = await apiRequest(
+          `/api/availability?start_time=${encodeURIComponent(startIso)}&end_time=${encodeURIComponent(endIso)}`
+        ).catch(() => null);
+        if (freshAvail?.vehicles) {
+          setLiveAvailability(freshAvail);
+          autoVehicleId = pickAutoAvailableVehicleId(freshAvail.vehicles);
+        }
+      }
+      if (!autoVehicleId) {
+        const fallbackCar = vehicles.find((v: any) => v.status === 'Available') || vehicles[0];
+        if (fallbackCar?.id) {
+          autoVehicleId = Number(fallbackCar.id);
+        }
+      }
+
+      if (!autoVehicleId) {
+        setStatusBanner({
+          type: 'danger',
+          text: 'No available vehicles are currently registered in the fleet. Please contact Fleet Manager.',
+        });
+        return;
+      }
+
+      const buildPayload = (vehId: number) =>
+        JSON.stringify({
+          vehicle_id: vehId,
+          auto_assign: true,
           preferred_driver_id: null,
           purpose: effectivePurpose,
           origin: bookOrigin.trim(),
@@ -1974,14 +2008,42 @@ export function App() {
           end_time: endIso,
           reservation_type: bookReservationType,
           return_pickup_time: returnPickupIso,
-          passenger_count: Math.max(1, cleanPassengers.length || Number(bookPax)),
+          passenger_count: reqPax,
           passenger_nickname: formattedPaxNickname,
           passengers: cleanPassengers,
           notes: bookNotes || effectivePurpose,
           is_urgent: 0,
           urgent_reason: effectivePurpose,
-        }),
-      });
+        });
+
+      let created: any;
+      try {
+        created = await apiRequest('/api/trips', {
+          method: 'POST',
+          body: buildPayload(autoVehicleId),
+        });
+      } catch (firstErr: any) {
+        const msg = String(firstErr?.message || '').toLowerCase();
+        // If another user booked that car concurrently on an older server worker, refresh availability and retry with the next free car
+        if (msg.includes('conflict') || msg.includes('booked') || msg.includes('already') || msg.includes('409')) {
+          const retryAvail = await apiRequest(
+            `/api/availability?start_time=${encodeURIComponent(startIso)}&end_time=${encodeURIComponent(endIso)}`
+          ).catch(() => null);
+          const nextFree = (retryAvail?.vehicles || []).find(
+            (v: any) => v.status === 'Available' && v.isAvailable !== false && Number(v.id) !== autoVehicleId
+          );
+          if (nextFree?.id) {
+            created = await apiRequest('/api/trips', {
+              method: 'POST',
+              body: buildPayload(Number(nextFree.id)),
+            });
+          } else {
+            throw firstErr;
+          }
+        } else {
+          throw firstErr;
+        }
+      }
       setBookPurpose('');
       setBookPassengerNickname('');
       setBookPassengers([{ id: 1, nickname: '' }]);

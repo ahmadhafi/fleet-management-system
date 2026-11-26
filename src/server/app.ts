@@ -2366,11 +2366,27 @@ export function createApp() {
       return;
     }
 
+    const autoAssignRequested =
+      req.body?.auto_assign === true ||
+      req.body?.auto_assign === 1 ||
+      !vehicle_id ||
+      String(vehicle_id).toUpperCase() === 'AUTO';
+
     try {
       const createdPayload = runInTransaction(db, () => {
+        const parsedVehId =
+          vehicle_id && String(vehicle_id).toUpperCase() !== 'AUTO' ? Number(vehicle_id) : NaN;
         let resolvedVehicleId: number | null =
-          vehicle_id && String(vehicle_id).toUpperCase() !== 'AUTO' ? Number(vehicle_id) : null;
+          Number.isFinite(parsedVehId) && parsedVehId > 0 ? parsedVehId : null;
         let chosenDriverId: number | null = preferred_driver_id ? Number(preferred_driver_id) : null;
+
+        // If auto_assign is enabled and the client's tentative vehicle just conflicted in a race, fall back to pool auto-pick
+        if (resolvedVehicleId && autoAssignRequested) {
+          const tentativeCheck = checkVehicleConflict(db, resolvedVehicleId, start_time, end_time);
+          if (tentativeCheck.hasConflict) {
+            resolvedVehicleId = null;
+          }
+        }
 
         if (!resolvedVehicleId) {
           // Item #4: Auto-assign any available conflict-free car/driver so user doesn't have to manually pick a car
@@ -2423,9 +2439,14 @@ export function createApp() {
           if (chosenDriverId) {
             const dConflict = checkDriverConflict(db, chosenDriverId, start_time, end_time);
             if (dConflict.hasConflict) {
-              const err = new Error(dConflict.reason || 'Driver conflict');
-              (err as Error & { status?: number }).status = 409;
-              throw err;
+              if (autoAssignRequested) {
+                // Keep the available car and let Fleet Manager assign an available driver on approval
+                chosenDriverId = null;
+              } else {
+                const err = new Error(dConflict.reason || 'Driver conflict');
+                (err as Error & { status?: number }).status = 409;
+                throw err;
+              }
             }
           }
         }
