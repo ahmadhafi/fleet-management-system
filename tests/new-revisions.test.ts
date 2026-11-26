@@ -2956,6 +2956,101 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(mapViewTsx).toContain('gf-assigned-driver-marker');
         expect(mapViewTsx).toContain('driverToPickupEta');
       });
+
+      it('locks APPROVED bookings so Fleet PIC and Head of WS cannot modify or reject them (only requester can cancel), and zooms map with route & ETA upon destination selection', async () => {
+        const fs = await import('fs');
+        const path = await import('path');
+
+        resetDbForTesting(':memory:');
+        const testApp = createApp();
+
+        const empRes = await request(testApp).post('/api/auth/login').send({ group_username: 'emp_alex', password: 'Emp@123' });
+        const fmRes = await request(testApp).post('/api/auth/login').send({ group_username: 'fleetmgr', password: 'Fleet@123' });
+        const hwsRes = await request(testApp).post('/api/auth/login').send({ group_username: 'hws_head', password: 'Hws@123' });
+        const admRes = await request(testApp).post('/api/auth/login').send({ group_username: 'admin', password: 'Admin@123' });
+
+        const empTok = empRes.body.token;
+        const fmTok = fmRes.body.token;
+        const hwsTok = hwsRes.body.token;
+        const admTok = admRes.body.token;
+
+        const startIso = new Date(Date.now() + 24 * 3600_000).toISOString();
+        const endIso = new Date(Date.now() + 26 * 3600_000).toISOString();
+
+        const created = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${empTok}`)
+          .send({
+            vehicle_id: 1,
+            auto_assign: true,
+            purpose: 'Immutable Approval Test',
+            origin: 'Head Office SCBD',
+            destination: 'Menara Astra',
+            start_time: startIso,
+            end_time: endIso,
+            passengers: [{ id: 1, nickname: 'Alex' }],
+          });
+        expect(created.status).toBe(201);
+        const tripId = created.body.tripId;
+
+        // Stage 1: Fleet PIC approves
+        const s1 = await request(testApp)
+          .post(`/api/trips/${tripId}/decision`)
+          .set('Authorization', `Bearer ${fmTok}`)
+          .send({ decision: 'APPROVED', driver_profile_id: 1, enforce_fixed_driver_car: true });
+        expect(s1.status).toBe(200);
+
+        // Stage 2: Head of WS approves -> trip is now APPROVED
+        const s2 = await request(testApp)
+          .post(`/api/trips/${tripId}/decision`)
+          .set('Authorization', `Bearer ${hwsTok}`)
+          .send({ decision: 'APPROVED', reason: 'Final approved' });
+        expect(s2.status).toBe(200);
+        expect(s2.body.trip.status).toBe('APPROVED');
+
+        // 1. After APPROVED: Fleet PIC, Head of WS, and Admin MUST NOT be able to reject or modify the booking
+        for (const tok of [fmTok, hwsTok, admTok]) {
+          const rejectAfterApprove = await request(testApp)
+            .post(`/api/trips/${tripId}/decision`)
+            .set('Authorization', `Bearer ${tok}`)
+            .send({ decision: 'REJECTED', reason: 'Trying to reject after approval' });
+          expect(rejectAfterApprove.status).toBe(400);
+          expect(rejectAfterApprove.body.error).toMatch(/already APPROVED and locked/i);
+
+          const modifyAfterApprove = await request(testApp)
+            .post(`/api/trips/${tripId}/decision`)
+            .set('Authorization', `Bearer ${tok}`)
+            .send({ decision: 'APPROVED', driver_profile_id: 2 });
+          expect(modifyAfterApprove.status).toBe(400);
+          expect(modifyAfterApprove.body.error).toMatch(/already APPROVED and locked/i);
+
+          // Approvers also cannot cancel the requester's booking
+          const cancelByApprover = await request(testApp)
+            .post(`/api/trips/${tripId}/cancel`)
+            .set('Authorization', `Bearer ${tok}`)
+            .send({ reason: 'Approver trying to cancel' });
+          expect(cancelByApprover.status).toBe(403);
+          expect(cancelByApprover.body.error).toMatch(/Only the requester/i);
+        }
+
+        // 2. Only the requester (pemesan) can cancel their approved booking
+        const cancelByRequester = await request(testApp)
+          .post(`/api/trips/${tripId}/cancel`)
+          .set('Authorization', `Bearer ${empTok}`)
+          .send({ reason: 'Pemesan membatalkan pesanan' });
+        expect(cancelByRequester.status).toBe(200);
+        expect(cancelByRequester.body.status).toBe('CANCELLED');
+
+        // 3. Verify UI source for locked approved summary & instant Gojek route zoom + ETA on destination selection
+        const appTsx = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf8');
+        const routeFieldsTsx = fs.readFileSync(path.resolve(__dirname, '../src/components/RouteFields.tsx'), 'utf8');
+        const mapViewTsx = fs.readFileSync(path.resolve(__dirname, '../src/components/MapView.tsx'), 'utf8');
+        expect(appTsx).toContain('id="dispatch-locked-summary"');
+        expect(appTsx).toContain('onSubmitDestination');
+        expect(appTsx).toContain('id="route-live-eta-banner"');
+        expect(routeFieldsTsx).toContain('onSubmitDestination');
+        expect(mapViewTsx).toContain('ResizeObserver');
+      });
     });
   });
 });

@@ -999,12 +999,12 @@ export function App() {
 
         const finalList = merged.slice(0, 30);
         setGeoResults(finalList);
-        // Automatically resolve coordinates for typed addresses so route path & ETA calculate immediately
+        // Automatically resolve coordinates for typed addresses only when not explicitly selected yet
         if (finalList.length > 0 && Number.isFinite(finalList[0].lat) && Number.isFinite(finalList[0].lon)) {
           if (activeRouteField === 'pickup') {
-            setOriginCoords({ lat: finalList[0].lat, lon: finalList[0].lon });
+            setOriginCoords((prev) => prev || { lat: finalList[0].lat, lon: finalList[0].lon });
           } else if (activeRouteField === 'destination') {
-            setDestCoords({ lat: finalList[0].lat, lon: finalList[0].lon });
+            setDestCoords((prev) => prev || { lat: finalList[0].lat, lon: finalList[0].lon });
           }
         }
       } catch {
@@ -1027,6 +1027,40 @@ export function App() {
     }
 
     let cancelled = false;
+
+    // Instant optimistic route & ETA whenever explicit destination coordinates are chosen (zero network wait for Gojek map zoom)
+    if (destCoords && Number.isFinite(destCoords.lat) && Number.isFinite(destCoords.lon)) {
+      const fastOrigLat = originCoords?.lat ?? myCoords?.lat ?? -6.22728;
+      const fastOrigLon = originCoords?.lon ?? myCoords?.lon ?? 106.80816;
+      const fastEst = estimateRouteMetrics(
+        bookOrigin || 'Samsung Office Jakarta (Lobby)',
+        bookDest,
+        { lat: fastOrigLat, lon: fastOrigLon },
+        destCoords
+      );
+      const fastDepMs =
+        scheduleMode === 'SCHEDULE' && bookStart ? new Date(bookStart).getTime() || Date.now() : Date.now();
+      const fastEtaDate = new Date(fastDepMs + fastEst.durationMin * 60_000);
+      const ctrlLat = (fastOrigLat + destCoords.lat) / 2 + (destCoords.lon - fastOrigLon) * 0.1;
+      const ctrlLon = (fastOrigLon + destCoords.lon) / 2 - (destCoords.lat - fastOrigLat) * 0.1;
+      const fastCurve: Array<[number, number]> = [];
+      for (let i = 0; i <= 20; i++) {
+        const t = i / 20;
+        const omt = 1 - t;
+        fastCurve.push([
+          omt * omt * fastOrigLat + 2 * omt * t * ctrlLat + t * t * destCoords.lat,
+          omt * omt * fastOrigLon + 2 * omt * t * ctrlLon + t * t * destCoords.lon,
+        ]);
+      }
+      setCalculatedRoute({
+        distanceKm: fastEst.distanceKm,
+        durationMin: fastEst.durationMin,
+        etaIso: fastEtaDate.toISOString(),
+        etaText: fastEtaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        geometry: fastCurve,
+      });
+    }
+
     const timer = window.setTimeout(async () => {
       setCalculatingRoute(true);
       try {
@@ -3509,6 +3543,82 @@ export function App() {
             )}
 
             {(() => {
+              const isLockedApprovedTrip = ['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'].includes(
+                String(dispatchModalTrip.status)
+              );
+
+              if (isLockedApprovedTrip) {
+                return (
+                  <div id="dispatch-locked-summary" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div
+                      style={{
+                        padding: '12px 14px',
+                        borderRadius: '12px',
+                        background: 'var(--color-bg-subtle)',
+                        border: '1px solid var(--color-divider)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '10px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                        <div
+                          style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '8px',
+                            background: '#0072de',
+                            color: '#fff',
+                            display: 'grid',
+                            placeItems: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Car size={18} />
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--color-text-primary)' }}>
+                            {dispatchModalTrip.assigned_driver_name || t('Assigned Driver')} • {dispatchModalTrip.registration_plate}
+                          </div>
+                          <div className="type-caption" style={{ fontSize: '11.5px', color: 'var(--color-text-secondary)' }}>
+                            {dispatchModalTrip.make} {dispatchModalTrip.model} ({dispatchModalTrip.energy_type || 'Fleet'})
+                          </div>
+                        </div>
+                      </div>
+                      <StatusBadge label={dispatchModalTrip.status} tone={toneFromStatus(dispatchModalTrip.status)} />
+                    </div>
+
+                    <div
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '10px',
+                        background: 'rgba(0, 114, 222, 0.08)',
+                        border: '1px solid rgba(37, 140, 251, 0.3)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '12px',
+                        color: 'var(--color-text-secondary)',
+                      }}
+                    >
+                      <Lock size={14} style={{ color: '#258cfb', flexShrink: 0 }} />
+                      <span>
+                        {t('Booking is finalized and locked. Only the requester can cancel this booking.')}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="gf-btn gf-btn-secondary gf-btn-full"
+                      onClick={() => setDispatchModalTrip(null)}
+                    >
+                      {t('Close')}
+                    </button>
+                  </div>
+                );
+              }
+
               const allPoolVehicles = dispatchAvailability?.vehicles?.length ? dispatchAvailability.vehicles : vehicles;
               const availableDispatchVehicles = allPoolVehicles.filter(
                 (v: any) => v.status === 'Available' && v.isAvailable !== false
@@ -6497,7 +6607,7 @@ export function App() {
                                 <td>
                                   <button
                                     type="button"
-                                    className="gf-btn gf-btn-primary"
+                                    className={t.status === 'PENDING_APPROVAL' ? 'gf-btn gf-btn-primary' : 'gf-btn gf-btn-secondary'}
                                     onClick={() => {
                                       setDispatchModalTrip(t);
                                       setDispatchVehicleId(t.vehicle_id);
@@ -6506,7 +6616,7 @@ export function App() {
                                       setDispatchDecisionReason('');
                                     }}
                                   >
-                                    {t.status === 'PENDING_APPROVAL' ? 'Review & Dispatch' : 'Manage'}
+                                    {t.status === 'PENDING_APPROVAL' ? 'Review & Dispatch' : 'View Details'}
                                   </button>
                                 </td>
                               </tr>
@@ -6579,7 +6689,7 @@ export function App() {
                                 setDispatchDecisionReason('');
                               }}
                             >
-                              {tr.status === 'PENDING_APPROVAL' ? t('Review & Dispatch') : t('Manage')}
+                              {tr.status === 'PENDING_APPROVAL' ? t('Review & Dispatch') : t('View Details')}
                             </button>
                           </div>
                         </div>
@@ -12366,6 +12476,13 @@ export function App() {
               setActiveRouteField(field);
               if (routeTab === 'PICKUP') setRouteTab('RECENT');
             }}
+            onSubmitDestination={() => {
+              if (geoResults.length > 0 && Number.isFinite(geoResults[0].lat) && Number.isFinite(geoResults[0].lon)) {
+                setBookDest(geoResults[0].name);
+                setDestCoords({ lat: geoResults[0].lat, lon: geoResults[0].lon });
+              }
+              setSheetSnap('half');
+            }}
             pickupPlaceholder="Your current pickup location"
             destinationPlaceholder="Search for a destination"
             onAddStop={handleAddStop}
@@ -12428,6 +12545,7 @@ export function App() {
           {/* Live Calculated Route ETA, Ride Time & Distance Banner */}
           {bookOrigin.trim() && bookDest.trim() && (
             <div
+              id="route-live-eta-banner"
               style={{
                 padding: '10px 14px',
                 borderRadius: 'var(--radius-control)',
@@ -12608,7 +12726,12 @@ export function App() {
                       setActiveRouteField('destination');
                     } else {
                       setBookDest(activeText);
-                      setDestCoords(null);
+                      if (geoResults[0] && Number.isFinite(geoResults[0].lat) && Number.isFinite(geoResults[0].lon)) {
+                        setDestCoords({ lat: geoResults[0].lat, lon: geoResults[0].lon });
+                      } else {
+                        setDestCoords(null);
+                      }
+                      setSheetSnap('half');
                     }
                   }}
                 />
@@ -12719,7 +12842,12 @@ export function App() {
                       setActiveRouteField('destination');
                     } else {
                       setBookDest(activeText);
-                      setDestCoords(null);
+                      if (geoResults[0] && Number.isFinite(geoResults[0].lat) && Number.isFinite(geoResults[0].lon)) {
+                        setDestCoords({ lat: geoResults[0].lat, lon: geoResults[0].lon });
+                      } else {
+                        setDestCoords(null);
+                      }
+                      setSheetSnap('half');
                     }
                   }}
                 />

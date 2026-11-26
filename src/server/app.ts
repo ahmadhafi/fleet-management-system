@@ -2622,6 +2622,16 @@ export function createApp() {
       return;
     }
 
+    // Once a booking is APPROVED, IN_PROGRESS, COMPLETED, or CANCELLED, Fleet PIC / Head of WS / Admin cannot modify or reject it.
+    // Approved bookings can only be cancelled by the requester (pemesan) themselves.
+    if (['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'].includes(trip.status)) {
+      recordAudit(db, user, 'POST_APPROVAL_DECISION_REFUSED', 'TRIP_REQUEST', tripId, { status: trip.status }, { attempted_decision: decision });
+      res.status(400).json({
+        error: `Booking #${tripId} is already ${trip.status} and locked. Approved bookings cannot be modified or rejected by approvers; only the requester can cancel their booking.`,
+      });
+      return;
+    }
+
     if (decision === 'REJECTED' && (!reason || !String(reason).trim())) {
       res.status(400).json({ error: 'A rejection reason is mandatory when rejecting a trip request (REQ-05)' });
       return;
@@ -3185,8 +3195,9 @@ export function createApp() {
       return;
     }
 
-    if (trip.requester_id !== user.id && !isPrivilegedRole(user)) {
-      res.status(403).json({ error: 'Only the employee who booked the car or an Admin/Fleet PIC can cancel this booking' });
+    if (trip.requester_id !== user.id) {
+      recordAudit(db, user, 'UNAUTHORIZED_TRIP_CANCEL_REFUSED', 'TRIP_REQUEST', tripId, { status: trip.status }, { attempted_by: user.id, role: user.role });
+      res.status(403).json({ error: 'Only the requester (pemesan) who created this booking can cancel it.' });
       return;
     }
 
@@ -3600,6 +3611,12 @@ export function createApp() {
     const nextEnd = req.body?.end_time || prev.end_time;
     const nextPurpose = req.body?.purpose || prev.purpose;
     const nextStatus = req.body?.status || prev.status;
+
+    if (nextStatus === 'CANCELLED' && prev.booked_by !== user.id) {
+      recordAudit(db, user, 'UNAUTHORIZED_BOOKING_CANCEL_REFUSED', 'BOOKING', bookingId);
+      res.status(403).json({ error: 'Only the requester (pemesan) who created this booking can cancel it.' });
+      return;
+    }
 
     try {
       const updated = runInTransaction(db, () => {

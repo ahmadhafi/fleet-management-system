@@ -1148,12 +1148,25 @@ export const MapView: React.FC<MapViewProps> = ({
       };
 
       fitGojekRouteCamera(true);
-      const settleTimer = window.setTimeout(() => {
+      const settleTimer1 = window.setTimeout(() => {
         fitGojekRouteCamera(true);
-      }, 320);
+      }, 280);
+      const settleTimer2 = window.setTimeout(() => {
+        fitGojekRouteCamera(true);
+      }, 540);
+
+      let resizeObs: ResizeObserver | null = null;
+      if (typeof ResizeObserver !== 'undefined' && mapContainerRef.current) {
+        resizeObs = new ResizeObserver(() => {
+          fitGojekRouteCamera(false);
+        });
+        resizeObs.observe(mapContainerRef.current);
+      }
 
       return () => {
-        window.clearTimeout(settleTimer);
+        window.clearTimeout(settleTimer1);
+        window.clearTimeout(settleTimer2);
+        if (resizeObs) resizeObs.disconnect();
       };
     } else if (driverActive && driverCoords && Number.isFinite(driverCoords.lat) && Number.isFinite(driverCoords.lon) && !pinMode) {
       const liveCarPoint: [number, number] = [driverCoords.lat, driverCoords.lon];

@@ -12,6 +12,7 @@ interface RouteFieldsProps {
   pickupPlaceholder?: string;
   destinationPlaceholder?: string;
   onAddStop?: () => void;
+  onSubmitDestination?: () => void;
   multiStopToast?: string | null;
 }
 
@@ -25,6 +26,7 @@ export const RouteFields: React.FC<RouteFieldsProps> = ({
   pickupPlaceholder,
   destinationPlaceholder,
   onAddStop,
+  onSubmitDestination,
   multiStopToast,
 }) => {
   const { t } = useAppLanguage();
@@ -95,6 +97,13 @@ export const RouteFields: React.FC<RouteFieldsProps> = ({
             value={destination}
             onFocus={() => onFocusField('destination')}
             onChange={(e) => onDestinationChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && onSubmitDestination) {
+                e.preventDefault();
+                (e.currentTarget as HTMLInputElement).blur();
+                onSubmitDestination();
+              }
+            }}
             autoFocus
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
