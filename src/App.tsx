@@ -7803,7 +7803,7 @@ export function App() {
                                         <Edit3 size={15} /> Edit
                                       </button>
                                       <button type="button" className="gf-btn gf-btn-primary" onClick={() => openVehicle360(v.id)}>
-                                        360°
+                                        {t('Details')}
                                       </button>
                                       {user.role === 'ADM' && (
                                         <button type="button" className="gf-btn gf-btn-outline-danger" onClick={() => handleDeleteVehicle(v)} title="Delete Vehicle">
@@ -7862,7 +7862,7 @@ export function App() {
                                 <Edit3 size={13} /> Edit
                               </button>
                               <button type="button" className="gf-proto-btn gf-proto-btn-s pressable" style={{ flex: 1 }} onClick={() => openVehicle360(v.id)}>
-                                360° View
+                                {t('Details')}
                               </button>
                               {user.role === 'ADM' && (
                                 <button type="button" className="gf-proto-btn gf-proto-btn-r gf-proto-btn-s pressable" onClick={() => handleDeleteVehicle(v)} title="Delete Vehicle">
