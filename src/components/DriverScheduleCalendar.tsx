@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Phone, Users, MapPin, Clock, User, Car } from 'lucide-react';
 import { useAppLanguage } from '../utils/i18n';
 
@@ -19,9 +19,9 @@ export interface DriverScheduleCalendarProps {
   openTripLabel?: string;
 }
 
-export const SCHEDULE_START_HOUR = 7;
-export const SCHEDULE_END_HOUR = 17; // exclusive — last row is 16:00–17:00
-const HOUR_PX = 64;
+export const SCHEDULE_START_HOUR = 0;
+export const SCHEDULE_END_HOUR = 24; // exclusive — full 24-hour schedule: 00:00 to 23:00 (00:00–24:00)
+const HOUR_PX = 56;
 const GUTTER_PX = 56;
 const COLUMN_MIN_PX = 148;
 
@@ -114,6 +114,7 @@ export const DriverScheduleCalendar: React.FC<DriverScheduleCalendarProps> = ({
   const { t } = useAppLanguage();
   const [selected, setSelected] = useState<any | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 60_000);
@@ -130,6 +131,19 @@ export const DriverScheduleCalendar: React.FC<DriverScheduleCalendarProps> = ({
   const isToday = dateStr === localDateKey(now);
   const nowH = now.getHours() + now.getMinutes() / 60;
   const showNowLine = isToday && nowH >= SCHEDULE_START_HOUR && nowH <= SCHEDULE_END_HOUR;
+
+  // Smart initial vertical scroll so 24-hour grid opens near active hours while keeping 00:00–23:00 scrollable
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const earliestEventH = events.length > 0 ? Math.min(...events.map((e) => e.startH)) : null;
+    const targetHour = isToday
+      ? Math.max(0, Math.floor(nowH) - 1)
+      : earliestEventH !== null
+      ? Math.max(0, Math.floor(earliestEventH) - 1)
+      : 7;
+    el.scrollTop = Math.min(targetHour, 18) * HOUR_PX;
+  }, [dateStr]);
 
   // Keep the details sheet in sync with live trip updates
   const selectedLive = selected ? events.find((e) => Number(e.trip.id) === Number(selected.trip.id)) || null : null;
@@ -166,7 +180,7 @@ export const DriverScheduleCalendar: React.FC<DriverScheduleCalendarProps> = ({
 
   return (
     <div className="gf-gcal" id="driver-schedule-calendar">
-      <div className="gf-gcal-scroll">
+      <div className="gf-gcal-scroll" ref={scrollRef}>
         <div className="gf-gcal-grid" style={{ minWidth: `${GUTTER_PX + columns.length * COLUMN_MIN_PX}px` }}>
           {/* Column headers: car + driver */}
           <div className="gf-gcal-head" style={{ gridTemplateColumns: `${GUTTER_PX}px repeat(${columns.length}, minmax(${COLUMN_MIN_PX}px, 1fr))` }}>

@@ -7609,8 +7609,9 @@ export function App() {
               <section className="gf-card-flat" id="admin-driver-schedule" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                   <div>
-                    <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '15px', margin: 0 }}>
+                    <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '15px', margin: 0 }}>
                       <Calendar size={16} /> {t('Driver Schedule')}
+                      <StatusBadge label={t('24 Hours (00:00 – 24:00)')} tone="blue" />
                     </h2>
                     <p className="type-caption" style={{ margin: '2px 0 0' }}>
                       {adminScheduleSubTab === 'ACTIVE'
@@ -10914,17 +10915,18 @@ export function App() {
                         {/* Visual 24-hr Bar */}
                         <div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }} className="type-caption mono">
-                            <span>08:00</span>
+                            <span>00:00</span>
+                            <span>06:00</span>
                             <span>12:00</span>
-                            <span>16:00</span>
-                            <span>20:00</span>
+                            <span>18:00</span>
+                            <span>24:00</span>
                           </div>
                           <div className="gf-timeline-track" style={{ position: 'relative' }}>
                             {vehicleTripsToday.map((t) => {
                               const startH = new Date(t.start_time).getHours() + new Date(t.start_time).getMinutes() / 60;
                               const endH = new Date(t.end_time).getHours() + new Date(t.end_time).getMinutes() / 60;
-                              const leftPct = Math.max(0, Math.min(100, ((startH - 8) / 12) * 100));
-                              const widthPct = Math.max(8, Math.min(100 - leftPct, ((endH - startH) / 12) * 100));
+                              const leftPct = Math.max(0, Math.min(100, (startH / 24) * 100));
+                              const widthPct = Math.max(4, Math.min(100 - leftPct, (Math.max(0.5, endH - startH) / 24) * 100));
                               return (
                                 <div
                                   key={t.id}
@@ -12819,7 +12821,7 @@ export function App() {
     }
 
     // -------------------------------------------------------------------------
-    // SET SCHEDULE: GOOGLE CALENDAR-STYLE FLEET & DRIVER TIMETABLE (07:00 AM - 04:00 PM)
+    // SET SCHEDULE: GOOGLE CALENDAR-STYLE FLEET & DRIVER TIMETABLE (24 Hours: 00:00 - 24:00)
     // -------------------------------------------------------------------------
     if (bookingStep === 'SCHEDULE_VIEW') {
       const selectedDateStr = scheduleCalendarDate || todayLocalDateStr();
@@ -12899,14 +12901,14 @@ export function App() {
               </button>
               <div style={{ minWidth: 0 }}>
                 <h1 className="type-title" style={{ fontSize: '19px', margin: 0 }}>
-                  {t('Set Schedule (07:00 AM - 04:00 PM)')}
+                  {t('Set Schedule (24 Hours)')}
                 </h1>
                 <p className="type-caption" style={{ margin: '2px 0 0' }}>
                   {t('Tap a booking to see who booked the car and who is on board')}
                 </p>
               </div>
             </div>
-            <StatusBadge label="07:00 AM – 04:00 PM" tone="blue" />
+            <StatusBadge label={t('24 Hours (00:00 – 24:00)')} tone="blue" />
           </div>
 
           {/* Date Picker & Filter Chips */}

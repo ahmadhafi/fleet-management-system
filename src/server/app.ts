@@ -3582,7 +3582,7 @@ export function createApp() {
     res.status(405).json({ error: 'Approval decisions are immutable and can never be modified or deleted (REQ-06)' });
   });
 
-  // Item #5: Google Calendar-style Schedule Endpoint (07:00 AM to 04:00 PM)
+  // Item #5: Google Calendar-style Schedule Endpoint (24 Hours: 00:00 to 24:00)
   // - Employees, Admins, FM, HWS see all active bookings across all cars (Group, PIC, Passengers, Destination, Duration)
   // - Drivers (DRV) see only their own assigned schedule
   // - Completed, Cancelled, and Rejected bookings are automatically excluded (removed from schedule)

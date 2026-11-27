@@ -4737,16 +4737,17 @@ html[data-display-mode='mobile'] .gf-bottom-nav {
 }
 
 /* ===================================================================
-   Google Calendar–style Driver Schedule (07:00 – 17:00)
+   Google Calendar–style Driver Schedule (24 Hours: 00:00 – 24:00)
    =================================================================== */
 .gf-gcal {
   border: 1px solid var(--color-border);
   border-radius: 14px;
-  background: var(--color-surface);
+  background: var(--color-bg-surface);
   overflow: hidden;
 }
 .gf-gcal-scroll {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: min(68vh, 700px);
   -webkit-overflow-scrolling: touch;
 }
 .gf-gcal-grid { position: relative; }
@@ -4756,14 +4757,16 @@ html[data-display-mode='mobile'] .gf-bottom-nav {
   position: sticky;
   top: 0;
   z-index: 3;
-  background: var(--color-surface);
+  background: var(--color-bg-surface);
   border-bottom: 1px solid var(--color-border);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
 .gf-gcal-head-gutter {
   position: sticky;
   left: 0;
   z-index: 4;
-  background: var(--color-surface);
+  background: var(--color-bg-surface);
+  border-right: 1px solid var(--color-divider);
 }
 .gf-gcal-head-cell {
   padding: 8px 8px 7px;
@@ -4772,6 +4775,7 @@ html[data-display-mode='mobile'] .gf-bottom-nav {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  background: var(--color-bg-surface);
 }
 .gf-gcal-plate {
   align-self: flex-start;
@@ -4811,7 +4815,7 @@ html[data-display-mode='mobile'] .gf-bottom-nav {
   position: sticky;
   left: 0;
   z-index: 2;
-  background: var(--color-surface);
+  background: var(--color-bg-surface);
   border-right: 1px solid var(--color-divider);
 }
 .gf-gcal-hour-label {

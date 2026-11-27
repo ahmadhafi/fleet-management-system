@@ -3436,6 +3436,54 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         const resolvedReq = (queueAfter.body.requests || []).find((r: any) => Number(r.id) === Number(alexReq.id));
         expect(resolvedReq?.status).toBe('COMPLETED');
       });
+
+      it('renders Driver Schedule across a full 24-hour window (00:00 to 24:00) including early-morning and late-night trips', async () => {
+        const {
+          SCHEDULE_START_HOUR,
+          SCHEDULE_END_HOUR,
+          getDayScheduleEvents,
+        } = await import('../src/components/DriverScheduleCalendar.tsx');
+
+        expect(SCHEDULE_START_HOUR).toBe(0);
+        expect(SCHEDULE_END_HOUR).toBe(24);
+
+        const dateStr = '2026-11-28';
+        const mkLocalIso = (h: number, m = 0) => new Date(2026, 10, 28, h, m, 0, 0).toISOString();
+        const sampleTrips = [
+          {
+            id: 901,
+            vehicle_id: 1,
+            status: 'APPROVED',
+            start_time: mkLocalIso(1, 30),
+            end_time: mkLocalIso(3, 30),
+            requester_name: 'Night Shift Airport',
+          },
+          {
+            id: 902,
+            vehicle_id: 1,
+            status: 'APPROVED',
+            start_time: mkLocalIso(10, 0),
+            end_time: mkLocalIso(12, 0),
+            requester_name: 'Daytime Visit',
+          },
+          {
+            id: 903,
+            vehicle_id: 1,
+            status: 'PENDING_APPROVAL',
+            start_time: mkLocalIso(21, 0),
+            end_time: mkLocalIso(23, 30),
+            requester_name: 'Late Evening Drop',
+          },
+        ];
+
+        const events = getDayScheduleEvents(sampleTrips, dateStr);
+        expect(events).toHaveLength(3);
+        expect(events.map((e) => e.trip.id)).toEqual([901, 902, 903]);
+        expect(events[0].startH).toBeCloseTo(1.5, 2);
+        expect(events[0].endH).toBeCloseTo(3.5, 2);
+        expect(events[2].startH).toBeCloseTo(21, 2);
+        expect(events[2].endH).toBeCloseTo(23.5, 2);
+      });
     });
   });
 });
