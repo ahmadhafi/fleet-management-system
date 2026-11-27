@@ -531,7 +531,7 @@ export function createApp() {
 
     notifyAdmins(db, {
       triggerType: 'PASSWORD_RESET_REQUESTED',
-      title: `🔑 Password Reset Request: ${userRow.nickname}`,
+      title: `Password Reset Request: ${userRow.nickname}`,
       body: `${userRow.nickname} (@${userRow.group_username}, ${userRow.department_name || 'Group'}) requested a password reset. WhatsApp: ${rawPhone}.${cleanNotes ? ` Note: "${cleanNotes}"` : ''} Open Admin Console to set a new temporary password.`,
       relatedEntityType: 'USER',
       relatedEntityId: Number(userRow.id),
@@ -2830,7 +2830,7 @@ export function createApp() {
       if (finalIsUrgent === 1) {
         notifyRole(db, 'FM', {
           triggerType: 'URGENT_TRIP_NEEDS_APPROVAL',
-          title: '🚨 Urgent Car Request (< 2h Advance)',
+          title: 'Urgent Car Request (< 2h Advance)',
           body: `${user.nickname} submitted an URGENT request for "${purpose}"${modeSummary} departing at ${start_time} (${leadTimeMinutes} min from now). Fleet Operation PIC authorization is required.`,
           relatedEntityType: 'TRIP_REQUEST',
           relatedEntityId: createdPayload.tripId,
@@ -3223,7 +3223,7 @@ export function createApp() {
         const isUrgent = Number((trip as any).is_urgent || 0) === 1;
         notifyRole(db, 'FM', {
           triggerType: isUrgent ? 'URGENT_TRIP_NEEDS_PIC_APPROVAL' : 'TRIP_NEEDS_PIC_APPROVAL',
-          title: isUrgent ? '🚨 Action Required: Urgent Trip PIC Authorization' : 'Action Required: Fleet Operation PIC Dispatch',
+          title: isUrgent ? 'Action Required: Urgent Trip PIC Authorization' : 'Action Required: Fleet Operation PIC Dispatch',
           body: isUrgent
             ? `Head Of WS Part approved Urgent Trip #${tripId} ("${trip.purpose}")${modeTag}. Your mandatory Fleet Operation PIC approval and driver dispatch is required immediately.`
             : `Head Of WS Part approved Trip #${tripId} ("${trip.purpose}")${modeTag}. Please confirm vehicle and driver dispatch.`,
@@ -3877,7 +3877,7 @@ export function createApp() {
       }
 
       const paxSummary = newPax.join(', ');
-      const title = `🤝 Hitchhike (Join Ride) Request: ${user.nickname} (${reqDeptName})`;
+      const title = `Hitchhike (Join Ride) Request: ${user.nickname} (${reqDeptName})`;
       const body = `${user.nickname} (${reqDeptName}) would like to hitchhike / join your booked car (${trip.registration_plate} • ${trip.make} ${trip.model}) heading to "${trip.destination}" (${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}). Passenger(s) to add (${newPax.length}): ${paxSummary}.${noteText ? ` Note: "${noteText}"` : ''}`;
 
       const notifId = sendUserNotification(db, {
@@ -3972,7 +3972,7 @@ export function createApp() {
       nextOrigin.toLowerCase() !== String(trip.origin || '').trim().toLowerCase() ||
       nextDestination.toLowerCase() !== String(trip.destination || '').trim().toLowerCase();
 
-    const title = `🔄 Schedule Negotiation (Cancel & Transfer): ${user.nickname} (${reqDeptName})`;
+    const title = `Schedule Negotiation (Cancel & Transfer): ${user.nickname} (${reqDeptName})`;
     const body = `${user.nickname} (${reqDeptName}) is requesting to transfer your booking slot on ${trip.registration_plate} (${trip.make} ${trip.model}, ${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}).\nNew Route (${isDifferentLocation ? 'Different Location' : 'Same Location'}): ${nextOrigin} → ${nextDestination}.\nNew Passenger(s) (${cancelPaxList.length}): ${cancelPaxSummary}.${nextPurpose ? `\nPurpose: ${nextPurpose}.` : ''}${noteText ? `\nMessage: "${noteText}"` : ''}\nAccept to cancel your booking and transfer this timeslot to them (their booking will require fresh Fleet Manager & Head of WS approval), or reject to keep your booking.`;
 
     const notifId = sendUserNotification(db, {
@@ -4118,7 +4118,7 @@ export function createApp() {
       sendUserNotification(db, {
         userId: Number(nr.requester_user_id),
         triggerType: isHitchhike ? 'HITCHHIKE_REJECTED' : 'CANCEL_NEGOTIATION_REJECTED',
-        title: isHitchhike ? '❌ Hitchhike Request Declined' : '❌ Cancellation Request Declined',
+        title: isHitchhike ? 'Hitchhike Request Declined' : 'Cancellation Request Declined',
         body: isHitchhike
           ? `${user.nickname} declined your hitchhike request on ${trip.registration_plate} (${trip.make} ${trip.model}) to "${trip.destination}".${reasonText ? ` Note: "${reasonText}"` : ''}`
           : `${user.nickname} declined your cancellation/transfer request for ${trip.registration_plate} (${trip.make} ${trip.model}) to "${trip.destination}". Their booking remains active.${reasonText ? ` Note: "${reasonText}"` : ''}`,
@@ -4235,7 +4235,7 @@ export function createApp() {
       sendUserNotification(db, {
         userId: Number(nr.requester_user_id),
         triggerType: 'HITCHHIKE_ACCEPTED',
-        title: '✅ Hitchhike Request Accepted!',
+        title: 'Hitchhike Request Accepted!',
         body: `${user.nickname} accepted your hitchhike request on ${trip.registration_plate} (${trip.make} ${trip.model}) to "${trip.destination}". Added to passenger list: ${addedLabel}.`,
         relatedEntityType: 'TRIP_REQUEST',
         relatedEntityId: Number(trip.id),
@@ -4384,7 +4384,7 @@ export function createApp() {
     sendUserNotification(db, {
       userId: Number(nr.requester_user_id),
       triggerType: 'CANCEL_NEGOTIATION_ACCEPTED',
-      title: '✅ Slot Transferred — Awaiting Approval',
+      title: 'Slot Transferred — Awaiting Approval',
       body: `${user.nickname} accepted your cancellation & transfer request! Car ${trip.registration_plate} (${trip.make} ${trip.model}) slot has been transferred to you as Booking #${transferResult.newTripId}.\nRoute: ${transferResult.transferredOrigin} → ${transferResult.transferredDest}\nPassengers: ${transferResult.swappedPassengers.join(', ')}\nStatus: Pending fresh approval from Fleet Manager (FM) & Head of WS (HWS).`,
       relatedEntityType: 'TRIP_REQUEST',
       relatedEntityId: transferResult.newTripId,
@@ -4392,7 +4392,7 @@ export function createApp() {
 
     notifyAdmins(db, {
       triggerType: 'TRIP_TRANSFERRED_NEEDS_APPROVAL',
-      title: '🔄 Transferred Booking Requires Approval',
+      title: 'Transferred Booking Requires Approval',
       body: `${user.nickname} cancelled Booking #${trip.id} (${trip.registration_plate}) and transferred the timeslot to ${nr.requester_name} as Booking #${transferResult.newTripId}.\nNew Route: ${transferResult.transferredOrigin} → ${transferResult.transferredDest}\nPassengers: ${transferResult.swappedPassengers.join(', ')}\nAction Required: Fresh Stage 1 (Fleet Operation PIC) & Stage 2 (Head of WS) approval is required.`,
       relatedEntityType: 'TRIP_REQUEST',
       relatedEntityId: transferResult.newTripId,
@@ -4563,7 +4563,7 @@ export function createApp() {
       sendUserNotification(db, {
         userId: Number(hitchhiker_user_id),
         triggerType: 'HITCHHIKE_ACCEPTED',
-        title: '✅ Hitchhike Ride Accepted!',
+        title: 'Hitchhike Ride Accepted!',
         body: `${user.nickname} accepted your hitchhike request on ${trip.registration_plate} to "${trip.destination}". Added to passenger list: ${addedLabel}.`,
         relatedEntityType: 'TRIP_REQUEST',
         relatedEntityId: tripId,
@@ -7619,7 +7619,7 @@ export function createApp() {
 </head>
 <body>
   <div class="no-print">
-    <button class="btn btn-blue" onclick="window.print()">🖨️ Print / Save as 1-Page PDF</button>
+    <button class="btn btn-blue" onclick="window.print()">Print / Save as 1-Page PDF</button>
   </div>
   <div class="report-wrap">
     <div class="header">
@@ -7691,31 +7691,31 @@ export function createApp() {
       </thead>
       <tbody>
         <tr>
-          <td><strong>⛽ Gasoline Fuel</strong></td>
+          <td><strong>Gasoline Fuel</strong></td>
           <td class="mono">${fuelAgg.l.toFixed(1)} Litres</td>
           <td>Gasoline Fleet Refueling</td>
           <td class="mono right font-bold">${formatIdr(fuelAgg.s)}</td>
         </tr>
         <tr>
-          <td><strong>⚡ Electric Charging (EV)</strong></td>
+          <td><strong>Electric Charging (EV)</strong></td>
           <td class="mono">${evAgg.k.toFixed(1)} kWh</td>
           <td>EV Charging Stations & Fast Chargers</td>
           <td class="mono right font-bold">${formatIdr(evAgg.s)}</td>
         </tr>
         <tr>
-          <td><strong>🛣️ Tollway Operational Fees</strong></td>
+          <td><strong>Tollway Operational Fees</strong></td>
           <td>Receipt Verified</td>
           <td>Highway E-Toll Card Reimbursements</td>
           <td class="mono right font-bold">${formatIdr(tollAgg.s)}</td>
         </tr>
         <tr>
-          <td><strong>🅿️ Parking Facility Fees</strong></td>
+          <td><strong>Parking Facility Fees</strong></td>
           <td>Receipt Verified</td>
           <td>Official Operational Parking Fees</td>
           <td class="mono right font-bold">${formatIdr(parkingAgg.s)}</td>
         </tr>
         <tr>
-          <td><strong>🔧 Scheduled Maintenance & Service</strong></td>
+          <td><strong>Scheduled Maintenance & Service</strong></td>
           <td>Periodic Inspections</td>
           <td>Workshop Services & Repairs</td>
           <td class="mono right font-bold">${formatIdr(maintAgg.s)}</td>
@@ -7852,8 +7852,8 @@ export function createApp() {
               const minsUntilCancel = Math.max(1, Math.round((startMs + 20 * 60 * 1000 - nowMs) / 60000));
               const titleText =
                 minsToStart > 0
-                  ? `⏰ Car Departing in ${minsToStart} Min (${t.registration_plate})`
-                  : `🚨 Car Waiting at Pickup (${minsUntilCancel} Min Until Auto-Cancel)`;
+                  ? `Car Departing in ${minsToStart} Min (${t.registration_plate})`
+                  : `Car Waiting at Pickup (${minsUntilCancel} Min Until Auto-Cancel)`;
               const bodyText =
                 minsToStart > 0
                   ? `Reminder: Your booked car ${t.registration_plate} for "${t.purpose}" departs in ${minsToStart} minutes. Please head to the pickup point and tap "I Am Here / Confirm Boarding" (auto-cancels 20 min after schedule if no-show).`

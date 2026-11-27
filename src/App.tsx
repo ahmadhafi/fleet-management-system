@@ -43,7 +43,6 @@ import {
   ArrowLeft,
   Bus,
   X,
-  Sparkles,
   Award,
   LocateFixed,
   ChevronDown,
@@ -116,14 +115,14 @@ export const SAMSUNG_JABABEKA_FACILITY = {
 };
 
 const QUICK_CORPORATE_POIS = [
-  { label: '🏢 Samsung Jababeka (SEIN)', name: 'PT Samsung Electronics Indonesia - Jababeka Plant', address: 'Jl. Jababeka Raya Blok F. 29 No.31, Harja Mekar, Kec. Cikarang Utara, Kabupaten Bekasi, Jawa Barat 17530', lat: -6.287549, lon: 107.1356063 },
-  { label: '🏭 Plant 1 (Sunter)', name: 'Manufacturing Plant 1', address: 'Jl. Danau Sunter Barat No. 8, Sunter Jaya, Jakarta Utara', lat: -6.13842, lon: 106.88561 },
-  { label: '🏭 Plant 2 (Karawang)', name: 'Manufacturing Plant 2', address: 'Kawasan Industri KIIC Lot A-1, Telukjambe Timur, Karawang Barat', lat: -6.34789, lon: 107.28912 },
-  { label: '🚛 Central Pool', name: 'Central Fleet Pool & Operations Base', address: 'Jl. Rawa Gelam IV No. 2, Kawasan Industri Pulogadung, Jakarta Timur', lat: -6.19834, lon: 106.88873 },
-  { label: '🏢 SCBD Head Office', name: 'Head Office - SCBD District 8', address: 'District 8 SCBD, Treasury Tower Lt. 35, Jl. Jend. Sudirman Kav. 52-53, Jakarta Selatan', lat: -6.22728, lon: 106.80816 },
-  { label: '✈️ Soekarno-Hatta (CGK)', name: 'Bandara Internasional Soekarno-Hatta (CGK) - Terminal 3', address: 'Bandara Soekarno-Hatta Terminal 3 Ultimate, Benda, Kota Tangerang', lat: -6.12556, lon: 106.65589 },
-  { label: '🚄 Whoosh Halim (KCIC)', name: 'Stasiun Kereta Cepat Whoosh Halim (KCIC)', address: 'Jl. Akses Stasiun Kereta Cepat Halim, Makasar, Jakarta Timur', lat: -6.24876, lon: 106.88765 },
-  { label: '🏬 Cikarang Hub', name: 'Cikarang Assembly Plant', address: 'Greenland International Industrial Center (GIIC), Deltamas, Cikarang Pusat', lat: -6.37521, lon: 107.16834 },
+  { label: 'Samsung Jababeka (SEIN)', name: 'PT Samsung Electronics Indonesia - Jababeka Plant', address: 'Jl. Jababeka Raya Blok F. 29 No.31, Harja Mekar, Kec. Cikarang Utara, Kabupaten Bekasi, Jawa Barat 17530', lat: -6.287549, lon: 107.1356063 },
+  { label: 'Plant 1 (Sunter)', name: 'Manufacturing Plant 1', address: 'Jl. Danau Sunter Barat No. 8, Sunter Jaya, Jakarta Utara', lat: -6.13842, lon: 106.88561 },
+  { label: 'Plant 2 (Karawang)', name: 'Manufacturing Plant 2', address: 'Kawasan Industri KIIC Lot A-1, Telukjambe Timur, Karawang Barat', lat: -6.34789, lon: 107.28912 },
+  { label: 'Central Pool', name: 'Central Fleet Pool & Operations Base', address: 'Jl. Rawa Gelam IV No. 2, Kawasan Industri Pulogadung, Jakarta Timur', lat: -6.19834, lon: 106.88873 },
+  { label: 'SCBD Head Office', name: 'Head Office - SCBD District 8', address: 'District 8 SCBD, Treasury Tower Lt. 35, Jl. Jend. Sudirman Kav. 52-53, Jakarta Selatan', lat: -6.22728, lon: 106.80816 },
+  { label: 'Soekarno-Hatta (CGK)', name: 'Bandara Internasional Soekarno-Hatta (CGK) - Terminal 3', address: 'Bandara Soekarno-Hatta Terminal 3 Ultimate, Benda, Kota Tangerang', lat: -6.12556, lon: 106.65589 },
+  { label: 'Whoosh Halim (KCIC)', name: 'Stasiun Kereta Cepat Whoosh Halim (KCIC)', address: 'Jl. Akses Stasiun Kereta Cepat Halim, Makasar, Jakarta Timur', lat: -6.24876, lon: 106.88765 },
+  { label: 'Cikarang Hub', name: 'Cikarang Assembly Plant', address: 'Greenland International Industrial Center (GIIC), Deltamas, Cikarang Pusat', lat: -6.37521, lon: 107.16834 },
 ];
 
 type BookingStep = 'HOME' | 'ROUTE' | 'VEHICLE' | 'SUMMARY' | 'WAITING' | 'IN_TRIP' | 'SCHEDULE_VIEW';
@@ -2147,7 +2146,7 @@ export function App() {
               });
               setStatusBanner({
                 type: 'warning',
-                text: rem.body || '⏰ Reminder: Your operational car is ready. Please tap "I Am Here / Confirm Boarding" or board within 20 minutes of departure.',
+                text: rem.body || 'Reminder: Your operational car is ready. Please tap "I Am Here / Confirm Boarding" or board within 20 minutes of departure.',
               });
               void syncTripsAndSchedule();
             } else if (payload.type === 'NOTIFICATION') {
@@ -4924,7 +4923,7 @@ export function App() {
               >
                 <div>
                   <div style={{ fontSize: '11px', fontWeight: 800, color: '#005bb5', textTransform: 'uppercase' }}>
-                    💵 {t('Driver Petty Cash Wallet')}
+                    {t('Driver Petty Cash Wallet')}
                   </div>
                   <div style={{ fontSize: '11.5px', color: '#1e3a8a', marginTop: '2px' }}>
                     {t('Cash parking & toll expenses deduct from Petty Cash and are replenished upon approval.')}
@@ -5013,7 +5012,7 @@ export function App() {
                           {assignedDriverVeh.registration_plate} — {assignedDriverVeh.make} {assignedDriverVeh.model} ({assignedDriverVeh.energy_type})
                         </div>
                         <div className="type-caption" style={{ color: '#005bb5', fontWeight: 700, marginTop: '2px' }}>
-                          👤 {t('Driver')}: {user.nickname} • {t('Locked to your driver account to prevent mixed claims')}
+                          {t('Driver')}: {user.nickname} • {t('Locked to your driver account to prevent mixed claims')}
                         </div>
                       </div>
                       <Lock size={16} style={{ color: '#0072de', flexShrink: 0 }} />
@@ -5062,13 +5061,13 @@ export function App() {
                       active={driverExpenseForm.payment_source === 'PETTY_CASH'}
                       onClick={() => setDriverExpenseForm({ ...driverExpenseForm, payment_source: 'PETTY_CASH' })}
                     >
-                      💵 {t('Petty Cash (Cash Parking / Operational)')}
+                      {t('Petty Cash (Cash Parking / Operational)')}
                     </Chip>
                     <Chip
                       active={driverExpenseForm.payment_source === 'DRIVER_ADVANCE'}
                       onClick={() => setDriverExpenseForm({ ...driverExpenseForm, payment_source: 'DRIVER_ADVANCE' })}
                     >
-                      💳 {t('Personal Cash Advance')}
+                      {t('Personal Cash Advance')}
                     </Chip>
                   </div>
                 </div>
@@ -5248,7 +5247,7 @@ export function App() {
                 <div style={{ padding: '12px', borderRadius: '10px', background: '#fef2f2', border: '1.5px solid #f87171', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#991b1b', fontWeight: 800, fontSize: '12px' }}>
                     <AlertTriangle size={16} style={{ color: '#dc2626', flexShrink: 0 }} />
-                    <span>🚨 {t('Urgent Short-Notice Departure Reminder')}</span>
+                    <span>{t('Urgent Short-Notice Departure Reminder')}</span>
                   </div>
                   <div style={{ fontSize: '12px', color: '#7f1d1d', lineHeight: 1.4 }}>
                     {t('Default booking is 2 hours from current time. You selected an urgent departure in')} <strong>{Math.max(1, leadTimeMin)} min</strong>. {t('This requires Stage 1 Fleet Operation PIC consent followed by Stage 2 Head Of WS approval.')}
@@ -5260,7 +5259,7 @@ export function App() {
               ) : (
                 <div style={{ padding: '12px', borderRadius: '10px', background: '#ebf5ff', border: '1.5px solid #93c5fd', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <div style={{ fontSize: '12px', fontWeight: 800, color: '#005bb5' }}>
-                    🕒 {t('Scheduled 2+ Hours in Advance (Standard Policy)')}
+                    {t('Scheduled 2+ Hours in Advance (Standard Policy)')}
                   </div>
                   <div style={{ fontSize: '12px', color: '#1e3a8a', lineHeight: 1.4 }}>
                     {t('Your booking is automatically set for 2+ hours from now. Need to depart urgently sooner than 2 hours? Tap "Change Schedule Time" below.')}
@@ -5278,7 +5277,7 @@ export function App() {
               </div>
 
               <div style={{ padding: '10px 12px', borderRadius: '8px', background: 'var(--color-bg-subtle)', fontSize: '11.5px', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>
-                ⏰ <strong>{t(' Boarding & No-Show Policy')}:</strong> {t('You will receive constant reminders starting 10 minutes before departure. If you do not show up or confirm boarding within 20 minutes after departure time, the booking will be automatically cancelled and the vehicle slot freed.')}
+                <strong>{t(' Boarding & No-Show Policy')}:</strong> {t('You will receive constant reminders starting 10 minutes before departure. If you do not show up or confirm boarding within 20 minutes after departure time, the booking will be automatically cancelled and the vehicle slot freed.')}
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -5662,7 +5661,7 @@ export function App() {
                               <td>{v.make} {v.model}</td>
                               <td>
                                 <span className={`gf-badge ${isEv ? 'gf-badge-blue' : 'gf-badge-neutral'}`} style={{ padding: '1px 6px', fontSize: '9.5px' }}>
-                                  {isEv ? '⚡ Electric' : '⛽ Gasoline'}
+                                  {isEv ? 'Electric' : 'Gasoline'}
                                 </span>
                               </td>
                               <td className="mono" style={{ textAlign: 'right' }}>{baselineOdo.toLocaleString('id-ID')} km</td>
@@ -5699,31 +5698,31 @@ export function App() {
                     </thead>
                     <tbody>
                       <tr>
-                        <td><strong>⛽ Gasoline Fuel</strong></td>
+                        <td><strong>Gasoline Fuel</strong></td>
                         <td className="mono">{Number(usageAnalytics.expensesBreakdownIdr?.gas_litres || 0).toFixed(1)} Litres</td>
                         <td>Gasoline fleet fuel refuel receipts</td>
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.gas_idr || 0)}</td>
                       </tr>
                       <tr>
-                        <td><strong>⚡ Electric Charging (EV)</strong></td>
+                        <td><strong>Electric Charging (EV)</strong></td>
                         <td className="mono">{Number(usageAnalytics.expensesBreakdownIdr?.electric_kwh || 0).toFixed(1)} kWh</td>
                         <td>EV charging station kilowatt hours</td>
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.electric_idr || 0)}</td>
                       </tr>
                       <tr>
-                        <td><strong>🛣️ Tollway Operational Fees</strong></td>
+                        <td><strong>Tollway Operational Fees</strong></td>
                         <td>Receipt Verified</td>
                         <td>Electronic highway toll card reimbursements</td>
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.toll_idr || 0)}</td>
                       </tr>
                       <tr>
-                        <td><strong>🅿️ Facility & Parking Fees</strong></td>
+                        <td><strong>Facility & Parking Fees</strong></td>
                         <td>Receipt Verified</td>
                         <td>Official operational parking receipts</td>
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.parking_idr || 0)}</td>
                       </tr>
                       <tr>
-                        <td><strong>🔧 Maintenance & Service</strong></td>
+                        <td><strong>Maintenance & Service</strong></td>
                         <td>Periodic Maintenance</td>
                         <td>Vehicle scheduled servicing, parts and repairs</td>
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{formatIdr(usageAnalytics.expensesBreakdownIdr?.maint_idr || 0)}</td>
@@ -5785,8 +5784,8 @@ export function App() {
           <div className="gf-modal-card" style={{ maxWidth: '640px', width: '92vw', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '2px solid #e2e8f0', paddingBottom: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#dc2626', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '18px' }}>
-                  ⚠️
+                <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#dc2626', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>
+                  <AlertTriangle size={18} />
                 </div>
                 <div>
                   <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: '#0f172a' }}>Database & Operations Reset</h2>
@@ -5836,18 +5835,18 @@ export function App() {
                       <div style={{ fontWeight: 800, fontSize: '14px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <span>1. Reset Test Operations & Trips</span>
                         <span style={{ background: '#ebf5ff', color: '#005bb5', fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '9999px' }}>
-                          ✅ Recommended for Real Fleet Launch
+                          Recommended for Real Fleet Launch
                         </span>
                       </div>
                       <div style={{ fontSize: '12px', color: '#0f172a', marginTop: '6px', lineHeight: 1.5, background: '#f8fafc', padding: '8px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                         <div style={{ color: '#0369a1', fontWeight: 700, marginBottom: '2px' }}>
-                          🛡️ GUARANTEED NOT ERASED:
+                          GUARANTEED NOT ERASED:
                         </div>
                         <div>• <strong>Vehicle License Plates & Specs:</strong> All plate numbers ({vehicles.map(v => v.registration_plate).slice(0, 5).join(', ')}{vehicles.length > 5 ? '...' : ''}), models, VINs remain fully intact.</div>
                         <div>• <strong>Driver Names & Phone Numbers:</strong> All driver profiles, contact phones, licenses, and photos remain fully intact.</div>
                         <div>• <strong>User Accounts & 13 Company Groups:</strong> All logins and department structures remain fully intact.</div>
                         <div style={{ color: '#b91c1c', fontWeight: 700, marginTop: '4px' }}>
-                          🗑️ ERASED ONLY:
+                          ERASED ONLY:
                         </div>
                         <div style={{ color: '#475569' }}>Test trip requests, bookings, driver dispatches, odometer logs, test receipts, and GPS breadcrumbs.</div>
                       </div>
@@ -5921,7 +5920,7 @@ export function App() {
               {/* Safeguard: Confirmation Keyword */}
               <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '12px 14px' }}>
                 <div style={{ fontWeight: 800, fontSize: '13px', color: '#92400e', marginBottom: '4px' }}>
-                  🔒 Safety Confirmation
+                  Safety Confirmation
                 </div>
                 <div style={{ fontSize: '12px', color: '#78350f', marginBottom: '8px' }}>
                   This action permanently modifies the database. Type <strong style={{ color: '#dc2626' }}>RESET</strong> in the box below to unlock execution:
@@ -6073,7 +6072,7 @@ export function App() {
                   setProfileStatusBanner(null);
                 }}
               >
-                👤 {t('Profile Details')}
+                {t('Profile Details')}
               </button>
               <button
                 type="button"
@@ -6084,7 +6083,7 @@ export function App() {
                   setProfileStatusBanner(null);
                 }}
               >
-                🔒 {t('Change Password')}
+                {t('Change Password')}
               </button>
             </div>
 
@@ -6224,7 +6223,7 @@ export function App() {
             ) : (
               <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12.5px', color: '#475569' }}>
-                  🔒 For your security, enter your current password to verify your identity before setting a new password (min. 6 characters).
+                  For your security, enter your current password to verify your identity before setting a new password (min. 6 characters).
                 </div>
 
                 <div>
@@ -6346,7 +6345,7 @@ export function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--color-border)', paddingBottom: '10px' }}>
               <div>
                 <h3 className="type-title" style={{ margin: 0, fontSize: '18px' }}>
-                  🤝 {t('Negotiate / Hitchhike')}
+                  {t('Negotiate / Hitchhike')}
                 </h3>
                 <p className="type-caption" style={{ margin: '2px 0 0' }}>
                   {negotiationModalTrip.make} {negotiationModalTrip.model} ({negotiationModalTrip.registration_plate})
@@ -6357,8 +6356,9 @@ export function App() {
                 className="gf-btn gf-btn-secondary"
                 style={{ minHeight: '32px', padding: '4px 10px' }}
                 onClick={() => setNegotiationModalTrip(null)}
+                aria-label={t('Close')}
               >
-                ✕
+                <X size={15} />
               </button>
             </div>
 
@@ -6378,21 +6378,21 @@ export function App() {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 800, color: '#3b82f6' }}>
-                  👤 Current Holder (PIC): {negotiationModalTrip.requester_name || 'Colleague'} ({negotiationModalTrip.department_name || 'Group'})
+                  Current Holder (PIC): {negotiationModalTrip.requester_name || 'Colleague'} ({negotiationModalTrip.department_name || 'Group'})
                 </span>
                 <StatusBadge label={formatReservationModeLabel(negotiationModalTrip.reservation_type, negotiationModalTrip.return_pickup_time) || 'Standard Trip'} tone="blue" />
               </div>
               <div>
-                <strong>🎯 Destination:</strong> {negotiationModalTrip.origin} → <strong>{negotiationModalTrip.destination}</strong>
+                <strong>Route:</strong> {negotiationModalTrip.origin} → <strong>{negotiationModalTrip.destination}</strong>
               </div>
               <div>
-                <strong>👥 Passengers:</strong>
+                <strong>Passengers:</strong>
                 <div style={{ whiteSpace: 'pre-line', marginTop: '2px', paddingLeft: '14px' }}>
                   {formatPassengersMultiLine(negotiationModalTrip.passengers_json, negotiationModalTrip.passenger_nickname)}
                 </div>
               </div>
               <div>
-                <strong>🕒 Booked Time & Duration:</strong>{' '}
+                <strong>Booked Time & Duration:</strong>{' '}
                 {new Date(negotiationModalTrip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} –{' '}
                 {new Date(negotiationModalTrip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{' '}
                 ({Math.max(1, Math.round((new Date(negotiationModalTrip.end_time).getTime() - new Date(negotiationModalTrip.start_time).getTime()) / 3600000))}h)
@@ -6420,7 +6420,9 @@ export function App() {
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{ fontWeight: 800, fontSize: '13px' }}>🚗 {t('Hitchhike Ride')}</div>
+                    <div style={{ fontWeight: 800, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Car size={14} /> {t('Hitchhike Ride')}
+                    </div>
                     <div style={{ fontSize: '11px', opacity: 0.85, marginTop: '2px' }}>{t('Join this car (same destination)')}</div>
                   </button>
                   <button
@@ -6444,7 +6446,9 @@ export function App() {
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{ fontWeight: 800, fontSize: '13px' }}>🔄 {t('Negotiate Cancel')}</div>
+                    <div style={{ fontWeight: 800, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <RefreshCw size={14} /> {t('Negotiate Cancel')}
+                    </div>
                     <div style={{ fontSize: '11px', opacity: 0.85, marginTop: '2px' }}>{t('Transfer car slot (same or different location)')}</div>
                   </button>
                 </div>
@@ -6465,7 +6469,7 @@ export function App() {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <label className="type-caption" style={{ fontWeight: 700 }}>
-                      📍 {t('Location for Transferred Slot')} *
+                      {t('Location for Transferred Slot')} *
                     </label>
                     <div style={{ display: 'flex', gap: '6px' }}>
                       <button
@@ -6561,7 +6565,7 @@ export function App() {
                       lineHeight: 1.45,
                     }}
                   >
-                    ℹ️ {t('When the current holder accepts in their Inbox, this car timeslot transfers to you automatically and will require fresh approval from the Fleet Manager & Head of WS.')}
+                    {t('When the current holder accepts in their Inbox, this car timeslot transfers to you automatically and will require fresh approval from the Fleet Manager & Head of WS.')}
                   </div>
                 </div>
               )}
@@ -6877,7 +6881,7 @@ export function App() {
                   {t('Set a new temporary password for this user. All active sessions for this account will be signed out immediately, and you can send the new password via free WhatsApp link.')}
                   {adminResetTargetUser.contact_number && (
                     <div style={{ marginTop: '6px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                      📞 WhatsApp: {adminResetTargetUser.contact_number}
+                      WhatsApp: {adminResetTargetUser.contact_number}
                     </div>
                   )}
                 </div>
@@ -7112,13 +7116,13 @@ export function App() {
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                     <span className="gf-badge" style={{ background: '#f1f5f9', color: '#0f172a', fontWeight: 700, padding: '4px 10px' }}>
-                      ⛽ Gasoline: {fleetPositions.filter((p) => p.energy_type === 'Gasoline').length} Cars
+                      Gasoline: {fleetPositions.filter((p) => p.energy_type === 'Gasoline').length} Cars
                     </span>
                     <span className="gf-badge" style={{ background: '#ebf5ff', color: '#0072de', fontWeight: 700, padding: '4px 10px' }}>
-                      ⚡ EV: {fleetPositions.filter((p) => p.energy_type === 'Electric').length} Cars
+                      EV: {fleetPositions.filter((p) => p.energy_type === 'Electric').length} Cars
                     </span>
                     <span className="gf-badge" style={{ background: '#fef3c7', color: '#b45309', fontWeight: 700, padding: '4px 10px' }}>
-                      🚗 In Trip: {fleetPositions.filter((p) => p.status === 'IN_TRIP').length} Active
+                      In Trip: {fleetPositions.filter((p) => p.status === 'IN_TRIP').length} Active
                     </span>
                   </div>
                 </div>
@@ -7171,9 +7175,9 @@ export function App() {
                     <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-text-secondary)', marginRight: '4px' }}>Filter:</span>
                     {[
                       { id: 'ALL', label: `All Vehicles (${fleetPositions.length})` },
-                      { id: 'DRIVING', label: `🚗 Driving / In Trip (${fleetPositions.filter((p) => p.status === 'IN_TRIP').length})` },
-                      { id: 'GASOLINE', label: `⛽ Gasoline (${fleetPositions.filter((p) => p.energy_type === 'Gasoline').length})` },
-                      { id: 'ELECTRIC', label: `⚡ Electric EV (${fleetPositions.filter((p) => p.energy_type === 'Electric').length})` },
+                      { id: 'DRIVING', label: `Driving / In Trip (${fleetPositions.filter((p) => p.status === 'IN_TRIP').length})` },
+                      { id: 'GASOLINE', label: `Gasoline (${fleetPositions.filter((p) => p.energy_type === 'Gasoline').length})` },
+                      { id: 'ELECTRIC', label: `Electric EV (${fleetPositions.filter((p) => p.energy_type === 'Electric').length})` },
                     ].map((f) => (
                       <button
                         key={f.id}
@@ -7223,7 +7227,7 @@ export function App() {
                         </span>
                       </div>
                       <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '6px 0 2px', color: '#ffffff' }}>
-                        🏢 {SAMSUNG_JABABEKA_FACILITY.fullName}
+                        {SAMSUNG_JABABEKA_FACILITY.fullName}
                       </h3>
                       <p style={{ fontSize: '12px', color: '#cbd5e1', margin: 0 }}>
                         {SAMSUNG_JABABEKA_FACILITY.address}
@@ -7249,7 +7253,7 @@ export function App() {
                           fontWeight: 700,
                         }}
                       >
-                        <span>📍 Open in Google Maps ↗</span>
+                        <span>Open in Google Maps ↗</span>
                       </a>
                       <span className="gf-badge" style={{ background: '#0072de', color: '#ffffff', fontWeight: 800, border: '1px solid rgba(255,255,255,0.3)' }}>
                         Hub: -6.2875, 107.1356
@@ -7300,7 +7304,7 @@ export function App() {
                                 color: isInTrip ? '#b45309' : '#ffffff',
                               }}
                             >
-                              {isInTrip ? '🚗 In Trip' : '🅿️ Standby'}
+                              {isInTrip ? 'In Trip' : 'Standby'}
                             </span>
                           </div>
 
@@ -7357,7 +7361,7 @@ export function App() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span className="type-caption" style={{ fontWeight: 700, color: 'var(--color-samsung-blue)' }}>
-                        🔍 Driver & Vehicle Search Results for &ldquo;{driverSearchQuery}&rdquo; ({filteredFleetPositions.length} found)
+                        Driver & Vehicle Search Results for &ldquo;{driverSearchQuery}&rdquo; ({filteredFleetPositions.length} found)
                       </span>
                       <button
                         type="button"
@@ -7425,14 +7429,14 @@ export function App() {
                                         color: isInTrip ? '#b45309' : '#005bb5',
                                       }}
                                     >
-                                      {isInTrip ? '🚗 Driving' : '🅿️ Standby'}
+                                      {isInTrip ? 'Driving' : 'Standby'}
                                     </span>
                                   </div>
                                   <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-samsung-blue)' }}>
                                     {pos.registration_plate} • {pos.make} {pos.model}
                                   </div>
                                   <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'flex', gap: '6px' }}>
-                                    <span>{isEv ? `⚡ EV ${pos.battery_percent ?? 100}%` : '⛽ Gasoline'}</span>
+                                    <span>{isEv ? `EV ${pos.battery_percent ?? 100}%` : 'Gasoline'}</span>
                                     {pos.driver_licence_number && (
                                       <span>• SIM {pos.driver_licence_number}</span>
                                     )}
@@ -7445,11 +7449,11 @@ export function App() {
                                 <div style={{ background: '#e0edff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '8px 10px', fontSize: '11.5px', color: '#1e293b' }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
                                     <span style={{ fontWeight: 800, color: '#005bb5', textTransform: 'uppercase', fontSize: '10px', letterSpacing: '0.04em' }}>
-                                      👤 Person Using This Car
+                                      Person Using This Car
                                     </span>
                                     {pos.active_trip.ride_duration_formatted && (
                                       <span style={{ fontSize: '10px', fontWeight: 700, background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: '9999px' }}>
-                                        ⏱️ {pos.active_trip.ride_duration_formatted}
+                                        {pos.active_trip.ride_duration_formatted}
                                       </span>
                                     )}
                                   </div>
@@ -7463,12 +7467,12 @@ export function App() {
                                     )}
                                   </div>
                                   <div style={{ fontSize: '11px', marginTop: '2px', fontWeight: 600 }}>
-                                    📍 {pos.active_trip.origin || 'HQ Pool'} ➔ 🎯 {pos.active_trip.destination}
+                                    {pos.active_trip.origin || 'HQ Pool'} → {pos.active_trip.destination}
                                   </div>
                                 </div>
                               ) : (
                                 <div style={{ background: 'var(--color-bg-subtle)', borderRadius: '8px', padding: '6px 10px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-                                  🅿️ Parked at: <b>{pos.location_label || 'Central Fleet Pool'}</b>
+                                  Parked at: <b>{pos.location_label || 'Central Fleet Pool'}</b>
                                 </div>
                               )}
 
@@ -7674,7 +7678,7 @@ export function App() {
                         </div>
                         <div className="type-caption" style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
                           <span>Driver: <b>{pos.driver_name || 'Pool'}</b></span>
-                          <span>📍 {pos.location_label}</span>
+                          <span>{pos.location_label}</span>
                         </div>
                         <div style={{ display: 'flex', gap: '6px', paddingTop: '6px', borderTop: '1px solid var(--color-divider)' }}>
                           <button
@@ -7895,9 +7899,9 @@ export function App() {
                                 <StatusBadge label={st} tone={tone} />
                               </div>
                               <div className="type-caption" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                                <span>📅 {sD.toLocaleDateString()} {sD.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {eD.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                <span>👤 <strong>{rec.requester_name}</strong> ({rec.department_name})</span>
-                                <span>🚗 {t('Driver')}: <strong>{rec.assigned_driver_name}</strong></span>
+                                <span>{sD.toLocaleDateString()} {sD.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {eD.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                <span><strong>{rec.requester_name}</strong> ({rec.department_name})</span>
+                                <span>{t('Driver')}: <strong>{rec.assigned_driver_name}</strong></span>
                               </div>
                               <div style={{ fontSize: '12.5px', color: 'var(--color-text-primary)' }}>
                                 {rec.origin} → <strong>{rec.destination}</strong>
@@ -7960,7 +7964,7 @@ export function App() {
                               <StatusBadge label={reqItem.user_role || 'EMP'} tone="blue" />
                             </div>
                             <div className="type-caption" style={{ marginTop: '3px', color: 'var(--color-text-secondary)' }}>
-                              📞 {reqItem.resolved_phone || reqItem.contact_number} • {reqItem.department_name || 'Group'} • {reqItem.created_at ? new Date(String(reqItem.created_at).replace(' ', 'T') + (String(reqItem.created_at).includes('Z') ? '' : 'Z')).toLocaleString() : ''}
+                              {reqItem.resolved_phone || reqItem.contact_number} • {reqItem.department_name || 'Group'} • {reqItem.created_at ? new Date(String(reqItem.created_at).replace(' ', 'T') + (String(reqItem.created_at).includes('Z') ? '' : 'Z')).toLocaleString() : ''}
                             </div>
                             {reqItem.notes && (
                               <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-primary)', fontStyle: 'italic' }}>
@@ -8213,7 +8217,7 @@ export function App() {
                                     <span style={{ fontWeight: 700 }}>#{t.id} — {t.purpose}</span>
                                     {t.is_urgent === 1 && (
                                       <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', whiteSpace: 'nowrap' }}>
-                                        🚨 URGENT (&lt; 2h)
+                                        URGENT (&lt; 2h)
                                       </span>
                                     )}
                                     {formatReservationModeLabel(t.reservation_type, t.return_pickup_time) && (
@@ -8300,7 +8304,7 @@ export function App() {
                             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                               {tr.is_urgent === 1 && (
                                 <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(248,113,113,0.4)' }}>
-                                  🚨 URGENT (&lt; 2h)
+                                  URGENT (&lt; 2h)
                                 </span>
                               )}
                               {formatReservationModeLabel(tr.reservation_type, tr.return_pickup_time) && (
@@ -8609,7 +8613,7 @@ export function App() {
                                   <div className="mono type-caption">@{u.group_username}</div>
                                   {u.contact_number && (
                                     <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                                      📞 {u.contact_number}
+                                      {u.contact_number}
                                     </div>
                                   )}
                                 </div>
@@ -9665,7 +9669,7 @@ export function App() {
                                   <span style={{ fontWeight: 600 }}>{ex.category}</span>
                                   {ex.payment_source === 'PETTY_CASH' && (
                                     <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #93c5fd' }}>
-                                      💵 Petty Cash
+                                      Petty Cash
                                     </span>
                                   )}
                                 </div>
@@ -10050,12 +10054,12 @@ export function App() {
                             <td className="mono">{t.vehicle_plate}</td>
                             <td>
                               <div style={{ fontWeight: 600 }}>{t.purpose}</div>
-                              <div className="type-caption">📍 {t.destination}</div>
+                              <div className="type-caption">{t.destination}</div>
                             </td>
                             <td className="mono">{t.distance_km || 0} km</td>
                             <td>
                               <span className="gf-badge" style={{ background: '#ebf5ff', color: '#005bb5', fontWeight: 800 }}>
-                                ⏱️ {t.durationFormatted}
+                                {t.durationFormatted}
                               </span>
                             </td>
                           </tr>
@@ -10641,10 +10645,10 @@ export function App() {
                 {!canProceedBooking && (
                   <span style={{ fontSize: '11px', color: '#fca5a5', fontWeight: 700 }}>
                     {!isPurposeFilled && !isPassengerFilled
-                      ? `⚠️ ${t('Mandatory to fill Purpose & Passengers')}`
+                      ? `${t('Mandatory to fill Purpose & Passengers')}`
                       : !isPurposeFilled
-                      ? `⚠️ ${t('Trip Purpose is mandatory.')}`
-                      : `⚠️ ${t('Passenger data is mandatory.')}`}
+                      ? `${t('Trip Purpose is mandatory.')}`
+                      : `${t('Passenger data is mandatory.')}`}
                   </span>
                 )}
               </div>
@@ -10959,7 +10963,7 @@ export function App() {
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span className="type-section" style={{ fontSize: '15px' }}>📋 {t('My Driver Agenda (Today)')}</span>
+                      <span className="type-section" style={{ fontSize: '15px' }}>{t('My Driver Agenda (Today)')}</span>
                       <StatusBadge label={`${myAgenda.length} ${t('Trips')}`} tone="blue" />
                     </div>
                     {myAgenda.length === 0 ? (
@@ -10990,7 +10994,7 @@ export function App() {
                               </div>
                             </div>
                             <div className="type-caption" style={{ marginTop: '4px', fontWeight: 600 }}>
-                              {tItem.origin} ➔ {tItem.destination}
+                              {tItem.origin} → {tItem.destination}
                             </div>
                             <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
                               {t('Passengers')}: {tItem.passenger_nickname || 'Team'} • <span className="notranslate" translate="no">{tItem.department_name}</span> • {t('Car')}: {tItem.registration_plate}
@@ -11053,7 +11057,7 @@ export function App() {
                               </span>
                             </div>
                             <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
-                              👤 {t('Driver')}: <strong>{v.default_driver_name || 'Pool Driver'}</strong>
+                              {t('Driver')}: <strong>{v.default_driver_name || 'Pool Driver'}</strong>
                               {v.default_driver_phone && <span className="mono"> ({v.default_driver_phone})</span>}
                             </div>
                           </div>
@@ -11094,7 +11098,7 @@ export function App() {
                         <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: '6px' }}>
                           {vehicleTripsToday.length === 0 ? (
                             <div className="type-caption" style={{ color: 'var(--color-green-text)', fontWeight: 600 }}>
-                              ✅ {t('Free all day')}
+                              {t('Free all day')}
                             </div>
                           ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -11232,7 +11236,7 @@ export function App() {
                     </div>
                     {d.effective_start && d.effective_end && (
                       <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-                        🕒 {new Date(d.effective_start).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} – {new Date(d.effective_end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(d.effective_start).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} – {new Date(d.effective_end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         {d.reservation_type === 'DROP_AND_PICKUP' && d.return_pickup_time && (
                           <span style={{ color: '#005bb5', fontWeight: 700 }}>
                             {' '}• Post-Event Pick-Up: {new Date(d.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -11313,7 +11317,7 @@ export function App() {
                                       style={{ width: '70px', height: '50px', objectFit: 'cover', borderRadius: '8px', border: '1.5px solid #3b82f6' }}
                                     />
                                     <span style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: 700 }}>
-                                      ✅ {t('Odometer photo verified')} ({startOdoTime[tripId]})
+                                      {t('Odometer photo verified')} ({startOdoTime[tripId]})
                                     </span>
                                   </div>
                                   <button
@@ -11443,7 +11447,7 @@ export function App() {
                                       style={{ width: '70px', height: '50px', objectFit: 'cover', borderRadius: '8px', border: '1.5px solid #3b82f6' }}
                                     />
                                     <span style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: 700 }}>
-                                      ✅ {t('End photo verified')} ({endOdoTime[tripId]})
+                                      {t('End photo verified')} ({endOdoTime[tripId]})
                                     </span>
                                   </div>
                                   <button
@@ -11580,7 +11584,7 @@ export function App() {
             >
               <div>
                 <div style={{ fontSize: '11px', fontWeight: 700, opacity: 0.9, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  💵 {t('Petty Cash Wallet')} ({t('Parking & Operational Cash')})
+                  {t('Petty Cash Wallet')} ({t('Parking & Operational Cash')})
                 </div>
                 <div className="mono" style={{ fontSize: '20px', fontWeight: 800, marginTop: '2px' }}>
                   {formatIdr(driverPettyCashBalance)}
@@ -11628,7 +11632,7 @@ export function App() {
                         <span>{t(ex.category)} • Rp {Number(ex.amount).toLocaleString()}</span>
                         {ex.payment_source === 'PETTY_CASH' && (
                           <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #93c5fd' }}>
-                            💵 {t('Petty Cash')}
+                            {t('Petty Cash')}
                           </span>
                         )}
                         {ex.reimbursement_status === 'REIMBURSED' && (
@@ -11862,14 +11866,14 @@ export function App() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
                           <div>
                             <div className="type-body" style={{ fontWeight: 800 }}>
-                              {trip.origin} ➔ {trip.destination}
+                              {trip.origin} → {trip.destination}
                             </div>
                             <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
                               {new Date(trip.start_time).toLocaleDateString([], { month: 'short', day: 'numeric' })} • {new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </div>
                           </div>
                           <span className="gf-driver-triplog-duration-pill">
-                            ⏱️ {formattedDur} {t('in service driving')}
+                            {formattedDur} {t('in service driving')}
                           </span>
                         </div>
 
@@ -11878,7 +11882,7 @@ export function App() {
                             {t('Car')}: <strong>{trip.make} {trip.model}</strong> (<span className="mono">{trip.registration_plate}</span>) • Pax: <strong>{trip.passenger_nickname || 'Team'}</strong>
                           </span>
                           <span className="type-caption mono" style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                            Odo: {startOdo} ➔ {endOdo} km ({diffKm} km)
+                            Odo: {startOdo} → {endOdo} km ({diffKm} km)
                           </span>
                         </div>
 
@@ -11940,7 +11944,7 @@ export function App() {
                 >
                   <div>
                     <div style={{ fontSize: '11px', fontWeight: 700, opacity: 0.9, textTransform: 'uppercase' }}>
-                      💵 {t('Petty Cash Wallet')}
+                      {t('Petty Cash Wallet')}
                     </div>
                     <div className="mono" style={{ fontSize: '19px', fontWeight: 800 }}>
                       {formatIdr(driverPettyCashBalance)}
@@ -11985,7 +11989,7 @@ export function App() {
                             <span>{t(exp.category)} • {formatIdr(exp.amount)}</span>
                             {exp.payment_source === 'PETTY_CASH' && (
                               <span style={{ fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', background: '#ebf5ff', color: '#005bb5', border: '1px solid #93c5fd' }}>
-                                💵 {t('Petty Cash')}
+                                {t('Petty Cash')}
                               </span>
                             )}
                             {exp.reimbursement_status === 'REIMBURSED' && (
@@ -12205,8 +12209,8 @@ export function App() {
                             e.stopPropagation();
                             const paxFormatted = formatPassengersMultiLine(trip.passengers_json, trip.passenger_nickname);
                             const modeLabel = formatReservationModeLabel(trip.reservation_type, trip.return_pickup_time);
-                            const shareModeLine = modeLabel ? `\n📋 *Mode*: ${modeLabel}` : '';
-                            const shareMsg = `*GalaxyFleet Booking Details*\n🚗 *Vehicle*: ${trip.make} ${trip.model} (${trip.registration_plate || '—'})\n👥 *Passenger(s) [Nickname only]*:\n${paxFormatted}\n👤 *Driver*: ${trip.assigned_driver_name || 'Assigned Driver'}${trip.assigned_driver_phone ? ` (${trip.assigned_driver_phone})` : ''}\n📍 *Pickup*: ${trip.origin}\n🎯 *Destination*: ${trip.destination}\n🕒 *Schedule*: ${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${shareModeLine}\n📌 *Status*: ${trip.status}\n\n_Reminder: For privacy protection, only nicknames are used._`;
+                            const shareModeLine = modeLabel ? `\n*Mode*: ${modeLabel}` : '';
+                            const shareMsg = `*GalaxyFleet Booking Details*\n*Vehicle*: ${trip.make} ${trip.model} (${trip.registration_plate || '—'})\n*Passenger(s) [Nickname only]*:\n${paxFormatted}\n*Driver*: ${trip.assigned_driver_name || 'Assigned Driver'}${trip.assigned_driver_phone ? ` (${trip.assigned_driver_phone})` : ''}\n*Pickup*: ${trip.origin}\n*Destination*: ${trip.destination}\n*Schedule*: ${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${shareModeLine}\n*Status*: ${trip.status}\n\n_Reminder: For privacy protection, only nicknames are used._`;
                             if (navigator.clipboard) {
                               navigator.clipboard.writeText(shareMsg).catch(() => {});
                             }
@@ -12380,7 +12384,7 @@ export function App() {
                               lineHeight: 1.4,
                             }}
                           >
-                            📍 <strong>{t('New Route')}:</strong> {n.negotiation_origin || '—'} → <strong>{n.negotiation_destination || '—'}</strong>
+                            <strong>{t('New Route')}:</strong> {n.negotiation_origin || '—'} → <strong>{n.negotiation_destination || '—'}</strong>
                           </div>
                         )}
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -12844,7 +12848,7 @@ export function App() {
                 </div>
                 {user.contact_number && (
                   <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                    📞 {user.contact_number}
+                    {user.contact_number}
                   </div>
                 )}
                 <div style={{ marginTop: '4px', display: 'flex', gap: '6px' }}>
@@ -12879,7 +12883,7 @@ export function App() {
               }}
             >
               <div style={{ fontSize: '12.5px', color: 'var(--color-text-primary)', lineHeight: 1.45, flex: '1 1 200px' }}>
-                <strong>⚠️ {t('WhatsApp Phone Required for Recovery')}:</strong>{' '}
+                <strong>{t('WhatsApp Phone Required for Recovery')}:</strong>{' '}
                 {t('Add your WhatsApp / mobile phone number so the Administrator can verify and send password resets if needed.')}
               </div>
               <button
@@ -13502,10 +13506,7 @@ export function App() {
 
             {/* 5. Gojek "Pilihan cepat buatmu" Quick Destinations */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Sparkles size={16} color="#0072de" />
-                <h3 style={{ fontSize: '15.5px', fontWeight: 800, margin: 0 }}>{t('Quick Destinations')}</h3>
-              </div>
+              <h3 style={{ fontSize: '15.5px', fontWeight: 800, margin: 0 }}>{t('Quick Destinations')}</h3>
 
               <div className="gf-gojek-dest-grid">
                 {[
@@ -15590,7 +15591,7 @@ export function App() {
         badgeTone = 'red';
         title = 'Request Rejected';
       } else if (isUrgent && !picApproved) {
-        badgeLabel = '🚨 URGENT (< 2h)';
+        badgeLabel = 'URGENT (< 2h)';
         badgeTone = 'red';
         title = 'Fleet PIC Review';
       } else if (isDual && picApproved) {
@@ -15688,7 +15689,7 @@ export function App() {
               </div>
               {focusedTrip.start_time && focusedTrip.end_time && (
                 <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-                  🕒 {new Date(focusedTrip.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} – {new Date(focusedTrip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {new Date(focusedTrip.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} – {new Date(focusedTrip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   {focusedTrip.reservation_type === 'DROP_AND_PICKUP' && focusedTrip.return_pickup_time && (
                     <span style={{ color: '#258cfb', fontWeight: 700 }}>
                       {' '}• Return {new Date(focusedTrip.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -15698,7 +15699,7 @@ export function App() {
               )}
               {focusedTrip.assigned_driver_name && (
                 <div className="type-caption" style={{ color: '#258cfb', fontWeight: 700 }}>
-                  👤 {focusedTrip.assigned_driver_name} • {focusedTrip.registration_plate}
+                  {focusedTrip.assigned_driver_name} • {focusedTrip.registration_plate}
                 </div>
               )}
             </div>
@@ -15864,7 +15865,7 @@ export function App() {
           )}
           {tripToShow?.start_time && tripToShow?.end_time && (
             <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-              🕒 {new Date(tripToShow.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} – {new Date(tripToShow.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {new Date(tripToShow.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} – {new Date(tripToShow.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               {tripToShow.reservation_type === 'DROP_AND_PICKUP' && tripToShow.return_pickup_time && (
                 <span style={{ color: '#258cfb', fontWeight: 700 }}>
                   {' '}• Return {new Date(tripToShow.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -15891,7 +15892,7 @@ export function App() {
           >
             <div>
               <div style={{ fontSize: '11px', fontWeight: 800, color: '#258cfb', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                🚗 {isStarted ? t('Live Trip GPS') : t('Driver Pickup ETA')}
+                {isStarted ? t('Live Trip GPS') : t('Driver Pickup ETA')}
               </div>
               <div style={{ fontSize: '14.5px', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '2px' }}>
                 {driverToPickupEta
@@ -16077,8 +16078,8 @@ export function App() {
             onClick={() => {
               const driverPhone = tripToShow?.assigned_driver_phone || tripToShow?.default_driver_phone || '';
               const paxFormatted = formatPassengersMultiLine(tripToShow?.passengers_json, tripToShow?.passenger_nickname);
-              const shareModeLine = tripModeLabel ? `\n📋 *Mode*: ${tripModeLabel}` : '';
-              const shareMsg = `*GalaxyFleet Booking Details*\n🚗 *Vehicle*: ${tripToShow?.make} ${tripToShow?.model} (${tripToShow?.registration_plate || '—'})\n👥 *Passenger(s) [Nickname only]*:\n${paxFormatted}\n👤 *Driver*: ${tripToShow?.assigned_driver_name || 'Assigned Driver'}${driverPhone ? ` (${driverPhone})` : ''}\n📍 *Pickup*: ${tripToShow?.origin}\n🎯 *Destination*: ${tripToShow?.destination}\n🕒 *Schedule*: ${new Date(tripToShow?.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(tripToShow?.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${shareModeLine}\n📌 *Status*: ${tripToShow?.status || 'APPROVED'}\n\n_Reminder: For privacy protection, only nicknames are used._`;
+              const shareModeLine = tripModeLabel ? `\n*Mode*: ${tripModeLabel}` : '';
+              const shareMsg = `*GalaxyFleet Booking Details*\n*Vehicle*: ${tripToShow?.make} ${tripToShow?.model} (${tripToShow?.registration_plate || '—'})\n*Passenger(s) [Nickname only]*:\n${paxFormatted}\n*Driver*: ${tripToShow?.assigned_driver_name || 'Assigned Driver'}${driverPhone ? ` (${driverPhone})` : ''}\n*Pickup*: ${tripToShow?.origin}\n*Destination*: ${tripToShow?.destination}\n*Schedule*: ${new Date(tripToShow?.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(tripToShow?.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${shareModeLine}\n*Status*: ${tripToShow?.status || 'APPROVED'}\n\n_Reminder: For privacy protection, only nicknames are used._`;
               if (navigator.clipboard) {
                 navigator.clipboard.writeText(shareMsg).catch(() => {});
               }

@@ -3629,6 +3629,18 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(hwsStage2.status).toBe(200);
         expect(hwsStage2.body.trip.status).toBe('APPROVED');
       });
+
+      it('keeps UI clean and professional with zero cartoon emojis in frontend components and server notifications', async () => {
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const rootDir = path.resolve(__dirname, '..');
+        const cartoonEmojiRe = /[\u{1F300}-\u{1FAFF}\u2600-\u26FF\u23E9-\u23FA\u2B50\u2B55\u231A\u231B]/u;
+
+        for (const rel of ['src/App.tsx', 'src/components/MapView.tsx', 'src/server/app.ts']) {
+          const content = fs.readFileSync(path.join(rootDir, rel), 'utf-8');
+          expect(cartoonEmojiRe.test(content), `${rel} should not contain cartoon emojis`).toBe(false);
+        }
+      });
     });
   });
 });

@@ -667,7 +667,7 @@ export const MapView: React.FC<MapViewProps> = ({
             <span class="notranslate" translate="no">${escapeHtml(pin.group_name || 'Fleet Group')}</span> • @${escapeHtml(pin.group_username)}
           </div>
           ${driverEtaSection}
-          ${pin.address_label ? `<div style="margin-top:6px;font-size:11.5px;color:#334155;border-top:1px solid #e2e8f0;padding-top:4px;">📍 ${escapeHtml(pin.address_label)}</div>` : ''}
+          ${pin.address_label ? `<div style="margin-top:6px;font-size:11.5px;color:#334155;border-top:1px solid #e2e8f0;padding-top:4px;">${escapeHtml(pin.address_label)}</div>` : ''}
           <div style="margin-top:4px;font-family:monospace;font-size:11px;color:#94a3b8;">${Number(pin.latitude).toFixed(5)}, ${Number(pin.longitude).toFixed(5)}</div>
         </div>`
       );
@@ -761,7 +761,7 @@ export const MapView: React.FC<MapViewProps> = ({
               <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${isInTrip || isFollowing ? '#258cfb' : '#0072de'};"></span>
               <span>${escapeHtml(v.registration_plate)}</span>
               <span style="color:#64748b;font-weight:600;font-size:10px;">• ${escapeHtml(v.driver_name?.split(' ')[0] || 'Driver')}</span>
-              <span style="font-size:10px;">${isEv ? '⚡' : '⛽'}</span>
+              <span style="font-size:9px;font-weight:900;letter-spacing:0.03em;">${isEv ? 'EV' : 'GAS'}</span>
             </div>
 
             <!-- Model-specific Car Icon Badge (Stargazer / Ioniq 5) -->
@@ -819,11 +819,11 @@ export const MapView: React.FC<MapViewProps> = ({
         <div style="background:#e0edff;border:1px solid #bfdbfe;border-radius:10px;padding:9px 11px;margin-top:8px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
             <span style="font-size:10.5px;font-weight:800;color:#005bb5;text-transform:uppercase;letter-spacing:0.04em;">
-              👤 Person Using This Car
+              Person Using This Car
             </span>
             ${v.active_trip.ride_duration_formatted ? `
               <span style="font-size:10px;font-weight:700;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:9999px;">
-                ⏱️ ${escapeHtml(v.active_trip.ride_duration_formatted)}
+                ${escapeHtml(v.active_trip.ride_duration_formatted)}
               </span>
             ` : ''}
           </div>
@@ -838,7 +838,7 @@ export const MapView: React.FC<MapViewProps> = ({
           </div>
 
           <div style="font-size:11.5px;color:#1e293b;margin-top:4px;font-weight:600;">
-            📍 ${escapeHtml(v.active_trip.origin || 'HQ Tower')} ➔ 🎯 ${escapeHtml(v.active_trip.destination)}
+            ${escapeHtml(v.active_trip.origin || 'HQ Tower')} → ${escapeHtml(v.active_trip.destination)}
           </div>
 
           <div style="font-size:11px;color:#64748b;margin-top:2px;">
@@ -856,7 +856,7 @@ export const MapView: React.FC<MapViewProps> = ({
         </div>
       ` : `
         <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;margin-top:8px;font-size:11.5px;color:#475569;">
-          <div>🅿️ Current Pool: <b>${escapeHtml(v.location_label || 'Central Fleet Pool')}</b></div>
+          <div>Current Pool: <b>${escapeHtml(v.location_label || 'Central Fleet Pool')}</b></div>
           <div style="font-size:10.5px;color:#94a3b8;margin-top:2px;">Ready for immediate reservation or scheduled dispatch.</div>
         </div>
       `;
@@ -872,10 +872,10 @@ export const MapView: React.FC<MapViewProps> = ({
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
               <span style="font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:9999px;background:${isEv ? '#ebf5ff' : '#f1f5f9'};color:${isEv ? '#0072de' : '#0f172a'};">
-                ${isEv ? `⚡ EV ${v.battery_percent ?? 100}%` : '⛽ Gasoline'}
+                ${isEv ? `EV ${v.battery_percent ?? 100}%` : 'Gasoline'}
               </span>
               <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:9999px;background:${isInTrip ? '#fef3c7' : '#f1f5f9'};color:${isInTrip ? '#b45309' : '#475569'};">
-                ${isInTrip ? '🚗 In Trip' : '🅿️ Standby'}
+                ${isInTrip ? 'In Trip' : 'Standby'}
               </span>
             </div>
           </div>
@@ -913,7 +913,7 @@ export const MapView: React.FC<MapViewProps> = ({
             return `
               <div style="background:#eff6ff;border:1.5px solid #0072de;border-radius:10px;padding:8px 10px;margin-top:8px;">
                 <div style="font-size:10px;font-weight:900;color:#0072de;text-transform:uppercase;letter-spacing:0.04em;display:flex;align-items:center;justify-content:space-between;">
-                  <span>🏢 Live ETA to Samsung Jababeka</span>
+                  <span>Live ETA to Samsung Jababeka</span>
                   <span style="background:#0072de;color:#ffffff;padding:1px 6px;border-radius:9999px;font-size:9px;font-weight:800;">LIVE</span>
                 </div>
                 <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-top:2px;">
@@ -945,10 +945,10 @@ export const MapView: React.FC<MapViewProps> = ({
       html: `
         <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;z-index:850;">
           <div style="background:#0072de;color:#ffffff;padding:3px 9px;border-radius:9999px;font-size:10.5px;font-weight:900;white-space:nowrap;box-shadow:0 3px 12px rgba(0,114,222,0.45);margin-bottom:3px;border:1.5px solid #ffffff;display:flex;align-items:center;gap:4px;">
-            <span>🏢 Samsung Jababeka (SEIN)</span>
+            <span>Samsung Jababeka (SEIN)</span>
           </div>
-          <div style="width:28px;height:28px;border-radius:50%;background:#0072de;border:2.5px solid #ffffff;box-shadow:0 4px 12px rgba(0,114,222,0.5);display:flex;align-items:center;justify-content:center;color:#ffffff;font-weight:900;font-size:13px;">
-            📍
+          <div style="width:28px;height:28px;border-radius:50%;background:#0072de;border:2.5px solid #ffffff;box-shadow:0 4px 12px rgba(0,114,222,0.5);display:flex;align-items:center;justify-content:center;">
+            <span style="width:9px;height:9px;border-radius:50%;background:#ffffff;display:block;"></span>
           </div>
         </div>
       `,
@@ -1030,7 +1030,7 @@ export const MapView: React.FC<MapViewProps> = ({
         html: `
           <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);">
             <div style="background:#0a0a0a;color:#ffffff;padding:5px 12px;border-radius:9999px;font-size:11px;font-weight:800;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,0.34);margin-bottom:5px;border:1.5px solid #ffffff;display:flex;align-items:center;gap:5px;">
-              <span>🎯 ${escapeHtml(shortDest)}</span>
+              <span>${escapeHtml(shortDest)}</span>
               ${metrics.etaText ? `<span style="color:#93c5fd;">• ${metrics.durationMin} min (${metrics.distanceKm} km)</span>` : ''}
             </div>
             <div style="position:relative;width:24px;height:24px;display:flex;align-items:center;justify-content:center;">
