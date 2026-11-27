@@ -4017,6 +4017,10 @@ export function createApp() {
           negotiation_destination: nextDestination,
           negotiation_purpose: nextPurpose,
           negotiation_message: noteText || null,
+          negotiation_vehicle_plate: trip.registration_plate,
+          negotiation_vehicle_name: `${trip.make} ${trip.model}`.trim(),
+          negotiation_start_time: trip.start_time,
+          negotiation_end_time: trip.end_time,
         },
       });
     } catch {}
@@ -7908,10 +7912,18 @@ export function createApp() {
                 nr.destination as negotiation_destination,
                 nr.purpose as negotiation_purpose,
                 nr.message as negotiation_message,
-                nr.transferred_trip_id as negotiation_transferred_trip_id
+                nr.transferred_trip_id as negotiation_transferred_trip_id,
+                tr.origin as negotiation_original_origin,
+                tr.destination as negotiation_original_destination,
+                tr.start_time as negotiation_start_time,
+                tr.end_time as negotiation_end_time,
+                v.registration_plate as negotiation_vehicle_plate,
+                (v.make || ' ' || v.model) as negotiation_vehicle_name
          FROM notifications n
          LEFT JOIN negotiation_requests nr ON nr.notification_id = n.id
          LEFT JOIN users req_u ON req_u.id = nr.requester_user_id
+         LEFT JOIN trip_requests tr ON tr.id = COALESCE(nr.trip_request_id, CASE WHEN n.related_entity_type = 'TRIP_REQUEST' THEN n.related_entity_id ELSE NULL END)
+         LEFT JOIN vehicles v ON v.id = tr.vehicle_id
          WHERE n.user_id = ?
          ORDER BY n.id DESC
          LIMIT 50`
@@ -7919,11 +7931,40 @@ export function createApp() {
       .all(req.user!.id) as any[];
 
     const tripCheckStmt = db.prepare('SELECT status, passengers_json, passenger_nickname FROM trip_requests WHERE id = ?');
+    const fallbackNegStmt = db.prepare(
+      `SELECT nr.*, u.nickname as requester_name
+       FROM negotiation_requests nr
+       LEFT JOIN users u ON u.id = nr.requester_user_id
+       WHERE nr.trip_request_id = ? AND nr.holder_user_id = ? AND nr.action_type = ?
+       ORDER BY CASE WHEN nr.status = 'PENDING' THEN 0 ELSE 1 END, nr.id DESC
+       LIMIT 1`
+    );
     const notifications = rawNotifications.map((n) => {
+      const trig = String(n.trigger_type || '');
+      if (!n.negotiation_id && n.related_entity_id && ['NEGOTIATE_CANCEL_REQUEST', 'CANCEL_NEGOTIATION_REQUEST', 'NEGOTIATE_HITCHHIKE_REQUEST', 'HITCHHIKE_REQUEST'].includes(trig)) {
+        const expectedType = trig.includes('CANCEL') ? 'REQUEST_CANCEL' : 'HITCHHIKE';
+        const fb = fallbackNegStmt.get(Number(n.related_entity_id), Number(req.user!.id), expectedType) as any;
+        if (fb) {
+          return {
+            ...n,
+            negotiation_id: fb.id,
+            negotiation_action_type: fb.action_type,
+            negotiation_status: fb.status,
+            negotiation_requester_id: fb.requester_user_id,
+            negotiation_requester_name: fb.requester_name,
+            negotiation_passenger_nickname: fb.passenger_nickname,
+            negotiation_origin: fb.origin,
+            negotiation_destination: fb.destination,
+            negotiation_purpose: fb.purpose,
+            negotiation_message: fb.message,
+            negotiation_transferred_trip_id: fb.transferred_trip_id,
+          };
+        }
+      }
       if (
         !n.negotiation_status &&
         n.related_entity_id &&
-        ['NEGOTIATE_HITCHHIKE_REQUEST', 'HITCHHIKE_REQUEST'].includes(String(n.trigger_type || ''))
+        ['NEGOTIATE_HITCHHIKE_REQUEST', 'HITCHHIKE_REQUEST'].includes(trig)
       ) {
         const tr = tripCheckStmt.get(Number(n.related_entity_id)) as any;
         if (!tr || !['PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS'].includes(String(tr.status || ''))) {

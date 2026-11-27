@@ -978,6 +978,20 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
   { en: 'New Route', id: 'Rute Baru', ko: '새 경로' },
   { en: 'Trip Purpose (Optional)', id: 'Keperluan Perjalanan (Opsional)', ko: '운행 목적 (선택)' },
   { en: 'Transferred (Pending FM & HWS Approval)', id: 'Dialihkan (Menunggu Persetujuan FM & HWS)', ko: '양도됨 (FM 및 HWS 승인 대기)' },
+  { en: 'Choosing Pickup', id: 'Memilih Lokasi Jemput', ko: '픽업 위치 선택 중' },
+  { en: 'Choosing Destination', id: 'Memilih Tujuan', ko: '목적지 선택 중' },
+  { en: 'Search or choose pickup location', id: 'Cari atau pilih lokasi jemput', ko: '픽업 위치 검색 또는 선택' },
+  { en: 'Search or choose destination', id: 'Cari atau pilih tujuan', ko: '목적지 검색 또는 선택' },
+  { en: 'Use Current Location', id: 'Gunakan Lokasi Saat Ini', ko: '현재 위치 사용' },
+  { en: 'Quick Locations (Tap for Pickup)', id: 'Lokasi Cepat (Ketuk untuk Jemput)', ko: '빠른 위치 (픽업 선택)' },
+  { en: 'Quick Locations (Tap for Destination)', id: 'Lokasi Cepat (Ketuk untuk Tujuan)', ko: '빠른 위치 (목적지 선택)' },
+  { en: 'Review & Approve / Reject', id: 'Tinjau & Setujui / Tolak', ko: '검토 및 승인 / 거절' },
+  { en: 'Tap to review & approve/reject', id: 'Ketuk untuk meninjau & setujui/tolak', ko: '눌러서 검토 및 승인/거절' },
+  { en: 'Car Slot Transfer Approval', id: 'Persetujuan Pengalihan Slot Mobil', ko: '차량 슬롯 양도 승인' },
+  { en: 'Hitchhike Request Approval', id: 'Persetujuan Permintaan Nebeng', ko: '합승 요청 승인' },
+  { en: 'Approve & Transfer Slot', id: 'Setujui & Alihkan Slot', ko: '승인 및 슬롯 양도' },
+  { en: 'Timeslot', id: 'Jadwal Waktu', ko: '예약 시간' },
+  { en: 'New Passenger(s)', id: 'Penumpang Baru', ko: '새 탑승자' },
 ];
 
 /**

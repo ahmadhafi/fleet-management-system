@@ -3640,6 +3640,15 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
           const content = fs.readFileSync(path.join(rootDir, rel), 'utf-8');
           expect(cartoonEmojiRe.test(content), `${rel} should not contain cartoon emojis`).toBe(false);
         }
+
+        // Verify Different Location booking route chooser & in-notification transfer approval controls exist
+        const appTsx = fs.readFileSync(path.join(rootDir, 'src/App.tsx'), 'utf-8');
+        expect(appTsx).toContain('id="negotiate-route-chooser"');
+        expect(appTsx).toContain('id="btn-neg-current-location"');
+        expect(appTsx).toContain('id="negotiate-geo-results"');
+        expect(appTsx).toContain('id="notification-transfer-approval-box"');
+        expect(appTsx).toContain('id="modal-accept-negotiation-btn"');
+        expect(appTsx).toContain('id="modal-reject-negotiation-btn"');
       });
     });
   });
