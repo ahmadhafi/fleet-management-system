@@ -50,6 +50,140 @@ export function getVehiclePhotoIconUrl(modelName?: string, energyType?: string):
 }
 
 /**
+ * Computes compass heading bearing in degrees (0 = North/Up, 90 = East/Right)
+ * so top-down map car icons align accurately along roads and active routes.
+ */
+export function computeMapBearingDegrees(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const toDeg = (rad: number) => (rad * 180) / Math.PI;
+  const phi1 = toRad(lat1);
+  const phi2 = toRad(lat2);
+  const dLambda = toRad(lon2 - lon1);
+  const y = Math.sin(dLambda) * Math.cos(phi2);
+  const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLambda);
+  const brng = toDeg(Math.atan2(y, x));
+  return ((brng % 360) + 360) % 360;
+}
+
+let topDownSvgSeq = 0;
+
+/**
+ * Generates a Gojek-style pure top-down (bird's-eye) car icon SVG (no surrounding circle)
+ * specifically styled as either Hyundai Ioniq 5 (EV) or Hyundai Stargazer (MPV).
+ * Sized proportionally to map roads (19px x 40px / 19px x 42px) and rotated via CSS bearing.
+ */
+export function getTopDownMapCarSvg(
+  modelName?: string,
+  energyType?: string,
+  headingDeg: number = 0
+): string {
+  const text = `${modelName || ''}`.toLowerCase();
+  const isIoniq5 = text.includes('ioniq') || energyType === 'Electric';
+  const uid = ++topDownSvgSeq;
+  const safeDeg = Number.isFinite(headingDeg) ? Math.round(headingDeg * 10) / 10 : 0;
+
+  if (isIoniq5) {
+    // Hyundai Ioniq 5 (EV) — Top-down geometric crossover with clamshell hood, panoramic vision roof & Parametric Pixel lights
+    return `
+      <div class="gf-topdown-car gf-topdown-ioniq5" data-car-model="ioniq5" style="width:20px;height:40px;display:flex;align-items:center;justify-content:center;transform:rotate(${safeDeg}deg);transition:transform 0.4s ease;filter:drop-shadow(0 2px 3px rgba(15,23,42,0.45));pointer-events:auto;">
+        <svg viewBox="0 0 40 80" width="20" height="40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Hyundai Ioniq 5">
+          <defs>
+            <linearGradient id="i5td_${uid}" x1="4" y1="4" x2="36" y2="76" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#38bdf8"/>
+              <stop offset="45%" stop-color="#0072de"/>
+              <stop offset="100%" stop-color="#004494"/>
+            </linearGradient>
+            <linearGradient id="i5gl_${uid}" x1="8" y1="22" x2="32" y2="62" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#1e293b"/>
+              <stop offset="50%" stop-color="#0f172a"/>
+              <stop offset="100%" stop-color="#1e293b"/>
+            </linearGradient>
+          </defs>
+          <!-- Side Mirrors -->
+          <path d="M5 25 L1.5 27.5 C1 28 1 29.5 2 30 L5.5 29.5 Z" fill="#005bb5" stroke="#08203e" stroke-width="0.8"/>
+          <path d="M35 25 L38.5 27.5 C39 28 39 29.5 38 30 L34.5 29.5 Z" fill="#005bb5" stroke="#08203e" stroke-width="0.8"/>
+          <!-- Main Geometric Crossover Body -->
+          <path d="M9 5 C14 3 26 3 31 5 C34.5 6.5 36 10 36 15 L36 66 C36 72 34.2 75.5 30.5 76.5 C25 77.5 15 77.5 9.5 76.5 C5.8 75.5 4 72 4 66 L4 15 C4 10 5.5 6.5 9 5 Z" fill="url(#i5td_${uid})" stroke="#08203e" stroke-width="1.3"/>
+          <!-- Clamshell Hood Crease Lines -->
+          <path d="M9.5 8 L12.5 22 M30.5 8 L27.5 22" stroke="#93c5fd" stroke-width="0.9" stroke-opacity="0.7"/>
+          <!-- Front Parametric Pixel LED Headlights -->
+          <rect x="8.5" y="5.2" width="3.5" height="2" rx="0.5" fill="#e0f2fe"/>
+          <rect x="13" y="5.2" width="3.5" height="2" rx="0.5" fill="#e0f2fe"/>
+          <rect x="23.5" y="5.2" width="3.5" height="2" rx="0.5" fill="#e0f2fe"/>
+          <rect x="28" y="5.2" width="3.5" height="2" rx="0.5" fill="#e0f2fe"/>
+          <!-- Front Windshield -->
+          <path d="M8.5 22 C13 19.5 27 19.5 31.5 22 L29.5 32.5 C25 31.2 15 31.2 10.5 32.5 Z" fill="url(#i5gl_${uid})" stroke="#38bdf8" stroke-width="0.6" stroke-opacity="0.5"/>
+          <!-- Windshield Glare Highlight -->
+          <path d="M10.5 23 L18 22 L14.5 31 L11 31 Z" fill="#ffffff" fill-opacity="0.18"/>
+          <!-- Panoramic Vision Glass Roof -->
+          <rect x="9.5" y="34" width="21" height="24" rx="3" fill="#0b172a" stroke="#38bdf8" stroke-width="0.7" stroke-opacity="0.45"/>
+          <line x1="10.5" y1="36" x2="29.5" y2="36" stroke="#ffffff" stroke-opacity="0.14" stroke-width="1"/>
+          <!-- Rear Hatchback Glass + Spoiler Lip -->
+          <path d="M10.5 60 L29.5 60 L31 67.5 C26 69 14 69 9 67.5 Z" fill="#0f172a"/>
+          <rect x="7.5" y="69" width="25" height="2.4" rx="1" fill="#004494" stroke="#93c5fd" stroke-opacity="0.4" stroke-width="0.5"/>
+          <!-- Rear Parametric Pixel Tail Lights -->
+          <rect x="8.5" y="73.2" width="3.2" height="1.8" rx="0.4" fill="#ef4444"/>
+          <rect x="13" y="73.2" width="3.2" height="1.8" rx="0.4" fill="#ef4444"/>
+          <rect x="18.4" y="73.2" width="3.2" height="1.8" rx="0.4" fill="#ef4444"/>
+          <rect x="23.8" y="73.2" width="3.2" height="1.8" rx="0.4" fill="#ef4444"/>
+          <rect x="28.3" y="73.2" width="3.2" height="1.8" rx="0.4" fill="#ef4444"/>
+        </svg>
+      </div>
+    `;
+  }
+
+  // Hyundai Stargazer (MPV) — Top-down sleek "One-Curve" MPV with Horizon DRL lightbar, raked windshield & H-bar tail lamp
+  return `
+    <div class="gf-topdown-car gf-topdown-stargazer" data-car-model="stargazer" style="width:20px;height:42px;display:flex;align-items:center;justify-content:center;transform:rotate(${safeDeg}deg);transition:transform 0.4s ease;filter:drop-shadow(0 2px 3px rgba(15,23,42,0.42));pointer-events:auto;">
+      <svg viewBox="0 0 40 84" width="20" height="42" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Hyundai Stargazer">
+        <defs>
+          <linearGradient id="sgtd_${uid}" x1="4" y1="3" x2="36" y2="81" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="52%" stop-color="#e2e8f0"/>
+            <stop offset="100%" stop-color="#94a3b8"/>
+          </linearGradient>
+          <linearGradient id="sggl_${uid}" x1="8" y1="18" x2="32" y2="68" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#1e293b"/>
+            <stop offset="100%" stop-color="#0f172a"/>
+          </linearGradient>
+        </defs>
+        <!-- Sleek MPV Side Mirrors -->
+        <path d="M5 24 L1.5 26.5 C1 27 1 28.6 2 29 L5.5 28.5 Z" fill="#cbd5e1" stroke="#1e293b" stroke-width="0.8"/>
+        <path d="M35 24 L38.5 26.5 C39 27 39 28.6 38 29 L34.5 28.5 Z" fill="#cbd5e1" stroke="#1e293b" stroke-width="0.8"/>
+        <!-- Aerodynamic One-Curve MPV Body Shell -->
+        <path d="M11 4.5 C16 2.5 24 2.5 29 4.5 C33.5 6.8 35.5 11.5 35.8 17.5 L35.8 68 C35.8 74.5 34 78.5 30 79.8 C24.5 81 15.5 81 10 79.8 C6 78.5 4.2 74.5 4.2 68 L4.2 17.5 C4.5 11.5 6.5 6.8 11 4.5 Z" fill="url(#sgtd_${uid})" stroke="#1e293b" stroke-width="1.35"/>
+        <!-- Signature Seamless Horizontal Horizon DRL Lightbar -->
+        <path d="M9 7.8 C15 5.8 25 5.8 31 7.8" stroke="#0072de" stroke-width="2.1" stroke-linecap="round"/>
+        <path d="M9.5 7.5 C15 5.7 25 5.7 30.5 7.5" stroke="#ffffff" stroke-width="1.1" stroke-linecap="round"/>
+        <!-- Hood Contours -->
+        <path d="M11 10.5 L12.5 19 M29 10.5 L27.5 19" stroke="#94a3b8" stroke-width="0.8"/>
+        <!-- Deeply Raked Wide MPV Front Windshield -->
+        <path d="M8 20 C13 17 27 17 32 20 L30 33.5 C25 32 15 32 10 33.5 Z" fill="url(#sggl_${uid})"/>
+        <path d="M10.5 21 L19 19.5 L15 32 L11 32 Z" fill="#ffffff" fill-opacity="0.22"/>
+        <!-- Elongated 3-Row MPV Roof + Side Roof Rails -->
+        <rect x="9.5" y="34.5" width="21" height="29" rx="3.5" fill="#f1f5f9" stroke="#94a3b8" stroke-width="0.8"/>
+        <line x1="11.2" y1="36.5" x2="11.2" y2="61.5" stroke="#64748b" stroke-width="1.1" stroke-linecap="round"/>
+        <line x1="28.8" y1="36.5" x2="28.8" y2="61.5" stroke="#64748b" stroke-width="1.1" stroke-linecap="round"/>
+        <!-- Side Window Slivers -->
+        <path d="M7.2 35 L8.6 36 L8.6 62 L7.2 63 Z" fill="#1e293b"/>
+        <path d="M32.8 35 L31.4 36 L31.4 62 L32.8 63 Z" fill="#1e293b"/>
+        <!-- Rear Tailgate Window -->
+        <path d="M10 65 L30 65 L31.5 73 C26 74.5 14 74.5 8.5 73 Z" fill="#0f172a"/>
+        <!-- Signature H-Style Red LED Rear Light Bar -->
+        <path d="M8.5 76.5 L31.5 76.5" stroke="#ef4444" stroke-width="2" stroke-linecap="round"/>
+        <rect x="8" y="74.8" width="2.4" height="3.2" rx="0.6" fill="#ef4444"/>
+        <rect x="29.6" y="74.8" width="2.4" height="3.2" rx="0.6" fill="#ef4444"/>
+      </svg>
+    </div>
+  `;
+}
+
+/**
  * Generates the SVG string of the specific car model avatar front-fascia
  */
 export function getCarFrontAvatarSvg(key: CarModelKey, isInTrip: boolean = false): string {

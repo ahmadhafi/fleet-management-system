@@ -109,17 +109,46 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
   private db: any;
   private filePath: string;
   private inTransaction = false;
+  private lastDiskMtimeMs = 0;
+  private lastDiskSize = 0;
 
   constructor(filePath: string) {
     this.filePath = filePath;
     if (!sqlJsModule) {
       throw new Error('SQL.js engine was not initialized before creating database instance.');
     }
-    if (filePath !== ':memory:' && fs.existsSync(filePath)) {
-      const buf = fs.readFileSync(filePath);
+    this.loadFromDisk();
+  }
+
+  private loadFromDisk(): void {
+    if (this.filePath !== ':memory:' && fs.existsSync(this.filePath)) {
+      const stat = fs.statSync(this.filePath);
+      const buf = fs.readFileSync(this.filePath);
+      if (this.db) {
+        try {
+          this.db.close();
+        } catch {}
+      }
       this.db = buf.length > 0 ? new sqlJsModule.Database(new Uint8Array(buf)) : new sqlJsModule.Database();
-    } else {
+      this.lastDiskMtimeMs = stat.mtimeMs;
+      this.lastDiskSize = stat.size;
+    } else if (!this.db) {
       this.db = new sqlJsModule.Database();
+      this.lastDiskMtimeMs = 0;
+      this.lastDiskSize = 0;
+    }
+  }
+
+  private reloadFromDiskIfChanged(): void {
+    if (this.filePath === ':memory:' || this.inTransaction) return;
+    try {
+      if (!fs.existsSync(this.filePath)) return;
+      const stat = fs.statSync(this.filePath);
+      if (stat.mtimeMs !== this.lastDiskMtimeMs || stat.size !== this.lastDiskSize) {
+        this.loadFromDisk();
+      }
+    } catch {
+      // ignore transient stat error during concurrent atomic rename
     }
   }
 
@@ -130,6 +159,11 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
       const data = this.db.export();
       fs.writeFileSync(tmpPath, Buffer.from(data));
       fs.renameSync(tmpPath, this.filePath);
+      try {
+        const stat = fs.statSync(this.filePath);
+        this.lastDiskMtimeMs = stat.mtimeMs;
+        this.lastDiskSize = stat.size;
+      } catch {}
     } catch (err) {
       try {
         if (fs.existsSync(tmpPath)) fs.rmSync(tmpPath, { force: true });
@@ -144,6 +178,9 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
     const upper = sql.trim().toUpperCase();
     if (upper.startsWith('PRAGMA JOURNAL_MODE') || upper.startsWith('PRAGMA WAL_CHECKPOINT')) {
       return;
+    }
+    if (!this.inTransaction) {
+      this.reloadFromDiskIfChanged();
     }
     try {
       this.db.run(sql);
@@ -164,22 +201,25 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
   }
 
   prepare(sql: string): PreparedStatement {
-    const db = this.db;
     const self = this;
 
     return {
       run(...params: any[]): RunResult {
+        if (!self.inTransaction) {
+          self.reloadFromDiskIfChanged();
+        }
         const bound = normalizeParamList(params);
-        db.run(sql, bound);
-        const changes = db.getRowsModified();
-        const res = db.exec('SELECT last_insert_rowid() AS id');
+        self.db.run(sql, bound);
+        const changes = self.db.getRowsModified();
+        const res = self.db.exec('SELECT last_insert_rowid() AS id');
         const lastInsertRowid = res?.[0]?.values?.[0]?.[0] ?? 0;
         self.persistToDisk();
         return { lastInsertRowid: Number(lastInsertRowid), changes };
       },
       get(...params: any[]): any {
+        self.reloadFromDiskIfChanged();
         const bound = normalizeParamList(params);
-        const stmt = db.prepare(sql);
+        const stmt = self.db.prepare(sql);
         try {
           if (bound.length > 0) stmt.bind(bound);
           if (stmt.step()) {
@@ -191,8 +231,9 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
         }
       },
       all(...params: any[]): any[] {
+        self.reloadFromDiskIfChanged();
         const bound = normalizeParamList(params);
-        const stmt = db.prepare(sql);
+        const stmt = self.db.prepare(sql);
         const rows: any[] = [];
         try {
           if (bound.length > 0) stmt.bind(bound);

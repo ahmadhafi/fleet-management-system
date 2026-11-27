@@ -2020,10 +2020,11 @@ export function App() {
       if (syncInFlight) return;
       syncInFlight = true;
       try {
-        const [trpRes, bkgRes, calRes] = await Promise.all([
+        const [trpRes, bkgRes, calRes, vehRes] = await Promise.all([
           apiRequest('/api/trips'),
           apiRequest('/api/bookings'),
           apiRequest('/api/schedule/calendar').catch(() => ({ scheduleTrips: [], trips: [] })),
+          apiRequest('/api/vehicles').catch(() => ({ vehicles: null })),
         ]);
         if (Array.isArray(trpRes.trips)) {
           setTrips(trpRes.trips);
@@ -2034,6 +2035,9 @@ export function App() {
         const calList = calRes.scheduleTrips || calRes.trips;
         if (Array.isArray(calList)) {
           setCalendarTrips(calList);
+        }
+        if (Array.isArray(vehRes?.vehicles)) {
+          setVehicles(vehRes.vehicles);
         }
         if (['DRV', 'ADM', 'FM'].includes(user.role)) {
           const dspRes = await apiRequest('/api/driver/dispatches').catch(() => ({ dispatches: [] }));
@@ -2144,10 +2148,17 @@ export function App() {
             const payload = JSON.parse(event.data);
             if (!payload || !payload.type) return;
 
+            if (payload.type === 'VEHICLE_UPDATED') {
+              void syncTripsAndSchedule();
+              return;
+            }
+
             if (payload.type === 'SCHEDULE_UPDATED') {
               const schedTrip = payload.data?.trip;
               if (schedTrip && schedTrip.id) {
                 upsertCalendarTrip(schedTrip);
+              } else {
+                void syncTripsAndSchedule();
               }
               return;
             }
@@ -3429,6 +3440,26 @@ export function App() {
     }
     return vehicles.filter((v) => v.status === 'Available' && !bookedVehicleIds.has(Number(v.id))).length;
   }, [vehicles, calendarTrips, trips]);
+
+  // Immediately fetch fresh server-side vehicles & calendar schedule whenever opening Home, Schedule Calendar, or switching calendar date
+  useEffect(() => {
+    if (!user) return;
+    if (navSection !== 'HOME' && !(navSection === 'ADMIN' && adminModule === 'DRIVER_SCHEDULE')) return;
+    if (navSection === 'HOME' && bookingStep !== 'HOME' && bookingStep !== 'SCHEDULE_VIEW') return;
+    let cancelled = false;
+    Promise.all([
+      apiRequest('/api/vehicles').catch(() => null),
+      apiRequest('/api/schedule/calendar').catch(() => null),
+    ]).then(([vehRes, calRes]) => {
+      if (cancelled) return;
+      if (Array.isArray(vehRes?.vehicles)) setVehicles(vehRes.vehicles);
+      const calList = calRes?.scheduleTrips || calRes?.trips;
+      if (Array.isArray(calList)) setCalendarTrips(calList);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, navSection, bookingStep, adminModule, scheduleCalendarDate]);
 
   // Load past & completed schedule audit records when viewing Admin Driver Schedule or Audit console
   useEffect(() => {
@@ -13511,15 +13542,36 @@ export function App() {
         return String(t.start_time || '').startsWith(selectedDateStr);
       });
 
+      const nowMs = Date.now();
+      const isViewingToday = selectedDateStr === todayLocalDateStr();
+      const busyVehicleIdsOnSelectedDate = new Set<number>();
+      for (const t of activeCalendarTrips) {
+        if (!t.vehicle_id) continue;
+        const st = String(t.status || '').toUpperCase();
+        if (st === 'IN_PROGRESS') {
+          busyVehicleIdsOnSelectedDate.add(Number(t.vehicle_id));
+          continue;
+        }
+        const startD = new Date(t.start_time);
+        const endD = new Date(t.end_time || t.start_time);
+        const endMs = Math.max(endD.getTime(), startD.getTime() + 30 * 60_000);
+        if (!isViewingToday || Number.isNaN(endMs) || endMs > nowMs) {
+          busyVehicleIdsOnSelectedDate.add(Number(t.vehicle_id));
+        }
+      }
+      const availableVehiclesCount = vehicles.filter(
+        (v) => v.status === 'Available' && !busyVehicleIdsOnSelectedDate.has(Number(v.id))
+      ).length;
+
       const visibleVehicles = vehicles.filter((v) => {
         if (isDriverRole) {
           return Boolean(myDedicatedVehicle && v.id === myDedicatedVehicle.id);
         }
         if (scheduleFilterTab === 'AVAILABLE') {
-          return v.status === 'Available';
+          return v.status === 'Available' && !busyVehicleIdsOnSelectedDate.has(Number(v.id));
         }
         if (scheduleFilterTab === 'BOOKED') {
-          return activeCalendarTrips.some((t) => Number(t.vehicle_id) === v.id);
+          return activeCalendarTrips.some((t) => Number(t.vehicle_id) === Number(v.id));
         }
         return true;
       });
@@ -13619,7 +13671,7 @@ export function App() {
                   {t('All Cars')} ({vehicles.length})
                 </Chip>
                 <Chip active={scheduleFilterTab === 'AVAILABLE'} onClick={() => setScheduleFilterTab('AVAILABLE')}>
-                  {t('Available Now')}
+                  {t('Available Now')} ({availableVehiclesCount})
                 </Chip>
                 <Chip active={scheduleFilterTab === 'BOOKED'} onClick={() => setScheduleFilterTab('BOOKED')}>
                   {t('Booked Today')} ({activeCalendarTrips.length})

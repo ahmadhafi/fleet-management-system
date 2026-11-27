@@ -3,7 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { ArrowLeft, Crosshair, LocateFixed, Navigation2, Users, WifiOff, Layers, Map as MapIcon, Mountain } from 'lucide-react';
 import { apiRequest } from '../api';
-import { getDriverAvatarDataUri, getVehiclePhotoIconUrl } from './CarAvatarArt';
+import { computeMapBearingDegrees, getDriverAvatarDataUri, getTopDownMapCarSvg } from './CarAvatarArt';
 import { useAppLanguage } from '../utils/i18n';
 
 export interface GeoPlace {
@@ -298,6 +298,52 @@ export const MapView: React.FC<MapViewProps> = ({
   const pinsLayerRef = useRef<L.LayerGroup | null>(null);
   const fleetLayerRef = useRef<L.LayerGroup | null>(null);
   const markerMapRef = useRef<Map<number, L.Marker>>(new Map());
+  const prevVehicleCoordsRef = useRef<Map<string, [number, number]>>(new Map());
+  const vehicleHeadingRef = useRef<Map<string, number>>(new Map());
+  const computeLiveHeading = (
+    key: string,
+    lat: number,
+    lon: number,
+    routePts?: Array<[number, number]> | null,
+    targetPt?: [number, number] | null
+  ): number => {
+    const prev = prevVehicleCoordsRef.current.get(key);
+    if (prev) {
+      const movedKm = haversineKm(prev[0], prev[1], lat, lon);
+      if (movedKm >= 0.003) {
+        const heading = computeMapBearingDegrees(prev[0], prev[1], lat, lon);
+        prevVehicleCoordsRef.current.set(key, [lat, lon]);
+        vehicleHeadingRef.current.set(key, heading);
+        return heading;
+      }
+    } else {
+      prevVehicleCoordsRef.current.set(key, [lat, lon]);
+    }
+    if (routePts && routePts.length >= 2) {
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < routePts.length - 1; i++) {
+        const d = haversineKm(lat, lon, routePts[i][0], routePts[i][1]);
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = i;
+        }
+      }
+      const pA = routePts[bestIdx];
+      const pB = routePts[Math.min(bestIdx + 1, routePts.length - 1)];
+      if (pA && pB && haversineKm(pA[0], pA[1], pB[0], pB[1]) > 0.0005) {
+        const heading = computeMapBearingDegrees(pA[0], pA[1], pB[0], pB[1]);
+        vehicleHeadingRef.current.set(key, heading);
+        return heading;
+      }
+    }
+    if (targetPt && haversineKm(lat, lon, targetPt[0], targetPt[1]) >= 0.01) {
+      const heading = computeMapBearingDegrees(lat, lon, targetPt[0], targetPt[1]);
+      vehicleHeadingRef.current.set(key, heading);
+      return heading;
+    }
+    return vehicleHeadingRef.current.get(key) ?? 0;
+  };
   const hasCenteredOnMyCoordsRef = useRef<boolean>(false);
   const hasFittedFleetRef = useRef<boolean>(false);
   const routeActiveRef = useRef<boolean>(false);
@@ -686,16 +732,23 @@ export const MapView: React.FC<MapViewProps> = ({
         }).addTo(pinsLayer);
       }
 
-      const driverCarIconUrl = getVehiclePhotoIconUrl(driverVehicleModel || activeVehicleModel, driverVehicleEnergyType);
+      const selfHeading = computeLiveHeading(
+        'driver-self',
+        drvLat,
+        drvLon,
+        routeGeometry,
+        effDest || effOrigin
+      );
+      const driverTopDownHtml = getTopDownMapCarSvg(
+        driverVehicleModel || activeVehicleModel,
+        driverVehicleEnergyType,
+        selfHeading
+      );
       const driverSelfCarIcon = L.divIcon({
         className: 'gf-leaflet-marker',
         html: `
-          <div class="gf-driver-map-car-marker ${driverOnline ? 'is-online' : ''}" style="position:relative;display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
-            ${driverOnline ? `<div style="position:absolute;inset:-8px;border-radius:50%;background:rgba(0,114,222,0.22);animation:gfDriverCarPulse 2s ease-out infinite;"></div>` : ''}
-            <div style="width:52px;height:52px;border-radius:50%;background:#ffffff;border:3px solid ${driverOnline ? '#0072de' : '#64748b'};box-shadow:0 4px 14px rgba(0,0,0,0.24);display:flex;align-items:center;justify-content:center;position:relative;z-index:2;padding:4px;overflow:hidden;">
-              <img src="${driverCarIconUrl}" alt="Driver Vehicle" style="width:42px;height:42px;object-fit:contain;display:block;" />
-            </div>
-            <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid ${driverOnline ? '#0072de' : '#64748b'};margin-top:-2px;position:relative;z-index:2;"></div>
+          <div class="gf-driver-map-car-marker ${driverOnline ? 'is-online' : ''}" style="position:relative;display:flex;align-items:center;justify-content:center;transform:translate(-50%,-50%);cursor:pointer;">
+            ${driverTopDownHtml}
           </div>
         `,
         iconSize: [0, 0],
@@ -726,7 +779,7 @@ export const MapView: React.FC<MapViewProps> = ({
       });
       L.marker([myCoords.lat, myCoords.lon], { icon: meIcon }).addTo(pinsLayer);
     }
-  }, [userPins, currentUserId, myCoords, originCoords, driverMapMode, driverOnline, driverVehicleModel, driverVehicleEnergyType, activeVehicleModel, effOrigin]);
+  }, [userPins, currentUserId, myCoords, originCoords, driverMapMode, driverOnline, driverVehicleModel, driverVehicleEnergyType, activeVehicleModel, effOrigin, effDest, routeGeometry]);
 
   // Render Operational Fleet Vehicles (Admin Fleet Live Map)
   useEffect(() => {
@@ -752,31 +805,19 @@ export const MapView: React.FC<MapViewProps> = ({
       const driverPhoto = getDriverAvatarDataUri(v.driver_name || 'Driver', v.driver_photo_url);
 
       const isFollowing = Boolean(v.is_following_driver);
-      const fleetCarIconUrl = getVehiclePhotoIconUrl(`${v.make || ''} ${v.model || ''}`, v.energy_type);
+      const fleetHeading = computeLiveHeading(`fleet-${v.id}`, v.latitude, v.longitude);
+      const fleetTopDownHtml = getTopDownMapCarSvg(`${v.make || ''} ${v.model || ''}`, v.energy_type, fleetHeading);
       const carIcon = L.divIcon({
         className: 'gf-leaflet-marker',
         html: `
-          <div class="gf-fleet-marker-wrap ${isInTrip ? 'is-driving' : ''}" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
-            <div style="background:#ffffff;color:#0f172a;padding:2px 8px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.24);margin-bottom:3px;border:1.5px solid ${isFollowing ? '#0072de' : mainColor};display:flex;align-items:center;gap:4px;">
-              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${isInTrip || isFollowing ? '#258cfb' : '#0072de'};"></span>
+          <div class="gf-fleet-marker-wrap ${isInTrip ? 'is-driving' : ''}" style="position:relative;display:flex;align-items:center;justify-content:center;transform:translate(-50%,-50%);cursor:pointer;">
+            <div style="position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:4px;background:rgba(255,255,255,0.95);color:#0f172a;padding:1.5px 7px;border-radius:9999px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.22);border:1px solid ${isFollowing || isInTrip ? '#0072de' : mainColor};display:flex;align-items:center;gap:4px;">
+              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${isInTrip || isFollowing ? '#258cfb' : '#0072de'};"></span>
               <span>${escapeHtml(v.registration_plate)}</span>
-              <span style="color:#64748b;font-weight:600;font-size:10px;">• ${escapeHtml(v.driver_name?.split(' ')[0] || 'Driver')}</span>
-              <span style="font-size:9px;font-weight:900;letter-spacing:0.03em;">${isEv ? 'EV' : 'GAS'}</span>
+              <span style="color:#64748b;font-weight:600;font-size:9.5px;">• ${escapeHtml(v.driver_name?.split(' ')[0] || 'Driver')}</span>
+              <span style="font-size:8.5px;font-weight:900;letter-spacing:0.03em;">${isEv ? 'EV' : 'GAS'}</span>
             </div>
-
-            <!-- Model-specific Car Icon Badge (Stargazer / Ioniq 5) -->
-            <div style="position:relative;width:50px;height:50px;border-radius:50%;background:#ffffff;border:2.5px solid ${isInTrip || isFollowing ? '#0072de' : '#334155'};display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.28);padding:4px;overflow:hidden;">
-              <img src="${fleetCarIconUrl}" alt="${escapeHtml(v.model)}" style="width:40px;height:40px;object-fit:contain;display:block;" />
-              ${isInTrip ? `
-                <div style="position:absolute;top:-5px;right:-8px;background:#258cfb;color:#ffffff;border-radius:9999px;padding:1px 5px;font-size:8px;font-weight:900;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(37,140,251,0.5);border:1px solid #ffffff;">
-                  DRIVING
-                </div>
-              ` : isFollowing ? `
-                <div style="position:absolute;top:-5px;right:-8px;background:#0072de;color:#ffffff;border-radius:9999px;padding:1px 5px;font-size:8px;font-weight:900;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(0,114,222,0.5);border:1px solid #ffffff;">
-                  GPS LIVE
-                </div>
-              ` : ''}
-            </div>
+            ${fleetTopDownHtml}
           </div>
         `,
         iconSize: [0, 0],
@@ -1119,22 +1160,27 @@ export const MapView: React.FC<MapViewProps> = ({
           pane: 'overlayPane',
         }).addTo(group);
 
-        const activeCarIconUrl = getVehiclePhotoIconUrl(activeVehicleModel);
+        const activeHeading = computeLiveHeading(
+          'assigned-driver-route',
+          liveCarPoint[0],
+          liveCarPoint[1],
+          routeGeometry && routeGeometry.length >= 2 ? routeGeometry : [effOrigin, effDest],
+          effOrigin
+        );
+        const activeTopDownHtml = getTopDownMapCarSvg(activeVehicleModel, undefined, activeHeading);
         const etaSuffix = driverToPickupEta
           ? `~${driverToPickupEta.durationMin} min (${driverToPickupEta.distanceKm} km) to pickup`
           : 'On the way';
         const drvIcon = L.divIcon({
           className: 'gf-leaflet-marker',
           html: `
-            <div class="gf-assigned-driver-marker" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
-              <div style="background:#0f172a;color:#ffffff;padding:3px 10px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.34);margin-bottom:4px;display:flex;align-items:center;gap:5px;border:1.5px solid #258cfb;">
-                <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#258cfb;animation:pulse 1.5s infinite;"></span>
+            <div class="gf-assigned-driver-marker" style="position:relative;display:flex;align-items:center;justify-content:center;transform:translate(-50%,-50%);cursor:pointer;">
+              <div style="position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:5px;background:#0f172a;color:#ffffff;padding:2.5px 9px;border-radius:9999px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.34);display:flex;align-items:center;gap:5px;border:1.5px solid #258cfb;">
+                <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#258cfb;animation:pulse 1.5s infinite;"></span>
                 <span>${escapeHtml(driverName || 'Driver')}</span>
                 <span style="color:#93c5fd;">• ${escapeHtml(etaSuffix)}</span>
               </div>
-              <div style="width:50px;height:50px;border-radius:50%;background:#ffffff;border:2.5px solid #0072de;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,114,222,0.35);padding:4px;overflow:hidden;">
-                <img src="${activeCarIconUrl}" alt="Assigned Driver Live Car" style="width:40px;height:40px;object-fit:contain;display:block;" />
-              </div>
+              ${activeTopDownHtml}
             </div>
           `,
           iconSize: [0, 0],
@@ -1203,22 +1249,27 @@ export const MapView: React.FC<MapViewProps> = ({
         pane: 'overlayPane',
       }).addTo(group);
 
-      const activeCarIconUrl = getVehiclePhotoIconUrl(activeVehicleModel);
+      const approachHeading = computeLiveHeading(
+        'assigned-driver-approach',
+        liveCarPoint[0],
+        liveCarPoint[1],
+        null,
+        effOrigin
+      );
+      const activeTopDownHtml = getTopDownMapCarSvg(activeVehicleModel, undefined, approachHeading);
       const etaSuffix = driverToPickupEta
         ? `~${driverToPickupEta.durationMin} min (${driverToPickupEta.distanceKm} km) to pickup`
         : 'On the way';
       const drvIcon = L.divIcon({
         className: 'gf-leaflet-marker',
         html: `
-          <div class="gf-assigned-driver-marker" style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;">
-            <div style="background:#0f172a;color:#ffffff;padding:3px 10px;border-radius:9999px;font-size:10.5px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.34);margin-bottom:4px;display:flex;align-items:center;gap:5px;border:1.5px solid #258cfb;">
-              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#258cfb;animation:pulse 1.5s infinite;"></span>
+          <div class="gf-assigned-driver-marker" style="position:relative;display:flex;align-items:center;justify-content:center;transform:translate(-50%,-50%);cursor:pointer;">
+            <div style="position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:5px;background:#0f172a;color:#ffffff;padding:2.5px 9px;border-radius:9999px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.34);display:flex;align-items:center;gap:5px;border:1.5px solid #258cfb;">
+              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#258cfb;animation:pulse 1.5s infinite;"></span>
               <span>${escapeHtml(driverName || 'Driver')}</span>
               <span style="color:#93c5fd;">• ${escapeHtml(etaSuffix)}</span>
             </div>
-            <div style="width:50px;height:50px;border-radius:50%;background:#ffffff;border:2.5px solid #0072de;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,114,222,0.35);padding:4px;overflow:hidden;">
-              <img src="${activeCarIconUrl}" alt="Assigned Driver Live Car" style="width:40px;height:40px;object-fit:contain;display:block;" />
-            </div>
+            ${activeTopDownHtml}
           </div>
         `,
         iconSize: [0, 0],

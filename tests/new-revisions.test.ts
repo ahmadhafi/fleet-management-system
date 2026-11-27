@@ -3769,6 +3769,73 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         const trip2Row = db.prepare('SELECT status FROM trip_requests WHERE id = ?').get(trip2Id) as { status: string };
         expect(trip2Row.status).toBe('PENDING_APPROVAL');
       });
+
+      it('synchronizes cross-worker SQL.js disk writes, enforces no-store headers on all fleet APIs, and renders Gojek-style top-down Stargazer & Ioniq 5 map car icons without circles', async () => {
+        const fs = await import('node:fs');
+        const os = await import('node:os');
+        const path = await import('node:path');
+        const { createDatabaseEngine, ensureSqlEngineLoaded } = await import('../src/server/sqlite-compat.ts');
+        const { computeMapBearingDegrees, getTopDownMapCarSvg } = await import('../src/components/CarAvatarArt.ts');
+
+        // 1. Multi-worker SQL.js sync: Worker B immediately sees commits written by Worker A
+        const prevForce = process.env.FORCE_SQLJS;
+        process.env.FORCE_SQLJS = '1';
+        const tmpDb = path.join(os.tmpdir(), `gf-multiworker-${Date.now()}.db`);
+        try {
+          await ensureSqlEngineLoaded();
+          const workerA = createDatabaseEngine(tmpDb);
+          workerA.exec('CREATE TABLE IF NOT EXISTS sync_probe (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL);');
+          workerA.prepare('INSERT INTO sync_probe (label) VALUES (?)').run('initial-slot');
+
+          const workerB = createDatabaseEngine(tmpDb);
+          expect((workerB.prepare('SELECT COUNT(*) as c FROM sync_probe').get() as any).c).toBe(1);
+
+          // Worker A inserts a new booking row -> persists to disk
+          workerA.prepare('INSERT INTO sync_probe (label) VALUES (?)').run('device-a-new-booking');
+
+          // Worker B reads WITHOUT restarting -> must automatically reload from disk and see 2 rows!
+          const countOnB = (workerB.prepare('SELECT COUNT(*) as c FROM sync_probe').get() as any).c;
+          expect(countOnB).toBe(2);
+
+          workerA.close();
+          workerB.close();
+        } finally {
+          if (prevForce === undefined) delete process.env.FORCE_SQLJS;
+          else process.env.FORCE_SQLJS = prevForce;
+          if (fs.existsSync(tmpDb)) fs.rmSync(tmpDb, { force: true });
+        }
+
+        // 2. Global Cache-Control: no-store on vehicles, trips, bookings, and schedule calendar
+        resetDbForTesting(':memory:');
+        const testApp = createApp();
+        const alexLogin = await request(testApp).post('/api/auth/login').send({ group_username: 'emp_alex', password: 'Emp@123' });
+        const tok = alexLogin.body.token;
+        for (const ep of ['/api/vehicles', '/api/trips', '/api/bookings', '/api/schedule/calendar']) {
+          const r = await request(testApp).get(ep).set('Authorization', `Bearer ${tok}`);
+          expect(r.status).toBe(200);
+          expect(String(r.headers['cache-control'] || '')).toContain('no-store');
+        }
+
+        // 3. Gojek-style top-down Stargazer & Ioniq 5 car SVGs (no surrounding circle, road-proportional, compass bearing rotation)
+        const ioniqSvg = getTopDownMapCarSvg('Hyundai Ioniq 5', 'Electric', 90);
+        const stargazerSvg = getTopDownMapCarSvg('Hyundai Stargazer', 'Gasoline', 135);
+        expect(ioniqSvg).toContain('data-car-model="ioniq5"');
+        expect(ioniqSvg).toContain('rotate(90deg)');
+        expect(ioniqSvg).not.toContain('border-radius:50%');
+        expect(stargazerSvg).toContain('data-car-model="stargazer"');
+        expect(stargazerSvg).toContain('rotate(135deg)');
+        expect(stargazerSvg).not.toContain('border-radius:50%');
+
+        const eastBearing = computeMapBearingDegrees(-6.2, 106.8, -6.2, 106.9);
+        expect(eastBearing).toBeGreaterThan(85);
+        expect(eastBearing).toBeLessThan(95);
+
+        // Ensure MapView.tsx uses top-down car markers without circled 50px/52px car containers
+        const mapViewSrc = fs.readFileSync(path.resolve(__dirname, '../src/components/MapView.tsx'), 'utf-8');
+        expect(mapViewSrc).toContain('getTopDownMapCarSvg');
+        expect(mapViewSrc).not.toContain('width:50px;height:50px;border-radius:50%');
+        expect(mapViewSrc).not.toContain('width:52px;height:52px;border-radius:50%');
+      });
     });
   });
 });

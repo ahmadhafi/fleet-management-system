@@ -200,6 +200,11 @@ export function createApp() {
       pathPart = pathPart.slice(0, -1);
     }
     req.url = `${pathPart}${queryPart}`;
+    if (pathPart.startsWith('/api') && !pathPart.startsWith('/api/maps/tiles/')) {
+      _res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      _res.setHeader('Pragma', 'no-cache');
+      _res.setHeader('Expires', '0');
+    }
     next();
   });
 
@@ -307,8 +312,8 @@ export function createApp() {
     res.json({
       status: 'ok',
       service: 'GalaxyFleet Corporate Fleet Management',
-      api_build: '2026-11-27-transfer-v3',
-      features: ['negotiation_hydration', 'notification_respond_fallback', 'different_location_transfer'],
+      api_build: '2026-11-28-live-sync-v4',
+      features: ['negotiation_hydration', 'notification_respond_fallback', 'different_location_transfer', 'multi_worker_sqljs_sync', 'gojek_topdown_cars'],
       uptime_sec: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
     });
@@ -331,7 +336,7 @@ export function createApp() {
       const mem = process.memoryUsage();
       res.json({
         status: dbCheck?.alive === 1 ? 'ready' : 'degraded',
-        api_build: '2026-11-27-transfer-v3',
+        api_build: '2026-11-28-live-sync-v4',
         database: 'connected',
         sqlite_wal: true,
         memory: {
@@ -1942,6 +1947,7 @@ export function createApp() {
 
     const created = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(Number(result.lastInsertRowid));
     recordAudit(db, req.user, 'VEHICLE_CREATED', 'VEHICLE', Number(result.lastInsertRowid), null, created);
+    try { liveEvents.broadcast({ type: 'VEHICLE_UPDATED', data: { vehicle: created } }); } catch {}
     res.status(201).json({ vehicle: created });
   });
 
@@ -2038,6 +2044,7 @@ export function createApp() {
 
     const updated = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
     recordAudit(db, req.user, 'VEHICLE_UPDATED', 'VEHICLE', vehicleId, prev, updated);
+    try { liveEvents.broadcast({ type: 'VEHICLE_UPDATED', data: { vehicle: updated } }); } catch {}
     res.json({ vehicle: updated });
   });
 
@@ -2072,6 +2079,7 @@ export function createApp() {
       db.exec('PRAGMA foreign_keys = ON;');
     }
 
+    try { liveEvents.broadcast({ type: 'VEHICLE_UPDATED', data: { deletedId: vehicleId } }); } catch {}
     res.json({ ok: true, deletedId: vehicleId });
   });
 
@@ -3619,12 +3627,45 @@ export function createApp() {
         AND (b.status IS NULL OR b.status NOT IN ('CANCELLED', 'COMPLETED'))
     `;
 
-    const rows =
+    const tripRows =
       user.role === 'DRV'
         ? db
             .prepare(`${baseSelect} AND (a.driver_profile_id = ? OR tr.preferred_driver_id = ? OR v.default_driver_id = ?) ORDER BY tr.start_time ASC`)
             .all(user.driver_profile_id ?? -1, user.driver_profile_id ?? -1, user.driver_profile_id ?? -1)
         : db.prepare(`${baseSelect} ORDER BY tr.start_time ASC`).all();
+
+    // Also include standalone active bookings (created directly via /api/bookings without a trip_request_id)
+    const standaloneQuery = `
+      SELECT (-100000 - b.id) as id, b.booked_by as requester_id, u.department_id as department_id,
+             b.vehicle_id, v.default_driver_id as preferred_driver_id,
+             u.nickname as passenger_nickname, NULL as passengers_json, b.purpose,
+             '' as origin, b.purpose as destination,
+             b.start_time, b.end_time, 1 as passenger_count,
+             CASE WHEN b.status = 'ACTIVE' THEN 'APPROVED' ELSE b.status END as status,
+             'ONE_WAY' as reservation_type, NULL as return_pickup_time,
+             u.nickname as requester_name, u.group_username as requester_username, u.contact_number as requester_contact,
+             def_dp.contact_number as assigned_driver_phone,
+             COALESCE(d.name, 'Operations') as department_name,
+             v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.seats,
+             b.id as booking_id, b.status as booking_status,
+             NULL as assignment_id, v.default_driver_id as driver_profile_id,
+             COALESCE(def_dp.full_name, 'Pool Driver') as assigned_driver_name
+      FROM bookings b
+      JOIN users u ON u.id = b.booked_by
+      LEFT JOIN departments d ON d.id = u.department_id
+      JOIN vehicles v ON v.id = b.vehicle_id
+      LEFT JOIN driver_profiles def_dp ON def_dp.id = v.default_driver_id
+      WHERE b.trip_request_id IS NULL
+        AND b.status IN ('PENDING_APPROVAL', 'ACTIVE', 'IN_PROGRESS')
+    `;
+    const standaloneRows =
+      user.role === 'DRV'
+        ? db.prepare(`${standaloneQuery} AND v.default_driver_id = ? ORDER BY b.start_time ASC`).all(user.driver_profile_id ?? -1)
+        : db.prepare(`${standaloneQuery} ORDER BY b.start_time ASC`).all();
+
+    const rows = [...tripRows, ...standaloneRows].sort((a: any, b: any) =>
+      String(a.start_time || '').localeCompare(String(b.start_time || ''))
+    );
 
     res.set('Cache-Control', 'no-store');
     res.json({ scheduleTrips: rows, trips: rows, can_view_all_schedules: canViewAllSchedules });

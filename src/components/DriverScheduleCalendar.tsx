@@ -185,22 +185,33 @@ export const DriverScheduleCalendar: React.FC<DriverScheduleCalendarProps> = ({
           {/* Column headers: car + driver */}
           <div className="gf-gcal-head" style={{ gridTemplateColumns: `${GUTTER_PX}px repeat(${columns.length}, minmax(${COLUMN_MIN_PX}px, 1fr))` }}>
             <div className="gf-gcal-head-gutter" />
-            {columns.map(({ v, placed }) => (
-              <div key={v.id} className="gf-gcal-head-cell">
-                <div className="gf-gcal-plate mono">{v.registration_plate}</div>
-                <div className="gf-gcal-car">{v.make} {v.model}</div>
-                <div className="gf-gcal-driver">
-                  <User size={11} /> <span className="notranslate" translate="no">{v.default_driver_name || t('Pool Driver')}</span>
+            {columns.map(({ v, placed }) => {
+              const isInUseNow =
+                isToday &&
+                placed.some(
+                  (ev) =>
+                    String(ev.trip?.status || '').toUpperCase() === 'IN_PROGRESS' ||
+                    (ev.startH <= nowH && ev.endH > nowH)
+                );
+              return (
+                <div key={v.id} className="gf-gcal-head-cell">
+                  <div className="gf-gcal-plate mono">{v.registration_plate}</div>
+                  <div className="gf-gcal-car">{v.make} {v.model}</div>
+                  <div className="gf-gcal-driver">
+                    <User size={11} /> <span className="notranslate" translate="no">{v.default_driver_name || t('Pool Driver')}</span>
+                  </div>
+                  <div className={`gf-gcal-count ${placed.length ? 'is-busy' : ''}`}>
+                    {v.status && v.status !== 'Available'
+                      ? t(v.status)
+                      : isInUseNow
+                      ? t('In Use Now')
+                      : placed.length
+                      ? `${placed.length} ${t('booked')}`
+                      : t('Available All Day')}
+                  </div>
                 </div>
-                <div className={`gf-gcal-count ${placed.length ? 'is-busy' : ''}`}>
-                  {v.status && v.status !== 'Available'
-                    ? t(v.status)
-                    : placed.length
-                    ? `${placed.length} ${t('booked')}`
-                    : t('Available All Day')}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Body */}
