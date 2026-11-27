@@ -25,8 +25,8 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body: payload.body,
-    icon: '/icons/icon.svg',
-    badge: '/icons/icon.svg',
+    icon: '/icons/icon-192.png?v=3',
+    badge: '/icons/icon-192.png?v=3',
     tag: payload.triggerType || 'fleet-notification',
     renotify: true,
     data: payload,

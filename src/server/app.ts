@@ -377,7 +377,7 @@ export function createApp() {
   // Privacy-first registration: requires ONLY nickname, department_id, group_username, password
   app.post('/api/auth/register', (req: Request, res: Response) => {
     const db = getDb();
-    const { nickname, department_id, group_username, password, requested_role } = req.body ?? {};
+    const { nickname, department_id, group_username, password, requested_role, contact_number } = req.body ?? {};
 
     if (!nickname || typeof nickname !== 'string' || !nickname.trim()) {
       res.status(400).json({ error: 'Nickname is required' });
@@ -389,6 +389,11 @@ export function createApp() {
     }
     if (!password || typeof password !== 'string' || password.length < 6) {
       res.status(400).json({ error: 'Password must be at least 6 characters' });
+      return;
+    }
+    const cleanContact = contact_number !== undefined && contact_number !== null ? String(contact_number).trim() : '';
+    if (contact_number !== undefined && cleanContact.replace(/\D/g, '').length < 8) {
+      res.status(400).json({ error: 'Valid WhatsApp / mobile phone number (at least 8 digits) is required' });
       return;
     }
     const deptId = Number(department_id);
@@ -416,10 +421,10 @@ export function createApp() {
 
     const result = db
       .prepare(
-        `INSERT INTO users (nickname, group_username, password_hash, role, is_department_admin, department_id, approval_status, is_active)
-         VALUES (?, ?, ?, ?, 0, ?, 'PENDING_APPROVAL', 1)`
+        `INSERT INTO users (nickname, group_username, password_hash, role, is_department_admin, department_id, approval_status, is_active, contact_number)
+         VALUES (?, ?, ?, ?, 0, ?, 'PENDING_APPROVAL', 1, ?)`
       )
-      .run(nickname.trim(), group_username.trim(), hashPassword(password), role, deptId);
+      .run(nickname.trim(), group_username.trim(), hashPassword(password), role, deptId, cleanContact || null);
 
     const newUserId = Number(result.lastInsertRowid);
 
@@ -428,13 +433,14 @@ export function createApp() {
       group_username: group_username.trim(),
       department_id: deptId,
       role,
+      contact_number: cleanContact || null,
       approval_status: 'PENDING_APPROVAL',
     });
 
     notifyAdmins(db, {
       triggerType: 'USER_REGISTRATION_PENDING',
       title: 'New Account Registration Pending Approval',
-      body: `${nickname.trim()} (@${group_username.trim()}, ${dept.name}) registered and awaits Administrator approval.`,
+      body: `${nickname.trim()} (@${group_username.trim()}, ${dept.name}${cleanContact ? `, WA: ${cleanContact}` : ''}) registered and awaits Administrator approval.`,
       relatedEntityType: 'USER',
       relatedEntityId: newUserId,
     });
@@ -445,8 +451,105 @@ export function createApp() {
       group_username: group_username.trim(),
       department_id: deptId,
       role,
+      contact_number: cleanContact || null,
       approval_status: 'PENDING_APPROVAL',
       message: 'Registration submitted. An Administrator must approve your account before you can sign in.',
+    });
+  });
+
+  // Public Forgot Password Request (Admin-assisted direct reset + free WhatsApp Admin contact link)
+  app.post('/api/auth/forgot-password', (req: Request, res: Response) => {
+    const db = getDb();
+    const { group_username, username, contact_number, notes } = req.body ?? {};
+    const rawUser = String(group_username || username || '').trim();
+    const rawPhone = String(contact_number || '').trim();
+    const cleanNotes = notes ? String(notes).trim().slice(0, 300) : '';
+
+    if (!rawUser) {
+      res.status(400).json({ error: 'Username is required' });
+      return;
+    }
+    const inputDigits = rawPhone.replace(/\D/g, '');
+    if (inputDigits.length < 8) {
+      res.status(400).json({ error: 'Valid WhatsApp / phone number (at least 8 digits) is required' });
+      return;
+    }
+
+    const userRow = db
+      .prepare(
+        `SELECT u.id, u.nickname, u.group_username, u.role, u.is_active,
+                COALESCE(NULLIF(TRIM(u.contact_number), ''), dp.contact_number, '') as stored_phone,
+                d.name as department_name
+         FROM users u
+         LEFT JOIN departments d ON d.id = u.department_id
+         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+         WHERE LOWER(u.group_username) = LOWER(?)`
+      )
+      .get(rawUser) as any;
+
+    if (!userRow) {
+      res.status(404).json({ error: 'Username not found. Please check your username or contact the Fleet Admin.' });
+      return;
+    }
+    if (userRow.is_active === 0) {
+      res.status(403).json({ error: 'This account is deactivated. Please contact the Administrator.' });
+      return;
+    }
+
+    const normPhone = (p: string) => {
+      const d = p.replace(/\D/g, '');
+      return d.startsWith('0') ? `62${d.slice(1)}` : d;
+    };
+    const storedNorm = normPhone(String(userRow.stored_phone || ''));
+    const inputNorm = normPhone(rawPhone);
+    if (storedNorm.length >= 8 && storedNorm !== inputNorm && storedNorm.slice(-8) !== inputNorm.slice(-8)) {
+      res.status(400).json({ error: 'WhatsApp number does not match the phone number saved in your profile. Please check or contact the Fleet Admin.' });
+      return;
+    }
+
+    const existingPending = db
+      .prepare("SELECT id FROM password_reset_requests WHERE user_id = ? AND status = 'PENDING' ORDER BY id DESC LIMIT 1")
+      .get(userRow.id) as { id: number } | undefined;
+
+    let requestId: number;
+    if (existingPending) {
+      db.prepare("UPDATE password_reset_requests SET contact_number = ?, notes = ?, created_at = datetime('now') WHERE id = ?").run(
+        rawPhone,
+        cleanNotes || null,
+        existingPending.id
+      );
+      requestId = existingPending.id;
+    } else {
+      const ins = db
+        .prepare(
+          `INSERT INTO password_reset_requests (user_id, group_username, contact_number, notes, status)
+           VALUES (?, ?, ?, ?, 'PENDING')`
+        )
+        .run(userRow.id, userRow.group_username, rawPhone, cleanNotes || null);
+      requestId = Number(ins.lastInsertRowid);
+    }
+
+    notifyAdmins(db, {
+      triggerType: 'PASSWORD_RESET_REQUESTED',
+      title: `🔑 Password Reset Request: ${userRow.nickname}`,
+      body: `${userRow.nickname} (@${userRow.group_username}, ${userRow.department_name || 'Group'}) requested a password reset. WhatsApp: ${rawPhone}.${cleanNotes ? ` Note: "${cleanNotes}"` : ''} Open Admin Console to set a new temporary password.`,
+      relatedEntityType: 'USER',
+      relatedEntityId: Number(userRow.id),
+    });
+
+    recordAudit(db, { id: userRow.id, group_username: userRow.group_username, role: userRow.role }, 'PASSWORD_RESET_REQUESTED', 'USER', userRow.id, null, {
+      request_id: requestId,
+      contact_number: rawPhone,
+    });
+
+    const waText = encodeURIComponent(
+      `Halo Admin GalaxyFleet, saya ${userRow.nickname} (@${userRow.group_username}) mengajukan reset password melalui aplikasi. Nomor WhatsApp saya: ${rawPhone}. Mohon bantuannya untuk reset password akun saya. Terima kasih.`
+    );
+    res.status(201).json({
+      ok: true,
+      requestId,
+      message: 'Password reset request sent to the Administrator. You can also message the Admin on WhatsApp below for faster assistance.',
+      admin_whatsapp_url: `https://wa.me/6281381016286?text=${waText}`,
     });
   });
 
@@ -684,6 +787,13 @@ export function createApp() {
     if (nickname !== undefined) {
       if (typeof nickname !== 'string' || nickname.trim().length < 2) {
         res.status(400).json({ error: 'Nickname must be at least 2 characters long' });
+        return;
+      }
+    }
+    if (contact_number !== undefined) {
+      const digits = String(contact_number || '').replace(/\D/g, '');
+      if (digits.length < 8) {
+        res.status(400).json({ error: 'Valid WhatsApp / mobile phone number (at least 8 digits) is required for account recovery' });
         return;
       }
     }
@@ -1346,6 +1456,7 @@ export function createApp() {
         `SELECT u.id, u.nickname, u.group_username, u.role, u.is_department_admin,
                 u.department_id, d.name as department_name, u.approval_status,
                 u.approved_by, u.approved_at, u.rejection_reason, u.is_active, u.created_at,
+                COALESCE(NULLIF(TRIM(u.contact_number), ''), dp.contact_number, '') as contact_number,
                 dp.id as driver_profile_id
          FROM users u
          LEFT JOIN departments d ON d.id = u.department_id
@@ -1531,6 +1642,7 @@ export function createApp() {
       runInTransaction(db, () => {
         db.prepare('DELETE FROM sessions WHERE user_id = ?').run(targetId);
         db.prepare('DELETE FROM user_locations WHERE user_id = ?').run(targetId);
+        db.prepare('DELETE FROM password_reset_requests WHERE user_id = ?').run(targetId);
         db.prepare('DELETE FROM negotiation_requests WHERE requester_user_id = ? OR holder_user_id = ?').run(targetId, targetId);
         db.prepare('DELETE FROM notifications WHERE user_id = ?').run(targetId);
         db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(targetId);
@@ -1547,6 +1659,124 @@ export function createApp() {
     res.json({ ok: true, deletedId: targetId, deletedUserId: targetId });
   });
 
+  // Admin Password Reset Queue & Direct Password Reset (ADM only)
+  app.get('/api/admin/password-reset-requests', requireAuth, requireRoles(['ADM']), (_req: Request, res: Response) => {
+    const db = getDb();
+    const rows = db
+      .prepare(
+        `SELECT prr.*,
+                u.nickname as user_nickname,
+                u.role as user_role,
+                u.is_active as user_is_active,
+                COALESCE(NULLIF(TRIM(u.contact_number), ''), dp.contact_number, prr.contact_number) as resolved_phone,
+                d.name as department_name,
+                h.nickname as handled_by_name
+         FROM password_reset_requests prr
+         JOIN users u ON u.id = prr.user_id
+         LEFT JOIN departments d ON d.id = u.department_id
+         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+         LEFT JOIN users h ON h.id = prr.handled_by
+         ORDER BY CASE WHEN prr.status = 'PENDING' THEN 0 ELSE 1 END, prr.created_at DESC
+         LIMIT 50`
+      )
+      .all();
+    res.json({ requests: rows });
+  });
+
+  app.post('/api/admin/password-reset-requests/:id/dismiss', requireAuth, requireRoles(['ADM']), (req: Request, res: Response) => {
+    const db = getDb();
+    const requestId = Number(req.params.id);
+    const existing = db.prepare('SELECT * FROM password_reset_requests WHERE id = ?').get(requestId) as any;
+    if (!existing) {
+      res.status(404).json({ error: 'Password reset request not found' });
+      return;
+    }
+    db.prepare(
+      "UPDATE password_reset_requests SET status = 'DISMISSED', handled_by = ?, handled_at = datetime('now') WHERE id = ?"
+    ).run(req.user!.id, requestId);
+    recordAudit(db, req.user, 'PASSWORD_RESET_DISMISSED', 'USER', Number(existing.user_id), existing, {
+      request_id: requestId,
+      status: 'DISMISSED',
+    });
+    res.json({ ok: true, id: requestId, status: 'DISMISSED' });
+  });
+
+  app.post('/api/admin/users/:id/reset-password', requireAuth, requireRoles(['ADM']), (req: Request, res: Response) => {
+    const db = getDb();
+    const targetId = Number(req.params.id);
+    const { new_password } = req.body ?? {};
+    const cleanPassword = String(new_password ?? '');
+
+    if (cleanPassword.length < 6) {
+      res.status(400).json({ error: 'New password must be at least 6 characters' });
+      return;
+    }
+
+    const target = db
+      .prepare(
+        `SELECT u.id, u.nickname, u.group_username, u.role, u.is_active,
+                COALESCE(NULLIF(TRIM(u.contact_number), ''), dp.contact_number, '') as resolved_phone
+         FROM users u
+         LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+         WHERE u.id = ?`
+      )
+      .get(targetId) as any;
+    if (!target) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const latestPending = db
+      .prepare("SELECT contact_number FROM password_reset_requests WHERE user_id = ? AND status = 'PENDING' ORDER BY id DESC LIMIT 1")
+      .get(targetId) as { contact_number?: string } | undefined;
+
+    const newHash = hashPassword(cleanPassword);
+    runInTransaction(db, () => {
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(newHash, targetId);
+      // Revoke existing sessions for target user (unless admin is resetting their own password)
+      if (targetId !== req.user!.id) {
+        db.prepare('DELETE FROM sessions WHERE user_id = ?').run(targetId);
+      }
+      db.prepare(
+        "UPDATE password_reset_requests SET status = 'COMPLETED', handled_by = ?, handled_at = datetime('now') WHERE user_id = ? AND status = 'PENDING'"
+      ).run(req.user!.id, targetId);
+      recordAudit(db, req.user, 'ADMIN_PASSWORD_RESET', 'USER', targetId, null, {
+        reset_by: req.user!.group_username,
+        target_username: target.group_username,
+        sessions_revoked: targetId !== req.user!.id,
+      });
+    });
+
+    sendUserNotification(db, {
+      userId: targetId,
+      triggerType: 'PASSWORD_RESET_COMPLETED',
+      title: 'Password Reset by Administrator',
+      body: `Your password was reset by Administrator ${req.user!.nickname}. Please sign in with your new temporary password and update it in Profile → Change Password.`,
+      relatedEntityType: 'USER',
+      relatedEntityId: targetId,
+    });
+
+    const phoneSource = String(target.resolved_phone || latestPending?.contact_number || '').trim();
+    const digitsOnly = phoneSource.replace(/\D/g, '');
+    const waDigits = digitsOnly.startsWith('0') ? `62${digitsOnly.slice(1)}` : digitsOnly;
+    const waMessage = encodeURIComponent(
+      `Halo ${target.nickname}, password akun GalaxyFleet Anda (@${target.group_username}) telah direset oleh Admin.\n\nPassword sementara baru: ${cleanPassword}\n\nSilakan login dan segera ganti password Anda di menu Profile -> Change Password.`
+    );
+    const whatsappUrl = waDigits.length >= 8 ? `https://wa.me/${waDigits}?text=${waMessage}` : null;
+
+    res.json({
+      ok: true,
+      user: {
+        id: Number(target.id),
+        nickname: target.nickname,
+        group_username: target.group_username,
+        contact_number: phoneSource,
+      },
+      temporary_password: cleanPassword,
+      whatsapp_url: whatsappUrl,
+      message: `Password for ${target.nickname} (@${target.group_username}) has been reset and previous sessions were signed out.`,
+    });
+  });
 
   // ============================================================================
   // 3. VEHICLE MANAGEMENT (VEH-01 to VEH-07, Revision #3 Edit & Standby)
@@ -6723,6 +6953,7 @@ export function createApp() {
           db.prepare('DELETE FROM ev_charging_records').run();
           db.prepare('DELETE FROM maintenance_records').run();
           db.prepare('DELETE FROM negotiation_requests').run();
+          db.prepare('DELETE FROM password_reset_requests').run();
           db.prepare('DELETE FROM trip_requests').run();
           db.prepare('DELETE FROM notifications').run();
 
@@ -6759,6 +6990,7 @@ export function createApp() {
           db.prepare('DELETE FROM ev_charging_records').run();
           db.prepare('DELETE FROM maintenance_records').run();
           db.prepare('DELETE FROM negotiation_requests').run();
+          db.prepare('DELETE FROM password_reset_requests').run();
           db.prepare('DELETE FROM trip_requests').run();
           db.prepare('DELETE FROM report_approvals').run();
           db.prepare('DELETE FROM notifications').run();

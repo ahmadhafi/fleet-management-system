@@ -3266,6 +3266,176 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
           .send({ passenger_nickname: 'Tito' });
         expect(legacyDup.status).toBe(409);
       });
+
+      it('verifies clean signature app icon assets across PWA manifest, HTML favicons, service worker, notifications, and in-app logo', async () => {
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const rootDir = path.resolve(__dirname, '..');
+
+        // 1. Verify all generated PNG/ICO icon assets exist and are non-empty
+        const requiredIcons = [
+          'public/icons/app-icon.png',
+          'public/icons/icon-192.png',
+          'public/icons/icon-512.png',
+          'public/icons/icon-192-maskable.png',
+          'public/icons/icon-512-maskable.png',
+          'public/apple-touch-icon.png',
+          'public/favicon.png',
+          'public/favicon.ico',
+        ];
+        for (const rel of requiredIcons) {
+          const full = path.join(rootDir, rel);
+          expect(fs.existsSync(full), `${rel} must exist`).toBe(true);
+          expect(fs.statSync(full).size, `${rel} must be non-empty`).toBeGreaterThan(500);
+        }
+
+        // 2. Manifest references new PNG icons (both any and maskable)
+        const manifest = JSON.parse(fs.readFileSync(path.join(rootDir, 'public/manifest.webmanifest'), 'utf-8'));
+        expect(Array.isArray(manifest.icons)).toBe(true);
+        expect(manifest.icons.some((i: any) => i.src.includes('icon-192.png') && i.purpose === 'any')).toBe(true);
+        expect(manifest.icons.some((i: any) => i.src.includes('icon-512.png') && i.purpose === 'any')).toBe(true);
+        expect(manifest.icons.some((i: any) => i.src.includes('icon-512-maskable.png') && i.purpose === 'maskable')).toBe(true);
+
+        // 3. index.html, sw.js, notification.ts, and SamsungBusLogo.tsx point to the new PNG icons
+        const indexHtml = fs.readFileSync(path.join(rootDir, 'index.html'), 'utf-8');
+        expect(indexHtml).toContain('/favicon.png?v=3');
+        expect(indexHtml).toContain('/apple-touch-icon.png?v=3');
+        expect(indexHtml).toContain('/manifest.webmanifest?v=3');
+
+        const swContent = fs.readFileSync(path.join(rootDir, 'public/sw.js'), 'utf-8');
+        expect(swContent).toContain('/icons/icon-192.png?v=3');
+
+        const notifContent = fs.readFileSync(path.join(rootDir, 'src/utils/notification.ts'), 'utf-8');
+        expect(notifContent).toContain('/icons/icon-192.png?v=3');
+
+        const logoContent = fs.readFileSync(path.join(rootDir, 'src/components/SamsungBusLogo.tsx'), 'utf-8');
+        expect(logoContent).toContain('/icons/app-icon.png?v=3');
+      });
+
+      it('enforces mandatory WhatsApp phone in profile/registration, supports Forgot Password request + Admin WhatsApp link, and allows ADM direct password reset with session revocation', async () => {
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const appTsx = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf-8');
+
+        // Frontend UI wiring checks
+        expect(appTsx).toContain('id="login-forgot-password-btn"');
+        expect(appTsx).toContain('id="forgot-password-modal"');
+        expect(appTsx).toContain('id="reg-contact-number"');
+        expect(appTsx).toContain('id="profile-contact-number"');
+        expect(appTsx).toContain('id="admin-password-reset-requests-card"');
+        expect(appTsx).toContain('id="admin-reset-password-modal"');
+
+        // 1. Initialize isolated test app & verify PATCH /api/user/profile requires valid phone number
+        resetDbForTesting(':memory:');
+        const testApp = createApp();
+        const alexLogin = await request(testApp)
+          .post('/api/auth/login')
+          .send({ group_username: 'emp_alex', password: 'Emp@123' });
+        expect(alexLogin.status).toBe(200);
+        const alexTok = alexLogin.body.token;
+        const alexId = alexLogin.body.user.id;
+
+        const emptyPhoneRes = await request(testApp)
+          .patch('/api/user/profile')
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({ nickname: 'Alex (Engineering)', contact_number: '' });
+        expect(emptyPhoneRes.status).toBe(400);
+
+        const validPhoneRes = await request(testApp)
+          .patch('/api/user/profile')
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({ nickname: 'Alex (Engineering)', contact_number: '081299998888' });
+        expect(validPhoneRes.status).toBe(200);
+        expect(validPhoneRes.body.user.contact_number).toBe('081299998888');
+
+        // 2. Register new user with WhatsApp contact_number stored
+        const regRes = await request(testApp)
+          .post('/api/auth/register')
+          .send({
+            nickname: 'Nadia Recovery Test',
+            department_id: 1,
+            group_username: 'nadia_recovery',
+            password: 'Password@123',
+            contact_number: '081377776666',
+          });
+        expect(regRes.status).toBe(201);
+
+        // 3. Forgot Password rejects wrong WhatsApp number, accepts matching number (even with +62 format)
+        const mismatchForgot = await request(testApp)
+          .post('/api/auth/forgot-password')
+          .send({ group_username: 'emp_alex', contact_number: '089911112222' });
+        expect(mismatchForgot.status).toBe(400);
+
+        const okForgot = await request(testApp)
+          .post('/api/auth/forgot-password')
+          .send({
+            group_username: 'emp_alex',
+            contact_number: '+62 812-9999-8888',
+            notes: 'Forgot password before client visit',
+          });
+        expect(okForgot.status).toBe(201);
+        expect(okForgot.body.ok).toBe(true);
+        expect(okForgot.body.requestId).toBeGreaterThan(0);
+        expect(String(okForgot.body.admin_whatsapp_url)).toContain('https://wa.me/6281381016286?text=');
+
+        // 4. Non-ADM cannot view queue or reset passwords (403)
+        const empQueueRes = await request(testApp)
+          .get('/api/admin/password-reset-requests')
+          .set('Authorization', `Bearer ${alexTok}`);
+        expect(empQueueRes.status).toBe(403);
+
+        const empResetAttempt = await request(testApp)
+          .post(`/api/admin/users/${alexId}/reset-password`)
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({ new_password: 'Hacked@123' });
+        expect(empResetAttempt.status).toBe(403);
+
+        // 5. ADM sees emp_alex's pending request and directly resets password
+        const admLogin = await request(testApp)
+          .post('/api/auth/login')
+          .send({ group_username: 'admin', password: 'Admin@123' });
+        expect(admLogin.status).toBe(200);
+        const admTok = admLogin.body.token;
+
+        const queueRes = await request(testApp)
+          .get('/api/admin/password-reset-requests')
+          .set('Authorization', `Bearer ${admTok}`);
+        expect(queueRes.status).toBe(200);
+        const alexReq = (queueRes.body.requests || []).find((r: any) => r.group_username === 'emp_alex' && r.status === 'PENDING');
+        expect(alexReq).toBeTruthy();
+
+        const resetRes = await request(testApp)
+          .post(`/api/admin/users/${alexId}/reset-password`)
+          .set('Authorization', `Bearer ${admTok}`)
+          .send({ new_password: 'TempPass@2026' });
+        expect(resetRes.status).toBe(200);
+        expect(resetRes.body.ok).toBe(true);
+        expect(resetRes.body.temporary_password).toBe('TempPass@2026');
+        expect(String(resetRes.body.whatsapp_url)).toContain('https://wa.me/6281299998888?text=');
+
+        // 6. Old session token is revoked (401), old password fails (401), new temporary password works (200)
+        const revokedSession = await request(testApp)
+          .get('/api/auth/me')
+          .set('Authorization', `Bearer ${alexTok}`);
+        expect(revokedSession.status).toBe(401);
+
+        const oldPwdLogin = await request(testApp)
+          .post('/api/auth/login')
+          .send({ group_username: 'emp_alex', password: 'Emp@123' });
+        expect(oldPwdLogin.status).toBe(401);
+
+        const newPwdLogin = await request(testApp)
+          .post('/api/auth/login')
+          .send({ group_username: 'emp_alex', password: 'TempPass@2026' });
+        expect(newPwdLogin.status).toBe(200);
+
+        // 7. Pending reset request is now COMPLETED
+        const queueAfter = await request(testApp)
+          .get('/api/admin/password-reset-requests')
+          .set('Authorization', `Bearer ${admTok}`);
+        const resolvedReq = (queueAfter.body.requests || []).find((r: any) => Number(r.id) === Number(alexReq.id));
+        expect(resolvedReq?.status).toBe('COMPLETED');
+      });
     });
   });
 });

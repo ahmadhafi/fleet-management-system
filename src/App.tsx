@@ -50,6 +50,8 @@ import {
   Loader2,
   ClipboardList,
   Info,
+  KeyRound,
+  Copy,
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
 import { AppShell, AdminShell, type NavSection, type AdminModule } from './components/AppShell';
@@ -435,8 +437,27 @@ export function App() {
   const [regDeptId, setRegDeptId] = useState(1);
   const [regUsername, setRegUsername] = useState('');
   const [regPassword, setRegPassword] = useState('');
+  const [regContactNumber, setRegContactNumber] = useState('');
   const [regRole, setRegRole] = useState<'EMP' | 'DRV'>('EMP');
   const [authMessage, setAuthMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+
+  // Forgot Password & Admin Direct Password Reset state
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  const [forgotUsername, setForgotUsername] = useState('');
+  const [forgotPhone, setForgotPhone] = useState('');
+  const [forgotNotes, setForgotNotes] = useState('');
+  const [forgotSubmitting, setForgotSubmitting] = useState(false);
+  const [forgotError, setForgotError] = useState<string | null>(null);
+  const [forgotResult, setForgotResult] = useState<{ message: string; admin_whatsapp_url?: string | null; requestId?: number } | null>(null);
+
+  const [passwordResetRequests, setPasswordResetRequests] = useState<any[]>([]);
+  const [adminResetTargetUser, setAdminResetTargetUser] = useState<{ id: number; nickname: string; group_username: string; contact_number?: string } | null>(null);
+  const [adminResetNewPassword, setAdminResetNewPassword] = useState('');
+  const [adminResetShowPassword, setAdminResetShowPassword] = useState(true);
+  const [adminResetSubmitting, setAdminResetSubmitting] = useState(false);
+  const [adminResetError, setAdminResetError] = useState<string | null>(null);
+  const [adminResetResult, setAdminResetResult] = useState<{ message: string; temporary_password: string; whatsapp_url?: string | null; user?: { nickname: string; group_username: string; contact_number?: string } } | null>(null);
+  const [adminResetCopied, setAdminResetCopied] = useState(false);
 
   // PWA Install & Push Notification state (Revision #5)
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(null);
@@ -889,13 +910,16 @@ export function App() {
       setDocuments(docRes.documents || []);
 
       if (['ADM', 'FM', 'HWS'].includes(currentUser.role)) {
-        const [usrRes, gpsRes, anaRes, audRes, fleetRes, repAppRes] = await Promise.all([
+        const [usrRes, gpsRes, anaRes, audRes, fleetRes, repAppRes, pwdResetRes] = await Promise.all([
           apiRequest('/api/users'),
           apiRequest('/api/gps/latest'),
           apiRequest('/api/analytics/usage'),
           apiRequest('/api/audit'),
           apiRequest('/api/admin/fleet-map-positions'),
           apiRequest('/api/reports/approvals').catch(() => ({ approvals: [], pendingPopup: null })),
+          currentUser.role === 'ADM'
+            ? apiRequest('/api/admin/password-reset-requests').catch(() => ({ requests: [] }))
+            : Promise.resolve({ requests: [] }),
         ]);
         setUsersList(usrRes.users || []);
         setGpsLatest(gpsRes);
@@ -903,6 +927,7 @@ export function App() {
         setAuditEvents(audRes.auditEvents || []);
         setFleetPositions(fleetRes.fleetPositions || []);
         setReportApprovals(repAppRes.approvals || []);
+        setPasswordResetRequests(pwdResetRes.requests || []);
         if (
           (currentUser.role === 'FM' || currentUser.role === 'HWS') &&
           repAppRes.pendingPopup &&
@@ -1438,6 +1463,11 @@ export function App() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthMessage(null);
+    const digits = regContactNumber.replace(/\D/g, '');
+    if (digits.length < 8) {
+      setAuthMessage({ type: 'error', text: t('WhatsApp / phone number is mandatory (at least 8 digits) for account recovery.') });
+      return;
+    }
     try {
       const res = await apiRequest('/api/auth/register', {
         method: 'POST',
@@ -1446,6 +1476,7 @@ export function App() {
           department_id: regDeptId,
           group_username: regUsername,
           password: regPassword,
+          contact_number: regContactNumber.trim(),
           requested_role: regRole,
         }),
       });
@@ -1456,9 +1487,115 @@ export function App() {
       setRegNickname('');
       setRegUsername('');
       setRegPassword('');
+      setRegContactNumber('');
       setAuthMode('LOGIN');
     } catch (err: any) {
       setAuthMessage({ type: 'error', text: err.message });
+    }
+  };
+
+  const handleOpenForgotPasswordModal = () => {
+    setForgotUsername(loginUsername.trim());
+    setForgotPhone('');
+    setForgotNotes('');
+    setForgotError(null);
+    setForgotResult(null);
+    setShowForgotPasswordModal(true);
+  };
+
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotError(null);
+    if (!forgotUsername.trim()) {
+      setForgotError(t('Please enter your username.'));
+      return;
+    }
+    if (forgotPhone.replace(/\D/g, '').length < 8) {
+      setForgotError(t('Please enter a valid WhatsApp / mobile phone number (at least 8 digits).'));
+      return;
+    }
+    setForgotSubmitting(true);
+    try {
+      const res = await apiRequest('/api/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          group_username: forgotUsername.trim(),
+          contact_number: forgotPhone.trim(),
+          notes: forgotNotes.trim() || undefined,
+        }),
+      });
+      setForgotResult({
+        message: res.message || 'Password reset request sent to the Administrator.',
+        admin_whatsapp_url: res.admin_whatsapp_url || FLEET_HELPDESK_WHATSAPP_URL,
+        requestId: res.requestId,
+      });
+    } catch (err: any) {
+      setForgotError(err.message || 'Unable to submit password reset request.');
+    } finally {
+      setForgotSubmitting(false);
+    }
+  };
+
+  const generateTempPassword = () => {
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const digits = '23456789';
+    const pick = (pool: string, n: number) =>
+      Array.from({ length: n }, () => pool[Math.floor(Math.random() * pool.length)]).join('');
+    return `GF-${pick(letters, 3)}${pick(digits, 4)}`;
+  };
+
+  const handleOpenAdminResetModal = (target: { id: number; nickname: string; group_username: string; contact_number?: string }) => {
+    setAdminResetTargetUser(target);
+    setAdminResetNewPassword(generateTempPassword());
+    setAdminResetShowPassword(true);
+    setAdminResetError(null);
+    setAdminResetResult(null);
+    setAdminResetCopied(false);
+  };
+
+  const handleAdminResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminResetTargetUser) return;
+    if (!adminResetNewPassword || adminResetNewPassword.length < 6) {
+      setAdminResetError(t('New password must be at least 6 characters.'));
+      return;
+    }
+    setAdminResetSubmitting(true);
+    setAdminResetError(null);
+    try {
+      const res = await apiRequest(`/api/admin/users/${adminResetTargetUser.id}/reset-password`, {
+        method: 'POST',
+        body: JSON.stringify({ new_password: adminResetNewPassword }),
+      });
+      setAdminResetResult({
+        message: res.message || 'Password has been reset.',
+        temporary_password: res.temporary_password || adminResetNewPassword,
+        whatsapp_url: res.whatsapp_url || null,
+        user: res.user,
+      });
+      setStatusBanner({
+        type: 'success',
+        text: res.message || `Password reset for @${adminResetTargetUser.group_username}.`,
+      });
+      if (user) {
+        await loadAllData(user);
+      }
+    } catch (err: any) {
+      setAdminResetError(err.message || 'Failed to reset user password.');
+    } finally {
+      setAdminResetSubmitting(false);
+    }
+  };
+
+  const handleDismissPasswordResetRequest = async (requestId: number) => {
+    try {
+      await apiRequest(`/api/admin/password-reset-requests/${requestId}/dismiss`, { method: 'POST' });
+      setStatusBanner({ type: 'info', text: 'Password reset request dismissed.' });
+      if (user) {
+        await loadAllData(user);
+      }
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message || 'Failed to dismiss request.' });
     }
   };
 
@@ -1586,6 +1723,10 @@ export function App() {
     e.preventDefault();
     if (!profileNickname.trim() || profileNickname.trim().length < 2) {
       setProfileStatusBanner({ type: 'danger', text: 'Nickname must be at least 2 characters long.' });
+      return;
+    }
+    if (profileContactNumber.replace(/\D/g, '').length < 8) {
+      setProfileStatusBanner({ type: 'danger', text: t('WhatsApp / phone number is mandatory (at least 8 digits) for account recovery.') });
       return;
     }
     setProfileSaving(true);
@@ -3488,9 +3629,27 @@ export function App() {
                 />
               </div>
               <div>
-                <label className="type-caption" htmlFor="login-password" style={{ fontWeight: 700, display: 'block', marginBottom: '6px' }}>
-                  {t('Password')}
-                </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label className="type-caption" htmlFor="login-password" style={{ fontWeight: 700, display: 'block' }}>
+                    {t('Password')}
+                  </label>
+                  <button
+                    id="login-forgot-password-btn"
+                    type="button"
+                    onClick={handleOpenForgotPasswordModal}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      color: 'var(--color-samsung-blue, #0072de)',
+                      fontSize: '12.5px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {t('Forgot Password?')}
+                  </button>
+                </div>
                 <input
                   id="login-password"
                   className="gf-input"
@@ -3517,12 +3676,12 @@ export function App() {
                   color: 'var(--color-text-secondary)',
                 }}
               >
-                <strong>Account Registration:</strong> Enter your nickname, group, username & password. Administrator approval is required before sign-in.
+                <strong>{t('Account Registration')}:</strong> {t('Enter your nickname, group, WhatsApp phone number, username & password. Administrator approval is required before sign-in.')}
               </div>
 
               <div>
                 <label className="type-caption" htmlFor="reg-nickname" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  {t('Nickname')}
+                  {t('Nickname')} <span style={{ color: '#dc2626' }}>*</span>
                 </label>
                 <input
                   id="reg-nickname"
@@ -3537,7 +3696,7 @@ export function App() {
 
               <div>
                 <label className="type-caption" htmlFor="reg-dept" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  {t('Group')}
+                  {t('Group')} <span style={{ color: '#dc2626' }}>*</span>
                 </label>
                 <select id="reg-dept" className="gf-select notranslate" translate="no" value={regDeptId} onChange={(e) => setRegDeptId(Number(e.target.value))}>
                   {(activeGroups.length > 0 ? activeGroups : groupsList).map((g) => (
@@ -3549,8 +3708,27 @@ export function App() {
               </div>
 
               <div>
+                <label className="type-caption" htmlFor="reg-contact-number" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  {t('WhatsApp / Mobile Phone Number')} <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <input
+                  id="reg-contact-number"
+                  className="gf-input"
+                  type="tel"
+                  required
+                  minLength={8}
+                  placeholder="e.g. 081234567890"
+                  value={regContactNumber}
+                  onChange={(e) => setRegContactNumber(e.target.value)}
+                />
+                <div className="type-caption" style={{ marginTop: '3px', color: 'var(--color-text-secondary)' }}>
+                  {t('Mandatory for account recovery & WhatsApp fleet coordination.')}
+                </div>
+              </div>
+
+              <div>
                 <label className="type-caption" htmlFor="reg-username" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  {t('Username')}
+                  {t('Username')} <span style={{ color: '#dc2626' }}>*</span>
                 </label>
                 <input
                   id="reg-username"
@@ -3565,7 +3743,7 @@ export function App() {
 
               <div>
                 <label className="type-caption" htmlFor="reg-password" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  {t('Password')}
+                  {t('Password')} <span style={{ color: '#dc2626' }}>*</span>
                 </label>
                 <input
                   id="reg-password"
@@ -3610,6 +3788,194 @@ export function App() {
             </form>
           )}
         </div>
+
+        {showForgotPasswordModal && (
+          <div
+            id="forgot-password-modal"
+            className="gf-modal-backdrop"
+            style={{ zIndex: 1200 }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setShowForgotPasswordModal(false);
+            }}
+          >
+            <div className="gf-modal-card" style={{ maxWidth: '440px', width: '94vw' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div
+                    style={{
+                      width: '34px',
+                      height: '34px',
+                      borderRadius: '10px',
+                      background: 'rgba(0, 114, 222, 0.12)',
+                      color: '#0072de',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <KeyRound size={18} />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800 }}>{t('Forgot Password')}</h3>
+                    <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+                      {t('Request a direct password reset from the Administrator')}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="gf-icon-btn-48"
+                  style={{ width: '34px', height: '34px' }}
+                  onClick={() => setShowForgotPasswordModal(false)}
+                  aria-label={t('Close')}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {forgotResult ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div
+                    id="forgot-password-success"
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: '10px',
+                      background: 'rgba(0, 114, 222, 0.08)',
+                      border: '1px solid rgba(0, 114, 222, 0.28)',
+                      fontSize: '13px',
+                      color: 'var(--color-text-primary)',
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, color: '#0072de', marginBottom: '4px' }}>
+                      ✓ {t('Password Reset Request Sent')}
+                    </div>
+                    <div>{forgotResult.message}</div>
+                  </div>
+
+                  {forgotResult.admin_whatsapp_url && (
+                    <a
+                      id="forgot-password-wa-admin-link"
+                      href={forgotResult.admin_whatsapp_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="gf-btn gf-btn-primary gf-btn-full"
+                      style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                    >
+                      <Phone size={16} /> {t('Message Admin on WhatsApp (Free)')}
+                    </a>
+                  )}
+
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-secondary gf-btn-full"
+                    onClick={() => setShowForgotPasswordModal(false)}
+                  >
+                    {t('Back to Sign In')}
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleForgotPasswordSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      background: 'var(--color-bg-subtle)',
+                      fontSize: '12.5px',
+                      color: 'var(--color-text-secondary)',
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    {t('Enter your username and registered WhatsApp number. Your request will appear in the Admin Console immediately, and you can also chat with the Admin on WhatsApp for free.')}
+                  </div>
+
+                  {forgotError && (
+                    <div
+                      id="forgot-password-error"
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        background: 'var(--color-danger-tint)',
+                        color: 'var(--color-danger-text)',
+                        fontSize: '12.5px',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {forgotError}
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="type-caption" htmlFor="forgot-username" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                      {t('Username')} <span style={{ color: '#dc2626' }}>*</span>
+                    </label>
+                    <input
+                      id="forgot-username"
+                      className="gf-input"
+                      type="text"
+                      required
+                      placeholder={t('Enter your username')}
+                      value={forgotUsername}
+                      onChange={(e) => setForgotUsername(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="type-caption" htmlFor="forgot-phone" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                      {t('Registered WhatsApp / Phone Number')} <span style={{ color: '#dc2626' }}>*</span>
+                    </label>
+                    <input
+                      id="forgot-phone"
+                      className="gf-input"
+                      type="tel"
+                      required
+                      minLength={8}
+                      placeholder="e.g. 081234567890"
+                      value={forgotPhone}
+                      onChange={(e) => setForgotPhone(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="type-caption" htmlFor="forgot-notes" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                      {t('Notes for Admin (Optional)')}
+                    </label>
+                    <input
+                      id="forgot-notes"
+                      className="gf-input"
+                      type="text"
+                      maxLength={300}
+                      placeholder={t('e.g. Urgent trip today, please reset password')}
+                      value={forgotNotes}
+                      onChange={(e) => setForgotNotes(e.target.value)}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                    <button
+                      type="button"
+                      className="gf-btn gf-btn-secondary"
+                      style={{ flex: 1 }}
+                      onClick={() => setShowForgotPasswordModal(false)}
+                      disabled={forgotSubmitting}
+                    >
+                      {t('Cancel')}
+                    </button>
+                    <button
+                      id="forgot-password-submit-btn"
+                      type="submit"
+                      className="gf-btn gf-btn-primary"
+                      style={{ flex: 1.4 }}
+                      disabled={forgotSubmitting}
+                    >
+                      {forgotSubmitting ? t('Submitting...') : t('Request Password Reset')}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -5757,18 +6123,21 @@ export function App() {
                 </div>
 
                 <div>
-                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                    {t('Contact Phone Number (WhatsApp / Mobile)')}
+                  <label className="type-caption" htmlFor="profile-contact-number" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    {t('Contact Phone Number (WhatsApp / Mobile)')} <span style={{ color: '#dc2626' }}>*</span>
                   </label>
                   <input
+                    id="profile-contact-number"
                     type="tel"
                     className="gf-input"
+                    required
+                    minLength={8}
                     value={profileContactNumber}
                     onChange={(e) => setProfileContactNumber(e.target.value)}
                     placeholder="e.g. 081234567890"
                   />
                   <p className="type-caption" style={{ marginTop: '3px', color: 'var(--color-text-secondary)' }}>
-                    Used for ride coordination, WhatsApp dispatch, and emergency contact.
+                    {t('Mandatory for account recovery, password reset via Admin WhatsApp, and ride coordination.')}
                   </p>
                 </div>
 
@@ -6210,6 +6579,255 @@ export function App() {
           </div>
         </div>
       )}
+
+      {adminResetTargetUser && user?.role === 'ADM' && (
+        <div
+          id="admin-reset-password-modal"
+          className="gf-modal-backdrop"
+          style={{ zIndex: 1300 }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !adminResetSubmitting) {
+              setAdminResetTargetUser(null);
+              setAdminResetResult(null);
+            }
+          }}
+        >
+          <div className="gf-modal-card" style={{ maxWidth: '460px', width: '94vw' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div
+                  style={{
+                    width: '34px',
+                    height: '34px',
+                    borderRadius: '10px',
+                    background: 'rgba(0, 114, 222, 0.12)',
+                    color: '#0072de',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <KeyRound size={18} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800 }}>{t('Reset User Password')}</h3>
+                  <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+                    {adminResetTargetUser.nickname} (@{adminResetTargetUser.group_username})
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="gf-icon-btn-48"
+                style={{ width: '34px', height: '34px' }}
+                onClick={() => {
+                  setAdminResetTargetUser(null);
+                  setAdminResetResult(null);
+                }}
+                aria-label={t('Close')}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {adminResetResult ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div
+                  id="admin-reset-password-success"
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: '10px',
+                    background: 'rgba(0, 114, 222, 0.08)',
+                    border: '1px solid rgba(0, 114, 222, 0.28)',
+                    fontSize: '13px',
+                    color: 'var(--color-text-primary)',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <div style={{ fontWeight: 800, color: '#0072de', marginBottom: '6px' }}>
+                    ✓ {t('Password Reset Complete')}
+                  </div>
+                  <div>{adminResetResult.message}</div>
+                  <div
+                    style={{
+                      marginTop: '10px',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      background: 'var(--color-bg-surface)',
+                      border: '1px dashed rgba(0, 114, 222, 0.45)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                    }}
+                  >
+                    <div>
+                      <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+                        {t('New Temporary Password')}
+                      </div>
+                      <div id="admin-reset-temp-password-value" className="mono" style={{ fontSize: '16px', fontWeight: 800, letterSpacing: '0.5px' }}>
+                        {adminResetResult.temporary_password}
+                      </div>
+                    </div>
+                    <button
+                      id="admin-reset-copy-btn"
+                      type="button"
+                      className="gf-btn gf-btn-secondary gf-btn-sm"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(adminResetResult.temporary_password).catch(() => {});
+                        setAdminResetCopied(true);
+                      }}
+                    >
+                      <Copy size={14} /> {adminResetCopied ? t('Copied!') : t('Copy')}
+                    </button>
+                  </div>
+                </div>
+
+                {adminResetResult.whatsapp_url ? (
+                  <a
+                    id="admin-reset-wa-user-link"
+                    href={adminResetResult.whatsapp_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="gf-btn gf-btn-primary gf-btn-full"
+                    style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                  >
+                    <Phone size={16} /> {t('Send Password via WhatsApp (Free)')}
+                  </a>
+                ) : (
+                  <div className="type-caption" style={{ color: 'var(--color-text-secondary)', textAlign: 'center' }}>
+                    {t('No phone number saved on this user profile. Copy and share the temporary password directly.')}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className="gf-btn gf-btn-secondary gf-btn-full"
+                  onClick={() => {
+                    setAdminResetTargetUser(null);
+                    setAdminResetResult(null);
+                  }}
+                >
+                  {t('Done')}
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleAdminResetPasswordSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    background: 'var(--color-bg-subtle)',
+                    fontSize: '12.5px',
+                    color: 'var(--color-text-secondary)',
+                    lineHeight: 1.45,
+                  }}
+                >
+                  {t('Set a new temporary password for this user. All active sessions for this account will be signed out immediately, and you can send the new password via free WhatsApp link.')}
+                  {adminResetTargetUser.contact_number && (
+                    <div style={{ marginTop: '6px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                      📞 WhatsApp: {adminResetTargetUser.contact_number}
+                    </div>
+                  )}
+                </div>
+
+                {adminResetError && (
+                  <div
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      background: 'var(--color-danger-tint)',
+                      color: 'var(--color-danger-text)',
+                      fontSize: '12.5px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {adminResetError}
+                  </div>
+                )}
+
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <label className="type-caption" htmlFor="admin-reset-new-password" style={{ fontWeight: 700 }}>
+                      {t('New Temporary Password')} <span style={{ color: '#dc2626' }}>*</span>
+                    </label>
+                    <button
+                      id="admin-reset-generate-btn"
+                      type="button"
+                      onClick={() => setAdminResetNewPassword(generateTempPassword())}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        color: '#0072de',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <RefreshCw size={12} /> {t('Generate')}
+                    </button>
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      id="admin-reset-new-password"
+                      className="gf-input mono"
+                      type={adminResetShowPassword ? 'text' : 'password'}
+                      required
+                      minLength={6}
+                      value={adminResetNewPassword}
+                      onChange={(e) => setAdminResetNewPassword(e.target.value)}
+                      placeholder={t('Minimum 6 characters')}
+                      style={{ paddingRight: '40px' }}
+                    />
+                    <button
+                      type="button"
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: '#64748b',
+                      }}
+                      onClick={() => setAdminResetShowPassword((prev) => !prev)}
+                      aria-label={adminResetShowPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {adminResetShowPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-secondary"
+                    style={{ flex: 1 }}
+                    onClick={() => setAdminResetTargetUser(null)}
+                    disabled={adminResetSubmitting}
+                  >
+                    {t('Cancel')}
+                  </button>
+                  <button
+                    id="admin-reset-submit-btn"
+                    type="submit"
+                    className="gf-btn gf-btn-primary"
+                    style={{ flex: 1.4 }}
+                    disabled={adminResetSubmitting}
+                  >
+                    {adminResetSubmitting ? t('Resetting...') : t('Set New Password')}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -6217,6 +6835,7 @@ export function App() {
   // ADMIN CONSOLE MODE (Left Sidebar + Clean Flat Tables)
   // ============================================================================
   if (navSection === 'ADMIN' && isPrivileged) {
+    const pendingPasswordResetRequests = passwordResetRequests.filter((r) => r.status === 'PENDING');
     return (
       <>
         <AdminShell
@@ -6229,7 +6848,7 @@ export function App() {
             setBookingStep('HOME');
             setSheetSnap('full');
           }}
-          pendingCount={pendingTrips.length + pendingUsers.length}
+          pendingCount={pendingTrips.length + pendingUsers.length + (user.role === 'ADM' ? pendingPasswordResetRequests.length : 0)}
           userNickname={user.nickname}
           userRole={user.role}
           vehicleCount={vehicles.length}
@@ -7153,6 +7772,83 @@ export function App() {
           {adminModule === 'ADMIN_DISPATCH' && (
             <>
               {user.role === 'ADM' && (
+                <section id="admin-password-reset-requests-card" className="gf-card-flat">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                    <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14.5px' }}>
+                      <KeyRound size={16} /> {t('Password Reset Requests')} ({pendingPasswordResetRequests.length})
+                    </h2>
+                    <span className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+                      {t('Admins can also reset any user password from User & Role Management below.')}
+                    </span>
+                  </div>
+
+                  {pendingPasswordResetRequests.length === 0 ? (
+                    <EmptyState message={t('No pending password reset requests.')} />
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {pendingPasswordResetRequests.map((reqItem) => (
+                        <div
+                          key={reqItem.id}
+                          id={`password-reset-request-${reqItem.id}`}
+                          className="gf-proto-card"
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: '10px',
+                          }}
+                        >
+                          <div style={{ minWidth: '200px', flex: '1 1 240px' }}>
+                            <div style={{ fontWeight: 800, fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <span>{reqItem.user_nickname || reqItem.group_username}</span>
+                              <span className="mono type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+                                @{reqItem.group_username}
+                              </span>
+                              <StatusBadge label={reqItem.user_role || 'EMP'} tone="blue" />
+                            </div>
+                            <div className="type-caption" style={{ marginTop: '3px', color: 'var(--color-text-secondary)' }}>
+                              📞 {reqItem.resolved_phone || reqItem.contact_number} • {reqItem.department_name || 'Group'} • {reqItem.created_at ? new Date(String(reqItem.created_at).replace(' ', 'T') + (String(reqItem.created_at).includes('Z') ? '' : 'Z')).toLocaleString() : ''}
+                            </div>
+                            {reqItem.notes && (
+                              <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-primary)', fontStyle: 'italic' }}>
+                                “{reqItem.notes}”
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            <button
+                              id={`handle-reset-request-${reqItem.id}`}
+                              type="button"
+                              className="gf-btn gf-btn-primary gf-btn-sm"
+                              onClick={() =>
+                                handleOpenAdminResetModal({
+                                  id: Number(reqItem.user_id),
+                                  nickname: reqItem.user_nickname || reqItem.group_username,
+                                  group_username: reqItem.group_username,
+                                  contact_number: reqItem.resolved_phone || reqItem.contact_number || '',
+                                })
+                              }
+                            >
+                              <KeyRound size={14} /> {t('Reset Password')}
+                            </button>
+                            <button
+                              id={`dismiss-reset-request-${reqItem.id}`}
+                              type="button"
+                              className="gf-btn gf-btn-secondary gf-btn-sm"
+                              onClick={() => handleDismissPasswordResetRequest(Number(reqItem.id))}
+                            >
+                              {t('Dismiss')}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {user.role === 'ADM' && (
               <section className="gf-card-flat">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
                   <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14.5px' }}>
@@ -7702,6 +8398,23 @@ export function App() {
                                           </button>
                                         )}
                                         <button
+                                          id={`reset-user-password-${u.id}`}
+                                          type="button"
+                                          className="gf-btn gf-btn-secondary"
+                                          style={{ minHeight: '34px', padding: '0 10px' }}
+                                          onClick={() =>
+                                            handleOpenAdminResetModal({
+                                              id: Number(u.id),
+                                              nickname: u.nickname,
+                                              group_username: u.group_username,
+                                              contact_number: u.contact_number || '',
+                                            })
+                                          }
+                                          title={t('Reset user password directly')}
+                                        >
+                                          <KeyRound size={14} /> {t('Reset Password')}
+                                        </button>
+                                        <button
                                           id={`toggle-user-active-${u.id}`}
                                           type="button"
                                           className="gf-btn gf-btn-secondary"
@@ -7742,6 +8455,11 @@ export function App() {
                                 <div>
                                   <div style={{ fontWeight: 800, fontSize: '14.5px' }}>{u.nickname}</div>
                                   <div className="mono type-caption">@{u.group_username}</div>
+                                  {u.contact_number && (
+                                    <div className="type-caption" style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                                      📞 {u.contact_number}
+                                    </div>
+                                  )}
                                 </div>
                                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                                   <StatusBadge label={u.approval_status} tone={toneFromStatus(u.approval_status)} />
@@ -7789,6 +8507,21 @@ export function App() {
                                     Approve
                                   </button>
                                 )}
+                                <button
+                                  id={`mobile-reset-user-password-${u.id}`}
+                                  type="button"
+                                  className="gf-proto-btn gf-proto-btn-o gf-proto-btn-s pressable"
+                                  onClick={() =>
+                                    handleOpenAdminResetModal({
+                                      id: Number(u.id),
+                                      nickname: u.nickname,
+                                      group_username: u.group_username,
+                                      contact_number: u.contact_number || '',
+                                    })
+                                  }
+                                >
+                                  <KeyRound size={13} /> {t('Reset Password')}
+                                </button>
                                 <button
                                   id={`mobile-toggle-user-active-${u.id}`}
                                   type="button"
@@ -11958,6 +12691,35 @@ export function App() {
               <User size={16} /> {t('Edit Profile')}
             </button>
           </div>
+
+          {!user.contact_number && (
+            <div
+              id="profile-missing-phone-banner"
+              style={{
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-card)',
+                background: 'rgba(217, 119, 6, 0.1)',
+                border: '1px solid rgba(217, 119, 6, 0.35)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ fontSize: '12.5px', color: 'var(--color-text-primary)', lineHeight: 1.45, flex: '1 1 200px' }}>
+                <strong>⚠️ {t('WhatsApp Phone Required for Recovery')}:</strong>{' '}
+                {t('Add your WhatsApp / mobile phone number so the Administrator can verify and send password resets if needed.')}
+              </div>
+              <button
+                type="button"
+                className="gf-btn gf-btn-primary gf-btn-sm"
+                onClick={handleOpenProfileModal}
+              >
+                {t('Add Phone Number')}
+              </button>
+            </div>
+          )}
 
           <div style={{ padding: '12px', borderRadius: 'var(--radius-card)', background: 'var(--color-bg-subtle)' }}>
             <div className="type-caption" style={{ fontWeight: 700, marginBottom: '8px' }}>{t('Language')}</div>

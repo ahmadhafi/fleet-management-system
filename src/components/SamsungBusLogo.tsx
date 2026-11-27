@@ -60,7 +60,7 @@ export const SamsungFleetLogo: React.FC<SamsungFleetLogoProps> = ({
         aria-label={title}
       >
         <img
-          src="/icons/app-icon.png"
+          src="/icons/app-icon.png?v=3"
           alt={title}
           width={size}
           height={size}

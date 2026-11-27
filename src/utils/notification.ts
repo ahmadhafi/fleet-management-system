@@ -24,8 +24,8 @@ export async function triggerSystemNotification(
   }
 
   const defaultOptions: NotificationOptions = {
-    icon: '/icons/icon.svg',
-    badge: '/icons/icon.svg',
+    icon: '/icons/icon-192.png?v=3',
+    badge: '/icons/icon-192.png?v=3',
     ...options,
   };
 
