@@ -2826,38 +2826,55 @@ export function App() {
   };
 
   const handleRespondNegotiation = async (notif: any, decision: 'ACCEPT' | 'REJECT') => {
-    if (!notif?.negotiation_id) return;
-    const negId = Number(notif.negotiation_id);
-    const lockKey = `neg-${negId}`;
-    if (respondingNegIdsRef.current.has(lockKey) || decidedNegMapRef.current.has(lockKey) || negotiationRespondBusyId === negId) return;
+    const negId = notif?.negotiation_id ? Number(notif.negotiation_id) : 0;
+    const notifId = notif?.id ? Number(notif.id) : 0;
+    if (!negId && !notifId) return;
+    const busyId = negId || notifId;
+    const lockKey = negId ? `neg-${negId}` : `notif-${notifId}`;
+    if (
+      respondingNegIdsRef.current.has(lockKey) ||
+      decidedNegMapRef.current.has(lockKey) ||
+      (notifId && decidedNegMapRef.current.has(`notif-${notifId}`)) ||
+      negotiationRespondBusyId === busyId
+    ) {
+      return;
+    }
     const nextStatus: 'ACCEPTED' | 'REJECTED' = decision === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED';
     respondingNegIdsRef.current.add(lockKey);
     decidedNegMapRef.current.set(lockKey, { status: nextStatus });
-    if (notif.id) decidedNegMapRef.current.set(`notif-${notif.id}`, { status: nextStatus });
-    setNegotiationRespondBusyId(negId);
+    if (notifId) decidedNegMapRef.current.set(`notif-${notifId}`, { status: nextStatus });
+    setNegotiationRespondBusyId(busyId);
+    const matchesTarget = (item: any) =>
+      Boolean(item) &&
+      ((negId > 0 && Number(item.negotiation_id) === negId) || (notifId > 0 && Number(item.id) === notifId));
+
     // 0ms optimistic lock: immediately hide Accept/Reject buttons so 2nd click is physically impossible
     setNotifications((prev: any[]) =>
-      prev.map((item) =>
-        Number(item.negotiation_id) === negId ? { ...item, is_read: 1, negotiation_status: nextStatus } : item
-      )
+      prev.map((item) => (matchesTarget(item) ? { ...item, is_read: 1, negotiation_status: nextStatus } : item))
     );
     setSelectedNotification((prev: any) =>
-      prev && Number(prev.negotiation_id) === negId ? { ...prev, is_read: 1, negotiation_status: nextStatus } : prev
+      matchesTarget(prev) ? { ...prev, is_read: 1, negotiation_status: nextStatus } : prev
     );
     try {
-      const res = await apiRequest(`/api/negotiations/${negId}/respond`, {
+      const endpoint = negId
+        ? `/api/negotiations/${negId}/respond`
+        : `/api/notifications/${notifId}/respond-negotiation`;
+      const res = await apiRequest(endpoint, {
         method: 'POST',
         body: JSON.stringify({ decision }),
       });
       const transferredId = res?.transferredTripId || null;
+      const resolvedNegId = res?.negotiationId ? Number(res.negotiationId) : negId;
       decidedNegMapRef.current.set(lockKey, { status: nextStatus, transferredTripId: transferredId });
-      if (notif.id) decidedNegMapRef.current.set(`notif-${notif.id}`, { status: nextStatus, transferredTripId: transferredId });
+      if (resolvedNegId) decidedNegMapRef.current.set(`neg-${resolvedNegId}`, { status: nextStatus, transferredTripId: transferredId });
+      if (notifId) decidedNegMapRef.current.set(`notif-${notifId}`, { status: nextStatus, transferredTripId: transferredId });
       setNotifications((prev: any[]) =>
         prev.map((item) =>
-          Number(item.negotiation_id) === negId
+          matchesTarget(item)
             ? {
                 ...item,
                 is_read: 1,
+                negotiation_id: resolvedNegId || item.negotiation_id,
                 negotiation_status: nextStatus,
                 negotiation_transferred_trip_id: transferredId ?? item.negotiation_transferred_trip_id,
               }
@@ -2865,10 +2882,11 @@ export function App() {
         )
       );
       setSelectedNotification((prev: any) =>
-        prev && Number(prev.negotiation_id) === negId
+        matchesTarget(prev)
           ? {
               ...prev,
               is_read: 1,
+              negotiation_id: resolvedNegId || prev.negotiation_id,
               negotiation_status: nextStatus,
               negotiation_transferred_trip_id: transferredId ?? prev.negotiation_transferred_trip_id,
             }
@@ -2877,7 +2895,8 @@ export function App() {
       const isHitchhike =
         notif.negotiation_action_type === 'HITCHHIKE' ||
         notif.trigger_type === 'NEGOTIATE_HITCHHIKE_REQUEST' ||
-        notif.trigger_type === 'HITCHHIKE_REQUEST';
+        notif.trigger_type === 'HITCHHIKE_REQUEST' ||
+        /schedule negotiation.*hitchhike/i.test(String(notif.title || ''));
       if (decision === 'ACCEPT') {
         setStatusBanner({
           type: 'success',
@@ -2896,12 +2915,12 @@ export function App() {
       if (!/already/i.test(String(err.message || ''))) {
         respondingNegIdsRef.current.delete(lockKey);
         decidedNegMapRef.current.delete(lockKey);
-        if (notif.id) decidedNegMapRef.current.delete(`notif-${notif.id}`);
+        if (notifId) decidedNegMapRef.current.delete(`notif-${notifId}`);
         setNotifications((prev: any[]) =>
-          prev.map((item) => (Number(item.negotiation_id) === negId ? { ...item, negotiation_status: 'PENDING' } : item))
+          prev.map((item) => (matchesTarget(item) ? { ...item, negotiation_status: 'PENDING' } : item))
         );
         setSelectedNotification((prev: any) =>
-          prev && Number(prev.negotiation_id) === negId ? { ...prev, negotiation_status: 'PENDING' } : prev
+          matchesTarget(prev) ? { ...prev, negotiation_status: 'PENDING' } : prev
         );
       }
       setStatusBanner({ type: 'danger', text: err.message });
@@ -7276,21 +7295,32 @@ export function App() {
         const isHitchhikeReq =
           sn.negotiation_action_type === 'HITCHHIKE' ||
           sn.trigger_type === 'NEGOTIATE_HITCHHIKE_REQUEST' ||
-          sn.trigger_type === 'HITCHHIKE_REQUEST';
+          sn.trigger_type === 'HITCHHIKE_REQUEST' ||
+          /schedule negotiation.*hitchhike/i.test(String(sn.title || ''));
         const isCancelNegotiateReq =
           sn.negotiation_action_type === 'REQUEST_CANCEL' ||
           sn.trigger_type === 'NEGOTIATE_CANCEL_REQUEST' ||
-          sn.trigger_type === 'CANCEL_NEGOTIATION_REQUEST';
-        const isNegotiation = (isHitchhikeReq || isCancelNegotiateReq) && Boolean(sn.negotiation_id);
+          sn.trigger_type === 'CANCEL_NEGOTIATION_REQUEST' ||
+          /schedule negotiation.*(cancel|transfer)/i.test(String(sn.title || ''));
+        const isNegotiation = (isHitchhikeReq || isCancelNegotiateReq) && Boolean(sn.negotiation_id || sn.related_entity_id || sn.id);
         const negStatus = String(sn.negotiation_status || 'PENDING').toUpperCase();
-        const isPendingDecision = isNegotiation && negStatus === 'PENDING';
-        const isBusy = Boolean(sn.negotiation_id) && negotiationRespondBusyId === Number(sn.negotiation_id);
+        const isPendingDecision = isNegotiation && (!negStatus || negStatus === 'PENDING');
+        const busyTargetId = sn.negotiation_id ? Number(sn.negotiation_id) : Number(sn.id || 0);
+        const isBusy = Boolean(busyTargetId) && negotiationRespondBusyId === busyTargetId;
         const hitchhikerName = sn.negotiation_passenger_nickname || sn.negotiation_requester_name || 'Colleague';
         const relatedTrip = trips.find((tr) => Number(tr.id) === Number(sn.related_entity_id));
         const slotPlate = sn.negotiation_vehicle_plate || relatedTrip?.registration_plate || '';
         const slotCar = sn.negotiation_vehicle_name || (relatedTrip ? `${relatedTrip.make || ''} ${relatedTrip.model || ''}`.trim() : '');
         const slotStart = sn.negotiation_start_time || relatedTrip?.start_time || '';
         const slotEnd = sn.negotiation_end_time || relatedTrip?.end_time || '';
+        const hasStructuredTransferFields = Boolean(
+          sn.negotiation_requester_name ||
+          slotCar ||
+          slotPlate ||
+          sn.negotiation_origin ||
+          sn.negotiation_destination ||
+          sn.negotiation_message
+        );
 
         return (
           <div
@@ -7349,6 +7379,9 @@ export function App() {
                   </div>
 
                   <div id="notification-detail-body" style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '13px', lineHeight: 1.45, color: 'var(--color-text-primary)' }}>
+                    {!hasStructuredTransferFields && sn.body && (
+                      <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{sn.body}</div>
+                    )}
                     {sn.negotiation_requester_name && (
                       <div>
                         <strong>{t('Requester')}:</strong> {sn.negotiation_requester_name}
@@ -7471,7 +7504,13 @@ export function App() {
                               disabled={isBusy}
                               className="gf-btn gf-btn-primary gf-btn-sm pressable"
                               style={{ flex: 1, minHeight: '40px' }}
-                              onClick={() => handleRespondNegotiation(sn, 'ACCEPT')}
+                              onClick={() =>
+                                sn.negotiation_id
+                                  ? handleRespondNegotiation(sn, 'ACCEPT')
+                                  : sn.related_entity_id
+                                  ? handleAcceptHitchhike(Number(sn.related_entity_id), hitchhikerName, undefined, Number(sn.id))
+                                  : handleRespondNegotiation(sn, 'ACCEPT')
+                              }
                             >
                               ✓ {t('Accept Hitchhike')} ({hitchhikerName})
                             </button>
@@ -12823,15 +12862,18 @@ export function App() {
                 const isHitchhikeReq =
                   n.negotiation_action_type === 'HITCHHIKE' ||
                   n.trigger_type === 'NEGOTIATE_HITCHHIKE_REQUEST' ||
-                  n.trigger_type === 'HITCHHIKE_REQUEST';
+                  n.trigger_type === 'HITCHHIKE_REQUEST' ||
+                  /schedule negotiation.*hitchhike/i.test(String(n.title || ''));
                 const isCancelNegotiateReq =
                   n.negotiation_action_type === 'REQUEST_CANCEL' ||
                   n.trigger_type === 'NEGOTIATE_CANCEL_REQUEST' ||
-                  n.trigger_type === 'CANCEL_NEGOTIATION_REQUEST';
-                const isNegotiation = (isHitchhikeReq || isCancelNegotiateReq) && Boolean(n.negotiation_id || n.related_entity_id);
-                const negStatus = String(n.negotiation_status || (n.negotiation_id ? 'PENDING' : '')).toUpperCase();
-                const isPendingDecision = Boolean(n.negotiation_id) && negStatus === 'PENDING';
-                const isBusy = Boolean(n.negotiation_id) && negotiationRespondBusyId === Number(n.negotiation_id);
+                  n.trigger_type === 'CANCEL_NEGOTIATION_REQUEST' ||
+                  /schedule negotiation.*(cancel|transfer)/i.test(String(n.title || ''));
+                const isNegotiation = (isHitchhikeReq || isCancelNegotiateReq) && Boolean(n.negotiation_id || n.related_entity_id || n.id);
+                const negStatus = String(n.negotiation_status || (isNegotiation ? 'PENDING' : '')).toUpperCase();
+                const isPendingDecision = isNegotiation && (!negStatus || negStatus === 'PENDING');
+                const busyTargetId = n.negotiation_id ? Number(n.negotiation_id) : Number(n.id || 0);
+                const isBusy = Boolean(busyTargetId) && negotiationRespondBusyId === busyTargetId;
                 const hitchhikerName =
                   n.negotiation_passenger_nickname ||
                   n.negotiation_requester_name ||
@@ -12921,7 +12963,7 @@ export function App() {
                           {isPendingDecision ? (
                             isCancelNegotiateReq ? (
                               <button
-                                id={`btn-review-neg-${n.negotiation_id}`}
+                                id={`btn-review-neg-${n.negotiation_id || n.id}`}
                                 type="button"
                                 className="gf-btn gf-btn-primary gf-btn-sm pressable"
                                 style={{ minHeight: '32px', padding: '0 12px', fontSize: '12px' }}
@@ -12935,17 +12977,23 @@ export function App() {
                             ) : (
                               <>
                                 <button
-                                  id={`btn-accept-neg-${n.negotiation_id}`}
+                                  id={`btn-accept-neg-${n.negotiation_id || n.id}`}
                                   type="button"
                                   disabled={isBusy}
                                   className="gf-btn gf-btn-primary gf-btn-sm pressable"
                                   style={{ minHeight: '32px', padding: '0 12px', fontSize: '12px' }}
-                                  onClick={() => handleRespondNegotiation(n, 'ACCEPT')}
+                                  onClick={() =>
+                                    n.negotiation_id
+                                      ? handleRespondNegotiation(n, 'ACCEPT')
+                                      : n.related_entity_id
+                                      ? handleAcceptHitchhike(Number(n.related_entity_id), hitchhikerName, undefined, Number(n.id))
+                                      : handleRespondNegotiation(n, 'ACCEPT')
+                                  }
                                 >
                                   ✓ {t('Accept Hitchhike')} ({hitchhikerName})
                                 </button>
                                 <button
-                                  id={`btn-reject-neg-${n.negotiation_id}`}
+                                  id={`btn-reject-neg-${n.negotiation_id || n.id}`}
                                   type="button"
                                   disabled={isBusy}
                                   className="gf-btn gf-btn-outline-danger gf-btn-sm pressable"

@@ -4049,13 +4049,270 @@ export function createApp() {
     });
   });
 
-  // Accept or Reject a Hitchhike or Cancellation/Slot-Transfer negotiation request from Inbox
-  app.post('/api/negotiations/:id/respond', requireAuth, (req: Request, res: Response) => {
+  const isLegacyCancelNotificationRow = (n: any) => {
+    const trig = String(n?.trigger_type || '').toUpperCase();
+    const title = String(n?.title || '');
+    return (
+      trig === 'NEGOTIATE_CANCEL_REQUEST' ||
+      trig === 'CANCEL_NEGOTIATION_REQUEST' ||
+      /schedule negotiation.*(cancel|transfer)/i.test(title)
+    );
+  };
+
+  const isLegacyHitchhikeNotificationRow = (n: any) => {
+    const trig = String(n?.trigger_type || '').toUpperCase();
+    const title = String(n?.title || '');
+    return (
+      trig === 'NEGOTIATE_HITCHHIKE_REQUEST' ||
+      trig === 'HITCHHIKE_REQUEST' ||
+      /schedule negotiation.*hitchhike/i.test(title)
+    );
+  };
+
+  const hydrateLegacyNegotiationNotification = (db: ReturnType<typeof getDb>, n: any, holderUserId: number) => {
+    if (!n || n.negotiation_id) return n;
+    const isCancelNotif = isLegacyCancelNotificationRow(n);
+    const isHitchhikeNotif = isLegacyHitchhikeNotificationRow(n);
+    if (!isCancelNotif && !isHitchhikeNotif) return n;
+
+    const expectedType = isCancelNotif ? 'REQUEST_CANCEL' : 'HITCHHIKE';
+    const deliveryUpper = String(n.delivery_status || '').toUpperCase();
+    if (deliveryUpper === 'ACCEPTED' || deliveryUpper === 'REJECTED') {
+      return {
+        ...n,
+        negotiation_action_type: n.negotiation_action_type || expectedType,
+        negotiation_status: deliveryUpper,
+      };
+    }
+
+    // 1. Try linking to an existing negotiation_requests row for the same trip & holder
+    if (n.related_entity_id) {
+      const fb = db
+        .prepare(
+          `SELECT nr.*, u.nickname as requester_name
+           FROM negotiation_requests nr
+           LEFT JOIN users u ON u.id = nr.requester_user_id
+           WHERE nr.trip_request_id = ? AND nr.holder_user_id = ? AND nr.action_type = ?
+           ORDER BY CASE WHEN nr.status = 'PENDING' THEN 0 ELSE 1 END, nr.id DESC
+           LIMIT 1`
+        )
+        .get(Number(n.related_entity_id), Number(holderUserId), expectedType) as any;
+      if (fb) {
+        if (!fb.notification_id && n.id) {
+          try {
+            db.prepare('UPDATE negotiation_requests SET notification_id = ? WHERE id = ? AND notification_id IS NULL').run(
+              Number(n.id),
+              Number(fb.id)
+            );
+          } catch {}
+        }
+        return {
+          ...n,
+          negotiation_id: fb.id,
+          negotiation_action_type: fb.action_type,
+          negotiation_status: fb.status,
+          negotiation_requester_id: fb.requester_user_id,
+          negotiation_requester_name: fb.requester_name,
+          negotiation_passenger_nickname: fb.passenger_nickname,
+          negotiation_origin: fb.origin,
+          negotiation_destination: fb.destination,
+          negotiation_purpose: fb.purpose,
+          negotiation_message: fb.message,
+          negotiation_transferred_trip_id: fb.transferred_trip_id,
+        };
+      }
+    }
+
+    if (!isCancelNotif) return n;
+
+    // 2. Auto-hydrate legacy unlinked Cancel/Transfer notification (e.g., created by an older build without negotiation_requests)
+    let trip: any = null;
+    if (n.related_entity_id) {
+      trip = db
+        .prepare(
+          `SELECT tr.*, v.registration_plate, v.make, v.model
+           FROM trip_requests tr
+           LEFT JOIN vehicles v ON v.id = tr.vehicle_id
+           WHERE tr.id = ?`
+        )
+        .get(Number(n.related_entity_id));
+    }
+    if (!trip) {
+      const plateMatch = String(n.body || '').match(/\bon\s+([A-Z]{1,2}\s+\d{1,4}\s+[A-Z]{1,3})\b/i);
+      if (plateMatch?.[1]) {
+        trip = db
+          .prepare(
+            `SELECT tr.*, v.registration_plate, v.make, v.model
+             FROM trip_requests tr
+             JOIN vehicles v ON v.id = tr.vehicle_id
+             WHERE tr.requester_id = ?
+               AND LOWER(TRIM(v.registration_plate)) = LOWER(TRIM(?))
+               AND tr.status IN ('PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS')
+             ORDER BY tr.id DESC
+             LIMIT 1`
+          )
+          .get(Number(holderUserId), plateMatch[1]);
+      }
+    }
+
+    if (!trip || !['PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS'].includes(String(trip.status || ''))) {
+      return {
+        ...n,
+        negotiation_action_type: 'REQUEST_CANCEL',
+        negotiation_status: 'REJECTED',
+      };
+    }
+
+    const titleText = String(n.title || '');
+    const bodyText = String(n.body || '');
+    const stripTrailingGroup = (raw: string) => raw.replace(/\s*\([^()]*\)\s*$/, '').trim();
+
+    let candidateName = '';
+    const colonIdx = titleText.indexOf(':');
+    if (colonIdx >= 0) {
+      candidateName = stripTrailingGroup(titleText.slice(colonIdx + 1).trim());
+    }
+    if (!candidateName) {
+      const bodyReqMatch = bodyText.match(/^(.+?)\s+is requesting to\s+/i);
+      if (bodyReqMatch?.[1]) {
+        candidateName = stripTrailingGroup(bodyReqMatch[1].trim());
+      }
+    }
+
+    let requesterUser: any = null;
+    if (candidateName) {
+      requesterUser =
+        db
+          .prepare(
+            `SELECT id, nickname, group_username
+             FROM users
+             WHERE id != ?
+               AND (LOWER(TRIM(nickname)) = LOWER(TRIM(?)) OR LOWER(TRIM(group_username)) = LOWER(TRIM(?)))
+             ORDER BY id ASC
+             LIMIT 1`
+          )
+          .get(Number(holderUserId), candidateName, candidateName) ||
+        db
+          .prepare(
+            `SELECT id, nickname, group_username
+             FROM users
+             WHERE id != ?
+               AND LOWER(TRIM(nickname)) LIKE LOWER(?)
+             ORDER BY id ASC
+             LIMIT 1`
+          )
+          .get(Number(holderUserId), `${candidateName}%`) ||
+        db
+          .prepare(
+            `SELECT id, nickname, group_username
+             FROM users
+             WHERE id != ?
+               AND LOWER(TRIM(nickname)) LIKE LOWER(?)
+             ORDER BY id ASC
+             LIMIT 1`
+          )
+          .get(Number(holderUserId), `%${candidateName}%`);
+    }
+    if (!requesterUser) {
+      const auditActor = db
+        .prepare(
+          `SELECT u.id, u.nickname, u.group_username
+           FROM audit_logs al
+           JOIN users u ON u.id = al.actor_user_id
+           WHERE al.entity_type = 'TRIP_REQUEST'
+             AND al.entity_id = ?
+             AND al.actor_user_id != ?
+             AND (al.action LIKE '%CANCEL%' OR al.action LIKE '%NEGOTIAT%')
+           ORDER BY al.id DESC
+           LIMIT 1`
+        )
+        .get(Number(trip.id), Number(holderUserId));
+      if (auditActor) requesterUser = auditActor;
+    }
+
+    const routeMatch = bodyText.match(/New Route\s*\([^)]*\):\s*([^\n→]+?)\s*→\s*([^\n.]+)/i);
+    const legacyDestMatch = bodyText.match(/\bto\s+"([^"]+)"/i);
+    const paxMatch = bodyText.match(/New Passenger(?:\(s\))?\s*\(\d+\):\s*([^\n.]+)/i);
+    const msgMatch = bodyText.match(/(?:Reason\s*\/\s*Message|Message):\s*"([^"]+)"/i);
+
+    const parsedOrigin = String(routeMatch?.[1] || '').trim() || String(trip.origin || '');
+    const parsedDest = String(routeMatch?.[2] || legacyDestMatch?.[1] || '').trim() || String(trip.destination || '');
+    const parsedPax = String(paxMatch?.[1] || '').trim() || String(requesterUser?.nickname || candidateName || 'Colleague').trim();
+    const parsedMessage = msgMatch?.[1] ? String(msgMatch[1]).trim() : null;
+    const vehicleName = `${trip.make || ''} ${trip.model || ''}`.trim();
+
+    if (requesterUser) {
+      try {
+        const ins = db
+          .prepare(
+            `INSERT INTO negotiation_requests (
+               trip_request_id, notification_id, action_type, requester_user_id, holder_user_id,
+               passenger_nickname, origin, destination, purpose, message, status
+             ) VALUES (?, ?, 'REQUEST_CANCEL', ?, ?, ?, ?, ?, NULL, ?, 'PENDING')`
+          )
+          .run(
+            Number(trip.id),
+            n.id ? Number(n.id) : null,
+            Number(requesterUser.id),
+            Number(holderUserId),
+            parsedPax,
+            parsedOrigin,
+            parsedDest,
+            parsedMessage
+          );
+        const hydratedNegId = Number(ins.lastInsertRowid);
+        return {
+          ...n,
+          related_entity_id: n.related_entity_id || Number(trip.id),
+          negotiation_id: hydratedNegId,
+          negotiation_action_type: 'REQUEST_CANCEL',
+          negotiation_status: 'PENDING',
+          negotiation_requester_id: Number(requesterUser.id),
+          negotiation_requester_name: requesterUser.nickname,
+          negotiation_passenger_nickname: parsedPax,
+          negotiation_origin: parsedOrigin,
+          negotiation_destination: parsedDest,
+          negotiation_purpose: null,
+          negotiation_message: parsedMessage,
+          negotiation_original_origin: n.negotiation_original_origin || trip.origin,
+          negotiation_original_destination: n.negotiation_original_destination || trip.destination,
+          negotiation_start_time: n.negotiation_start_time || trip.start_time,
+          negotiation_end_time: n.negotiation_end_time || trip.end_time,
+          negotiation_vehicle_plate: n.negotiation_vehicle_plate || trip.registration_plate,
+          negotiation_vehicle_name: n.negotiation_vehicle_name || vehicleName,
+        };
+      } catch {}
+    }
+
+    return {
+      ...n,
+      related_entity_id: n.related_entity_id || Number(trip.id),
+      negotiation_action_type: 'REQUEST_CANCEL',
+      negotiation_status: 'PENDING',
+      negotiation_requester_name: candidateName || 'Requester',
+      negotiation_passenger_nickname: parsedPax,
+      negotiation_origin: parsedOrigin,
+      negotiation_destination: parsedDest,
+      negotiation_message: parsedMessage,
+      negotiation_original_origin: n.negotiation_original_origin || trip.origin,
+      negotiation_original_destination: n.negotiation_original_destination || trip.destination,
+      negotiation_start_time: n.negotiation_start_time || trip.start_time,
+      negotiation_end_time: n.negotiation_end_time || trip.end_time,
+      negotiation_vehicle_plate: n.negotiation_vehicle_plate || trip.registration_plate,
+      negotiation_vehicle_name: n.negotiation_vehicle_name || vehicleName,
+    };
+  };
+
+  // Shared executor for accepting or rejecting a negotiation request (used by both /api/negotiations/:id/respond and /api/notifications/:id/respond-negotiation)
+  const executeNegotiationResponse = (
+    req: Request,
+    res: Response,
+    negId: number,
+    decisionNorm: string,
+    reasonText: string
+  ) => {
     const db = getDb();
     const user = req.user!;
-    const negId = Number(req.params.id);
-    const decisionNorm = String(req.body?.decision || '').trim().toUpperCase();
-    const reasonText = req.body?.reason ? String(req.body.reason).trim() : '';
 
     if (!['ACCEPT', 'REJECT'].includes(decisionNorm)) {
       res.status(400).json({ error: 'decision must be ACCEPT or REJECT' });
@@ -4424,6 +4681,63 @@ export function createApp() {
       transferredTrip,
       transferredTripId: transferResult.newTripId,
       requiresApproval: true,
+    });
+  };
+
+  // Accept or Reject a Hitchhike or Cancellation/Slot-Transfer negotiation request from Inbox
+  app.post('/api/negotiations/:id/respond', requireAuth, (req: Request, res: Response) => {
+    const negId = Number(req.params.id);
+    const decisionNorm = String(req.body?.decision || '').trim().toUpperCase();
+    const reasonText = req.body?.reason ? String(req.body.reason).trim() : '';
+    executeNegotiationResponse(req, res, negId, decisionNorm, reasonText);
+  });
+
+  // Fallback endpoint allowing a booking holder to accept or reject a negotiation directly by notification ID (auto-hydrating legacy notifications)
+  app.post('/api/notifications/:id/respond-negotiation', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const user = req.user!;
+    const notifId = Number(req.params.id);
+    const decisionNorm = String(req.body?.decision || '').trim().toUpperCase();
+    const reasonText = req.body?.reason ? String(req.body.reason).trim() : '';
+
+    if (!['ACCEPT', 'REJECT'].includes(decisionNorm)) {
+      res.status(400).json({ error: 'decision must be ACCEPT or REJECT' });
+      return;
+    }
+
+    const notif = db.prepare('SELECT * FROM notifications WHERE id = ?').get(notifId) as any;
+    if (!notif) {
+      res.status(404).json({ error: 'Notification not found' });
+      return;
+    }
+    if (Number(notif.user_id) !== Number(user.id) && !isPrivilegedRole(user)) {
+      res.status(403).json({ error: 'You are not allowed to respond to this notification' });
+      return;
+    }
+
+    const existingNr = db
+      .prepare('SELECT id FROM negotiation_requests WHERE notification_id = ? ORDER BY id DESC LIMIT 1')
+      .get(notifId) as { id: number } | undefined;
+
+    if (existingNr?.id) {
+      executeNegotiationResponse(req, res, Number(existingNr.id), decisionNorm, reasonText);
+      return;
+    }
+
+    const hydrated = hydrateLegacyNegotiationNotification(db, notif, Number(notif.user_id));
+    if (hydrated?.negotiation_id) {
+      executeNegotiationResponse(req, res, Number(hydrated.negotiation_id), decisionNorm, reasonText);
+      return;
+    }
+
+    if (decisionNorm === 'REJECT') {
+      db.prepare("UPDATE notifications SET is_read = 1, delivery_status = 'REJECTED' WHERE id = ?").run(notifId);
+      res.json({ ok: true, status: 'REJECTED', notificationId: notifId });
+      return;
+    }
+
+    res.status(400).json({
+      error: 'Unable to match the requester account for this legacy notification. Please cancel manually or reject this request.',
     });
   });
 
@@ -7931,36 +8245,9 @@ export function createApp() {
       .all(req.user!.id) as any[];
 
     const tripCheckStmt = db.prepare('SELECT status, passengers_json, passenger_nickname FROM trip_requests WHERE id = ?');
-    const fallbackNegStmt = db.prepare(
-      `SELECT nr.*, u.nickname as requester_name
-       FROM negotiation_requests nr
-       LEFT JOIN users u ON u.id = nr.requester_user_id
-       WHERE nr.trip_request_id = ? AND nr.holder_user_id = ? AND nr.action_type = ?
-       ORDER BY CASE WHEN nr.status = 'PENDING' THEN 0 ELSE 1 END, nr.id DESC
-       LIMIT 1`
-    );
-    const notifications = rawNotifications.map((n) => {
+    const notifications = rawNotifications.map((raw) => {
+      const n = !raw.negotiation_id ? hydrateLegacyNegotiationNotification(db, raw, Number(req.user!.id)) : raw;
       const trig = String(n.trigger_type || '');
-      if (!n.negotiation_id && n.related_entity_id && ['NEGOTIATE_CANCEL_REQUEST', 'CANCEL_NEGOTIATION_REQUEST', 'NEGOTIATE_HITCHHIKE_REQUEST', 'HITCHHIKE_REQUEST'].includes(trig)) {
-        const expectedType = trig.includes('CANCEL') ? 'REQUEST_CANCEL' : 'HITCHHIKE';
-        const fb = fallbackNegStmt.get(Number(n.related_entity_id), Number(req.user!.id), expectedType) as any;
-        if (fb) {
-          return {
-            ...n,
-            negotiation_id: fb.id,
-            negotiation_action_type: fb.action_type,
-            negotiation_status: fb.status,
-            negotiation_requester_id: fb.requester_user_id,
-            negotiation_requester_name: fb.requester_name,
-            negotiation_passenger_nickname: fb.passenger_nickname,
-            negotiation_origin: fb.origin,
-            negotiation_destination: fb.destination,
-            negotiation_purpose: fb.purpose,
-            negotiation_message: fb.message,
-            negotiation_transferred_trip_id: fb.transferred_trip_id,
-          };
-        }
-      }
       if (
         !n.negotiation_status &&
         n.related_entity_id &&

@@ -3650,6 +3650,125 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(appTsx).toContain('id="modal-accept-negotiation-btn"');
         expect(appTsx).toContain('id="modal-reject-negotiation-btn"');
       });
+
+      it('auto-hydrates legacy unlinked Cancel Request notifications so users can always approve or reject inside the notification', async () => {
+        resetDbForTesting(':memory:');
+        const testApp = createApp();
+        const db = getDb();
+
+        const alexLogin = await request(testApp).post('/api/auth/login').send({ group_username: 'emp_alex', password: 'Emp@123' });
+        const saraLogin = await request(testApp).post('/api/auth/login').send({ group_username: 'emp_sara', password: 'Emp@123' });
+        const alexTok = alexLogin.body.token;
+        const alexId = Number(alexLogin.body.user.id);
+        const saraId = Number(saraLogin.body.user.id);
+        const saraNick = String(saraLogin.body.user.nickname);
+
+        const vehiclesRes = await request(testApp).get('/api/vehicles').set('Authorization', `Bearer ${alexTok}`);
+        const veh = vehiclesRes.body.vehicles[0];
+        const tomorrow = new Date(Date.now() + 30 * 60 * 60 * 1000);
+        const start1 = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 9, 0, 0).toISOString();
+        const end1 = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 11, 0, 0).toISOString();
+
+        // 1. Alex creates a booking
+        const create1 = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({
+            vehicle_id: veh.id,
+            purpose: 'Original Client Meeting',
+            origin: 'Samsung Cikarang Factory',
+            destination: 'Bandara Internasional Soekarno-Hatta (CGK) - Terminal 3',
+            start_time: start1,
+            end_time: end1,
+            passenger_count: 1,
+            passenger_nickname: 'Alex',
+          });
+        expect(create1.status).toBe(201);
+        const trip1Id = Number(create1.body.trip.id);
+
+        // 2. Simulate an OLD legacy Cancel Request notification already sitting in DB with NO negotiation_requests row
+        const legacyIns1 = db
+          .prepare(
+            `INSERT INTO notifications (user_id, trigger_type, title, body, related_entity_type, related_entity_id, delivery_status, is_read)
+             VALUES (?, 'NEGOTIATE_CANCEL_REQUEST', ?, ?, 'TRIP_REQUEST', ?, 'SENT', 0)`
+          )
+          .run(
+            alexId,
+            `Schedule Negotiation (Cancel Request): ${saraNick} (People G)`,
+            `${saraNick} (People G) is requesting to negotiate your booking on ${veh.registration_plate} (${veh.make} ${veh.model}, 09:00 AM - 11:00 AM) to "Bandara Internasional Soekarno-Hatta (CGK) - Terminal 3". Reason / Message: "Lebih urgent, bantu cancel tukeran slot mobil"`,
+            trip1Id
+          );
+        const legacyNotif1Id = Number(legacyIns1.lastInsertRowid);
+
+        // Confirm zero rows exist in negotiation_requests before GET /api/notifications
+        const preCount = db.prepare('SELECT COUNT(*) as c FROM negotiation_requests').get() as { c: number };
+        expect(preCount.c).toBe(0);
+
+        // 3. Alex fetches Inbox -> backend auto-hydrates a real PENDING negotiation_id with transfer details!
+        const inboxRes = await request(testApp).get('/api/notifications').set('Authorization', `Bearer ${alexTok}`);
+        expect(inboxRes.status).toBe(200);
+        const hydrated = (inboxRes.body.notifications || []).find((n: any) => Number(n.id) === legacyNotif1Id);
+        expect(hydrated).toBeTruthy();
+        expect(hydrated.negotiation_id).toBeGreaterThan(0);
+        expect(hydrated.negotiation_action_type).toBe('REQUEST_CANCEL');
+        expect(hydrated.negotiation_status).toBe('PENDING');
+        expect(hydrated.negotiation_requester_id).toBe(saraId);
+        expect(hydrated.negotiation_message).toContain('tukeran slot mobil');
+        expect(hydrated.negotiation_vehicle_plate).toBe(veh.registration_plate);
+
+        // 4. Alex approves the hydrated legacy request -> original trip cancelled & transferred to Sara as PENDING_APPROVAL
+        const approveLegacyRes = await request(testApp)
+          .post(`/api/negotiations/${hydrated.negotiation_id}/respond`)
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({ decision: 'ACCEPT' });
+        expect(approveLegacyRes.status).toBe(200);
+        expect(approveLegacyRes.body.cancelledTrip.status).toBe('CANCELLED');
+        expect(approveLegacyRes.body.transferredTrip.requester_id).toBe(saraId);
+        expect(approveLegacyRes.body.transferredTrip.status).toBe('PENDING_APPROVAL');
+
+        // 5. Also verify direct fallback POST /api/notifications/:id/respond-negotiation (without GET /api/notifications first)
+        const start2 = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 13, 0, 0).toISOString();
+        const end2 = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 15, 0, 0).toISOString();
+        const create2 = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({
+            vehicle_id: veh.id,
+            purpose: 'Afternoon Site Visit',
+            origin: 'Samsung Cikarang Factory',
+            destination: 'SCBD Jakarta',
+            start_time: start2,
+            end_time: end2,
+            passenger_count: 1,
+            passenger_nickname: 'Alex',
+          });
+        expect(create2.status).toBe(201);
+        const trip2Id = Number(create2.body.trip.id);
+
+        const legacyIns2 = db
+          .prepare(
+            `INSERT INTO notifications (user_id, trigger_type, title, body, related_entity_type, related_entity_id, delivery_status, is_read)
+             VALUES (?, 'NEGOTIATE_CANCEL_REQUEST', ?, ?, 'TRIP_REQUEST', ?, 'SENT', 0)`
+          )
+          .run(
+            alexId,
+            `Schedule Negotiation (Cancel Request): ${saraNick} (SMD G)`,
+            `${saraNick} (SMD G) is requesting to negotiate your booking on ${veh.registration_plate}. Reason / Message: "Need slot urgently"`,
+            trip2Id
+          );
+        const legacyNotif2Id = Number(legacyIns2.lastInsertRowid);
+
+        const directFallbackRes = await request(testApp)
+          .post(`/api/notifications/${legacyNotif2Id}/respond-negotiation`)
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({ decision: 'REJECT' });
+        expect(directFallbackRes.status).toBe(200);
+        expect(directFallbackRes.body.status).toBe('REJECTED');
+
+        // Verify original trip #2 stayed active when rejected
+        const trip2Row = db.prepare('SELECT status FROM trip_requests WHERE id = ?').get(trip2Id) as { status: string };
+        expect(trip2Row.status).toBe('PENDING_APPROVAL');
+      });
     });
   });
 });
