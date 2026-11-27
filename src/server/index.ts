@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { createApp } from './app.ts';
 import { checkpointDb, flushAndCloseDb } from './db.ts';
 import { ensureSqlEngineLoaded, isSqlEngineReady } from './sqlite-compat.ts';
@@ -37,6 +38,32 @@ const walTimer = setInterval(() => {
   }
 }, 10 * 60 * 1000);
 walTimer.unref();
+
+// Auto-recycle under cPanel Phusion Passenger / LiteSpeed lsnode / PM2 when dist-server/index.cjs is updated on disk
+// (prevents serving newly pulled dist/ frontend against a stale in-memory backend process)
+const isManagedSupervisor = Boolean(
+  process.env.PASSENGER_APP_ENV ||
+    process.env.IN_PASSENGER ||
+    process.env.LSNODE_SOCKET ||
+    process.env.LSNODE_UID ||
+    process.env.PM2_HOME ||
+    isSocketPort
+);
+if (isManagedSupervisor && process.env.NODE_ENV !== 'test' && typeof __filename === 'string' && __filename.endsWith('.cjs')) {
+  try {
+    const bootBundleMtime = fs.statSync(__filename).mtimeMs;
+    const bundleWatchTimer = setInterval(() => {
+      try {
+        const currentMtime = fs.statSync(__filename).mtimeMs;
+        if (currentMtime > bootBundleMtime + 500) {
+          console.log('[GalaxyFleet] Detected updated dist-server/index.cjs on disk; gracefully recycling supervisor worker.');
+          gracefulShutdown('BUNDLE_UPDATED');
+        }
+      } catch {}
+    }, 15 * 1000);
+    bundleWatchTimer.unref();
+  } catch {}
+}
 
 // Graceful Shutdown Handler (SIGTERM & SIGINT)
 let isShuttingDown = false;

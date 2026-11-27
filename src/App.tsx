@@ -2856,15 +2856,25 @@ export function App() {
       matchesTarget(prev) ? { ...prev, is_read: 1, negotiation_status: nextStatus } : prev
     );
     try {
-      const endpoint = negId
-        ? `/api/negotiations/${negId}/respond`
+      let targetNegId = negId;
+      if (!targetNegId && notifId) {
+        try {
+          const fresh = await apiRequest('/api/notifications');
+          const matched = (fresh?.notifications || []).find((item: any) => Number(item.id) === notifId);
+          if (matched?.negotiation_id) {
+            targetNegId = Number(matched.negotiation_id);
+          }
+        } catch {}
+      }
+      const endpoint = targetNegId
+        ? `/api/negotiations/${targetNegId}/respond`
         : `/api/notifications/${notifId}/respond-negotiation`;
       const res = await apiRequest(endpoint, {
         method: 'POST',
         body: JSON.stringify({ decision }),
       });
       const transferredId = res?.transferredTripId || null;
-      const resolvedNegId = res?.negotiationId ? Number(res.negotiationId) : negId;
+      const resolvedNegId = res?.negotiationId ? Number(res.negotiationId) : targetNegId;
       decidedNegMapRef.current.set(lockKey, { status: nextStatus, transferredTripId: transferredId });
       if (resolvedNegId) decidedNegMapRef.current.set(`neg-${resolvedNegId}`, { status: nextStatus, transferredTripId: transferredId });
       if (notifId) decidedNegMapRef.current.set(`notif-${notifId}`, { status: nextStatus, transferredTripId: transferredId });
@@ -2912,7 +2922,8 @@ export function App() {
       }
       await loadAllData(user);
     } catch (err: any) {
-      if (!/already/i.test(String(err.message || ''))) {
+      const errMsg = String(err?.message || 'Request failed');
+      if (!/already/i.test(errMsg)) {
         respondingNegIdsRef.current.delete(lockKey);
         decidedNegMapRef.current.delete(lockKey);
         if (notifId) decidedNegMapRef.current.delete(`notif-${notifId}`);
@@ -2923,7 +2934,10 @@ export function App() {
           matchesTarget(prev) ? { ...prev, negotiation_status: 'PENDING' } : prev
         );
       }
-      setStatusBanner({ type: 'danger', text: err.message });
+      const friendlyMsg = /api endpoint not found|not found/i.test(errMsg)
+        ? t('Server backend is still running an older process. Please click Stop then Start (or Restart) in cPanel Setup Node.js App, then try again.')
+        : errMsg;
+      setStatusBanner({ type: 'danger', text: friendlyMsg });
     } finally {
       setNegotiationRespondBusyId(null);
     }
@@ -7315,8 +7329,6 @@ export function App() {
         const slotEnd = sn.negotiation_end_time || relatedTrip?.end_time || '';
         const hasStructuredTransferFields = Boolean(
           sn.negotiation_requester_name ||
-          slotCar ||
-          slotPlate ||
           sn.negotiation_origin ||
           sn.negotiation_destination ||
           sn.negotiation_message

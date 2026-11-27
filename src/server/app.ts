@@ -307,6 +307,8 @@ export function createApp() {
     res.json({
       status: 'ok',
       service: 'GalaxyFleet Corporate Fleet Management',
+      api_build: '2026-11-27-transfer-v3',
+      features: ['negotiation_hydration', 'notification_respond_fallback', 'different_location_transfer'],
       uptime_sec: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
     });
@@ -329,6 +331,7 @@ export function createApp() {
       const mem = process.memoryUsage();
       res.json({
         status: dbCheck?.alive === 1 ? 'ready' : 'degraded',
+        api_build: '2026-11-27-transfer-v3',
         database: 'connected',
         sqlite_wal: true,
         memory: {
@@ -4692,11 +4695,11 @@ export function createApp() {
     executeNegotiationResponse(req, res, negId, decisionNorm, reasonText);
   });
 
-  // Fallback endpoint allowing a booking holder to accept or reject a negotiation directly by notification ID (auto-hydrating legacy notifications)
-  app.post('/api/notifications/:id/respond-negotiation', requireAuth, (req: Request, res: Response) => {
+  // Fallback handler allowing a booking holder to accept or reject a negotiation directly by notification ID (auto-hydrating legacy notifications)
+  const handleRespondByNotificationId = (req: Request, res: Response, notifIdInput: number) => {
     const db = getDb();
     const user = req.user!;
-    const notifId = Number(req.params.id);
+    const notifId = Number(notifIdInput);
     const decisionNorm = String(req.body?.decision || '').trim().toUpperCase();
     const reasonText = req.body?.reason ? String(req.body.reason).trim() : '';
 
@@ -4739,6 +4742,26 @@ export function createApp() {
     res.status(400).json({
       error: 'Unable to match the requester account for this legacy notification. Please cancel manually or reject this request.',
     });
+  };
+
+  app.post(['/api/notifications/:id/respond-negotiation', '/api/notifications/:id/respond'], requireAuth, (req: Request, res: Response) => {
+    handleRespondByNotificationId(req, res, Number(req.params.id));
+  });
+
+  app.post('/api/negotiations/respond', requireAuth, (req: Request, res: Response) => {
+    const negId = Number(req.body?.negotiation_id || 0);
+    const notifId = Number(req.body?.notification_id || 0);
+    const decisionNorm = String(req.body?.decision || '').trim().toUpperCase();
+    const reasonText = req.body?.reason ? String(req.body.reason).trim() : '';
+    if (negId > 0) {
+      executeNegotiationResponse(req, res, negId, decisionNorm, reasonText);
+      return;
+    }
+    if (notifId > 0) {
+      handleRespondByNotificationId(req, res, notifId);
+      return;
+    }
+    res.status(400).json({ error: 'negotiation_id or notification_id is required' });
   });
 
   // Allow current booking holder (or Admin) to approve a hitchhiker and add them to the trip's passenger list (deduplicated & seat-limited)
