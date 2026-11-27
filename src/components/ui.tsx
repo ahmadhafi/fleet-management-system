@@ -1,6 +1,7 @@
 import React from 'react';
 import { Check, ChevronRight, RefreshCw, AlertCircle } from 'lucide-react';
 import { EmptyIllustration } from './VehicleArt';
+import { useAppLanguage } from '../utils/i18n';
 
 /* ============================================================================
    Chip
@@ -41,9 +42,10 @@ export const Chip: React.FC<ChipProps> = ({ children, active, subtle, onClick, i
    ============================================================================ */
 type BadgeTone = 'green' | 'amber' | 'red' | 'blue' | 'neutral';
 
-export const StatusBadge: React.FC<{ label: string; tone?: BadgeTone }> = ({ label, tone = 'neutral' }) => (
-  <span className={`gf-badge gf-badge-${tone}`}>{label}</span>
-);
+export const StatusBadge: React.FC<{ label: string; tone?: BadgeTone }> = ({ label, tone = 'neutral' }) => {
+  const { t } = useAppLanguage();
+  return <span className={`gf-badge gf-badge-${tone}`}>{t(label)}</span>;
+};
 
 export function toneFromStatus(status: string): BadgeTone {
   const s = (status || '').toUpperCase();
@@ -73,6 +75,7 @@ export function Segmented<T extends string>({
   onChange: (val: T) => void;
   ariaLabel?: string;
 }) {
+  const { t } = useAppLanguage();
   return (
     <div className="gf-segmented" role="tablist" aria-label={ariaLabel || 'Options'}>
       {options.map((opt) => {
@@ -86,7 +89,7 @@ export function Segmented<T extends string>({
             className={`gf-segmented-btn pressable ${active ? 'is-active' : ''}`}
             onClick={() => onChange(opt.value)}
           >
-            {opt.label}
+            {t(opt.label)}
           </button>
         );
       })}
@@ -273,53 +276,59 @@ export const Skeleton: React.FC<{ height?: number; width?: string; radius?: numb
   />
 );
 
-export const EmptyState: React.FC<{ message: string; action?: React.ReactNode }> = ({ message, action }) => (
-  <div
-    className="gf-empty-state"
-    style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      textAlign: 'center',
-      padding: '16px 14px',
-      gap: '8px',
-    }}
-  >
-    <div className="gf-empty-illustration-wrap">
-      <EmptyIllustration />
+export const EmptyState: React.FC<{ message: string; action?: React.ReactNode }> = ({ message, action }) => {
+  const { t } = useAppLanguage();
+  return (
+    <div
+      className="gf-empty-state"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        textAlign: 'center',
+        padding: '16px 14px',
+        gap: '8px',
+      }}
+    >
+      <div className="gf-empty-illustration-wrap">
+        <EmptyIllustration />
+      </div>
+      <p className="type-body" style={{ color: 'var(--color-text-secondary)', fontSize: '13px' }}>
+        {t(message)}
+      </p>
+      {action}
     </div>
-    <p className="type-body" style={{ color: 'var(--color-text-secondary)', fontSize: '13px' }}>
-      {message}
-    </p>
-    {action}
-  </div>
-);
+  );
+};
 
-export const ErrorState: React.FC<{ message: string; onRetry?: () => void }> = ({ message, onRetry }) => (
-  <div
-    style={{
-      borderRadius: 'var(--radius-card)',
-      background: 'var(--color-status-red-bg)',
-      color: 'var(--color-status-red-fg)',
-      padding: 'var(--space-3) var(--space-4)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 'var(--space-3)',
-    }}
-    role="alert"
-  >
-    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0 }}>
-      <AlertCircle size={18} style={{ flexShrink: 0 }} />
-      <span className="type-body" style={{ color: 'var(--color-status-red-fg)', fontWeight: 600 }}>
-        {message}
-      </span>
+export const ErrorState: React.FC<{ message: string; onRetry?: () => void }> = ({ message, onRetry }) => {
+  const { t } = useAppLanguage();
+  return (
+    <div
+      style={{
+        borderRadius: 'var(--radius-card)',
+        background: 'var(--color-status-red-bg)',
+        color: 'var(--color-status-red-fg)',
+        padding: 'var(--space-3) var(--space-4)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 'var(--space-3)',
+      }}
+      role="alert"
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0 }}>
+        <AlertCircle size={18} style={{ flexShrink: 0 }} />
+        <span className="type-body" style={{ color: 'var(--color-status-red-fg)', fontWeight: 600 }}>
+          {t(message)}
+        </span>
+      </div>
+      {onRetry && (
+        <button type="button" className="gf-btn gf-btn-secondary" style={{ minHeight: '38px', padding: '0 12px' }} onClick={onRetry}>
+          <RefreshCw size={14} />
+          {t('Retry')}
+        </button>
+      )}
     </div>
-    {onRetry && (
-      <button type="button" className="gf-btn gf-btn-secondary" style={{ minHeight: '38px', padding: '0 12px' }} onClick={onRetry}>
-        <RefreshCw size={14} />
-        Retry
-      </button>
-    )}
-  </div>
-);
+  );
+};

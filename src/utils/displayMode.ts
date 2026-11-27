@@ -38,6 +38,7 @@ export function getDisplayMode(): DisplayMode {
 }
 
 let resizeBound = false;
+let currentZoomRatio = 1;
 
 function syncMobileViewportZoom(mode: DisplayMode) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
@@ -48,15 +49,30 @@ function syncMobileViewportZoom(mode: DisplayMode) {
 
   // If a mobile browser (like Chrome Android with "Desktop site" active) forces a 980px layout viewport,
   // scale html via CSS zoom so the app renders at the exact 1:1 native phone width and proportions as Samsung Browser.
+  // Because CSS 100dvh/100vh in Chromium is not divided by CSS zoom, we also publish --app-dvh and --app-dvh-unit
+  // divided by zoomRatio so full-screen pages and bottom sheets never exceed the visible screen height.
   if (mode === 'mobile' && isPhoneDevice && window.innerWidth > 540) {
     const targetPhoneWidth = screenShortSide >= 320 && screenShortSide <= 480 ? screenShortSide : 412;
     const zoomRatio = Number((window.innerWidth / targetPhoneWidth).toFixed(4));
-    root.style.zoom = String(zoomRatio);
+    currentZoomRatio = zoomRatio > 0 ? zoomRatio : 1;
+    root.style.zoom = String(currentZoomRatio);
     root.setAttribute('data-forced-mobile-zoom', 'true');
+    const rawVh = window.innerHeight || 844;
+    const effectiveVhPx = Math.max(480, Math.round(rawVh / currentZoomRatio));
+    root.style.setProperty('--app-dvh', `${effectiveVhPx}px`);
+    root.style.setProperty('--app-dvh-unit', `${(effectiveVhPx / 100).toFixed(4)}px`);
   } else {
+    currentZoomRatio = 1;
     root.style.zoom = '';
     root.removeAttribute('data-forced-mobile-zoom');
+    root.style.setProperty('--app-dvh', '100dvh');
+    root.style.setProperty('--app-dvh-unit', '1dvh');
   }
+}
+
+export function getAppFrameHeight(): number {
+  if (typeof window === 'undefined') return 844;
+  return Math.max(480, Math.round((window.innerHeight || 844) / (currentZoomRatio || 1)));
 }
 
 /** Applies the mode to <html data-display-mode="mobile|web"> */

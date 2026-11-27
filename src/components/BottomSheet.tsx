@@ -1,14 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Car, Minimize2 } from 'lucide-react';
 import { useAppLanguage } from '../utils/i18n';
-import { getAppFrameWidth } from '../utils/displayMode';
+import { getAppFrameWidth, getAppFrameHeight } from '../utils/displayMode';
 
 export type SnapPoint = 'peek' | 'half' | 'full';
 
 const SNAP_PERCENT: Record<SnapPoint, number> = {
-  peek: 42,
-  half: 58,
-  full: 86,
+  peek: 36,
+  half: 54,
+  full: 84,
 };
 
 interface BottomSheetProps {
@@ -66,6 +66,9 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
     if (!stepKey) return;
     bodyRef.current?.focus({ preventScroll: true });
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0 });
+    }
   }, [stepKey]);
 
   // Respect short landscape orientation on mobile
@@ -99,7 +102,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (getAppFrameWidth() >= 640) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    const vh = window.innerHeight || 800;
+    const vh = getAppFrameHeight();
     const currentH = sheetRef.current?.getBoundingClientRect().height || (vh * SNAP_PERCENT[snap]) / 100;
     startYRef.current = e.clientY;
     lastYRef.current = e.clientY;
@@ -111,7 +114,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
 
   const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (dragHeightPx === null) return;
-    const vh = window.innerHeight || 800;
+    const vh = getAppFrameHeight();
     const now = performance.now();
     const dt = Math.max(8, now - lastTimeRef.current);
     velocityRef.current = (lastYRef.current - e.clientY) / dt; // positive = dragging up
@@ -125,7 +128,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
 
   const handlePointerUp = () => {
     if (dragHeightPx === null) return;
-    const vh = window.innerHeight || 800;
+    const vh = getAppFrameHeight();
     const pct = (dragHeightPx / vh) * 100;
     const v = velocityRef.current;
     setDragHeightPx(null);
@@ -184,10 +187,10 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   };
 
   const computedHeight = fullScreenPage
-    ? '100dvh'
+    ? 'auto'
     : dragHeightPx !== null
     ? `${Math.round(dragHeightPx)}px`
-    : `${SNAP_PERCENT[snap]}dvh`;
+    : `calc(${SNAP_PERCENT[snap]} * var(--app-dvh-unit, 1dvh))`;
 
   return (
     <>

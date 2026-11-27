@@ -499,18 +499,13 @@ export const MapView: React.FC<MapViewProps> = ({
     map.setView([myCoords.lat, myCoords.lon], 15, { animate: true });
   }, [myCoords]);
 
-  // Handle Pin-on-Map Drag & Reverse Geocoding
+  // Handle Pin-on-Map Drag, Tap-to-Pin & Reverse Geocoding
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    const handleMoveStart = () => {
-      if (pinMode) setIsDraggingMap(true);
-    };
-
-    const handleMoveEnd = () => {
+    const resolveCenterAddress = () => {
       if (!pinMode) return;
-      setIsDraggingMap(false);
       const center = map.getCenter();
       if (reverseTimerRef.current) {
         window.clearTimeout(reverseTimerRef.current);
@@ -540,15 +535,47 @@ export const MapView: React.FC<MapViewProps> = ({
             });
           }
         }
-      }, 280);
+      }, 220);
     };
+
+    const handleMoveStart = () => {
+      if (pinMode) setIsDraggingMap(true);
+    };
+
+    const handleMoveEnd = () => {
+      if (!pinMode) return;
+      setIsDraggingMap(false);
+      resolveCenterAddress();
+    };
+
+    const handleMapClick = (e: L.LeafletMouseEvent) => {
+      if (!pinMode) return;
+      map.panTo(e.latlng, { animate: true, duration: 0.35 });
+    };
+
+    let t1: number | null = null;
+    let t2: number | null = null;
+    if (pinMode) {
+      map.invalidateSize({ pan: false });
+      t1 = window.setTimeout(() => {
+        map.invalidateSize({ pan: false });
+      }, 150);
+      t2 = window.setTimeout(() => {
+        map.invalidateSize({ pan: false });
+        resolveCenterAddress();
+      }, 340);
+    }
 
     map.on('movestart', handleMoveStart);
     map.on('moveend', handleMoveEnd);
+    map.on('click', handleMapClick);
 
     return () => {
+      if (t1) window.clearTimeout(t1);
+      if (t2) window.clearTimeout(t2);
       map.off('movestart', handleMoveStart);
       map.off('moveend', handleMoveEnd);
+      map.off('click', handleMapClick);
     };
   }, [pinMode]);
 
@@ -1125,17 +1152,14 @@ export const MapView: React.FC<MapViewProps> = ({
         const bounds = L.latLngBounds(boundPoints);
         if (!bounds.isValid()) return;
         const containerW = mapContainerRef.current.clientWidth || window.innerWidth || 390;
-        const containerH = mapContainerRef.current.clientHeight || window.innerHeight || 640;
-        const isMobileOverlaySheet = containerW < 768 && containerH > 460;
-        if (isMobileOverlaySheet) {
-          // Reserve lower half for the floating Gojek-style bottom sheet so route + destination zoom squarely into visible upper viewport
-          const bottomSheetReserve = Math.min(Math.round(containerH * 0.48), 430);
+        if (containerW < 768) {
+          // On mobile, .gf-map-stage-host is already sized to the exact visible upper map area above the bottom sheet
           m.fitBounds(bounds, {
-            paddingTopLeft: [44, 96],
-            paddingBottomRight: [44, bottomSheetReserve],
+            paddingTopLeft: [28, 52],
+            paddingBottomRight: [28, 34],
             maxZoom: 16,
             animate,
-            duration: 0.65,
+            duration: 0.55,
           });
         } else {
           m.fitBounds(bounds, {
@@ -1362,7 +1386,7 @@ export const MapView: React.FC<MapViewProps> = ({
           style={{
             position: 'absolute',
             left: '50%',
-            top: '42%',
+            top: '50%',
             transform: 'translate(-50%, -100%)',
             pointerEvents: 'none',
             display: 'flex',

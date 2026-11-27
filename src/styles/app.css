@@ -618,8 +618,12 @@ textarea {
   }
   .gf-ride-layout {
     margin-top: 0 !important;
-    height: 100dvh !important;
-    height: 100vh !important;
+    height: var(--app-dvh, 100dvh) !important;
+  }
+  .gf-ride-layout.is-no-map {
+    height: auto !important;
+    min-height: var(--app-dvh, 100dvh) !important;
+    overflow: visible !important;
   }
   .gf-bottom-nav {
     display: flex !important;
@@ -648,12 +652,34 @@ textarea {
   /* Mobile Sheet Padding & Ergonomics */
   .gf-sheet {
     border-radius: 20px 20px 0 0 !important;
+    max-height: calc(92 * var(--app-dvh-unit, 1dvh)) !important;
   }
   .gf-sheet-body {
-    padding: 14px 16px !important;
+    padding: 14px 16px calc(36px + var(--safe-bottom)) !important;
+    -webkit-overflow-scrolling: touch;
   }
   .gf-sheet-body.has-bottom-nav {
-    padding-bottom: calc(96px + var(--safe-bottom)) !important;
+    padding-bottom: calc(116px + var(--safe-bottom)) !important;
+  }
+
+  /* Position floating map controls at top of mobile map canvas (no 64px topbar offset) */
+  .gf-map-back-btn {
+    top: calc(12px + var(--safe-top)) !important;
+    left: 12px !important;
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    min-height: 36px !important;
+  }
+  .gf-map-layer-switcher {
+    top: calc(12px + var(--safe-top)) !important;
+  }
+  .gf-map-layer-switcher.has-back-btn {
+    left: 56px !important;
+  }
+  .gf-map-overlay-actions {
+    top: calc(12px + var(--safe-top)) !important;
+    right: 12px !important;
   }
 
   /* Mobile Touch Targets & Form Inputs — Comfortable, Proportional Sizes (Not Cut, Not Giant) */
@@ -4046,14 +4072,25 @@ iframe.goog-te-banner-frame {
 
 /* ============================================================================
  * FULL-SCREEN MOBILE PAGE MODE (When Map is Hidden — Non-Booking Screens)
+ * Uses natural document flow so the entire page is 100% scrollable to the very
+ * bottom on every mobile browser and viewport (including forced phone zoom).
  * ========================================================================== */
 .gf-sheet.is-fullscreen-page {
   border-radius: 0 !important;
   box-shadow: none !important;
-  height: 100dvh !important;
-  max-height: 100dvh !important;
-  top: 0 !important;
-  bottom: 0 !important;
+  position: relative !important;
+  inset: auto !important;
+  height: auto !important;
+  min-height: var(--app-dvh, 100dvh) !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.gf-sheet.is-fullscreen-page .gf-sheet-body {
+  overflow-y: visible !important;
+  height: auto !important;
+  flex: 1 0 auto !important;
+  padding-bottom: calc(120px + var(--safe-bottom)) !important;
 }
 
 @container gfapp (max-width: 767px) {
@@ -4062,19 +4099,21 @@ iframe.goog-te-banner-frame {
     top: 0;
     left: 0;
     right: 0;
-    height: var(--mobile-map-height, 44dvh);
+    height: var(--mobile-map-height, calc(48 * var(--app-dvh-unit, 1dvh)));
     z-index: var(--z-map);
     overflow: hidden;
   }
 
   .gf-sheet.is-fullscreen-page {
-    position: fixed !important;
-    inset: 0 !important;
+    position: relative !important;
+    inset: auto !important;
     width: 100% !important;
-    height: 100dvh !important;
-    max-height: 100dvh !important;
+    height: auto !important;
+    min-height: var(--app-dvh, 100dvh) !important;
+    max-height: none !important;
     border-radius: 0 !important;
     border-top: none !important;
+    overflow: visible !important;
   }
 }
 
@@ -4083,6 +4122,9 @@ iframe.goog-te-banner-frame {
     display: flex;
     justify-content: center;
     background: var(--color-bg-subtle);
+    height: auto !important;
+    min-height: calc(100dvh - 64px) !important;
+    overflow: visible !important;
   }
   .gf-sheet.is-fullscreen-page {
     position: relative !important;
@@ -4091,8 +4133,9 @@ iframe.goog-te-banner-frame {
     bottom: auto !important;
     top: 0 !important;
     width: min(500px, 100%) !important;
-    height: calc(100dvh - 64px) !important;
-    max-height: calc(100dvh - 64px) !important;
+    height: auto !important;
+    min-height: calc(100dvh - 64px) !important;
+    max-height: none !important;
     border-radius: 0 !important;
     border-top: none !important;
     border-bottom: none !important;
@@ -4114,13 +4157,17 @@ iframe.goog-te-banner-frame {
   .gf-ride-layout.is-no-map {
     justify-content: center;
     background: var(--color-bg-subtle);
+    height: auto !important;
+    min-height: calc(100dvh - 64px) !important;
+    overflow: visible !important;
   }
   .gf-sheet.is-fullscreen-page {
     width: min(520px, 100%) !important;
     min-width: min(520px, 100%) !important;
     max-width: 520px !important;
-    height: 100% !important;
-    max-height: 100% !important;
+    height: auto !important;
+    min-height: calc(100dvh - 64px) !important;
+    max-height: none !important;
     margin: 0 auto !important;
     border-left: 1px solid var(--color-divider) !important;
     border-right: 1px solid var(--color-divider) !important;
@@ -4187,7 +4234,7 @@ body {
   margin: 0;
   padding: 0;
   width: 100%;
-  min-height: 100dvh;
+  min-height: var(--app-dvh, 100dvh);
   font-family: var(--font-sans);
   background: var(--color-bg-canvas);
   color: var(--color-text-primary);
@@ -4200,7 +4247,7 @@ body {
 #root {
   container: gfapp / inline-size;
   width: 100%;
-  min-height: 100dvh;
+  min-height: var(--app-dvh, 100dvh);
   margin: 0 auto;
   position: relative;
   background: var(--color-bg-canvas);
@@ -4217,7 +4264,13 @@ html[data-display-mode='mobile'] .gf-desktop-top-nav {
 html[data-display-mode='mobile'] .gf-ride-layout {
   margin-top: 0 !important;
   flex-direction: column !important;
-  height: 100dvh !important;
+  height: var(--app-dvh, 100dvh) !important;
+}
+
+html[data-display-mode='mobile'] .gf-ride-layout.is-no-map {
+  height: auto !important;
+  min-height: var(--app-dvh, 100dvh) !important;
+  overflow: visible !important;
 }
 
 html[data-display-mode='mobile'] .gf-bottom-nav {

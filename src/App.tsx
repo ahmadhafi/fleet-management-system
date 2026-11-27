@@ -2510,31 +2510,82 @@ export function App() {
     }
   };
 
+  // Keep dispatchModalTrip automatically synced with the latest trip record in trips
+  useEffect(() => {
+    if (!dispatchModalTrip) return;
+    const latest = trips.find((t: any) => Number(t.id) === Number(dispatchModalTrip.id));
+    if (!latest) return;
+    if (
+      latest.status !== dispatchModalTrip.status ||
+      Boolean(latest.pic_approved) !== Boolean(dispatchModalTrip.pic_approved) ||
+      Boolean(latest.hws_approved) !== Boolean(dispatchModalTrip.hws_approved) ||
+      latest.driver_profile_id !== dispatchModalTrip.driver_profile_id ||
+      latest.vehicle_id !== dispatchModalTrip.vehicle_id
+    ) {
+      setDispatchModalTrip((prev: any) => (prev && Number(prev.id) === Number(latest.id) ? { ...prev, ...latest } : prev));
+    }
+  }, [trips, dispatchModalTrip]);
+
   const handleAdminTripDecision = async (decision: 'APPROVED' | 'REJECTED') => {
     if (!dispatchModalTrip) return;
+    const targetTripId = Number(dispatchModalTrip.id);
     const allCarsPool = dispatchAvailability?.vehicles?.length ? dispatchAvailability.vehicles : vehicles;
+    const allDriversPool = dispatchAvailability?.drivers?.length ? dispatchAvailability.drivers : drivers;
     const availCarsForTrip = allCarsPool.filter(
       (v: any) => v.status === 'Available' && v.isAvailable !== false
     );
-    const chosenDriverNum = dispatchDriverId ? Number(dispatchDriverId) : null;
+    const chosenDriverNum = dispatchDriverId ? Number(dispatchDriverId) : Number(dispatchModalTrip.driver_profile_id || 0) || null;
     // 1 Driver = 1 Fixed Car: always resolve the car fixed to the chosen driver
     const fixedCarForDriver = chosenDriverNum
-      ? availCarsForTrip.find((v: any) => Number(v.default_driver_id) === chosenDriverNum)
+      ? availCarsForTrip.find((v: any) => Number(v.default_driver_id) === chosenDriverNum) ||
+        allCarsPool.find((v: any) => Number(v.default_driver_id) === chosenDriverNum)
       : null;
-    const chosenVehicleId = Number(fixedCarForDriver?.id || dispatchVehicleId || 0);
+    const chosenVehicleId = Number(fixedCarForDriver?.id || dispatchVehicleId || dispatchModalTrip.vehicle_id || 0);
+    const chosenDriverObj = chosenDriverNum
+      ? allDriversPool.find((d: any) => Number(d.id) === chosenDriverNum)
+      : null;
 
-    if (decision === 'APPROVED') {
+    if (decision === 'APPROVED' && !dispatchModalTrip.pic_approved) {
       if (availCarsForTrip.length === 0) {
-        setStatusBanner({ type: 'danger', text: 'No available driver/vehicle pairs for this time slot. Cannot approve.' });
+        setStatusBanner({ type: 'danger', text: t('No available driver/vehicle pairs for this time slot. Cannot approve.') });
         return;
       }
       if (!chosenVehicleId || !availCarsForTrip.some((v: any) => Number(v.id) === chosenVehicleId)) {
-        setStatusBanner({ type: 'danger', text: 'Please select an available driver (with an available fixed car) before approving.' });
+        setStatusBanner({ type: 'danger', text: t('Please select an available driver (with an available fixed car) before approving.') });
         return;
       }
     }
+
+    // 0ms Instant Optimistic Lock: immediately lock trip in both trips list and open modal before network round-trip completes
+    const previousTripSnapshot = { ...dispatchModalTrip };
+    if (decision === 'APPROVED') {
+      const isDual = Boolean(dispatchModalTrip.requires_dual_approval);
+      const nextPicApproved = user.role === 'FM' ? true : Boolean(dispatchModalTrip.pic_approved);
+      const nextHwsApproved = user.role === 'HWS' ? true : Boolean(dispatchModalTrip.hws_approved);
+      const nextFinalStatus =
+        user.role === 'ADM' || !isDual || (nextPicApproved && nextHwsApproved) ? 'APPROVED' : 'PENDING_APPROVAL';
+      const optimisticPatch: Record<string, any> = {
+        status: nextFinalStatus,
+        pic_approved: nextPicApproved,
+        hws_approved: nextHwsApproved,
+        driver_profile_id: chosenDriverNum || dispatchModalTrip.driver_profile_id,
+        assigned_driver_name: chosenDriverObj?.full_name || dispatchModalTrip.assigned_driver_name,
+        vehicle_id: chosenVehicleId || dispatchModalTrip.vehicle_id,
+        registration_plate: fixedCarForDriver?.registration_plate || dispatchModalTrip.registration_plate,
+        make: fixedCarForDriver?.make || dispatchModalTrip.make,
+        model: fixedCarForDriver?.model || dispatchModalTrip.model,
+        energy_type: fixedCarForDriver?.energy_type || dispatchModalTrip.energy_type,
+      };
+      setTrips((prev: any[]) =>
+        prev.map((tr: any) => (Number(tr.id) === targetTripId ? { ...tr, ...optimisticPatch } : tr))
+      );
+      setDispatchModalTrip((prev: any) =>
+        prev && Number(prev.id) === targetTripId ? { ...prev, ...optimisticPatch } : prev
+      );
+    }
+
     try {
-      const res = await apiRequest(`/api/trips/${dispatchModalTrip.id}/decision`, {
+      const res = await apiRequest(`/api/trips/${targetTripId}/decision`, {
         method: 'POST',
         body: JSON.stringify({
           decision,
@@ -2544,24 +2595,56 @@ export function App() {
           enforce_fixed_driver_car: Boolean(chosenDriverNum),
         }),
       });
-      setDispatchModalTrip(null);
       setDispatchDecisionReason('');
+
+      if (res?.trip) {
+        const serverTrip = {
+          ...res.trip,
+          pic_approved: Boolean(res.trip.pic_approved),
+          hws_approved: Boolean(res.trip.hws_approved),
+        };
+        setTrips((prev: any[]) =>
+          prev.map((tr: any) => (Number(tr.id) === targetTripId ? { ...tr, ...serverTrip } : tr))
+        );
+        setDispatchModalTrip((prev: any) =>
+          prev && Number(prev.id) === targetTripId ? { ...prev, ...serverTrip } : prev
+        );
+      }
+
+      if (decision === 'REJECTED') {
+        setDispatchModalTrip(null);
+      }
+
       if (res.status === 'PENDING_APPROVAL') {
         setStatusBanner({
           type: 'success',
-          text: `Trip #${dispatchModalTrip.id} approved by ${user.role === 'FM' ? 'Fleet Operation PIC' : 'Head Of WS Part'}! Awaiting second approval to finalize dispatch.`,
+          text: `Trip #${targetTripId} approved by ${user.role === 'FM' ? 'Fleet Operation PIC' : 'Head Of WS Part'}! Locked and awaiting second approval.`,
         });
       } else {
         setStatusBanner({
           type: 'success',
           text:
             decision === 'APPROVED'
-              ? `Trip #${dispatchModalTrip.id} fully approved and dispatched!`
-              : `Trip #${dispatchModalTrip.id} rejected and vehicle schedule slot released.`,
+              ? `Trip #${targetTripId} fully approved and dispatched!`
+              : `Trip #${targetTripId} rejected and vehicle schedule slot released.`,
         });
       }
-      await loadAllData(user);
+
+      // Refresh trips & bookings immediately in background without blocking the locked UI
+      void apiRequest('/api/trips')
+        .then((trpRes) => {
+          if (Array.isArray(trpRes?.trips)) setTrips(trpRes.trips);
+        })
+        .catch(() => {});
+      void loadAllData(user);
     } catch (err: any) {
+      // Revert optimistic state on error
+      setTrips((prev: any[]) =>
+        prev.map((tr: any) => (Number(tr.id) === targetTripId ? previousTripSnapshot : tr))
+      );
+      setDispatchModalTrip((prev: any) =>
+        prev && Number(prev.id) === targetTripId ? previousTripSnapshot : prev
+      );
       setStatusBanner({ type: 'danger', text: err.message });
     }
   };
@@ -11872,10 +11955,10 @@ export function App() {
                       })
                     }
                   >
-                    <span className="gf-gojek-dest-tag">{item.tag}</span>
+                    <span className="gf-gojek-dest-tag">{t(item.tag)}</span>
                     <div style={{ marginTop: '6px' }}>
-                      <div style={{ fontWeight: 800, fontSize: '13.5px', lineHeight: 1.25 }}>{item.title}</div>
-                      <div className="type-caption" style={{ marginTop: '2px', fontSize: '11px' }}>{item.sub}</div>
+                      <div style={{ fontWeight: 800, fontSize: '13.5px', lineHeight: 1.25 }}>{t(item.title)}</div>
+                      <div className="type-caption" style={{ marginTop: '2px', fontSize: '11px' }}>{t(item.sub)}</div>
                     </div>
                   </button>
                 ))}
@@ -12544,8 +12627,122 @@ export function App() {
         },
       ];
 
+      // Dedicated compact Map Pin Picker Panel when routeTab === 'PIN' so the map gets 68% of the mobile screen
+      if (routeTab === 'PIN') {
+        return (
+          <div id="mobile-pin-map-panel" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                id="pin-back-to-search-btn"
+                type="button"
+                className="gf-btn gf-btn-secondary gf-btn-sm pressable"
+                style={{ minHeight: '32px', padding: '0 10px', fontSize: '12px', gap: '5px' }}
+                onClick={() => {
+                  setRouteTab('RECENT');
+                  setSheetSnap(bookDest.trim() ? 'peek' : 'half');
+                }}
+              >
+                <ArrowLeft size={14} /> {t('Back to Search')}
+              </button>
+
+              <div
+                style={{
+                  display: 'inline-flex',
+                  background: 'var(--color-bg-subtle)',
+                  padding: '3px',
+                  borderRadius: '9999px',
+                  border: '1px solid var(--color-divider)',
+                  gap: '3px',
+                }}
+              >
+                <button
+                  type="button"
+                  className="pressable"
+                  onClick={() => setActiveRouteField('pickup')}
+                  style={{
+                    border: 'none',
+                    borderRadius: '9999px',
+                    padding: '4px 11px',
+                    fontSize: '11.5px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    background: activeRouteField === 'pickup' ? '#0072de' : 'transparent',
+                    color: activeRouteField === 'pickup' ? '#ffffff' : 'var(--color-text-secondary)',
+                  }}
+                >
+                  {t('Pickup Point')}
+                </button>
+                <button
+                  type="button"
+                  className="pressable"
+                  onClick={() => setActiveRouteField('destination')}
+                  style={{
+                    border: 'none',
+                    borderRadius: '9999px',
+                    padding: '4px 11px',
+                    fontSize: '11.5px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    background: activeRouteField === 'destination' ? '#0072de' : 'transparent',
+                    color: activeRouteField === 'destination' ? '#ffffff' : 'var(--color-text-secondary)',
+                  }}
+                >
+                  {t('Destination')}
+                </button>
+              </div>
+            </div>
+
+            <div
+              id="pin-mode-live-address-card"
+              style={{
+                padding: '10px 12px',
+                borderRadius: '12px',
+                background: 'var(--color-bg-subtle)',
+                border: '1px solid var(--color-divider)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+              }}
+            >
+              <div
+                style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '10px',
+                  background: 'rgba(0, 114, 222, 0.14)',
+                  color: '#258cfb',
+                  display: 'grid',
+                  placeItems: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <MapPin size={18} />
+              </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div className="type-caption" style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)' }}>
+                  {activeRouteField === 'pickup' ? t('Pinning Pickup Point (Drag or tap map)') : t('Pinning Destination (Drag or tap map)')}
+                </div>
+                <div
+                  style={{
+                    fontWeight: 800,
+                    fontSize: '13.5px',
+                    color: 'var(--color-text-primary)',
+                    marginTop: '2px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {(activeRouteField === 'pickup' ? bookOrigin : bookDest) || t('Pan map to resolve street address...')}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {/* GoCar Reference Screen 2: Top Bar with Back Arrow + Title + Use GPS */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -12562,8 +12759,8 @@ export function App() {
               >
                 <ArrowLeft size={18} />
               </button>
-              <h1 className="type-title" style={{ fontSize: '20px' }}>
-                {routeTab === 'PICKUP' ? 'Confirm pickup spot' : 'Where to today?'}
+              <h1 className="type-title" style={{ fontSize: '19px' }}>
+                {routeTab === 'PICKUP' ? t('Confirm pickup spot') : t('Where to today?')}
               </h1>
             </div>
             <button
@@ -12572,7 +12769,7 @@ export function App() {
               style={{ minHeight: '34px', padding: '0 10px', fontSize: '12.5px', color: '#0072de', fontWeight: 700 }}
               onClick={handleUseCurrentGpsForField}
             >
-              <Navigation size={14} /> Use GPS
+              <Navigation size={14} /> {t('Use GPS')}
             </button>
           </div>
 
@@ -12598,7 +12795,7 @@ export function App() {
                 setBookDest(geoResults[0].name);
                 setDestCoords({ lat: geoResults[0].lat, lon: geoResults[0].lon });
               }
-              setSheetSnap('half');
+              setSheetSnap('peek');
             }}
             pickupPlaceholder="Your current pickup location"
             destinationPlaceholder="Search for a destination"
@@ -12610,27 +12807,27 @@ export function App() {
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button
               type="button"
-              className={`gf-action-pill-outlined pressable ${routeTab === 'PIN' ? 'is-active' : ''}`}
+              className="gf-action-pill-outlined pressable"
               onClick={() => {
-                setRouteTab(routeTab === 'PIN' ? 'RECENT' : 'PIN');
-                setSheetSnap(routeTab === 'PIN' ? 'full' : 'peek');
+                setRouteTab('PIN');
+                setSheetSnap('peek');
               }}
             >
-              <MapPin size={15} style={{ color: routeTab === 'PIN' ? '#ffffff' : '#0072de' }} />
+              <MapPin size={15} style={{ color: '#0072de' }} />
               {t('Select via map')}
             </button>
 
             <button
               id="route-pick-dest-map-btn"
               type="button"
-              className={`gf-action-pill-outlined pressable ${routeTab === 'PIN' && activeRouteField === 'destination' ? 'is-active' : ''}`}
+              className="gf-action-pill-outlined pressable"
               onClick={() => {
                 setActiveRouteField('destination');
                 setRouteTab('PIN');
                 setSheetSnap('peek');
               }}
             >
-              <MapPin size={15} style={{ color: routeTab === 'PIN' && activeRouteField === 'destination' ? '#ffffff' : '#0072de' }} />
+              <MapPin size={15} style={{ color: '#0072de' }} />
               {t('Pick Destination on Map')}
             </button>
 
@@ -12639,10 +12836,10 @@ export function App() {
               className={`gf-action-pill-outlined pressable ${routeTab === 'PICKUP' ? 'is-active' : ''}`}
               onClick={() => {
                 setRouteTab(routeTab === 'PICKUP' ? 'RECENT' : 'PICKUP');
-                setSheetSnap(routeTab === 'PICKUP' ? 'full' : 'half');
+                setSheetSnap('half');
               }}
             >
-              <Navigation size={15} style={{ color: routeTab === 'PICKUP' ? '#ffffff' : '#0a0a0a' }} />
+              <Navigation size={15} style={{ color: routeTab === 'PICKUP' ? '#ffffff' : '#0072de' }} />
               {t('Pickup spot')} ({selectedPickupSpot})
             </button>
 
@@ -12651,7 +12848,7 @@ export function App() {
               className={`gf-action-pill-outlined pressable ${routeTab === 'SAVED' ? 'is-active' : ''}`}
               onClick={() => {
                 setRouteTab(routeTab === 'SAVED' ? 'RECENT' : 'SAVED');
-                setSheetSnap('full');
+                setSheetSnap('half');
               }}
             >
               <Bookmark size={15} style={{ color: routeTab === 'SAVED' ? '#ffffff' : '#0072de' }} />
@@ -12659,15 +12856,15 @@ export function App() {
             </button>
           </div>
 
-          {/* Live Calculated Route ETA, Ride Time & Distance Banner */}
+          {/* Live Calculated Route ETA, Ride Time & Distance Banner + 1-Tap Expand Route Map Button */}
           {bookOrigin.trim() && bookDest.trim() && (
             <div
               id="route-live-eta-banner"
               style={{
-                padding: '10px 14px',
-                borderRadius: 'var(--radius-control)',
-                background: '#ebf5ff',
-                border: '1px solid #93c5fd',
+                padding: '10px 12px',
+                borderRadius: '12px',
+                background: 'rgba(0, 114, 222, 0.12)',
+                border: '1px solid rgba(37, 140, 251, 0.35)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
@@ -12676,14 +12873,25 @@ export function App() {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Navigation size={16} style={{ color: '#005bb5' }} />
-                <span className="type-body" style={{ fontWeight: 700, color: '#005bb5' }}>
+                <Navigation size={15} style={{ color: '#258cfb' }} />
+                <span className="type-body" style={{ fontWeight: 700, fontSize: '13px', color: 'var(--color-text-primary)' }}>
                   {calculatingRoute
-                    ? 'Calculating route path & ETA...'
-                    : `${currentMetrics.distanceKm} km • ~${currentMetrics.durationMin} min ride`}
+                    ? t('Calculating route path & ETA...')
+                    : `${currentMetrics.distanceKm} km • ~${currentMetrics.durationMin} ${t('min ride')}`}
                 </span>
               </div>
-              <StatusBadge label={`ETA ${currentMetrics.etaText}`} tone="blue" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <StatusBadge label={`ETA ${currentMetrics.etaText}`} tone="blue" />
+                <button
+                  id="btn-toggle-route-map-view"
+                  type="button"
+                  className="gf-btn gf-btn-secondary gf-btn-sm pressable"
+                  style={{ minHeight: '26px', padding: '0 8px', fontSize: '11px' }}
+                  onClick={() => setSheetSnap(sheetSnap === 'peek' ? 'half' : 'peek')}
+                >
+                  {sheetSnap === 'peek' ? t('Show List') : t('View Map Path')}
+                </button>
+              </div>
             </div>
           )}
 
@@ -12700,7 +12908,7 @@ export function App() {
                   fontSize: '11px',
                 }}
               >
-                Quick Corporate Locations
+                {t('Quick Corporate Locations')}
               </div>
               <div
                 style={{
@@ -12724,7 +12932,7 @@ export function App() {
                       } else {
                         setBookDest(poi.name);
                         setDestCoords({ lat: poi.lat, lon: poi.lon });
-                        setSheetSnap('half');
+                        setSheetSnap('peek');
                       }
                     }}
                     style={{
@@ -12753,10 +12961,10 @@ export function App() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
                 <div>
                   <div className="type-section" style={{ fontSize: '16px', fontWeight: 800 }}>
-                    Confirm pickup point
+                    {t('Confirm pickup point')}
                   </div>
                   <div className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-                    Select a lettered gate or lobby spot for faster driver rendezvous
+                    {t('Select a lettered gate or lobby spot for faster driver rendezvous')}
                   </div>
                 </div>
                 <button
@@ -12777,7 +12985,7 @@ export function App() {
                     cursor: 'pointer',
                   }}
                 >
-                  Edit
+                  {t('Edit')}
                 </button>
               </div>
 
@@ -12810,16 +13018,6 @@ export function App() {
                 );
               })}
             </div>
-          ) : routeTab === 'PIN' ? (
-            <div style={{ padding: '12px 0' }}>
-              <div className="type-body" style={{ fontWeight: 700 }}>Drag OpenStreetMap to set location</div>
-              <p className="type-caption" style={{ marginTop: '4px' }}>
-                Pan the map or use arrow keys to place the center pin for your {activeRouteField === 'pickup' ? 'pickup point' : 'destination'}.
-              </p>
-              <div className="type-body" style={{ marginTop: '10px', fontWeight: 700, color: '#0072de' }}>
-                {(activeRouteField === 'pickup' ? bookOrigin : bookDest) || 'Pan map to resolve street address...'}
-              </div>
-            </div>
           ) : geoLoading ? (
             /* GoCar Reference Screen 3: Shimmer Skeleton Loading Rows */
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -12833,8 +13031,8 @@ export function App() {
                 <ListRow
                   tall
                   icon={<MapPin size={18} style={{ color: '#0072de' }} />}
-                  title={`Use typed address: "${activeText}"`}
-                  subtitle="Select this location directly or refine coordinates using Select via map"
+                  title={`${t('Use typed address:')} "${activeText}"`}
+                  subtitle={t('Select this location directly or refine coordinates using Select via map')}
                   showChevron
                   onClick={() => {
                     if (activeRouteField === 'pickup') {
@@ -12848,7 +13046,7 @@ export function App() {
                       } else {
                         setDestCoords(null);
                       }
-                      setSheetSnap('half');
+                      setSheetSnap('peek');
                     }
                   }}
                 />
@@ -12913,7 +13111,7 @@ export function App() {
                         } else {
                           setBookDest(p.name);
                           setDestCoords({ lat: p.lat, lon: p.lon });
-                          setSheetSnap('half');
+                          setSheetSnap('peek');
                         }
                       }}
                     />
@@ -12929,14 +13127,14 @@ export function App() {
                           } else {
                             setBookDest(gateName);
                             setDestCoords({ lat: p.lat, lon: p.lon });
-                            setSheetSnap('half');
+                            setSheetSnap('peek');
                           }
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <Navigation size={13} style={{ color: '#0072de' }} />
                           <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                            Main Lobby / Drop-Off Entrance
+                            {t('Main Lobby / Drop-Off Entrance')}
                           </span>
                         </div>
                         <ChevronRight size={15} style={{ color: 'var(--color-text-muted)' }} />
@@ -12949,8 +13147,8 @@ export function App() {
                 <ListRow
                   tall
                   icon={<MapPin size={16} style={{ color: '#0072de' }} />}
-                  title={`Use typed address: "${activeText}"`}
-                  subtitle="Use exact text you entered instead of suggested result"
+                  title={`${t('Use typed address:')} "${activeText}"`}
+                  subtitle={t('Use exact text you entered instead of suggested result')}
                   showChevron
                   onClick={() => {
                     if (activeRouteField === 'pickup') {
@@ -12964,7 +13162,7 @@ export function App() {
                       } else {
                         setDestCoords(null);
                       }
-                      setSheetSnap('half');
+                      setSheetSnap('peek');
                     }
                   }}
                 />
@@ -12983,27 +13181,36 @@ export function App() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {feedbackBanner}
 
-          {/* Header with Back Button to ROUTE step */}
+          {/* Header with Back Button to ROUTE step + 1-Tap Expand Route Map toggle */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
               <button
                 id="vehicle-back-btn"
                 type="button"
                 className="gf-icon-btn-48 pressable"
-                style={{ width: '36px', height: '36px' }}
+                style={{ width: '36px', height: '36px', flexShrink: 0 }}
                 aria-label={t('Back')}
                 title={t('Back')}
                 onClick={() => {
                   setBookingStep('ROUTE');
-                  setSheetSnap('full');
+                  setSheetSnap(bookDest.trim() ? 'peek' : 'half');
                 }}
               >
                 <ArrowLeft size={18} />
               </button>
-              <h1 className="type-title" style={{ fontSize: '19px', margin: 0 }}>
+              <h1 className="type-title" style={{ fontSize: '17.5px', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {t('Trip Category, Time & Booking Form')}
               </h1>
             </div>
+            <button
+              id="vehicle-toggle-map-btn"
+              type="button"
+              className="gf-btn gf-btn-secondary gf-btn-sm pressable"
+              style={{ minHeight: '30px', padding: '0 10px', fontSize: '11.5px', flexShrink: 0 }}
+              onClick={() => setSheetSnap(sheetSnap === 'peek' ? 'half' : 'peek')}
+            >
+              {sheetSnap === 'peek' ? t('Show Form') : t('View Map Path')}
+            </button>
           </div>
 
           {/* Prototype Vehicle Route Card (.gf-proto-rc) & Corporate Fleet Strip (.gf-proto-ban) */}
@@ -13017,7 +13224,10 @@ export function App() {
                 type="button"
                 className="gf-proto-btn gf-proto-btn-o gf-proto-btn-s pressable"
                 style={{ height: '26px', padding: '0 10px', fontSize: '11px' }}
-                onClick={() => setBookingStep('ROUTE')}
+                onClick={() => {
+                  setBookingStep('ROUTE');
+                  setSheetSnap('half');
+                }}
               >
                 {t('Edit')}
               </button>
@@ -14372,18 +14582,21 @@ export function App() {
               }
             };
 
+            const isPinOnMapMode = navSection === 'HOME' && bookingStep === 'ROUTE' && routeTab === 'PIN';
             return (
               <div
                 className={`gf-map-stage-host ${isDriverFullMap ? 'is-driver-full-map' : ''}`}
                 style={
                   {
                     '--mobile-map-height': isDriverFullMap
-                      ? 'calc(100dvh - 64px)'
+                      ? 'calc(100 * var(--app-dvh-unit, 1dvh) - 64px)'
+                      : isPinOnMapMode
+                      ? 'calc(68 * var(--app-dvh-unit, 1dvh))'
                       : sheetSnap === 'peek'
-                      ? '61dvh'
+                      ? 'calc(66 * var(--app-dvh-unit, 1dvh))'
                       : sheetSnap === 'full'
-                      ? '22dvh'
-                      : '44dvh',
+                      ? 'calc(34 * var(--app-dvh-unit, 1dvh))'
+                      : 'calc(48 * var(--app-dvh-unit, 1dvh))',
                   } as React.CSSProperties
                 }
               >

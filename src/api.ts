@@ -16,6 +16,8 @@ export async function apiRequest<T = any>(path: string, options: RequestInit = {
   const token = getStoredToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    Pragma: 'no-cache',
     ...((options.headers as Record<string, string>) || {}),
   };
   if (token) {
@@ -25,6 +27,7 @@ export async function apiRequest<T = any>(path: string, options: RequestInit = {
   const normalizedPath = path.startsWith('http') || path.startsWith('/') ? path : `/${path}`;
 
   const res = await fetch(normalizedPath, {
+    cache: 'no-store',
     ...options,
     headers,
   });
