@@ -3743,7 +3743,7 @@ export function createApp() {
     const db = getDb();
     const user = req.user!;
     const tripId = Number(req.params.id);
-    const { action_type, passenger_nickname, message, destination } = req.body ?? {};
+    const { action_type, passenger_nickname, message, origin, destination, purpose } = req.body ?? {};
     const actionNorm = String(action_type || 'HITCHHIKE').toUpperCase();
 
     if (!['HITCHHIKE', 'REQUEST_CANCEL'].includes(actionNorm)) {
@@ -3965,9 +3965,15 @@ export function createApp() {
       return;
     }
     const cancelPaxSummary = cancelPaxList.join(', ');
+    const nextOrigin = String(origin || '').trim() || String(trip.origin || '');
+    const nextDestination = String(destination || '').trim() || String(trip.destination || '');
+    const nextPurpose = String(purpose || '').trim() || null;
+    const isDifferentLocation =
+      nextOrigin.toLowerCase() !== String(trip.origin || '').trim().toLowerCase() ||
+      nextDestination.toLowerCase() !== String(trip.destination || '').trim().toLowerCase();
 
-    const title = `🔄 Schedule Negotiation (Cancel Request): ${user.nickname} (${reqDeptName})`;
-    const body = `${user.nickname} (${reqDeptName}) is requesting to negotiate your booking on ${trip.registration_plate} (${trip.make} ${trip.model}, ${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}) to "${trip.destination}". New passenger(s) (${cancelPaxList.length}): ${cancelPaxSummary}.${noteText ? ` Reason / Message: "${noteText}"` : ' Please accept to cancel and transfer this booking slot to them, or reject to keep your booking.'}`;
+    const title = `🔄 Schedule Negotiation (Cancel & Transfer): ${user.nickname} (${reqDeptName})`;
+    const body = `${user.nickname} (${reqDeptName}) is requesting to transfer your booking slot on ${trip.registration_plate} (${trip.make} ${trip.model}, ${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}).\nNew Route (${isDifferentLocation ? 'Different Location' : 'Same Location'}): ${nextOrigin} → ${nextDestination}.\nNew Passenger(s) (${cancelPaxList.length}): ${cancelPaxSummary}.${nextPurpose ? `\nPurpose: ${nextPurpose}.` : ''}${noteText ? `\nMessage: "${noteText}"` : ''}\nAccept to cancel your booking and transfer this timeslot to them (their booking will require fresh Fleet Manager & Head of WS approval), or reject to keep your booking.`;
 
     const notifId = sendUserNotification(db, {
       userId: trip.requester_id,
@@ -3981,10 +3987,10 @@ export function createApp() {
 
     const negRes = db
       .prepare(
-        `INSERT INTO negotiation_requests (trip_request_id, notification_id, action_type, requester_user_id, holder_user_id, passenger_nickname, destination, message, status)
-         VALUES (?, ?, 'REQUEST_CANCEL', ?, ?, ?, ?, ?, 'PENDING')`
+        `INSERT INTO negotiation_requests (trip_request_id, notification_id, action_type, requester_user_id, holder_user_id, passenger_nickname, origin, destination, purpose, message, status)
+         VALUES (?, ?, 'REQUEST_CANCEL', ?, ?, ?, ?, ?, ?, ?, 'PENDING')`
       )
-      .run(tripId, notifId, user.id, trip.requester_id, cancelPaxSummary, destination || trip.destination, noteText || null);
+      .run(tripId, notifId, user.id, trip.requester_id, cancelPaxSummary, nextOrigin, nextDestination, nextPurpose, noteText || null);
     const negotiationId = Number(negRes.lastInsertRowid);
 
     try {
@@ -4007,7 +4013,9 @@ export function createApp() {
           negotiation_requester_id: user.id,
           negotiation_requester_name: user.nickname,
           negotiation_passenger_nickname: cancelPaxSummary,
-          negotiation_destination: destination || trip.destination,
+          negotiation_origin: nextOrigin,
+          negotiation_destination: nextDestination,
+          negotiation_purpose: nextPurpose,
           negotiation_message: noteText || null,
         },
       });
@@ -4017,6 +4025,9 @@ export function createApp() {
       negotiation_id: negotiationId,
       requester_id: user.id,
       requester_name: user.nickname,
+      origin: nextOrigin,
+      destination: nextDestination,
+      purpose: nextPurpose,
       passengers: cancelPaxList,
       message: noteText,
     });
@@ -4026,8 +4037,11 @@ export function createApp() {
       action_type: 'REQUEST_CANCEL',
       notificationId: notifId,
       negotiationId,
+      origin: nextOrigin,
+      destination: nextDestination,
+      purpose: nextPurpose,
       passengers: cancelPaxList,
-      message: `Cancellation negotiation request sent to ${trip.requester_name} (${trip.department_name}).`,
+      message: `Cancellation & transfer request sent to ${trip.requester_name} (${trip.department_name}).`,
     });
   });
 
@@ -4281,10 +4295,13 @@ export function createApp() {
       }
       const transferredPaxJson = JSON.stringify(swappedList);
       const transferredPaxNickname = swappedList.map((p, idx) => `${idx + 1}. ${p.nickname}`).join(', ');
-      const transferredPurpose = nr.message
+      const transferredPurpose = String(nr.purpose || '').trim()
+        ? String(nr.purpose).trim()
+        : nr.message
         ? `Transferred booking: ${nr.message}`
         : `Transferred booking (${trip.purpose || 'Operational Trip'})`;
-      const transferredDest = nr.destination || trip.destination;
+      const transferredOrigin = String(nr.origin || '').trim() || String(trip.origin || '');
+      const transferredDest = String(nr.destination || '').trim() || String(trip.destination || '');
 
       const insTrip = db
         .prepare(
@@ -4303,7 +4320,7 @@ export function createApp() {
           transferredPaxNickname,
           transferredPaxJson,
           transferredPurpose,
-          trip.origin,
+          transferredOrigin,
           transferredDest,
           trip.start_time,
           trip.end_time,
@@ -4315,7 +4332,7 @@ export function createApp() {
         );
       const newTripId = Number(insTrip.lastInsertRowid);
 
-      // Immediately lock the vehicle schedule for the transferred booking (Pending Approval)
+      // Immediately lock the vehicle schedule for the transferred booking (Pending Approval — requires fresh FM & HWS approval)
       const insBooking = db
         .prepare(
           `INSERT INTO bookings (vehicle_id, trip_request_id, booked_by, purpose, start_time, end_time, status)
@@ -4335,7 +4352,7 @@ export function createApp() {
           trip.vehicle_id,
           carryDriverId,
           user.id,
-          `Transferred slot from booking #${trip.id} via negotiation #${negId}`,
+          `Transferred slot from booking #${trip.id} via negotiation #${negId} (Pending FM & HWS Approval)`,
           trip.start_time,
           trip.end_time
         );
@@ -4350,7 +4367,13 @@ export function createApp() {
          WHERE trip_request_id = ? AND id != ? AND status = 'PENDING'`
       ).run(user.id, trip.id, negId);
 
-      return { newTripId, swappedPassengers: swappedList.map((p) => p.nickname) };
+      return {
+        newTripId,
+        swappedPassengers: swappedList.map((p) => p.nickname),
+        transferredOrigin,
+        transferredDest,
+        transferredPurpose,
+      };
     });
 
     if (!transferResult) {
@@ -4361,16 +4384,16 @@ export function createApp() {
     sendUserNotification(db, {
       userId: Number(nr.requester_user_id),
       triggerType: 'CANCEL_NEGOTIATION_ACCEPTED',
-      title: '✅ Booking Transferred to You!',
-      body: `${user.nickname} accepted your cancellation request. Their booking on ${trip.registration_plate} (${trip.make} ${trip.model}) has been cancelled and automatically transferred to you as Booking #${transferResult.newTripId} (Passengers: ${transferResult.swappedPassengers.join(', ')}), awaiting Fleet PIC & Head of WS approval.`,
+      title: '✅ Slot Transferred — Awaiting Approval',
+      body: `${user.nickname} accepted your cancellation & transfer request! Car ${trip.registration_plate} (${trip.make} ${trip.model}) slot has been transferred to you as Booking #${transferResult.newTripId}.\nRoute: ${transferResult.transferredOrigin} → ${transferResult.transferredDest}\nPassengers: ${transferResult.swappedPassengers.join(', ')}\nStatus: Pending fresh approval from Fleet Manager (FM) & Head of WS (HWS).`,
       relatedEntityType: 'TRIP_REQUEST',
       relatedEntityId: transferResult.newTripId,
     });
 
     notifyAdmins(db, {
-      triggerType: 'TRIP_TRANSFERRED',
-      title: '🔄 Booking Cancelled & Transferred',
-      body: `${user.nickname} cancelled Booking #${trip.id} (${trip.registration_plate}) and transferred the slot to ${nr.requester_name} (Passengers: ${transferResult.swappedPassengers.join(', ')}) as Booking #${transferResult.newTripId} (awaiting approval).`,
+      triggerType: 'TRIP_TRANSFERRED_NEEDS_APPROVAL',
+      title: '🔄 Transferred Booking Requires Approval',
+      body: `${user.nickname} cancelled Booking #${trip.id} (${trip.registration_plate}) and transferred the timeslot to ${nr.requester_name} as Booking #${transferResult.newTripId}.\nNew Route: ${transferResult.transferredOrigin} → ${transferResult.transferredDest}\nPassengers: ${transferResult.swappedPassengers.join(', ')}\nAction Required: Fresh Stage 1 (Fleet Operation PIC) & Stage 2 (Head of WS) approval is required.`,
       relatedEntityType: 'TRIP_REQUEST',
       relatedEntityId: transferResult.newTripId,
     });
@@ -4380,7 +4403,10 @@ export function createApp() {
       status: 'CANCELLED',
       transferred_to_user_id: nr.requester_user_id,
       transferred_trip_id: transferResult.newTripId,
+      transferred_origin: transferResult.transferredOrigin,
+      transferred_destination: transferResult.transferredDest,
       swapped_passengers: transferResult.swappedPassengers,
+      requires_fresh_approval: true,
     });
 
     const cancelledTrip = broadcastTripUpdate(db, Number(trip.id), 'TRIP_UPDATED', { status: 'CANCELLED' });
@@ -4393,6 +4419,7 @@ export function createApp() {
       cancelledTrip,
       transferredTrip,
       transferredTripId: transferResult.newTripId,
+      requiresApproval: true,
     });
   });
 
@@ -7877,7 +7904,9 @@ export function createApp() {
                 nr.requester_user_id as negotiation_requester_id,
                 req_u.nickname as negotiation_requester_name,
                 nr.passenger_nickname as negotiation_passenger_nickname,
+                nr.origin as negotiation_origin,
                 nr.destination as negotiation_destination,
+                nr.purpose as negotiation_purpose,
                 nr.message as negotiation_message,
                 nr.transferred_trip_id as negotiation_transferred_trip_id
          FROM notifications n

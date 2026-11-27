@@ -621,6 +621,10 @@ export function App() {
   const [negotiationNote, setNegotiationNote] = useState<string>('');
   const [negotiationPassengerNickname, setNegotiationPassengerNickname] = useState<string>('');
   const [negotiationExtraPassengers, setNegotiationExtraPassengers] = useState<string[]>([]);
+  const [negotiationLocationMode, setNegotiationLocationMode] = useState<'SAME' | 'DIFFERENT'>('SAME');
+  const [negotiationOrigin, setNegotiationOrigin] = useState<string>('');
+  const [negotiationDestination, setNegotiationDestination] = useState<string>('');
+  const [negotiationPurpose, setNegotiationPurpose] = useState<string>('');
   const [negotiationSubmitting, setNegotiationSubmitting] = useState<boolean>(false);
   const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
   const [negotiationRespondBusyId, setNegotiationRespondBusyId] = useState<number | null>(null);
@@ -2645,6 +2649,18 @@ export function App() {
       setStatusBanner({ type: 'danger', text: t('Please enter your passenger nickname to hitchhike.') });
       return;
     }
+    const resolvedOrigin =
+      negotiationActionType === 'REQUEST_CANCEL'
+        ? (negotiationLocationMode === 'DIFFERENT' ? negotiationOrigin.trim() : String(negotiationModalTrip.origin || '').trim()) || String(negotiationModalTrip.origin || '').trim()
+        : undefined;
+    const resolvedDestination =
+      negotiationActionType === 'REQUEST_CANCEL'
+        ? (negotiationLocationMode === 'DIFFERENT' ? negotiationDestination.trim() : String(negotiationModalTrip.destination || '').trim())
+        : undefined;
+    if (negotiationActionType === 'REQUEST_CANCEL' && negotiationLocationMode === 'DIFFERENT' && (!negotiationOrigin.trim() || !negotiationDestination.trim())) {
+      setStatusBanner({ type: 'danger', text: t('Please enter both your Pickup Location and Destination for the transferred car slot.') });
+      return;
+    }
     setNegotiationSubmitting(true);
     try {
       const res = await apiRequest(`/api/trips/${negotiationModalTrip.id}/negotiate`, {
@@ -2653,6 +2669,13 @@ export function App() {
           action_type: negotiationActionType,
           passenger_nickname: uniquePax.join(', ') || user?.nickname || 'Colleague',
           passengers: uniquePax.length > 0 ? uniquePax : [user?.nickname || 'Colleague'],
+          ...(negotiationActionType === 'REQUEST_CANCEL'
+            ? {
+                origin: resolvedOrigin,
+                destination: resolvedDestination || negotiationModalTrip.destination,
+                purpose: negotiationPurpose.trim() || undefined,
+              }
+            : {}),
           message: negotiationNote.trim(),
           note: negotiationNote.trim(),
         }),
@@ -2664,6 +2687,10 @@ export function App() {
       setNegotiationModalTrip(null);
       setNegotiationNote('');
       setNegotiationExtraPassengers([]);
+      setNegotiationLocationMode('SAME');
+      setNegotiationOrigin('');
+      setNegotiationDestination('');
+      setNegotiationPurpose('');
       await loadAllData(user);
     } catch (err: any) {
       setStatusBanner({ type: 'danger', text: err.message });
@@ -6379,6 +6406,7 @@ export function App() {
                 </label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   <button
+                    id="btn-neg-action-hitchhike"
                     type="button"
                     className="pressable"
                     onClick={() => { setNegotiationActionType('HITCHHIKE'); setNegotiationExtraPassengers([]); }}
@@ -6386,34 +6414,157 @@ export function App() {
                       padding: '10px 12px',
                       borderRadius: '10px',
                       border: negotiationActionType === 'HITCHHIKE' ? '2px solid #0072de' : '1px solid var(--color-border)',
-                      background: negotiationActionType === 'HITCHHIKE' ? '#ebf5ff' : 'var(--color-surface)',
-                      color: negotiationActionType === 'HITCHHIKE' ? '#005bb5' : 'var(--color-text-primary)',
+                      background: negotiationActionType === 'HITCHHIKE' ? 'rgba(0, 114, 222, 0.12)' : 'var(--color-bg-surface)',
+                      color: negotiationActionType === 'HITCHHIKE' ? '#0072de' : 'var(--color-text-primary)',
                       textAlign: 'left',
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{ fontWeight: 800, fontSize: '13px' }}>🚗 Hitchhike Ride</div>
-                    <div style={{ fontSize: '11px', opacity: 0.85, marginTop: '2px' }}>Join this car (same destination)</div>
+                    <div style={{ fontWeight: 800, fontSize: '13px' }}>🚗 {t('Hitchhike Ride')}</div>
+                    <div style={{ fontSize: '11px', opacity: 0.85, marginTop: '2px' }}>{t('Join this car (same destination)')}</div>
                   </button>
                   <button
+                    id="btn-neg-action-cancel"
                     type="button"
                     className="pressable"
-                    onClick={() => { setNegotiationActionType('REQUEST_CANCEL'); setNegotiationExtraPassengers([]); }}
+                    onClick={() => {
+                      setNegotiationActionType('REQUEST_CANCEL');
+                      setNegotiationExtraPassengers([]);
+                      setNegotiationLocationMode('SAME');
+                      setNegotiationOrigin(String(negotiationModalTrip.origin || ''));
+                      setNegotiationDestination(String(negotiationModalTrip.destination || ''));
+                    }}
                     style={{
                       padding: '10px 12px',
                       borderRadius: '10px',
                       border: negotiationActionType === 'REQUEST_CANCEL' ? '2px solid #0072de' : '1px solid var(--color-border)',
-                      background: negotiationActionType === 'REQUEST_CANCEL' ? '#ebf5ff' : 'var(--color-surface)',
-                      color: negotiationActionType === 'REQUEST_CANCEL' ? '#005bb5' : 'var(--color-text-primary)',
+                      background: negotiationActionType === 'REQUEST_CANCEL' ? 'rgba(0, 114, 222, 0.12)' : 'var(--color-bg-surface)',
+                      color: negotiationActionType === 'REQUEST_CANCEL' ? '#0072de' : 'var(--color-text-primary)',
                       textAlign: 'left',
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{ fontWeight: 800, fontSize: '13px' }}>🔄 Negotiate Cancel</div>
-                    <div style={{ fontSize: '11px', opacity: 0.85, marginTop: '2px' }}>Ask holder to release / swap slot</div>
+                    <div style={{ fontWeight: 800, fontSize: '13px' }}>🔄 {t('Negotiate Cancel')}</div>
+                    <div style={{ fontSize: '11px', opacity: 0.85, marginTop: '2px' }}>{t('Transfer car slot (same or different location)')}</div>
                   </button>
                 </div>
               </div>
+
+              {negotiationActionType === 'REQUEST_CANCEL' && (
+                <div
+                  id="negotiate-cancel-route-section"
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    background: 'var(--color-bg-subtle)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <label className="type-caption" style={{ fontWeight: 700 }}>
+                      📍 {t('Location for Transferred Slot')} *
+                    </label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        id="btn-neg-loc-same"
+                        type="button"
+                        className={`gf-btn gf-btn-sm pressable ${negotiationLocationMode === 'SAME' ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
+                        style={{ minHeight: '28px', padding: '0 10px', fontSize: '11.5px' }}
+                        onClick={() => {
+                          setNegotiationLocationMode('SAME');
+                          setNegotiationOrigin(String(negotiationModalTrip.origin || ''));
+                          setNegotiationDestination(String(negotiationModalTrip.destination || ''));
+                        }}
+                      >
+                        {t('Same Location')}
+                      </button>
+                      <button
+                        id="btn-neg-loc-different"
+                        type="button"
+                        className={`gf-btn gf-btn-sm pressable ${negotiationLocationMode === 'DIFFERENT' ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
+                        style={{ minHeight: '28px', padding: '0 10px', fontSize: '11.5px' }}
+                        onClick={() => {
+                          setNegotiationLocationMode('DIFFERENT');
+                          if (negotiationOrigin === String(negotiationModalTrip.origin || '')) setNegotiationOrigin('');
+                          if (negotiationDestination === String(negotiationModalTrip.destination || '')) setNegotiationDestination('');
+                        }}
+                      >
+                        {t('Different Location')}
+                      </button>
+                    </div>
+                  </div>
+
+                  {negotiationLocationMode === 'SAME' ? (
+                    <div className="type-caption" style={{ color: 'var(--color-text-secondary)', lineHeight: 1.45 }}>
+                      <strong>{t('Pickup')}:</strong> {negotiationModalTrip.origin}
+                      <br />
+                      <strong>{t('Destination')}:</strong> {negotiationModalTrip.destination}
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="type-caption" htmlFor="negotiate-cancel-origin" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                          {t('New Pickup Location')} <span style={{ color: '#dc2626' }}>*</span>
+                        </label>
+                        <input
+                          id="negotiate-cancel-origin"
+                          type="text"
+                          className="gf-input"
+                          required
+                          placeholder={t('Enter your pickup location')}
+                          value={negotiationOrigin}
+                          onChange={(e) => setNegotiationOrigin(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="type-caption" htmlFor="negotiate-cancel-destination" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                          {t('New Destination')} <span style={{ color: '#dc2626' }}>*</span>
+                        </label>
+                        <input
+                          id="negotiate-cancel-destination"
+                          type="text"
+                          className="gf-input"
+                          required
+                          placeholder={t('Enter your destination')}
+                          value={negotiationDestination}
+                          onChange={(e) => setNegotiationDestination(e.target.value)}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <div>
+                    <label className="type-caption" htmlFor="negotiate-cancel-purpose" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                      {t('Trip Purpose (Optional)')}
+                    </label>
+                    <input
+                      id="negotiate-cancel-purpose"
+                      type="text"
+                      className="gf-input"
+                      placeholder={t('e.g. Client Visit / Site Inspection')}
+                      value={negotiationPurpose}
+                      onChange={(e) => setNegotiationPurpose(e.target.value)}
+                    />
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: '11.5px',
+                      color: '#0072de',
+                      background: 'rgba(0, 114, 222, 0.08)',
+                      border: '1px solid rgba(0, 114, 222, 0.22)',
+                      borderRadius: '8px',
+                      padding: '8px 10px',
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    ℹ️ {t('When the current holder accepts in their Inbox, this car timeslot transfers to you automatically and will require fresh approval from the Fleet Manager & Head of WS.')}
+                  </div>
+                </div>
+              )}
 
               {(() => {
                 const matchedVeh = vehicles.find((v) => Number(v.id) === Number(negotiationModalTrip.vehicle_id));
@@ -12213,56 +12364,74 @@ export function App() {
 
                     {isNegotiation && (
                       <div
-                        style={{ display: 'flex', gap: '8px', padding: '8px 0 2px 28px', flexWrap: 'wrap', alignItems: 'center' }}
+                        style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '8px 0 2px 28px' }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {isPendingDecision ? (
-                          <>
-                            <button
-                              id={`btn-accept-neg-${n.negotiation_id}`}
-                              type="button"
-                              disabled={isBusy}
-                              className="gf-btn gf-btn-primary gf-btn-sm pressable"
-                              style={{ minHeight: '32px', padding: '0 12px', fontSize: '12px' }}
-                              onClick={() => handleRespondNegotiation(n, 'ACCEPT')}
-                            >
-                              {isHitchhikeReq
-                                ? `✓ ${t('Accept Hitchhike')} (${hitchhikerName})`
-                                : `✓ ${t('Accept & Transfer Slot')}`}
-                            </button>
-                            <button
-                              id={`btn-reject-neg-${n.negotiation_id}`}
-                              type="button"
-                              disabled={isBusy}
-                              className="gf-btn gf-btn-outline-danger gf-btn-sm pressable"
-                              style={{ minHeight: '32px', padding: '0 12px', fontSize: '12px' }}
-                              onClick={() => handleRespondNegotiation(n, 'REJECT')}
-                            >
-                              ✕ {t('Reject')}
-                            </button>
-                          </>
-                        ) : negStatus === 'ACCEPTED' ? (
-                          <StatusBadge
-                            tone="blue"
-                            label={
-                              isHitchhikeReq
-                                ? `${t('Accepted')} • ${hitchhikerName} ${t('added to passengers')}`
-                                : `${t('Accepted')} • ${t('Booking cancelled & transferred')}${n.negotiation_transferred_trip_id ? ` (#${n.negotiation_transferred_trip_id})` : ''}`
-                            }
-                          />
-                        ) : negStatus === 'REJECTED' ? (
-                          <StatusBadge tone="red" label={t('Rejected')} />
-                        ) : isHitchhikeReq && n.related_entity_id ? (
-                          <button
-                            type="button"
-                            disabled={negotiationRespondBusyId === Number(n.id)}
-                            className="gf-btn gf-btn-primary gf-btn-sm pressable"
-                            style={{ minHeight: '30px', padding: '0 12px', fontSize: '11.5px' }}
-                            onClick={() => handleAcceptHitchhike(Number(n.related_entity_id), hitchhikerName, undefined, Number(n.id))}
+                        {isCancelNegotiateReq && (n.negotiation_origin || n.negotiation_destination) && (
+                          <div
+                            className="type-caption"
+                            style={{
+                              fontSize: '11.5px',
+                              color: 'var(--color-text-primary)',
+                              background: 'rgba(0, 114, 222, 0.08)',
+                              border: '1px solid rgba(0, 114, 222, 0.22)',
+                              borderRadius: '8px',
+                              padding: '5px 8px',
+                              lineHeight: 1.4,
+                            }}
                           >
-                            ✓ {t('Accept Hitchhike')} ({hitchhikerName})
-                          </button>
-                        ) : null}
+                            📍 <strong>{t('New Route')}:</strong> {n.negotiation_origin || '—'} → <strong>{n.negotiation_destination || '—'}</strong>
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          {isPendingDecision ? (
+                            <>
+                              <button
+                                id={`btn-accept-neg-${n.negotiation_id}`}
+                                type="button"
+                                disabled={isBusy}
+                                className="gf-btn gf-btn-primary gf-btn-sm pressable"
+                                style={{ minHeight: '32px', padding: '0 12px', fontSize: '12px' }}
+                                onClick={() => handleRespondNegotiation(n, 'ACCEPT')}
+                              >
+                                {isHitchhikeReq
+                                  ? `✓ ${t('Accept Hitchhike')} (${hitchhikerName})`
+                                  : `✓ ${t('Accept & Transfer Slot')}`}
+                              </button>
+                              <button
+                                id={`btn-reject-neg-${n.negotiation_id}`}
+                                type="button"
+                                disabled={isBusy}
+                                className="gf-btn gf-btn-outline-danger gf-btn-sm pressable"
+                                style={{ minHeight: '32px', padding: '0 12px', fontSize: '12px' }}
+                                onClick={() => handleRespondNegotiation(n, 'REJECT')}
+                              >
+                                ✕ {t('Reject')}
+                              </button>
+                            </>
+                          ) : negStatus === 'ACCEPTED' ? (
+                            <StatusBadge
+                              tone="blue"
+                              label={
+                                isHitchhikeReq
+                                  ? `${t('Accepted')} • ${hitchhikerName} ${t('added to passengers')}`
+                                  : `${t('Accepted')} • ${t('Transferred (Pending FM & HWS Approval)')}${n.negotiation_transferred_trip_id ? ` #${n.negotiation_transferred_trip_id}` : ''}`
+                              }
+                            />
+                          ) : negStatus === 'REJECTED' ? (
+                            <StatusBadge tone="red" label={t('Rejected')} />
+                          ) : isHitchhikeReq && n.related_entity_id ? (
+                            <button
+                              type="button"
+                              disabled={negotiationRespondBusyId === Number(n.id)}
+                              className="gf-btn gf-btn-primary gf-btn-sm pressable"
+                              style={{ minHeight: '30px', padding: '0 12px', fontSize: '11.5px' }}
+                              onClick={() => handleAcceptHitchhike(Number(n.related_entity_id), hitchhikerName, undefined, Number(n.id))}
+                            >
+                              ✓ {t('Accept Hitchhike')} ({hitchhikerName})
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -13014,6 +13183,10 @@ export function App() {
                     setNegotiationActionType('HITCHHIKE');
                     setNegotiationPassengerNickname(user.nickname || '');
                     setNegotiationExtraPassengers([]);
+                    setNegotiationLocationMode('SAME');
+                    setNegotiationOrigin(String(tr.origin || ''));
+                    setNegotiationDestination(String(tr.destination || ''));
+                    setNegotiationPurpose('');
                     setNegotiationNote(`Heading to ${tr.destination} too, may I hitchhike?`);
                   }
             }

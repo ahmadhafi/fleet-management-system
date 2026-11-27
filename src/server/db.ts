@@ -537,7 +537,9 @@ function initializeSchema(db: AppDatabase) {
       requester_user_id INTEGER NOT NULL REFERENCES users(id),
       holder_user_id INTEGER NOT NULL REFERENCES users(id),
       passenger_nickname TEXT,
+      origin TEXT,
       destination TEXT,
+      purpose TEXT,
       message TEXT,
       status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ACCEPTED', 'REJECTED')),
       decided_by INTEGER REFERENCES users(id),
@@ -682,6 +684,12 @@ function initializeSchema(db: AppDatabase) {
   } catch {}
   try {
     db.exec('ALTER TABLE driver_profiles ADD COLUMN petty_cash_balance REAL NOT NULL DEFAULT 500000;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE negotiation_requests ADD COLUMN origin TEXT;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE negotiation_requests ADD COLUMN purpose TEXT;');
   } catch {}
   try {
     db.exec("ALTER TABLE expenses ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'PETTY_CASH';");

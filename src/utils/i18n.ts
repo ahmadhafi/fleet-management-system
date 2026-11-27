@@ -969,6 +969,15 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
   { en: 'Dismiss', id: 'Abaikan', ko: '무시' },
   { en: 'WhatsApp Phone Required for Recovery', id: 'Nomor WhatsApp Wajib untuk Pemulihan Akun', ko: '계정 복구용 WhatsApp 번호 필요' },
   { en: 'Add Phone Number', id: 'Tambah Nomor HP', ko: '전화번호 추가' },
+  { en: 'Transfer car slot (same or different location)', id: 'Alihkan slot mobil (lokasi sama atau berbeda)', ko: '차량 슬롯 양도 (동일 또는 다른 위치)' },
+  { en: 'Location for Transferred Slot', id: 'Lokasi untuk Slot yang Dialihkan', ko: '양도받을 슬롯의 이동 경로' },
+  { en: 'Same Location', id: 'Lokasi Sama', ko: '동일 위치' },
+  { en: 'Different Location', id: 'Lokasi Berbeda', ko: '다른 위치' },
+  { en: 'New Pickup Location', id: 'Lokasi Jemput Baru', ko: '새 픽업 위치' },
+  { en: 'New Destination', id: 'Tujuan Baru', ko: '새 목적지' },
+  { en: 'New Route', id: 'Rute Baru', ko: '새 경로' },
+  { en: 'Trip Purpose (Optional)', id: 'Keperluan Perjalanan (Opsional)', ko: '운행 목적 (선택)' },
+  { en: 'Transferred (Pending FM & HWS Approval)', id: 'Dialihkan (Menunggu Persetujuan FM & HWS)', ko: '양도됨 (FM 및 HWS 승인 대기)' },
 ];
 
 /**

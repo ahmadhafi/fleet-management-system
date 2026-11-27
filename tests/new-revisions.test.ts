@@ -3500,6 +3500,135 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(appTsx).not.toContain('{(user.role === "DRV" || isPrivileged) ? (');
         expect(appTsx).not.toContain("{(user.role === 'DRV' || isPrivileged) && (");
       });
+
+      it('transfers car timeslot on Cancel Negotiation accept with different or same location and requires fresh Fleet Manager (FM) & Head of WS (HWS) approval', async () => {
+        resetDbForTesting(':memory:');
+        const testApp = createApp();
+
+        // Login Alex (first booking holder), Sara (new requester), FM, and HWS
+        const [alexLogin, saraLogin, fmLogin, hwsLogin] = await Promise.all([
+          request(testApp).post('/api/auth/login').send({ group_username: 'emp_alex', password: 'Emp@123' }),
+          request(testApp).post('/api/auth/login').send({ group_username: 'emp_sara', password: 'Emp@123' }),
+          request(testApp).post('/api/auth/login').send({ group_username: 'fleetmgr', password: 'Fleet@123' }),
+          request(testApp).post('/api/auth/login').send({ group_username: 'hws_head', password: 'Hws@123' }),
+        ]);
+        expect(alexLogin.status).toBe(200);
+        expect(saraLogin.status).toBe(200);
+        expect(fmLogin.status).toBe(200);
+        expect(hwsLogin.status).toBe(200);
+
+        const alexTok = alexLogin.body.token;
+        const saraTok = saraLogin.body.token;
+        const fmTok = fmLogin.body.token;
+        const hwsTok = hwsLogin.body.token;
+
+        const vehRes = await request(testApp).get('/api/vehicles').set('Authorization', `Bearer ${alexTok}`);
+        const veh = vehRes.body.vehicles[0];
+        const baseDay = new Date(Date.now() + 96 * 3600000);
+        baseDay.setHours(10, 0, 0, 0);
+        const startIso = baseDay.toISOString();
+        const endIso = new Date(baseDay.getTime() + 2 * 3600000).toISOString();
+
+        // 1. Alex books a car and gets FULL 2-stage approval (FM + HWS)
+        const created = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({
+            vehicle_id: veh.id,
+            purpose: 'Original Alex Visit',
+            origin: 'Samsung Research Indonesia (SRIN)',
+            destination: 'Plant 1 Sunter',
+            start_time: startIso,
+            end_time: endIso,
+            passenger_count: 1,
+            passenger_nickname: 'Alex Engineering',
+          });
+        expect(created.status).toBe(201);
+        const origTripId = created.body.tripId;
+
+        const fmApproveOrig = await request(testApp)
+          .post(`/api/trips/${origTripId}/decision`)
+          .set('Authorization', `Bearer ${fmTok}`)
+          .send({ decision: 'APPROVED', reason: 'FM Stage 1 OK' });
+        expect(fmApproveOrig.status).toBe(200);
+
+        const hwsApproveOrig = await request(testApp)
+          .post(`/api/trips/${origTripId}/decision`)
+          .set('Authorization', `Bearer ${hwsTok}`)
+          .send({ decision: 'APPROVED', reason: 'HWS Stage 2 OK' });
+        expect(hwsApproveOrig.status).toBe(200);
+        expect(hwsApproveOrig.body.trip.status).toBe('APPROVED');
+
+        // 2. Sara negotiates to cancel & transfer the car timeslot with a DIFFERENT pickup & destination
+        const negRes = await request(testApp)
+          .post(`/api/trips/${origTripId}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({
+            action_type: 'REQUEST_CANCEL',
+            origin: 'SCBD Head Office, District 8',
+            destination: 'Bandara Soekarno-Hatta T3',
+            purpose: 'Urgent VIP Airport Pickup',
+            passengers: ['Sara Sales', 'Budi Guest'],
+            message: 'Urgent VIP pickup, can we swap slots?',
+          });
+        expect(negRes.status).toBe(201);
+        expect(negRes.body.origin).toBe('SCBD Head Office, District 8');
+        expect(negRes.body.destination).toBe('Bandara Soekarno-Hatta T3');
+        const negId = negRes.body.negotiationId;
+
+        // 3. Alex sees the transfer request in Inbox with new origin & destination
+        const alexInbox = await request(testApp).get('/api/notifications').set('Authorization', `Bearer ${alexTok}`);
+        const negNotif = (alexInbox.body.notifications || []).find((n: any) => Number(n.negotiation_id) === Number(negId));
+        expect(negNotif).toBeTruthy();
+        expect(negNotif.negotiation_action_type).toBe('REQUEST_CANCEL');
+        expect(negNotif.negotiation_status).toBe('PENDING');
+        expect(negNotif.negotiation_origin).toBe('SCBD Head Office, District 8');
+        expect(negNotif.negotiation_destination).toBe('Bandara Soekarno-Hatta T3');
+
+        // 4. Alex accepts in Inbox -> original booking CANCELLED, slot transferred to Sara with DIFFERENT location & status PENDING_APPROVAL
+        const acceptRes = await request(testApp)
+          .post(`/api/negotiations/${negId}/respond`)
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({ decision: 'ACCEPT' });
+        expect(acceptRes.status).toBe(200);
+        expect(acceptRes.body.cancelledTrip.status).toBe('CANCELLED');
+        expect(acceptRes.body.requiresApproval).toBe(true);
+
+        const transferred = acceptRes.body.transferredTrip;
+        expect(transferred.requester_id).toBe(saraLogin.body.user.id);
+        expect(transferred.vehicle_id).toBe(veh.id);
+        expect(transferred.start_time).toBe(startIso);
+        expect(transferred.end_time).toBe(endIso);
+        expect(transferred.origin).toBe('SCBD Head Office, District 8');
+        expect(transferred.destination).toBe('Bandara Soekarno-Hatta T3');
+        expect(transferred.purpose).toBe('Urgent VIP Airport Pickup');
+        expect(transferred.status).toBe('PENDING_APPROVAL');
+        expect(transferred.passenger_count).toBe(2);
+
+        // 5. Transferred booking MUST require fresh approval from FM (Stage 1) and HWS (Stage 2)
+        // HWS cannot bypass FM
+        const hwsEarly = await request(testApp)
+          .post(`/api/trips/${transferred.id}/decision`)
+          .set('Authorization', `Bearer ${hwsTok}`)
+          .send({ decision: 'APPROVED', reason: 'Trying early HWS' });
+        expect(hwsEarly.status).toBe(400);
+
+        // FM Stage 1 consent -> still PENDING_APPROVAL (awaiting HWS)
+        const fmStage1 = await request(testApp)
+          .post(`/api/trips/${transferred.id}/decision`)
+          .set('Authorization', `Bearer ${fmTok}`)
+          .send({ decision: 'APPROVED', reason: 'FM approved transferred slot' });
+        expect(fmStage1.status).toBe(200);
+        expect(fmStage1.body.trip.status).toBe('PENDING_APPROVAL');
+
+        // HWS Stage 2 final approval -> now APPROVED
+        const hwsStage2 = await request(testApp)
+          .post(`/api/trips/${transferred.id}/decision`)
+          .set('Authorization', `Bearer ${hwsTok}`)
+          .send({ decision: 'APPROVED', reason: 'HWS approved transferred slot' });
+        expect(hwsStage2.status).toBe(200);
+        expect(hwsStage2.body.trip.status).toBe('APPROVED');
+      });
     });
   });
 });
