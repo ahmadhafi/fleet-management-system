@@ -604,6 +604,22 @@ export function App() {
   const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
   const [negotiationRespondBusyId, setNegotiationRespondBusyId] = useState<number | null>(null);
   const respondingNegIdsRef = useRef<Set<string>>(new Set());
+  const decidedNegMapRef = useRef<Map<string, { status: 'ACCEPTED' | 'REJECTED'; transferredTripId?: number | null }>>(new Map());
+  const applyLocalNegotiationDecisions = useCallback((list: any[]) => {
+    if (!Array.isArray(list) || decidedNegMapRef.current.size === 0) return list;
+    return list.map((item) => {
+      const byNeg = item?.negotiation_id ? decidedNegMapRef.current.get(`neg-${item.negotiation_id}`) : undefined;
+      const byNotif = item?.id ? decidedNegMapRef.current.get(`notif-${item.id}`) : undefined;
+      const locked = byNeg || byNotif;
+      if (!locked) return item;
+      return {
+        ...item,
+        is_read: 1,
+        negotiation_status: locked.status,
+        negotiation_transferred_trip_id: locked.transferredTripId ?? item.negotiation_transferred_trip_id,
+      };
+    });
+  }, []);
   const [adminScheduleSubTab, setAdminScheduleSubTab] = useState<'ACTIVE' | 'AUDIT'>('ACTIVE');
   const [scheduleAuditRecords, setScheduleAuditRecords] = useState<any[]>([]);
   const [scheduleAuditDate, setScheduleAuditDate] = useState<string>('');
@@ -804,7 +820,7 @@ export function App() {
       setDrivers(loadedDrivers);
       setTrips(trpRes.trips || []);
       setBookings(bkgRes.bookings || []);
-      setNotifications(ntfRes.notifications || []);
+      setNotifications(applyLocalNegotiationDecisions(ntfRes.notifications || []));
       setUserPins(pinRes.pins || []);
       if (Array.isArray(calRes.scheduleTrips || calRes.trips)) {
         setCalendarTrips(calRes.scheduleTrips || calRes.trips);
@@ -1839,7 +1855,7 @@ export function App() {
     const notifInterval = window.setInterval(async () => {
       try {
         const res = await apiRequest('/api/notifications');
-        const list = res.notifications || [];
+        const list = applyLocalNegotiationDecisions(res.notifications || []);
         setNotifications((prev) => {
           const prevIds = new Set(prev.map((n: any) => n.id));
           const newItems = list.filter((n: any) => !prevIds.has(n.id) && !n.is_read);
@@ -2000,7 +2016,7 @@ export function App() {
                 triggerSystemNotification(notif.title, { body: notif.body });
                 apiRequest('/api/notifications')
                   .then((nr) => {
-                    if (Array.isArray(nr?.notifications)) setNotifications(nr.notifications);
+                    if (Array.isArray(nr?.notifications)) setNotifications(applyLocalNegotiationDecisions(nr.notifications));
                   })
                   .catch(() => {});
                 void syncTripsAndSchedule();
@@ -2519,7 +2535,13 @@ export function App() {
     const lockKey = notificationId ? `notif-${notificationId}` : `trip-${tripId}-${passengerNickname.toLowerCase()}`;
     if (respondingNegIdsRef.current.has(lockKey)) return;
     respondingNegIdsRef.current.add(lockKey);
-    if (notificationId) setNegotiationRespondBusyId(notificationId);
+    if (notificationId) {
+      decidedNegMapRef.current.set(`notif-${notificationId}`, { status: 'ACCEPTED' });
+      setNegotiationRespondBusyId(notificationId);
+      setNotifications((prev: any[]) =>
+        prev.map((item) => (Number(item.id) === Number(notificationId) ? { ...item, is_read: 1, negotiation_status: 'ACCEPTED' } : item))
+      );
+    }
     try {
       const res = await apiRequest(`/api/trips/${tripId}/hitchhike-accept`, {
         method: 'POST',
@@ -2529,23 +2551,20 @@ export function App() {
           notification_id: notificationId,
         }),
       });
-      if (notificationId) {
-        setNotifications((prev: any[]) =>
-          prev.map((item) => (Number(item.id) === Number(notificationId) ? { ...item, is_read: 1, negotiation_status: 'ACCEPTED' } : item))
-        );
-      }
       setStatusBanner({
         type: 'success',
         text: `Hitchhike accepted! ${Array.isArray(res.addedPassengers) ? res.addedPassengers.join(', ') : passengerNickname} added to Trip #${tripId}.`,
       });
       await loadAllData(user);
     } catch (err: any) {
-      if (notificationId && /already/i.test(String(err.message || ''))) {
-        setNotifications((prev: any[]) =>
-          prev.map((item) => (Number(item.id) === Number(notificationId) ? { ...item, is_read: 1, negotiation_status: 'ACCEPTED' } : item))
-        );
-      } else {
+      if (!/already/i.test(String(err.message || ''))) {
         respondingNegIdsRef.current.delete(lockKey);
+        if (notificationId) {
+          decidedNegMapRef.current.delete(`notif-${notificationId}`);
+          setNotifications((prev: any[]) =>
+            prev.map((item) => (Number(item.id) === Number(notificationId) ? { ...item, negotiation_status: null } : item))
+          );
+        }
       }
       setStatusBanner({ type: 'danger', text: err.message });
     } finally {
@@ -2565,16 +2584,29 @@ export function App() {
     if (!notif?.negotiation_id) return;
     const negId = Number(notif.negotiation_id);
     const lockKey = `neg-${negId}`;
-    if (respondingNegIdsRef.current.has(lockKey) || negotiationRespondBusyId === negId) return;
+    if (respondingNegIdsRef.current.has(lockKey) || decidedNegMapRef.current.has(lockKey) || negotiationRespondBusyId === negId) return;
+    const nextStatus: 'ACCEPTED' | 'REJECTED' = decision === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED';
     respondingNegIdsRef.current.add(lockKey);
+    decidedNegMapRef.current.set(lockKey, { status: nextStatus });
+    if (notif.id) decidedNegMapRef.current.set(`notif-${notif.id}`, { status: nextStatus });
     setNegotiationRespondBusyId(negId);
+    // 0ms optimistic lock: immediately hide Accept/Reject buttons so 2nd click is physically impossible
+    setNotifications((prev: any[]) =>
+      prev.map((item) =>
+        Number(item.negotiation_id) === negId ? { ...item, is_read: 1, negotiation_status: nextStatus } : item
+      )
+    );
+    setSelectedNotification((prev: any) =>
+      prev && Number(prev.negotiation_id) === negId ? { ...prev, is_read: 1, negotiation_status: nextStatus } : prev
+    );
     try {
       const res = await apiRequest(`/api/negotiations/${negId}/respond`, {
         method: 'POST',
         body: JSON.stringify({ decision }),
       });
-      const nextStatus = decision === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED';
       const transferredId = res?.transferredTripId || null;
+      decidedNegMapRef.current.set(lockKey, { status: nextStatus, transferredTripId: transferredId });
+      if (notif.id) decidedNegMapRef.current.set(`notif-${notif.id}`, { status: nextStatus, transferredTripId: transferredId });
       setNotifications((prev: any[]) =>
         prev.map((item) =>
           Number(item.negotiation_id) === negId
@@ -2618,6 +2650,14 @@ export function App() {
     } catch (err: any) {
       if (!/already/i.test(String(err.message || ''))) {
         respondingNegIdsRef.current.delete(lockKey);
+        decidedNegMapRef.current.delete(lockKey);
+        if (notif.id) decidedNegMapRef.current.delete(`notif-${notif.id}`);
+        setNotifications((prev: any[]) =>
+          prev.map((item) => (Number(item.negotiation_id) === negId ? { ...item, negotiation_status: 'PENDING' } : item))
+        );
+        setSelectedNotification((prev: any) =>
+          prev && Number(prev.negotiation_id) === negId ? { ...prev, negotiation_status: 'PENDING' } : prev
+        );
       }
       setStatusBanner({ type: 'danger', text: err.message });
     } finally {
@@ -5931,8 +5971,9 @@ export function App() {
               style={{
                 padding: '12px 14px',
                 borderRadius: '12px',
-                background: '#ebf5ff',
-                border: '1.5px solid #93c5fd',
+                background: 'rgba(0, 114, 222, 0.12)',
+                border: '1.5px solid rgba(59, 130, 246, 0.45)',
+                color: 'var(--color-text-primary)',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '6px',
@@ -5940,7 +5981,7 @@ export function App() {
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 800, color: '#005bb5' }}>
+                <span style={{ fontWeight: 800, color: '#3b82f6' }}>
                   👤 Current Holder (PIC): {negotiationModalTrip.requester_name || 'Colleague'} ({negotiationModalTrip.department_name || 'Group'})
                 </span>
                 <StatusBadge label={formatReservationModeLabel(negotiationModalTrip.reservation_type, negotiationModalTrip.return_pickup_time) || 'Standard Trip'} tone="blue" />
@@ -6042,22 +6083,28 @@ export function App() {
                       </div>
                     ) : (
                       <>
-                        <input
-                          id="hitchhike-pax-0"
-                          type="text"
-                          className="gf-input"
-                          required
-                          placeholder={t('Your name (Passenger 1)')}
-                          value={negotiationPassengerNickname}
-                          onChange={(e) => setNegotiationPassengerNickname(e.target.value)}
-                        />
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <span className="mono" style={{ width: '22px', fontWeight: 800, fontSize: '12.5px', color: '#0072de', flexShrink: 0 }}>1.</span>
+                          <input
+                            id="hitchhike-pax-0"
+                            type="text"
+                            className="gf-input"
+                            style={{ flex: 1 }}
+                            required
+                            placeholder={t('Your name (Passenger 1)')}
+                            value={negotiationPassengerNickname}
+                            onChange={(e) => setNegotiationPassengerNickname(e.target.value)}
+                          />
+                        </div>
                         {negotiationExtraPassengers.map((extraName, idx) => (
-                          <div key={idx} style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <span className="mono" style={{ width: '22px', fontWeight: 800, fontSize: '12.5px', color: '#0072de', flexShrink: 0 }}>{idx + 2}.</span>
                             <input
                               id={`hitchhike-pax-${idx + 1}`}
                               type="text"
                               className="gf-input"
                               style={{ flex: 1 }}
+                              required
                               placeholder={`${t('Additional passenger')} ${idx + 2}`}
                               value={extraName}
                               onChange={(e) => {
@@ -6082,14 +6129,20 @@ export function App() {
                             type="button"
                             disabled={!canAddMore}
                             className="gf-btn gf-btn-secondary gf-btn-sm pressable"
-                            style={{ minHeight: '32px', fontSize: '12px' }}
+                            style={{
+                              minHeight: '34px',
+                              fontSize: '12.5px',
+                              fontWeight: 700,
+                              borderColor: canAddMore ? '#0072de' : undefined,
+                              color: canAddMore ? '#0072de' : undefined,
+                            }}
                             onClick={() => {
                               if (canAddMore) {
                                 setNegotiationExtraPassengers((prev) => [...prev, '']);
                               }
                             }}
                           >
-                            + {t('Add Another Person')}
+                            + {t('Add Another Person')} ({Math.max(0, seatLimit - totalRequested)} {t('left')})
                           </button>
                           {!canAddMore && (
                             <span className="type-caption" style={{ fontSize: '11px', color: '#d97706', fontWeight: 700 }}>
@@ -6125,7 +6178,7 @@ export function App() {
                   type="button"
                   className="gf-btn gf-btn-secondary"
                   style={{ flex: 1 }}
-                  onClick={() => setNegotiationModalTrip(null)}
+                  onClick={() => { setNegotiationModalTrip(null); setNegotiationExtraPassengers([]); }}
                   disabled={negotiationSubmitting}
                 >
                   {t('Cancel')}
@@ -6135,7 +6188,16 @@ export function App() {
                   type="submit"
                   className="gf-btn gf-btn-primary"
                   style={{ flex: 1.4 }}
-                  disabled={negotiationSubmitting}
+                  disabled={
+                    negotiationSubmitting ||
+                    (negotiationActionType === 'HITCHHIKE' &&
+                      Math.max(
+                        0,
+                        Number(negotiationModalTrip.seats || vehicles.find((v) => Number(v.id) === Number(negotiationModalTrip.vehicle_id))?.seats || 7) -
+                          (extractIndividualPassengers(negotiationModalTrip.passengers_json, negotiationModalTrip.passenger_nickname).length ||
+                            Number(negotiationModalTrip.passenger_count || 1))
+                      ) <= 0)
+                  }
                 >
                   {negotiationSubmitting
                     ? 'Sending...'
@@ -11357,7 +11419,7 @@ export function App() {
                 const hitchhikerName =
                   n.negotiation_passenger_nickname ||
                   n.negotiation_requester_name ||
-                  String(n.body || '').match(/Passenger to add:\s*([^.]+)/i)?.[1]?.trim() ||
+                  String(n.body || '').match(/Passenger(?:\(s\))?\s+to add(?:\s*\(\d+\))?:\s*([^.]+)/i)?.[1]?.trim() ||
                   String(n.body || '').match(/^([^\s(]+)/)?.[1] ||
                   'Colleague';
 
@@ -11475,7 +11537,7 @@ export function App() {
           )}
 
           {selectedNotification && (() => {
-            const sn = selectedNotification;
+            const sn = notifications.find((item) => Number(item.id) === Number(selectedNotification.id)) || selectedNotification;
             const isHitchhikeReq =
               sn.negotiation_action_type === 'HITCHHIKE' ||
               sn.trigger_type === 'NEGOTIATE_HITCHHIKE_REQUEST' ||
@@ -12187,6 +12249,7 @@ export function App() {
                     setNegotiationModalTrip(tr);
                     setNegotiationActionType('HITCHHIKE');
                     setNegotiationPassengerNickname(user.nickname || '');
+                    setNegotiationExtraPassengers([]);
                     setNegotiationNote(`Heading to ${tr.destination} too, may I hitchhike?`);
                   }
             }

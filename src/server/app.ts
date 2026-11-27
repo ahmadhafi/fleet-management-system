@@ -18,7 +18,7 @@ export function fetchEnrichedTrip(db: AppDatabase, tripId: number): Record<strin
            u.nickname as requester_name,
            u.group_username as requester_username,
            d.name as department_name,
-           v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.battery_percent,
+           v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.battery_percent, v.seats,
            b.id as booking_id, b.status as booking_status,
            a.id as assignment_id, a.driver_profile_id, a.acknowledged_at,
            dp.full_name as assigned_driver_name,
@@ -132,6 +132,7 @@ export function broadcastTripUpdate(db: AppDatabase, tripId: number, eventType =
           model: enrichedTrip.model,
           car_type: enrichedTrip.car_type,
           energy_type: enrichedTrip.energy_type,
+          seats: enrichedTrip.seats,
           passenger_nickname: enrichedTrip.passenger_nickname,
           passengers_json: enrichedTrip.passengers_json,
           passenger_count: enrichedTrip.passenger_count,
@@ -2145,7 +2146,7 @@ export function createApp() {
              u.nickname as requester_name,
              u.group_username as requester_username,
              d.name as department_name,
-             v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.battery_percent,
+             v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.battery_percent, v.seats,
              b.id as booking_id, b.status as booking_status,
              a.id as assignment_id, a.driver_profile_id, a.acknowledged_at,
              dp.user_id as assigned_driver_user_id,
@@ -3656,6 +3657,7 @@ export function createApp() {
         body,
         relatedEntityType: 'TRIP_REQUEST',
         relatedEntityId: tripId,
+        skipSseBroadcast: true,
       });
 
       const negRes = db
@@ -3665,6 +3667,32 @@ export function createApp() {
         )
         .run(tripId, notifId, user.id, trip.requester_id, paxSummary, destination || trip.destination, noteText || null);
       const negotiationId = Number(negRes.lastInsertRowid);
+
+      try {
+        liveEvents.broadcast({
+          type: 'NOTIFICATION',
+          userId: trip.requester_id,
+          data: {
+            id: notifId,
+            user_id: trip.requester_id,
+            trigger_type: 'NEGOTIATE_HITCHHIKE_REQUEST',
+            title,
+            body,
+            related_entity_type: 'TRIP_REQUEST',
+            related_entity_id: tripId,
+            is_read: 0,
+            created_at: new Date().toISOString(),
+            negotiation_id: negotiationId,
+            negotiation_action_type: 'HITCHHIKE',
+            negotiation_status: 'PENDING',
+            negotiation_requester_id: user.id,
+            negotiation_requester_name: user.nickname,
+            negotiation_passenger_nickname: paxSummary,
+            negotiation_destination: destination || trip.destination,
+            negotiation_message: noteText || null,
+          },
+        });
+      } catch {}
 
       recordAudit(db, user, 'TRIP_HITCHHIKE_REQUESTED', 'TRIP_REQUEST', tripId, null, {
         negotiation_id: negotiationId,
@@ -3718,6 +3746,7 @@ export function createApp() {
       body,
       relatedEntityType: 'TRIP_REQUEST',
       relatedEntityId: tripId,
+      skipSseBroadcast: true,
     });
 
     const negRes = db
@@ -3727,6 +3756,32 @@ export function createApp() {
       )
       .run(tripId, notifId, user.id, trip.requester_id, cancelPaxSummary, destination || trip.destination, noteText || null);
     const negotiationId = Number(negRes.lastInsertRowid);
+
+    try {
+      liveEvents.broadcast({
+        type: 'NOTIFICATION',
+        userId: trip.requester_id,
+        data: {
+          id: notifId,
+          user_id: trip.requester_id,
+          trigger_type: 'NEGOTIATE_CANCEL_REQUEST',
+          title,
+          body,
+          related_entity_type: 'TRIP_REQUEST',
+          related_entity_id: tripId,
+          is_read: 0,
+          created_at: new Date().toISOString(),
+          negotiation_id: negotiationId,
+          negotiation_action_type: 'REQUEST_CANCEL',
+          negotiation_status: 'PENDING',
+          negotiation_requester_id: user.id,
+          negotiation_requester_name: user.nickname,
+          negotiation_passenger_nickname: cancelPaxSummary,
+          negotiation_destination: destination || trip.destination,
+          negotiation_message: noteText || null,
+        },
+      });
+    } catch {}
 
     recordAudit(db, user, 'TRIP_CANCEL_NEGOTIATION_REQUESTED', 'TRIP_REQUEST', tripId, null, {
       negotiation_id: negotiationId,
@@ -4203,7 +4258,14 @@ export function createApp() {
     if (toAdd.length === 0) {
       if (notification_id) {
         db.prepare("UPDATE notifications SET is_read = 1, delivery_status = 'ACCEPTED' WHERE id = ? AND user_id = ?").run(Number(notification_id), user.id);
+      } else {
+        db.prepare(
+          "UPDATE notifications SET is_read = 1, delivery_status = 'ACCEPTED' WHERE user_id = ? AND related_entity_id = ? AND trigger_type IN ('NEGOTIATE_HITCHHIKE_REQUEST', 'HITCHHIKE_REQUEST')"
+        ).run(user.id, tripId);
       }
+      db.prepare(
+        "UPDATE negotiation_requests SET status = 'ACCEPTED', decided_by = ?, decided_at = datetime('now') WHERE trip_request_id = ? AND action_type = 'HITCHHIKE' AND status = 'PENDING'"
+      ).run(user.id, tripId);
       res.status(409).json({ error: 'Passenger is already in the passenger list (duplicate prevented)' });
       return;
     }
@@ -4230,7 +4292,14 @@ export function createApp() {
 
     if (notification_id) {
       db.prepare("UPDATE notifications SET is_read = 1, delivery_status = 'ACCEPTED' WHERE id = ? AND user_id = ?").run(Number(notification_id), user.id);
+    } else {
+      db.prepare(
+        "UPDATE notifications SET is_read = 1, delivery_status = 'ACCEPTED' WHERE user_id = ? AND related_entity_id = ? AND trigger_type IN ('NEGOTIATE_HITCHHIKE_REQUEST', 'HITCHHIKE_REQUEST')"
+      ).run(user.id, tripId);
     }
+    db.prepare(
+      "UPDATE negotiation_requests SET status = 'ACCEPTED', decided_by = ?, decided_at = datetime('now') WHERE trip_request_id = ? AND action_type = 'HITCHHIKE' AND status = 'PENDING'"
+    ).run(user.id, tripId);
 
     const addedLabel = toAdd.join(', ');
     if (hitchhiker_user_id) {
@@ -7567,7 +7636,7 @@ export function createApp() {
     try {
       checkTripAlertsAndAutoCancellations(db);
     } catch {}
-    const notifications = db
+    const rawNotifications = db
       .prepare(
         `SELECT n.*,
                 nr.id as negotiation_id,
@@ -7586,7 +7655,33 @@ export function createApp() {
          ORDER BY n.id DESC
          LIMIT 50`
       )
-      .all(req.user!.id);
+      .all(req.user!.id) as any[];
+
+    const tripCheckStmt = db.prepare('SELECT status, passengers_json, passenger_nickname FROM trip_requests WHERE id = ?');
+    const notifications = rawNotifications.map((n) => {
+      if (
+        !n.negotiation_status &&
+        n.related_entity_id &&
+        ['NEGOTIATE_HITCHHIKE_REQUEST', 'HITCHHIKE_REQUEST'].includes(String(n.trigger_type || ''))
+      ) {
+        const tr = tripCheckStmt.get(Number(n.related_entity_id)) as any;
+        if (!tr || !['PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS'].includes(String(tr.status || ''))) {
+          return { ...n, negotiation_status: 'REJECTED' };
+        }
+        const match =
+          String(n.body || '').match(/Passenger(?:\(s\))?\s+to add(?:\s*\(\d+\))?:\s*([^.]+)/i) ||
+          String(n.body || '').match(/^([^\s(]+)/);
+        const targetNames = String(match?.[1] || '')
+          .split(/[,\n]+/)
+          .map((s) => s.replace(/^\d+\.\s*/, '').trim().toLowerCase())
+          .filter(Boolean);
+        const existingHay = `${String(tr.passengers_json || '')} ${String(tr.passenger_nickname || '')}`.toLowerCase();
+        if (targetNames.length > 0 && targetNames.every((nm) => existingHay.includes(nm))) {
+          return { ...n, negotiation_status: 'ACCEPTED' };
+        }
+      }
+      return n;
+    });
     res.set('Cache-Control', 'no-store');
     res.json({ notifications });
   });

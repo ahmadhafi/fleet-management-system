@@ -59,6 +59,7 @@ export function sendUserNotification(
     relatedEntityType?: string;
     relatedEntityId?: number;
     channel?: string;
+    skipSseBroadcast?: boolean;
   }
 ): number {
   const safeTitle = sanitizeNotificationText(params.title);
@@ -118,25 +119,27 @@ export function sendUserNotification(
   }
 
   const notificationId = Number(result.lastInsertRowid);
-  try {
-    liveEvents.broadcast({
-      type: 'NOTIFICATION',
-      userId: params.userId,
-      data: {
-        id: notificationId,
-        user_id: params.userId,
-        trigger_type: params.triggerType,
-        title: safeTitle,
-        body: safeBody,
-        related_entity_type: params.relatedEntityType ?? null,
-        related_entity_id: params.relatedEntityId ?? null,
-        channel: params.channel ?? 'IN_APP_AND_PUSH',
-        delivery_status: deliveryStatus,
-        is_read: 0,
-        created_at: new Date().toISOString(),
-      },
-    });
-  } catch {}
+  if (!params.skipSseBroadcast) {
+    try {
+      liveEvents.broadcast({
+        type: 'NOTIFICATION',
+        userId: params.userId,
+        data: {
+          id: notificationId,
+          user_id: params.userId,
+          trigger_type: params.triggerType,
+          title: safeTitle,
+          body: safeBody,
+          related_entity_type: params.relatedEntityType ?? null,
+          related_entity_id: params.relatedEntityId ?? null,
+          channel: params.channel ?? 'IN_APP_AND_PUSH',
+          delivery_status: deliveryStatus,
+          is_read: 0,
+          created_at: new Date().toISOString(),
+        },
+      });
+    } catch {}
+  }
 
   return notificationId;
 }
