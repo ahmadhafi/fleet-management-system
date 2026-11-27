@@ -646,6 +646,27 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
   { en: 'Cancellation accepted! Booking cancelled and transferred to requester', id: 'Pembatalan diterima! Pesanan dibatalkan dan dialihkan ke pemohon', ko: '취소 요청이 수락되었습니다! 예약이 취소되고 요청자에게 양도되었습니다' },
   { en: 'Hitchhike request rejected.', id: 'Permintaan nebeng ditolak.', ko: '합승 요청이 거절되었습니다.' },
   { en: 'Cancellation request rejected. Your booking remains active.', id: 'Permintaan pembatalan ditolak. Pesanan Anda tetap aktif.', ko: '취소 요청이 거절되었습니다. 기존 예약이 유지됩니다.' },
+  { en: 'Active Schedule', id: 'Jadwal Aktif', ko: '현재 일정' },
+  { en: 'Past & Completed (Audit)', id: 'Riwayat Selesai (Audit)', ko: '완료 및 과거 기록 (감사)' },
+  { en: 'Completed & past schedule records preserved for audit review', id: 'Riwayat jadwal & perjalanan selesai tersimpan untuk tinjauan audit', ko: '감사 검토를 위해 보존된 완료 및 과거 배차 기록' },
+  { en: 'Completed Trips', id: 'Perjalanan Selesai', ko: '완료된 운행' },
+  { en: 'All Past (Completed/Cancelled/Rejected)', id: 'Semua Riwayat (Selesai/Batal/Ditolak)', ko: '전체 과거 기록 (완료/취소/거절)' },
+  { en: 'All Records', id: 'Semua Catatan', ko: '전체 기록' },
+  { en: 'All Dates', id: 'Semua Tanggal', ko: '전체 날짜' },
+  { en: 'Search car, driver, booker, destination...', id: 'Cari mobil, pengemudi, pemesan, tujuan...', ko: '차량, 기사, 예약자, 목적지 검색...' },
+  { en: 'No schedule audit records match this filter.', id: 'Tidak ada catatan audit jadwal yang cocok.', ko: '조건에 맞는 일정 감사 기록이 없습니다.' },
+  { en: 'View Audit Record', id: 'Lihat Catatan Audit', ko: '감사 기록 보기' },
+  { en: 'Past & Completed Schedule Records (Audit)', id: 'Catatan Jadwal & Perjalanan Selesai (Audit)', ko: '완료 및 과거 배차 기록 (감사)' },
+  { en: 'Review completed bookings, passengers, routes, odometer readings, and approval decisions.', id: 'Tinjau pesanan selesai, penumpang, rute, odometer, dan keputusan persetujuan.', ko: '완료된 예약, 탑승자, 경로, 주행거리계 및 승인 내역을 검토합니다.' },
+  { en: 'Open Full Schedule Audit', id: 'Buka Audit Jadwal Lengkap', ko: '전체 일정 감사 열기' },
+  { en: 'No completed or past bookings recorded yet.', id: 'Belum ada catatan pesanan selesai atau lampau.', ko: '아직 완료되거나 지난 예약 기록이 없습니다.' },
+  { en: 'Schedule Audit Record', id: 'Catatan Audit Jadwal', ko: '일정 감사 기록' },
+  { en: 'Booking Audit', id: 'Audit Pemesanan', ko: '예약 감사' },
+  { en: 'Booker', id: 'Pemesan', ko: '예약자' },
+  { en: 'Actual Trip Time', id: 'Waktu Perjalanan Aktual', ko: '실제 운행 시간' },
+  { en: 'Odometer & Distance', id: 'Odometer & Jarak Tempuh', ko: '주행거리계 및 이동 거리' },
+  { en: 'Cancellation Reason', id: 'Alasan Pembatalan', ko: '취소 사유' },
+  { en: 'Approval History', id: 'Riwayat Persetujuan', ko: '승인 이력' },
 
   // Complete UI Coverage — Approval Lock, Executive Modals, Map Pin, Schedule, Driver, Admin & Reports
   { en: 'Booking cancelled and vehicle/driver slot released.', id: 'Pemesanan dibatalkan dan slot kendaraan/pengemudi telah dibuka kembali.', ko: '예약이 취소되었으며 차량/기사 일정이 해제되었습니다.' },
@@ -965,6 +986,10 @@ const DYNAMIC_PATTERNS: Array<{
   {
     regex: /^Available\s*•\s*(\d+)\s*Cars?$/i,
     render: (m, l) => (l === 'id' ? `Tersedia • ${m[1]} Unit` : l === 'ko' ? `이용 가능 • ${m[1]}대` : `Available • ${m[1]} Cars`),
+  },
+  {
+    regex: /^(\d+)\s+Cars?\s+Available$/i,
+    render: (m, l) => (l === 'id' ? `${m[1]} Mobil Tersedia` : l === 'ko' ? `이용 가능 ${m[1]}대` : Number(m[1]) === 1 ? '1 Car Available' : `${m[1]} Cars Available`),
   },
   {
     regex: /^Tersedia\s*•\s*(\d+)\s*Unit$/i,

@@ -3396,6 +3396,117 @@ export function createApp() {
     res.json({ scheduleTrips: rows, trips: rows, can_view_all_schedules: canViewAllSchedules });
   });
 
+  // Schedule & Trip Audit History: Review past completed (and cancelled/rejected) bookings & full trip information
+  app.get('/api/schedule/audit', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const user = req.user!;
+    const statusFilter = String(req.query.status || 'ALL').trim().toUpperCase();
+    const dateFilter = String(req.query.date || '').trim();
+    const qFilter = String(req.query.q || '').trim().toLowerCase();
+
+    const baseSelect = `
+      SELECT tr.id, tr.requester_id, tr.department_id, tr.vehicle_id, tr.preferred_driver_id,
+             tr.passenger_nickname, tr.passengers_json, tr.purpose, tr.origin, tr.destination,
+             tr.start_time, tr.end_time, tr.passenger_count, tr.status,
+             tr.start_odometer, tr.end_odometer, tr.distance_km,
+             tr.actual_start_time, tr.actual_end_time, tr.parking_return_note,
+             tr.reservation_type, tr.return_pickup_time, tr.created_at, tr.updated_at,
+             u.nickname as requester_name,
+             u.group_username as requester_username,
+             u.contact_number as requester_contact,
+             d.name as department_name,
+             v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.seats,
+             (SELECT b.status FROM bookings b WHERE b.trip_request_id = tr.id ORDER BY b.id DESC LIMIT 1) as booking_status,
+             (SELECT b.cancellation_reason FROM bookings b WHERE b.trip_request_id = tr.id ORDER BY b.id DESC LIMIT 1) as cancellation_reason,
+             COALESCE(
+               (SELECT dp.full_name FROM assignments a JOIN driver_profiles dp ON dp.id = a.driver_profile_id WHERE a.trip_request_id = tr.id ORDER BY a.is_current DESC, a.id DESC LIMIT 1),
+               def_dp.full_name,
+               'Pool Driver'
+             ) as assigned_driver_name,
+             COALESCE(
+               (SELECT dp.contact_number FROM assignments a JOIN driver_profiles dp ON dp.id = a.driver_profile_id WHERE a.trip_request_id = tr.id ORDER BY a.is_current DESC, a.id DESC LIMIT 1),
+               def_dp.contact_number
+             ) as assigned_driver_phone
+      FROM trip_requests tr
+      JOIN users u ON u.id = tr.requester_id
+      JOIN departments d ON d.id = tr.department_id
+      JOIN vehicles v ON v.id = tr.vehicle_id
+      LEFT JOIN driver_profiles def_dp ON def_dp.id = v.default_driver_id
+    `;
+
+    const whereClauses: string[] = [];
+    const params: any[] = [];
+
+    if (statusFilter === 'COMPLETED' || statusFilter === 'CANCELLED' || statusFilter === 'REJECTED') {
+      whereClauses.push('tr.status = ?');
+      params.push(statusFilter);
+    } else if (statusFilter === 'PAST') {
+      whereClauses.push("tr.status IN ('COMPLETED', 'CANCELLED', 'REJECTED')");
+    }
+
+    if (!isPrivilegedRole(user)) {
+      if (user.role === 'DRV') {
+        whereClauses.push('(EXISTS (SELECT 1 FROM assignments a WHERE a.trip_request_id = tr.id AND a.driver_profile_id = ?) OR tr.preferred_driver_id = ? OR v.default_driver_id = ?)');
+        params.push(user.driver_profile_id ?? -1, user.driver_profile_id ?? -1, user.driver_profile_id ?? -1);
+      } else {
+        whereClauses.push('tr.requester_id = ?');
+        params.push(user.id);
+      }
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const rows = db.prepare(`${baseSelect} ${whereSql} ORDER BY tr.start_time DESC, tr.id DESC LIMIT 300`).all(...params) as any[];
+
+    const decisionsStmt = db.prepare(
+      `SELECT ad.id, ad.decider_role, ad.decision, ad.reason, ad.created_at, u.nickname as decider_name
+       FROM approval_decisions ad
+       JOIN users u ON u.id = ad.decider_id
+       WHERE ad.trip_request_id = ?
+       ORDER BY ad.id ASC`
+    );
+
+    const enriched = rows
+      .filter((row) => {
+        if (dateFilter) {
+          const s = new Date(row.start_time);
+          const localDate = !Number.isNaN(s.getTime())
+            ? `${s.getFullYear()}-${String(s.getMonth() + 1).padStart(2, '0')}-${String(s.getDate()).padStart(2, '0')}`
+            : '';
+          if (localDate !== dateFilter && !String(row.start_time || '').startsWith(dateFilter)) {
+            return false;
+          }
+        }
+        if (qFilter) {
+          const hay = [
+            row.id,
+            row.requester_name,
+            row.department_name,
+            row.registration_plate,
+            row.make,
+            row.model,
+            row.assigned_driver_name,
+            row.origin,
+            row.destination,
+            row.purpose,
+            row.passenger_nickname,
+            row.status,
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+          if (!hay.includes(qFilter)) return false;
+        }
+        return true;
+      })
+      .map((row) => ({
+        ...row,
+        decisions: decisionsStmt.all(row.id),
+      }));
+
+    res.set('Cache-Control', 'no-store');
+    res.json({ records: enriched, total: enriched.length });
+  });
+
   // Item #5: Negotiate with current booking holder to Hitchhike (Join Ride if same destination) or Request Cancellation
   app.post('/api/trips/:id/negotiate', requireAuth, (req: Request, res: Response) => {
     const db = getDb();

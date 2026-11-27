@@ -585,6 +585,12 @@ export function App() {
   const [negotiationSubmitting, setNegotiationSubmitting] = useState<boolean>(false);
   const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
   const [negotiationRespondBusyId, setNegotiationRespondBusyId] = useState<number | null>(null);
+  const [adminScheduleSubTab, setAdminScheduleSubTab] = useState<'ACTIVE' | 'AUDIT'>('ACTIVE');
+  const [scheduleAuditRecords, setScheduleAuditRecords] = useState<any[]>([]);
+  const [scheduleAuditDate, setScheduleAuditDate] = useState<string>('');
+  const [scheduleAuditStatus, setScheduleAuditStatus] = useState<'COMPLETED' | 'PAST' | 'CANCELLED' | 'REJECTED' | 'ALL'>('COMPLETED');
+  const [scheduleAuditSearch, setScheduleAuditSearch] = useState<string>('');
+  const [selectedAuditRecord, setSelectedAuditRecord] = useState<any | null>(null);
 
   // Driver Expense Reimbursement & Petty Cash State
   const [showDriverExpenseModal, setShowDriverExpenseModal] = useState<boolean>(false);
@@ -3019,6 +3025,60 @@ export function App() {
       ),
     [trips]
   );
+
+  // Live car availability count: total Available fleet vehicles minus vehicles with active bookings today / in-progress right now
+  const liveAvailableCarsCount = useMemo(() => {
+    const nowMs = Date.now();
+    const todayStr = todayLocalDateStr();
+    const mergedById = new Map<number, any>();
+    for (const ct of calendarTrips) mergedById.set(Number(ct.id), ct);
+    for (const tr of trips) {
+      const prev = mergedById.get(Number(tr.id));
+      mergedById.set(Number(tr.id), prev ? { ...prev, ...tr } : tr);
+    }
+    const bookedVehicleIds = new Set<number>();
+    for (const tr of mergedById.values()) {
+      const st = String(tr.status || '').toUpperCase();
+      const bSt = String(tr.booking_status || '').toUpperCase();
+      if (!['PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS'].includes(st)) continue;
+      if (['CANCELLED', 'COMPLETED'].includes(bSt)) continue;
+      if (!tr.vehicle_id) continue;
+      if (st === 'IN_PROGRESS') {
+        bookedVehicleIds.add(Number(tr.vehicle_id));
+        continue;
+      }
+      const startD = new Date(tr.start_time);
+      const endD = new Date(tr.end_time || tr.start_time);
+      const startMs = startD.getTime();
+      const endMs = Math.max(endD.getTime(), startMs + 30 * 60_000);
+      if (Number.isNaN(startMs)) continue;
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const localStartDate = `${startD.getFullYear()}-${pad(startD.getMonth() + 1)}-${pad(startD.getDate())}`;
+      const localEndDate = `${endD.getFullYear()}-${pad(endD.getMonth() + 1)}-${pad(endD.getDate())}`;
+      const touchesToday = localStartDate === todayStr || localEndDate === todayStr || (startMs <= nowMs && endMs > nowMs);
+      if (touchesToday && endMs > nowMs) {
+        bookedVehicleIds.add(Number(tr.vehicle_id));
+      }
+    }
+    return vehicles.filter((v) => v.status === 'Available' && !bookedVehicleIds.has(Number(v.id))).length;
+  }, [vehicles, calendarTrips, trips]);
+
+  // Load past & completed schedule audit records when viewing Admin Driver Schedule or Audit console
+  useEffect(() => {
+    if (!user || !isPrivileged || navSection !== 'ADMIN') return;
+    if (adminModule !== 'DRIVER_SCHEDULE' && adminModule !== 'AUDIT') return;
+    let cancelled = false;
+    apiRequest('/api/schedule/audit?status=ALL')
+      .then((res) => {
+        if (!cancelled && Array.isArray(res?.records)) {
+          setScheduleAuditRecords(res.records);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user, isPrivileged, navSection, adminModule, trips.length]);
 
   const historyTrips = useMemo(
     () =>
@@ -6705,6 +6765,31 @@ export function App() {
               d.setDate(d.getDate() + days);
               setScheduleCalendarDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
             };
+
+            const filteredAuditRecords = scheduleAuditRecords.filter((rec) => {
+              const st = String(rec.status || '').toUpperCase();
+              if (scheduleAuditStatus === 'COMPLETED' && st !== 'COMPLETED') return false;
+              if (scheduleAuditStatus === 'CANCELLED' && st !== 'CANCELLED') return false;
+              if (scheduleAuditStatus === 'REJECTED' && st !== 'REJECTED') return false;
+              if (scheduleAuditStatus === 'PAST' && !['COMPLETED', 'CANCELLED', 'REJECTED'].includes(st)) return false;
+              if (scheduleAuditDate) {
+                const s = new Date(rec.start_time);
+                const localD = !Number.isNaN(s.getTime())
+                  ? `${s.getFullYear()}-${String(s.getMonth() + 1).padStart(2, '0')}-${String(s.getDate()).padStart(2, '0')}`
+                  : '';
+                if (localD !== scheduleAuditDate && !String(rec.start_time || '').startsWith(scheduleAuditDate)) return false;
+              }
+              if (scheduleAuditSearch.trim()) {
+                const q = scheduleAuditSearch.trim().toLowerCase();
+                const hay = [rec.id, rec.requester_name, rec.department_name, rec.registration_plate, rec.make, rec.model, rec.assigned_driver_name, rec.origin, rec.destination, rec.purpose, rec.passenger_nickname]
+                  .filter(Boolean)
+                  .join(' ')
+                  .toLowerCase();
+                if (!hay.includes(q)) return false;
+              }
+              return true;
+            });
+
             return (
               <section className="gf-card-flat" id="admin-driver-schedule" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
@@ -6713,41 +6798,158 @@ export function App() {
                       <Calendar size={16} /> {t('Driver Schedule')}
                     </h2>
                     <p className="type-caption" style={{ margin: '2px 0 0' }}>
-                      {t('Tap a booking to see who booked the car and who is on board')}
+                      {adminScheduleSubTab === 'ACTIVE'
+                        ? t('Tap a booking to see who booked the car and who is on board')
+                        : t('Completed & past schedule records preserved for audit review')}
                     </p>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                    <button type="button" className="gf-btn gf-btn-secondary gf-btn-sm" onClick={() => shiftDate(-1)} aria-label={t('Previous day')}>‹</button>
-                    <input
-                      id="admin-schedule-date-input"
-                      type="date"
-                      className="gf-input"
-                      style={{ minHeight: '34px', height: '34px', padding: '0 10px', fontSize: '13px', width: 'auto' }}
-                      value={adminSchedDate}
-                      onChange={(e) => setScheduleCalendarDate(e.target.value)}
-                    />
-                    <button type="button" className="gf-btn gf-btn-secondary gf-btn-sm" onClick={() => shiftDate(1)} aria-label={t('Next day')}>›</button>
-                    <button type="button" className="gf-btn gf-btn-secondary gf-btn-sm" onClick={() => setScheduleCalendarDate(todayLocalDateStr())}>
-                      {t('Today')}
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <button
+                      id="btn-schedule-tab-active"
+                      type="button"
+                      className={`gf-btn gf-btn-sm pressable ${adminScheduleSubTab === 'ACTIVE' ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
+                      onClick={() => setAdminScheduleSubTab('ACTIVE')}
+                    >
+                      {t('Active Schedule')}
+                    </button>
+                    <button
+                      id="btn-schedule-tab-audit"
+                      type="button"
+                      className={`gf-btn gf-btn-sm pressable ${adminScheduleSubTab === 'AUDIT' ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
+                      onClick={() => setAdminScheduleSubTab('AUDIT')}
+                    >
+                      {t('Past & Completed (Audit)')} ({scheduleAuditRecords.filter((r) => String(r.status).toUpperCase() === 'COMPLETED').length})
                     </button>
                   </div>
                 </div>
-                <DriverScheduleCalendar
-                  vehicles={vehicles}
-                  trips={Array.from(schedById.values())}
-                  dateStr={adminSchedDate}
-                  currentUserId={user.id}
-                  showContacts
-                  onOpenTrip={(tr) => {
-                    const full = trips.find((x) => Number(x.id) === Number(tr.id)) || tr;
-                    setDispatchModalTrip(full);
-                    setDispatchVehicleId(full.vehicle_id);
-                    const defaultDrv = full.driver_profile_id || full.preferred_driver_id || drivers[0]?.id || '';
-                    setDispatchDriverId(defaultDrv ? String(defaultDrv) : '');
-                    setDispatchDecisionReason('');
-                  }}
-                  openTripLabel={t('Open Approval / Dispatch')}
-                />
+
+                {adminScheduleSubTab === 'ACTIVE' ? (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <button type="button" className="gf-btn gf-btn-secondary gf-btn-sm" onClick={() => shiftDate(-1)} aria-label={t('Previous day')}>‹</button>
+                      <input
+                        id="admin-schedule-date-input"
+                        type="date"
+                        className="gf-input"
+                        style={{ minHeight: '34px', height: '34px', padding: '0 10px', fontSize: '13px', width: 'auto' }}
+                        value={adminSchedDate}
+                        onChange={(e) => setScheduleCalendarDate(e.target.value)}
+                      />
+                      <button type="button" className="gf-btn gf-btn-secondary gf-btn-sm" onClick={() => shiftDate(1)} aria-label={t('Next day')}>›</button>
+                      <button type="button" className="gf-btn gf-btn-secondary gf-btn-sm" onClick={() => setScheduleCalendarDate(todayLocalDateStr())}>
+                        {t('Today')}
+                      </button>
+                    </div>
+                    <DriverScheduleCalendar
+                      vehicles={vehicles}
+                      trips={Array.from(schedById.values())}
+                      dateStr={adminSchedDate}
+                      currentUserId={user.id}
+                      showContacts
+                      onOpenTrip={(tr) => {
+                        const full = trips.find((x) => Number(x.id) === Number(tr.id)) || tr;
+                        setDispatchModalTrip(full);
+                        setDispatchVehicleId(full.vehicle_id);
+                        const defaultDrv = full.driver_profile_id || full.preferred_driver_id || drivers[0]?.id || '';
+                        setDispatchDriverId(defaultDrv ? String(defaultDrv) : '');
+                        setDispatchDecisionReason('');
+                      }}
+                      openTripLabel={t('Open Approval / Dispatch')}
+                    />
+                  </>
+                ) : (
+                  <div id="schedule-audit-history-panel" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <select
+                        id="schedule-audit-status-filter"
+                        className="gf-input"
+                        style={{ width: 'auto', minHeight: '34px', height: '34px', fontSize: '12.5px' }}
+                        value={scheduleAuditStatus}
+                        onChange={(e) => setScheduleAuditStatus(e.target.value as any)}
+                      >
+                        <option value="COMPLETED">{t('Completed Trips')}</option>
+                        <option value="PAST">{t('All Past (Completed/Cancelled/Rejected)')}</option>
+                        <option value="CANCELLED">{t('Cancelled')}</option>
+                        <option value="REJECTED">{t('Rejected')}</option>
+                        <option value="ALL">{t('All Records')}</option>
+                      </select>
+                      <input
+                        id="schedule-audit-date-filter"
+                        type="date"
+                        className="gf-input"
+                        style={{ width: 'auto', minHeight: '34px', height: '34px', fontSize: '12.5px' }}
+                        value={scheduleAuditDate}
+                        onChange={(e) => setScheduleAuditDate(e.target.value)}
+                      />
+                      {scheduleAuditDate && (
+                        <button type="button" className="gf-btn gf-btn-ghost gf-btn-sm" onClick={() => setScheduleAuditDate('')}>
+                          {t('All Dates')}
+                        </button>
+                      )}
+                      <input
+                        id="schedule-audit-search"
+                        type="search"
+                        className="gf-input"
+                        style={{ flex: 1, minWidth: '180px', minHeight: '34px', height: '34px', fontSize: '12.5px' }}
+                        placeholder={t('Search car, driver, booker, destination...')}
+                        value={scheduleAuditSearch}
+                        onChange={(e) => setScheduleAuditSearch(e.target.value)}
+                      />
+                    </div>
+
+                    {filteredAuditRecords.length === 0 ? (
+                      <EmptyState message={t('No schedule audit records match this filter.')} />
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {filteredAuditRecords.map((rec) => {
+                          const sD = new Date(rec.start_time);
+                          const eD = new Date(rec.end_time);
+                          const st = String(rec.status || '').toUpperCase();
+                          const tone = st === 'COMPLETED' ? 'blue' : st === 'CANCELLED' || st === 'REJECTED' ? 'red' : 'amber';
+                          return (
+                            <div
+                              key={rec.id}
+                              data-audit-trip-id={rec.id}
+                              className="gf-proto-card pressable"
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setSelectedAuditRecord(rec)}
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedAuditRecord(rec); } }}
+                              style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '6px' }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                  <span className="mono" style={{ fontWeight: 800, fontSize: '12px' }}>#{rec.id}</span>
+                                  <span className="mono" style={{ fontWeight: 800, fontSize: '12px', padding: '1px 6px', borderRadius: '5px', border: '1px solid var(--color-border)' }}>
+                                    {rec.registration_plate}
+                                  </span>
+                                  <span style={{ fontWeight: 700, fontSize: '13px' }}>{rec.make} {rec.model}</span>
+                                </div>
+                                <StatusBadge label={st} tone={tone} />
+                              </div>
+                              <div className="type-caption" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                <span>📅 {sD.toLocaleDateString()} {sD.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {eD.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                <span>👤 <strong>{rec.requester_name}</strong> ({rec.department_name})</span>
+                                <span>🚗 {t('Driver')}: <strong>{rec.assigned_driver_name}</strong></span>
+                              </div>
+                              <div style={{ fontSize: '12.5px', color: 'var(--color-text-primary)' }}>
+                                {rec.origin} → <strong>{rec.destination}</strong>
+                              </div>
+                              <div className="type-caption" style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                                <span>
+                                  {t('Passengers On Board')}: {formatPassengersDisplay(rec.passengers_json, rec.passenger_nickname)}
+                                  {rec.distance_km != null ? ` • ${rec.distance_km} km` : ''}
+                                  {rec.start_odometer != null && rec.end_odometer != null ? ` (ODO ${rec.start_odometer} → ${rec.end_odometer})` : ''}
+                                </span>
+                                <span style={{ color: '#0072de', fontWeight: 700 }}>{t('View Audit Record')} →</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </section>
             );
           })()}
@@ -8884,7 +9086,64 @@ export function App() {
 
           {/* DEDICATED AUDIT TRAIL MODULE (Independent from Analytics) */}
           {adminModule === 'AUDIT' && (
-            <section className="gf-card-flat">
+            <>
+              <section className="gf-card-flat" id="audit-completed-schedule-section" style={{ marginBottom: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                  <div>
+                    <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                      <Calendar size={17} style={{ color: 'var(--color-samsung-blue)' }} /> {t('Past & Completed Schedule Records (Audit)')} ({scheduleAuditRecords.filter((r) => ['COMPLETED', 'CANCELLED', 'REJECTED'].includes(String(r.status).toUpperCase())).length})
+                    </h2>
+                    <p className="type-caption" style={{ margin: '2px 0 0' }}>{t('Review completed bookings, passengers, routes, odometer readings, and approval decisions.')}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-secondary gf-btn-sm pressable"
+                    onClick={() => {
+                      setAdminScheduleSubTab('AUDIT');
+                      setAdminModule('DRIVER_SCHEDULE');
+                    }}
+                  >
+                    {t('Open Full Schedule Audit')} →
+                  </button>
+                </div>
+                {scheduleAuditRecords.filter((r) => ['COMPLETED', 'CANCELLED', 'REJECTED'].includes(String(r.status).toUpperCase())).length === 0 ? (
+                  <EmptyState message={t('No completed or past bookings recorded yet.')} />
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {scheduleAuditRecords
+                      .filter((r) => ['COMPLETED', 'CANCELLED', 'REJECTED'].includes(String(r.status).toUpperCase()))
+                      .slice(0, 15)
+                      .map((rec) => {
+                        const sD = new Date(rec.start_time);
+                        const st = String(rec.status || '').toUpperCase();
+                        return (
+                          <div
+                            key={rec.id}
+                            className="gf-proto-card pressable"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setSelectedAuditRecord(rec)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedAuditRecord(rec); } }}
+                            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}
+                          >
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ fontWeight: 700, fontSize: '13px' }}>
+                                <span className="mono">#{rec.id}</span> • <span className="mono">{rec.registration_plate}</span> ({rec.make} {rec.model}) — {rec.requester_name}
+                              </div>
+                              <div className="type-caption">
+                                {sD.toLocaleDateString()} • {rec.origin} → {rec.destination}
+                                {rec.distance_km != null ? ` • ${rec.distance_km} km` : ''}
+                              </div>
+                            </div>
+                            <StatusBadge label={st} tone={st === 'COMPLETED' ? 'blue' : 'red'} />
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </section>
+
+              <section className="gf-card-flat">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                 <div>
                   <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -8986,7 +9245,71 @@ export function App() {
                   ))}
               </div>
             </section>
+            </>
           )}
+
+          {selectedAuditRecord && (() => {
+            const rec = selectedAuditRecord;
+            const sD = new Date(rec.start_time);
+            const eD = new Date(rec.end_time);
+            const st = String(rec.status || '').toUpperCase();
+            return (
+              <div className="gf-gcal-sheet-backdrop" onClick={() => setSelectedAuditRecord(null)} role="presentation">
+                <div
+                  id="audit-trip-detail-modal"
+                  className="gf-gcal-sheet"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={t('Schedule Audit Record')}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="gf-gcal-sheet-head">
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="gf-gcal-sheet-title">
+                        {t('Booking Audit')} #{rec.id} • {rec.registration_plate}
+                      </div>
+                      <div className="gf-gcal-sheet-sub">
+                        {rec.make} {rec.model} • {st}
+                      </div>
+                    </div>
+                    <button type="button" className="gf-icon-btn-48 pressable" style={{ width: 34, height: 34 }} aria-label={t('Close')} onClick={() => setSelectedAuditRecord(null)}>
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' }}>
+                    <div><strong>{t('Booker')}:</strong> {rec.requester_name} ({rec.department_name})</div>
+                    <div><strong>{t('Driver')}:</strong> {rec.assigned_driver_name || t('Pool Driver')}</div>
+                    <div><strong>{t('Schedule')}:</strong> {sD.toLocaleString()} – {eD.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                    {rec.actual_start_time && <div><strong>{t('Actual Trip Time')}:</strong> {new Date(rec.actual_start_time).toLocaleString()} → {rec.actual_end_time ? new Date(rec.actual_end_time).toLocaleString() : '-'}</div>}
+                    <div><strong>{t('Route')}:</strong> {rec.origin} → {rec.destination}</div>
+                    <div><strong>{t('Purpose')}:</strong> {rec.purpose}</div>
+                    <div><strong>{t('Passengers On Board')}:</strong> {formatPassengersDisplay(rec.passengers_json, rec.passenger_nickname)} ({rec.passenger_count || 1})</div>
+                    {(rec.start_odometer != null || rec.end_odometer != null || rec.distance_km != null) && (
+                      <div>
+                        <strong>{t('Odometer & Distance')}:</strong> {rec.start_odometer ?? '-'} → {rec.end_odometer ?? '-'} km ({rec.distance_km ?? 0} km)
+                      </div>
+                    )}
+                    {rec.cancellation_reason && <div><strong>{t('Cancellation Reason')}:</strong> {rec.cancellation_reason}</div>}
+                    {Array.isArray(rec.decisions) && rec.decisions.length > 0 && (
+                      <div style={{ marginTop: '4px', paddingTop: '6px', borderTop: '1px solid var(--color-divider)' }}>
+                        <strong>{t('Approval History')}:</strong>
+                        <ul style={{ margin: '4px 0 0', paddingLeft: '18px', fontSize: '12px' }}>
+                          {rec.decisions.map((d: any) => (
+                            <li key={d.id}>
+                              <strong>{d.decider_role}</strong> ({d.decider_name}): {d.decision}{d.reason ? ` — "${d.reason}"` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                  <button type="button" className="gf-btn gf-btn-secondary gf-btn-full pressable" style={{ minHeight: '38px', marginTop: '6px' }} onClick={() => setSelectedAuditRecord(null)}>
+                    {t('Close')}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </AdminShell>
         {renderSharedModals()}
       </>
@@ -11860,7 +12183,9 @@ export function App() {
                 }}
                 title={t('Company Car')}
               >
-                <span className="gf-gojek-hero-tag">{t('Available • 8 Cars')}</span>
+                <span id="company-car-live-availability" className="gf-gojek-hero-tag">
+                  {t(liveAvailableCarsCount === 1 ? '1 Car Available' : `${liveAvailableCarsCount} Cars Available`)}
+                </span>
                 <div className="gf-gojek-hero-art">
                   <CompanyCarIcon size={48} />
                 </div>
