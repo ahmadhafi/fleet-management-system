@@ -3077,6 +3077,121 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(indexHtml).toContain('data-display-mode="mobile"');
         expect(displayModeTs).toContain('data-forced-mobile-zoom');
       });
+
+      it('supports clickable Inbox notifications, accept/reject hitchhike (adds passenger on accept), and accept/reject cancellation (cancels and transfers booking to requester)', async () => {
+        resetDbForTesting(':memory:');
+        const testApp = createApp();
+        const alexLogin = await request(testApp)
+          .post('/api/auth/login')
+          .send({ group_username: 'emp_alex', password: 'Emp@123' });
+        const saraLogin = await request(testApp)
+          .post('/api/auth/login')
+          .send({ group_username: 'emp_sara', password: 'Emp@123' });
+        expect(alexLogin.status).toBe(200);
+        expect(saraLogin.status).toBe(200);
+        const alexTok = alexLogin.body.token;
+        const saraTok = saraLogin.body.token;
+
+        const vehRes = await request(testApp).get('/api/vehicles').set('Authorization', `Bearer ${alexTok}`);
+        const veh = vehRes.body.vehicles[3] || vehRes.body.vehicles[0];
+        const baseDay = new Date(Date.now() + 72 * 3600000);
+        baseDay.setHours(9, 0, 0, 0);
+        const startIso = baseDay.toISOString();
+        const endIso = new Date(baseDay.getTime() + 2 * 3600000).toISOString();
+
+        const created = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({
+            vehicle_id: veh.id,
+            purpose: 'Factory Inspection Karawang',
+            origin: 'Samsung Research Indonesia (SRIN), Jakarta Selatan',
+            destination: 'Kawasan Industri KIIC, Karawang',
+            start_time: startIso,
+            end_time: endIso,
+            passenger_count: 1,
+            passenger_nickname: 'Alex Rivera',
+            passengers: [{ nickname: 'Alex Rivera' }],
+          });
+        expect(created.status).toBe(201);
+        const tripId = created.body.tripId;
+
+        // 1. Sara requests HITCHHIKE -> Alex rejects
+        const hhReq1 = await request(testApp)
+          .post(`/api/trips/${tripId}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({ action_type: 'HITCHHIKE', passenger_nickname: 'Sara Sales', message: 'May I join to KIIC?' });
+        expect(hhReq1.status).toBe(201);
+        expect(hhReq1.body.negotiationId).toBeGreaterThan(0);
+
+        // Verify notification is returned in Alex's Inbox with negotiation metadata & can be marked read
+        const alexInbox1 = await request(testApp).get('/api/notifications').set('Authorization', `Bearer ${alexTok}`);
+        const hhNotif1 = alexInbox1.body.notifications.find((n: any) => Number(n.negotiation_id) === Number(hhReq1.body.negotiationId));
+        expect(hhNotif1).toBeTruthy();
+        expect(hhNotif1.negotiation_action_type).toBe('HITCHHIKE');
+        expect(hhNotif1.negotiation_status).toBe('PENDING');
+
+        const markRead = await request(testApp)
+          .post(`/api/notifications/${hhNotif1.id}/read`)
+          .set('Authorization', `Bearer ${alexTok}`);
+        expect(markRead.status).toBe(200);
+
+        const rejectHh = await request(testApp)
+          .post(`/api/negotiations/${hhReq1.body.negotiationId}/respond`)
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({ decision: 'REJECT' });
+        expect(rejectHh.status).toBe(200);
+        expect(rejectHh.body.status).toBe('REJECTED');
+
+        // 2. Sara requests HITCHHIKE again -> Alex accepts -> Sara added to passenger list
+        const hhReq2 = await request(testApp)
+          .post(`/api/trips/${tripId}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({ action_type: 'HITCHHIKE', passenger_nickname: 'Sara Sales', message: 'Same meeting!' });
+        expect(hhReq2.status).toBe(201);
+
+        const acceptHh = await request(testApp)
+          .post(`/api/negotiations/${hhReq2.body.negotiationId}/respond`)
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({ decision: 'ACCEPT' });
+        expect(acceptHh.status).toBe(200);
+        expect(acceptHh.body.status).toBe('ACCEPTED');
+        expect(acceptHh.body.trip.passenger_count).toBe(2);
+        expect(String(acceptHh.body.trip.passengers_json)).toContain('Sara Sales');
+
+        // 3. Sara requests REQUEST_CANCEL -> Alex rejects (booking stays active)
+        const cancelReq1 = await request(testApp)
+          .post(`/api/trips/${tripId}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({ action_type: 'REQUEST_CANCEL', message: 'Urgent VIP client pickup' });
+        expect(cancelReq1.status).toBe(201);
+
+        const rejectCancel = await request(testApp)
+          .post(`/api/negotiations/${cancelReq1.body.negotiationId}/respond`)
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({ decision: 'REJECT' });
+        expect(rejectCancel.status).toBe(200);
+        expect(rejectCancel.body.status).toBe('REJECTED');
+
+        // 4. Sara requests REQUEST_CANCEL -> Alex accepts -> original cancelled AND transferred to Sara
+        const cancelReq2 = await request(testApp)
+          .post(`/api/trips/${tripId}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({ action_type: 'REQUEST_CANCEL', destination: 'Bandara Soekarno-Hatta T3', message: 'Urgent airport transfer' });
+        expect(cancelReq2.status).toBe(201);
+
+        const acceptCancel = await request(testApp)
+          .post(`/api/negotiations/${cancelReq2.body.negotiationId}/respond`)
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({ decision: 'ACCEPT' });
+        expect(acceptCancel.status).toBe(200);
+        expect(acceptCancel.body.status).toBe('ACCEPTED');
+        expect(acceptCancel.body.cancelledTrip.status).toBe('CANCELLED');
+        expect(acceptCancel.body.transferredTripId).toBeGreaterThan(0);
+        expect(Number(acceptCancel.body.transferredTrip.requester_id)).toBe(Number(saraLogin.body.user.id));
+        expect(Number(acceptCancel.body.transferredTrip.vehicle_id)).toBe(Number(veh.id));
+        expect(acceptCancel.body.transferredTrip.destination).toBe('Bandara Soekarno-Hatta T3');
+      });
     });
   });
 });

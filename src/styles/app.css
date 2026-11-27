@@ -4941,7 +4941,7 @@ html[data-display-mode='mobile'] .gf-bottom-nav {
   color: var(--color-text-primary);
   border: 1px solid var(--color-border);
   border-radius: 18px 18px 0 0;
-  padding: 16px 16px calc(18px + var(--safe-bottom, 0px));
+  padding: 16px 16px calc(84px + var(--safe-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 10px;

@@ -529,6 +529,23 @@ function initializeSchema(db: AppDatabase) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS negotiation_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trip_request_id INTEGER NOT NULL REFERENCES trip_requests(id) ON DELETE CASCADE,
+      notification_id INTEGER REFERENCES notifications(id) ON DELETE SET NULL,
+      action_type TEXT NOT NULL CHECK (action_type IN ('HITCHHIKE', 'REQUEST_CANCEL')),
+      requester_user_id INTEGER NOT NULL REFERENCES users(id),
+      holder_user_id INTEGER NOT NULL REFERENCES users(id),
+      passenger_nickname TEXT,
+      destination TEXT,
+      message TEXT,
+      status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ACCEPTED', 'REJECTED')),
+      decided_by INTEGER REFERENCES users(id),
+      decided_at TEXT,
+      transferred_trip_id INTEGER REFERENCES trip_requests(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL REFERENCES users(id),

@@ -583,6 +583,8 @@ export function App() {
   const [negotiationNote, setNegotiationNote] = useState<string>('');
   const [negotiationPassengerNickname, setNegotiationPassengerNickname] = useState<string>('');
   const [negotiationSubmitting, setNegotiationSubmitting] = useState<boolean>(false);
+  const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
+  const [negotiationRespondBusyId, setNegotiationRespondBusyId] = useState<number | null>(null);
 
   // Driver Expense Reimbursement & Petty Cash State
   const [showDriverExpenseModal, setShowDriverExpenseModal] = useState<boolean>(false);
@@ -1975,11 +1977,16 @@ export function App() {
               const notif = payload.data;
               if (notif && notif.id) {
                 setNotifications((prev: any[]) => {
-                  if (prev.some((n: any) => n.id === notif.id)) return prev;
+                  if (prev.some((n: any) => Number(n.id) === Number(notif.id))) return prev;
                   return [notif, ...prev];
                 });
                 playNotificationChime();
                 triggerSystemNotification(notif.title, { body: notif.body });
+                apiRequest('/api/notifications')
+                  .then((nr) => {
+                    if (Array.isArray(nr?.notifications)) setNotifications(nr.notifications);
+                  })
+                  .catch(() => {});
                 void syncTripsAndSchedule();
               }
             }
@@ -2494,6 +2501,72 @@ export function App() {
       await loadAllData(user);
     } catch (err: any) {
       setStatusBanner({ type: 'danger', text: err.message });
+    }
+  };
+
+  const handleOpenNotification = (notif: any) => {
+    setSelectedNotification({ ...notif, is_read: 1 });
+    if (!notif.is_read) {
+      setNotifications((prev: any[]) => prev.map((item) => (Number(item.id) === Number(notif.id) ? { ...item, is_read: 1 } : item)));
+      void apiRequest(`/api/notifications/${notif.id}/read`, { method: 'POST' }).catch(() => {});
+    }
+  };
+
+  const handleRespondNegotiation = async (notif: any, decision: 'ACCEPT' | 'REJECT') => {
+    if (!notif?.negotiation_id) return;
+    const negId = Number(notif.negotiation_id);
+    setNegotiationRespondBusyId(negId);
+    try {
+      const res = await apiRequest(`/api/negotiations/${negId}/respond`, {
+        method: 'POST',
+        body: JSON.stringify({ decision }),
+      });
+      const nextStatus = decision === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED';
+      const transferredId = res?.transferredTripId || null;
+      setNotifications((prev: any[]) =>
+        prev.map((item) =>
+          Number(item.negotiation_id) === negId
+            ? {
+                ...item,
+                is_read: 1,
+                negotiation_status: nextStatus,
+                negotiation_transferred_trip_id: transferredId ?? item.negotiation_transferred_trip_id,
+              }
+            : item
+        )
+      );
+      setSelectedNotification((prev: any) =>
+        prev && Number(prev.negotiation_id) === negId
+          ? {
+              ...prev,
+              is_read: 1,
+              negotiation_status: nextStatus,
+              negotiation_transferred_trip_id: transferredId ?? prev.negotiation_transferred_trip_id,
+            }
+          : prev
+      );
+      const isHitchhike =
+        notif.negotiation_action_type === 'HITCHHIKE' ||
+        notif.trigger_type === 'NEGOTIATE_HITCHHIKE_REQUEST' ||
+        notif.trigger_type === 'HITCHHIKE_REQUEST';
+      if (decision === 'ACCEPT') {
+        setStatusBanner({
+          type: 'success',
+          text: isHitchhike
+            ? t('Hitchhike accepted! Passenger added to your booking.')
+            : `${t('Cancellation accepted! Booking cancelled and transferred to requester')}${transferredId ? ` (#${transferredId})` : ''}.`,
+        });
+      } else {
+        setStatusBanner({
+          type: 'info',
+          text: isHitchhike ? t('Hitchhike request rejected.') : t('Cancellation request rejected. Your booking remains active.'),
+        });
+      }
+      await loadAllData(user);
+    } catch (err: any) {
+      setStatusBanner({ type: 'danger', text: err.message });
+    } finally {
+      setNegotiationRespondBusyId(null);
     }
   };
 
@@ -10812,50 +10885,129 @@ export function App() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {notifications.map((n) => {
-                const isHitchhikeReq = n.trigger_type === 'HITCHHIKE_REQUEST' && n.related_entity_id;
-                const isCancelNegotiateReq = n.trigger_type === 'CANCEL_NEGOTIATION_REQUEST' && n.related_entity_id;
-                const hitchhikerMatch = isHitchhikeReq ? String(n.body || '').match(/for passenger "([^"]+)"/i) || String(n.body || '').match(/^([^\s(]+)/) : null;
-                const hitchhikerName = hitchhikerMatch?.[1] || 'Colleague';
+                const isHitchhikeReq =
+                  n.negotiation_action_type === 'HITCHHIKE' ||
+                  n.trigger_type === 'NEGOTIATE_HITCHHIKE_REQUEST' ||
+                  n.trigger_type === 'HITCHHIKE_REQUEST';
+                const isCancelNegotiateReq =
+                  n.negotiation_action_type === 'REQUEST_CANCEL' ||
+                  n.trigger_type === 'NEGOTIATE_CANCEL_REQUEST' ||
+                  n.trigger_type === 'CANCEL_NEGOTIATION_REQUEST';
+                const isNegotiation = (isHitchhikeReq || isCancelNegotiateReq) && Boolean(n.negotiation_id || n.related_entity_id);
+                const negStatus = String(n.negotiation_status || (n.negotiation_id ? 'PENDING' : '')).toUpperCase();
+                const isPendingDecision = Boolean(n.negotiation_id) && negStatus === 'PENDING';
+                const isBusy = Boolean(n.negotiation_id) && negotiationRespondBusyId === Number(n.negotiation_id);
+                const hitchhikerName =
+                  n.negotiation_passenger_nickname ||
+                  n.negotiation_requester_name ||
+                  String(n.body || '').match(/Passenger to add:\s*([^.]+)/i)?.[1]?.trim() ||
+                  String(n.body || '').match(/^([^\s(]+)/)?.[1] ||
+                  'Colleague';
 
                 return (
                   <div
                     key={n.id}
-                    className={!n.is_read ? 'gf-proto-inbox-unread' : undefined}
+                    data-notification-id={n.id}
+                    data-negotiation-id={n.negotiation_id || undefined}
+                    className={!n.is_read ? 'gf-proto-inbox-unread pressable' : 'pressable'}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleOpenNotification(n)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleOpenNotification(n);
+                      }
+                    }}
                     style={{
+                      cursor: 'pointer',
                       borderRadius: '12px',
-                      border: isHitchhikeReq || isCancelNegotiateReq ? '1.5px solid #93c5fd' : undefined,
-                      padding: isHitchhikeReq || isCancelNegotiateReq ? '6px 10px' : undefined,
+                      border: isNegotiation ? '1.5px solid #93c5fd' : '1px solid var(--color-divider)',
+                      padding: '8px 12px',
+                      background: !n.is_read ? undefined : 'var(--color-surface)',
                     }}
                   >
-                    <ListRow
-                      tall
-                      icon={<Bell size={18} style={{ color: n.is_read ? 'var(--color-text-muted)' : '#0072de' }} />}
-                      title={n.title}
-                      subtitle={n.body}
-                      trailing={!n.is_read ? <span className="gf-dot-green" style={{ background: '#0072de' }} aria-label="Unread" /> : undefined}
-                    />
-                    {isHitchhikeReq && (
-                      <div style={{ display: 'flex', gap: '8px', padding: '4px 0 6px 36px', flexWrap: 'wrap' }}>
-                        <button
-                          type="button"
-                          className="gf-btn gf-btn-primary gf-btn-sm"
-                          style={{ minHeight: '30px', padding: '0 12px', fontSize: '11.5px' }}
-                          onClick={() => handleAcceptHitchhike(Number(n.related_entity_id), hitchhikerName)}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                      <Bell size={18} style={{ color: n.is_read ? 'var(--color-text-muted)' : '#0072de', marginTop: '2px', flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                          <span style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--color-text-primary)' }}>{n.title}</span>
+                          {!n.is_read && <span className="gf-dot-green" style={{ background: '#0072de', flexShrink: 0 }} aria-label="Unread" />}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: '12.5px',
+                            color: 'var(--color-text-secondary)',
+                            marginTop: '3px',
+                            lineHeight: 1.4,
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
                         >
-                          ✓ {t('Accept Hitchhike')} ({hitchhikerName})
-                        </button>
+                          {n.body}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '4px' }}>
+                          <span className="type-caption" style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                            {n.created_at ? new Date(String(n.created_at).replace(' ', 'T') + (String(n.created_at).includes('Z') ? '' : 'Z')).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : ''}
+                          </span>
+                          <span style={{ fontSize: '11px', fontWeight: 700, color: '#0072de' }}>{t('Tap to read full message')}</span>
+                        </div>
                       </div>
-                    )}
-                    {isCancelNegotiateReq && (
-                      <div style={{ display: 'flex', gap: '8px', padding: '4px 0 6px 36px', flexWrap: 'wrap' }}>
-                        <button
-                          type="button"
-                          className="gf-btn gf-btn-outline-danger gf-btn-sm"
-                          style={{ minHeight: '30px', padding: '0 12px', fontSize: '11.5px' }}
-                          onClick={() => handleCancelBookingRequest({ id: Number(n.related_entity_id) })}
-                        >
-                          {t('Cancel Booking')} &amp; Release Slot
-                        </button>
+                    </div>
+
+                    {isNegotiation && (
+                      <div
+                        style={{ display: 'flex', gap: '8px', padding: '8px 0 2px 28px', flexWrap: 'wrap', alignItems: 'center' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {isPendingDecision ? (
+                          <>
+                            <button
+                              id={`btn-accept-neg-${n.negotiation_id}`}
+                              type="button"
+                              disabled={isBusy}
+                              className="gf-btn gf-btn-primary gf-btn-sm pressable"
+                              style={{ minHeight: '32px', padding: '0 12px', fontSize: '12px' }}
+                              onClick={() => handleRespondNegotiation(n, 'ACCEPT')}
+                            >
+                              {isHitchhikeReq
+                                ? `✓ ${t('Accept Hitchhike')} (${hitchhikerName})`
+                                : `✓ ${t('Accept & Transfer Slot')}`}
+                            </button>
+                            <button
+                              id={`btn-reject-neg-${n.negotiation_id}`}
+                              type="button"
+                              disabled={isBusy}
+                              className="gf-btn gf-btn-outline-danger gf-btn-sm pressable"
+                              style={{ minHeight: '32px', padding: '0 12px', fontSize: '12px' }}
+                              onClick={() => handleRespondNegotiation(n, 'REJECT')}
+                            >
+                              ✕ {t('Reject')}
+                            </button>
+                          </>
+                        ) : negStatus === 'ACCEPTED' ? (
+                          <StatusBadge
+                            tone="blue"
+                            label={
+                              isHitchhikeReq
+                                ? `${t('Accepted')} • ${hitchhikerName} ${t('added to passengers')}`
+                                : `${t('Accepted')} • ${t('Booking cancelled & transferred')}${n.negotiation_transferred_trip_id ? ` (#${n.negotiation_transferred_trip_id})` : ''}`
+                            }
+                          />
+                        ) : negStatus === 'REJECTED' ? (
+                          <StatusBadge tone="red" label={t('Rejected')} />
+                        ) : isHitchhikeReq && n.related_entity_id ? (
+                          <button
+                            type="button"
+                            className="gf-btn gf-btn-primary gf-btn-sm pressable"
+                            style={{ minHeight: '30px', padding: '0 12px', fontSize: '11.5px' }}
+                            onClick={() => handleAcceptHitchhike(Number(n.related_entity_id), hitchhikerName)}
+                          >
+                            ✓ {t('Accept Hitchhike')} ({hitchhikerName})
+                          </button>
+                        ) : null}
                       </div>
                     )}
                   </div>
@@ -10863,6 +11015,131 @@ export function App() {
               })}
             </div>
           )}
+
+          {selectedNotification && (() => {
+            const sn = selectedNotification;
+            const isHitchhikeReq =
+              sn.negotiation_action_type === 'HITCHHIKE' ||
+              sn.trigger_type === 'NEGOTIATE_HITCHHIKE_REQUEST' ||
+              sn.trigger_type === 'HITCHHIKE_REQUEST';
+            const isCancelNegotiateReq =
+              sn.negotiation_action_type === 'REQUEST_CANCEL' ||
+              sn.trigger_type === 'NEGOTIATE_CANCEL_REQUEST' ||
+              sn.trigger_type === 'CANCEL_NEGOTIATION_REQUEST';
+            const isNegotiation = (isHitchhikeReq || isCancelNegotiateReq) && Boolean(sn.negotiation_id);
+            const negStatus = String(sn.negotiation_status || 'PENDING').toUpperCase();
+            const isPendingDecision = isNegotiation && negStatus === 'PENDING';
+            const isBusy = Boolean(sn.negotiation_id) && negotiationRespondBusyId === Number(sn.negotiation_id);
+            const hitchhikerName = sn.negotiation_passenger_nickname || sn.negotiation_requester_name || 'Colleague';
+
+            return (
+              <div
+                className="gf-gcal-sheet-backdrop"
+                onClick={() => setSelectedNotification(null)}
+                role="presentation"
+              >
+                <div
+                  id="notification-detail-modal"
+                  className="gf-gcal-sheet"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={t('Notification Details')}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="gf-gcal-sheet-head">
+                    <Bell size={18} style={{ color: '#0072de', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="gf-gcal-sheet-title" style={{ fontSize: '15.5px', lineHeight: 1.3 }}>
+                        {sn.title}
+                      </div>
+                      {sn.created_at && (
+                        <div className="gf-gcal-sheet-sub" style={{ marginTop: '2px' }}>
+                          {new Date(String(sn.created_at).replace(' ', 'T') + (String(sn.created_at).includes('Z') ? '' : 'Z')).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="gf-icon-btn-48 pressable"
+                      style={{ width: 34, height: 34 }}
+                      aria-label={t('Close')}
+                      onClick={() => setSelectedNotification(null)}
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  <div
+                    id="notification-detail-body"
+                    style={{
+                      fontSize: '13.5px',
+                      lineHeight: 1.55,
+                      color: 'var(--color-text-primary)',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      background: 'rgba(148, 163, 184, 0.1)',
+                      border: '1px solid var(--color-divider)',
+                    }}
+                  >
+                    {sn.body}
+                  </div>
+
+                  {isNegotiation && (
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+                      {isPendingDecision ? (
+                        <>
+                          <button
+                            id="modal-accept-negotiation-btn"
+                            type="button"
+                            disabled={isBusy}
+                            className="gf-btn gf-btn-primary gf-btn-sm pressable"
+                            style={{ flex: 1, minHeight: '38px' }}
+                            onClick={() => handleRespondNegotiation(sn, 'ACCEPT')}
+                          >
+                            {isHitchhikeReq
+                              ? `✓ ${t('Accept Hitchhike')} (${hitchhikerName})`
+                              : `✓ ${t('Accept & Transfer Slot')}`}
+                          </button>
+                          <button
+                            id="modal-reject-negotiation-btn"
+                            type="button"
+                            disabled={isBusy}
+                            className="gf-btn gf-btn-outline-danger gf-btn-sm pressable"
+                            style={{ minHeight: '38px', padding: '0 16px' }}
+                            onClick={() => handleRespondNegotiation(sn, 'REJECT')}
+                          >
+                            ✕ {t('Reject')}
+                          </button>
+                        </>
+                      ) : negStatus === 'ACCEPTED' ? (
+                        <StatusBadge
+                          tone="blue"
+                          label={
+                            isHitchhikeReq
+                              ? `${t('Accepted')} • ${hitchhikerName} ${t('added to passengers')}`
+                              : `${t('Accepted')} • ${t('Booking cancelled & transferred')}${sn.negotiation_transferred_trip_id ? ` (#${sn.negotiation_transferred_trip_id})` : ''}`
+                          }
+                        />
+                      ) : (
+                        <StatusBadge tone="red" label={t('Rejected')} />
+                      )}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    className="gf-btn gf-btn-secondary gf-btn-full pressable"
+                    style={{ minHeight: '38px', marginTop: '4px' }}
+                    onClick={() => setSelectedNotification(null)}
+                  >
+                    {t('Close')}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       );
     }

@@ -1530,6 +1530,7 @@ export function createApp() {
       runInTransaction(db, () => {
         db.prepare('DELETE FROM sessions WHERE user_id = ?').run(targetId);
         db.prepare('DELETE FROM user_locations WHERE user_id = ?').run(targetId);
+        db.prepare('DELETE FROM negotiation_requests WHERE requester_user_id = ? OR holder_user_id = ?').run(targetId, targetId);
         db.prepare('DELETE FROM notifications WHERE user_id = ?').run(targetId);
         db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(targetId);
         db.prepare('DELETE FROM location_reports WHERE driver_user_id = ?').run(targetId);
@@ -3447,7 +3448,16 @@ export function createApp() {
         relatedEntityId: tripId,
       });
 
+      const negRes = db
+        .prepare(
+          `INSERT INTO negotiation_requests (trip_request_id, notification_id, action_type, requester_user_id, holder_user_id, passenger_nickname, destination, message, status)
+           VALUES (?, ?, 'HITCHHIKE', ?, ?, ?, ?, ?, 'PENDING')`
+        )
+        .run(tripId, notifId, user.id, trip.requester_id, paxName, destination || trip.destination, noteText || null);
+      const negotiationId = Number(negRes.lastInsertRowid);
+
       recordAudit(db, user, 'TRIP_HITCHHIKE_REQUESTED', 'TRIP_REQUEST', tripId, null, {
+        negotiation_id: negotiationId,
         requester_id: user.id,
         requester_name: user.nickname,
         passenger_nickname: paxName,
@@ -3459,6 +3469,7 @@ export function createApp() {
         ok: true,
         action_type: 'HITCHHIKE',
         notificationId: notifId,
+        negotiationId,
         message: `Hitchhike request sent to ${trip.requester_name} (${trip.department_name}).`,
       });
       return;
@@ -3466,7 +3477,7 @@ export function createApp() {
 
     // REQUEST_CANCEL negotiation
     const title = `🔄 Schedule Negotiation (Cancel Request): ${user.nickname} (${reqDeptName})`;
-    const body = `${user.nickname} (${reqDeptName}) is requesting to negotiate your booking on ${trip.registration_plate} (${trip.make} ${trip.model}, ${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}) to "${trip.destination}".${noteText ? ` Reason / Message: "${noteText}"` : ' Please cancel if your schedule has changed so they can book the vehicle.'}`;
+    const body = `${user.nickname} (${reqDeptName}) is requesting to negotiate your booking on ${trip.registration_plate} (${trip.make} ${trip.model}, ${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}) to "${trip.destination}".${noteText ? ` Reason / Message: "${noteText}"` : ' Please accept to cancel and transfer this booking slot to them, or reject to keep your booking.'}`;
 
     const notifId = sendUserNotification(db, {
       userId: trip.requester_id,
@@ -3477,7 +3488,16 @@ export function createApp() {
       relatedEntityId: tripId,
     });
 
+    const negRes = db
+      .prepare(
+        `INSERT INTO negotiation_requests (trip_request_id, notification_id, action_type, requester_user_id, holder_user_id, passenger_nickname, destination, message, status)
+         VALUES (?, ?, 'REQUEST_CANCEL', ?, ?, ?, ?, ?, 'PENDING')`
+      )
+      .run(tripId, notifId, user.id, trip.requester_id, paxName, destination || trip.destination, noteText || null);
+    const negotiationId = Number(negRes.lastInsertRowid);
+
     recordAudit(db, user, 'TRIP_CANCEL_NEGOTIATION_REQUESTED', 'TRIP_REQUEST', tripId, null, {
+      negotiation_id: negotiationId,
       requester_id: user.id,
       requester_name: user.nickname,
       message: noteText,
@@ -3487,7 +3507,299 @@ export function createApp() {
       ok: true,
       action_type: 'REQUEST_CANCEL',
       notificationId: notifId,
+      negotiationId,
       message: `Cancellation negotiation request sent to ${trip.requester_name} (${trip.department_name}).`,
+    });
+  });
+
+  // Accept or Reject a Hitchhike or Cancellation/Slot-Transfer negotiation request from Inbox
+  app.post('/api/negotiations/:id/respond', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const user = req.user!;
+    const negId = Number(req.params.id);
+    const decisionNorm = String(req.body?.decision || '').trim().toUpperCase();
+    const reasonText = req.body?.reason ? String(req.body.reason).trim() : '';
+
+    if (!['ACCEPT', 'REJECT'].includes(decisionNorm)) {
+      res.status(400).json({ error: 'decision must be ACCEPT or REJECT' });
+      return;
+    }
+
+    const nr = db
+      .prepare(
+        `SELECT nr.*, req_u.nickname as requester_name, req_u.department_id as requester_department_id
+         FROM negotiation_requests nr
+         JOIN users req_u ON req_u.id = nr.requester_user_id
+         WHERE nr.id = ?`
+      )
+      .get(negId) as any;
+
+    if (!nr) {
+      res.status(404).json({ error: 'Negotiation request not found' });
+      return;
+    }
+
+    if (Number(nr.holder_user_id) !== Number(user.id) && !isPrivilegedRole(user)) {
+      res.status(403).json({ error: 'Only the current booking holder or an Admin can respond to this request' });
+      return;
+    }
+
+    if (nr.status !== 'PENDING') {
+      res.status(409).json({ error: `This request has already been ${String(nr.status).toLowerCase()}` });
+      return;
+    }
+
+    const trip = db
+      .prepare(
+        `SELECT tr.*, v.seats, v.registration_plate, v.make, v.model
+         FROM trip_requests tr
+         JOIN vehicles v ON v.id = tr.vehicle_id
+         WHERE tr.id = ?`
+      )
+      .get(nr.trip_request_id) as any;
+
+    if (!trip) {
+      res.status(404).json({ error: 'Associated booking not found' });
+      return;
+    }
+
+    if (nr.notification_id) {
+      db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ?').run(nr.notification_id);
+    }
+
+    // ---- REJECT (either HITCHHIKE or REQUEST_CANCEL) ----
+    if (decisionNorm === 'REJECT') {
+      db.prepare(
+        `UPDATE negotiation_requests
+         SET status = 'REJECTED', decided_by = ?, decided_at = datetime('now')
+         WHERE id = ?`
+      ).run(user.id, negId);
+
+      const isHitchhike = nr.action_type === 'HITCHHIKE';
+      sendUserNotification(db, {
+        userId: Number(nr.requester_user_id),
+        triggerType: isHitchhike ? 'HITCHHIKE_REJECTED' : 'CANCEL_NEGOTIATION_REJECTED',
+        title: isHitchhike ? '❌ Hitchhike Request Declined' : '❌ Cancellation Request Declined',
+        body: isHitchhike
+          ? `${user.nickname} declined your hitchhike request on ${trip.registration_plate} (${trip.make} ${trip.model}) to "${trip.destination}".${reasonText ? ` Note: "${reasonText}"` : ''}`
+          : `${user.nickname} declined your cancellation/transfer request for ${trip.registration_plate} (${trip.make} ${trip.model}) to "${trip.destination}". Their booking remains active.${reasonText ? ` Note: "${reasonText}"` : ''}`,
+        relatedEntityType: 'TRIP_REQUEST',
+        relatedEntityId: Number(trip.id),
+      });
+
+      recordAudit(
+        db,
+        user,
+        isHitchhike ? 'TRIP_HITCHHIKE_REJECTED' : 'TRIP_CANCEL_NEGOTIATION_REJECTED',
+        'TRIP_REQUEST',
+        Number(trip.id),
+        { negotiation_id: negId, status: 'PENDING' },
+        { status: 'REJECTED', reason: reasonText || null }
+      );
+
+      res.json({ ok: true, status: 'REJECTED', negotiationId: negId, action_type: nr.action_type });
+      return;
+    }
+
+    // ---- ACCEPT ----
+    if (!['PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS'].includes(trip.status)) {
+      res.status(400).json({ error: 'This booking is no longer active on the schedule' });
+      return;
+    }
+
+    // ACCEPT HITCHHIKE -> add requester to passenger list
+    if (nr.action_type === 'HITCHHIKE') {
+      let currentList: Array<{ id: number; nickname: string }> = [];
+      if (trip.passengers_json) {
+        try {
+          const parsed = JSON.parse(trip.passengers_json);
+          if (Array.isArray(parsed)) {
+            currentList = parsed
+              .map((p: any, idx: number) => ({
+                id: idx + 1,
+                nickname: String(p?.nickname || p?.name || p || '').trim(),
+              }))
+              .filter((p) => Boolean(p.nickname));
+          }
+        } catch {}
+      }
+      if (currentList.length === 0 && trip.passenger_nickname) {
+        currentList = [{ id: 1, nickname: String(trip.passenger_nickname).replace(/^1\.\s*/, '').trim() }];
+      }
+
+      const maxSeats = Number(trip.seats || 7);
+      if (currentList.length >= maxSeats) {
+        res.status(400).json({ error: `Vehicle ${trip.registration_plate} is already at full passenger capacity (${maxSeats} seats)` });
+        return;
+      }
+
+      const cleanNick = String(nr.passenger_nickname || nr.requester_name || 'Colleague').trim();
+      const alreadyOnList = currentList.some((p) => p.nickname.toLowerCase() === cleanNick.toLowerCase());
+      if (!alreadyOnList) {
+        currentList.push({ id: currentList.length + 1, nickname: cleanNick });
+      }
+      const nextPaxCount = currentList.length;
+      const nextPaxJson = JSON.stringify(currentList);
+      const nextPaxNickname = currentList.map((p, idx) => `${idx + 1}. ${p.nickname}`).join(', ');
+
+      runInTransaction(db, () => {
+        db.prepare(
+          `UPDATE trip_requests
+           SET passenger_count = ?, passengers_json = ?, passenger_nickname = ?, updated_at = datetime('now')
+           WHERE id = ?`
+        ).run(nextPaxCount, nextPaxJson, nextPaxNickname, trip.id);
+
+        db.prepare(
+          `UPDATE negotiation_requests
+           SET status = 'ACCEPTED', decided_by = ?, decided_at = datetime('now')
+           WHERE id = ?`
+        ).run(user.id, negId);
+      });
+
+      sendUserNotification(db, {
+        userId: Number(nr.requester_user_id),
+        triggerType: 'HITCHHIKE_ACCEPTED',
+        title: '✅ Hitchhike Request Accepted!',
+        body: `${user.nickname} accepted your hitchhike request on ${trip.registration_plate} (${trip.make} ${trip.model}) to "${trip.destination}". You (${cleanNick}) have been added to the passenger list.`,
+        relatedEntityType: 'TRIP_REQUEST',
+        relatedEntityId: Number(trip.id),
+      });
+
+      recordAudit(db, user, 'TRIP_HITCHHIKE_ACCEPTED', 'TRIP_REQUEST', Number(trip.id), null, {
+        negotiation_id: negId,
+        added_passenger: cleanNick,
+        passenger_count: nextPaxCount,
+      });
+
+      const enriched = broadcastTripUpdate(db, Number(trip.id), 'TRIP_UPDATED');
+      res.json({ ok: true, status: 'ACCEPTED', negotiationId: negId, action_type: 'HITCHHIKE', trip: enriched });
+      return;
+    }
+
+    // ACCEPT REQUEST_CANCEL -> automatically cancel original booking & transfer slot to requesting user
+    const transferResult = runInTransaction(db, () => {
+      const activeAssignment = db
+        .prepare('SELECT driver_profile_id FROM assignments WHERE trip_request_id = ? AND is_current = 1')
+        .get(trip.id) as { driver_profile_id: number } | undefined;
+
+      // 1. Cancel original booking
+      const cancelReason = `Cancelled and transferred slot to ${nr.requester_name} via negotiation #${negId}`;
+      db.prepare("UPDATE trip_requests SET status = 'CANCELLED', updated_at = datetime('now') WHERE id = ?").run(trip.id);
+      db.prepare("UPDATE bookings SET status = 'CANCELLED', cancellation_reason = ?, updated_at = datetime('now') WHERE trip_request_id = ? AND status != 'CANCELLED'").run(cancelReason, trip.id);
+      db.prepare('UPDATE assignments SET is_current = 0 WHERE trip_request_id = ? AND is_current = 1').run(trip.id);
+
+      // 2. Create transferred booking for requesting user on the same vehicle & time slot
+      const transferredNick = String(nr.passenger_nickname || nr.requester_name || 'Employee').trim();
+      const transferredPaxJson = JSON.stringify([{ id: 1, nickname: transferredNick }]);
+      const transferredPurpose = nr.message
+        ? `Transferred booking: ${nr.message}`
+        : `Transferred booking (${trip.purpose || 'Operational Trip'})`;
+      const transferredDest = nr.destination || trip.destination;
+
+      const insTrip = db
+        .prepare(
+          `INSERT INTO trip_requests (
+             requester_id, department_id, vehicle_id, preferred_driver_id,
+             passenger_nickname, passengers_json, purpose, origin, destination,
+             start_time, end_time, passenger_count, status,
+             reservation_type, return_pickup_time, is_urgent, urgent_reason
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'PENDING_APPROVAL', ?, ?, ?, ?)`
+        )
+        .run(
+          nr.requester_user_id,
+          nr.requester_department_id,
+          trip.vehicle_id,
+          trip.preferred_driver_id || activeAssignment?.driver_profile_id || null,
+          `1. ${transferredNick}`,
+          transferredPaxJson,
+          transferredPurpose,
+          trip.origin,
+          transferredDest,
+          trip.start_time,
+          trip.end_time,
+          trip.reservation_type || 'ONE_WAY',
+          trip.return_pickup_time || null,
+          Number(trip.is_urgent || 0),
+          trip.urgent_reason || null
+        );
+      const newTripId = Number(insTrip.lastInsertRowid);
+
+      // Immediately lock the vehicle schedule for the transferred booking
+      const insBooking = db
+        .prepare(
+          `INSERT INTO bookings (vehicle_id, trip_request_id, booked_by, purpose, start_time, end_time, status)
+           VALUES (?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')`
+        )
+        .run(trip.vehicle_id, newTripId, nr.requester_user_id, transferredPurpose, trip.start_time, trip.end_time);
+      const newBookingId = Number(insBooking.lastInsertRowid);
+
+      const carryDriverId = activeAssignment?.driver_profile_id || trip.preferred_driver_id || null;
+      if (carryDriverId) {
+        db.prepare(
+          `INSERT INTO assignments (trip_request_id, booking_id, vehicle_id, driver_profile_id, assigned_by, reason, effective_start, effective_end, is_current, acknowledged_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))`
+        ).run(
+          newTripId,
+          newBookingId,
+          trip.vehicle_id,
+          carryDriverId,
+          user.id,
+          `Transferred slot from booking #${trip.id} via negotiation #${negId}`,
+          trip.start_time,
+          trip.end_time
+        );
+      }
+
+      db.prepare(
+        `UPDATE negotiation_requests
+         SET status = 'ACCEPTED', decided_by = ?, decided_at = datetime('now'), transferred_trip_id = ?
+         WHERE id = ?`
+      ).run(user.id, newTripId, negId);
+
+      // Mark any other pending negotiation requests on the cancelled original trip as REJECTED
+      db.prepare(
+        `UPDATE negotiation_requests
+         SET status = 'REJECTED', decided_by = ?, decided_at = datetime('now')
+         WHERE trip_request_id = ? AND id != ? AND status = 'PENDING'`
+      ).run(user.id, trip.id, negId);
+
+      return { newTripId };
+    });
+
+    sendUserNotification(db, {
+      userId: Number(nr.requester_user_id),
+      triggerType: 'CANCEL_NEGOTIATION_ACCEPTED',
+      title: '✅ Booking Transferred to You!',
+      body: `${user.nickname} accepted your cancellation request. Their booking on ${trip.registration_plate} (${trip.make} ${trip.model}) has been cancelled and automatically transferred to you as Booking #${transferResult.newTripId} (${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}), awaiting approval.`,
+      relatedEntityType: 'TRIP_REQUEST',
+      relatedEntityId: transferResult.newTripId,
+    });
+
+    notifyAdmins(db, {
+      triggerType: 'TRIP_TRANSFERRED',
+      title: '🔄 Booking Cancelled & Transferred',
+      body: `${user.nickname} cancelled Booking #${trip.id} (${trip.registration_plate}) and transferred the slot to ${nr.requester_name} as Booking #${transferResult.newTripId} (awaiting approval).`,
+      relatedEntityType: 'TRIP_REQUEST',
+      relatedEntityId: transferResult.newTripId,
+    });
+
+    recordAudit(db, user, 'TRIP_CANCEL_NEGOTIATION_ACCEPTED', 'TRIP_REQUEST', Number(trip.id), { status: trip.status }, {
+      negotiation_id: negId,
+      status: 'CANCELLED',
+      transferred_to_user_id: nr.requester_user_id,
+      transferred_trip_id: transferResult.newTripId,
+    });
+
+    const cancelledTrip = broadcastTripUpdate(db, Number(trip.id), 'TRIP_UPDATED', { status: 'CANCELLED' });
+    const transferredTrip = broadcastTripUpdate(db, transferResult.newTripId, 'TRIP_CREATED');
+    res.json({
+      ok: true,
+      status: 'ACCEPTED',
+      negotiationId: negId,
+      action_type: 'REQUEST_CANCEL',
+      cancelledTrip,
+      transferredTrip,
+      transferredTripId: transferResult.newTripId,
     });
   });
 
@@ -5975,6 +6287,7 @@ export function createApp() {
           db.prepare('DELETE FROM fuel_records').run();
           db.prepare('DELETE FROM ev_charging_records').run();
           db.prepare('DELETE FROM maintenance_records').run();
+          db.prepare('DELETE FROM negotiation_requests').run();
           db.prepare('DELETE FROM trip_requests').run();
           db.prepare('DELETE FROM notifications').run();
 
@@ -6010,6 +6323,7 @@ export function createApp() {
           db.prepare('DELETE FROM fuel_records').run();
           db.prepare('DELETE FROM ev_charging_records').run();
           db.prepare('DELETE FROM maintenance_records').run();
+          db.prepare('DELETE FROM negotiation_requests').run();
           db.prepare('DELETE FROM trip_requests').run();
           db.prepare('DELETE FROM report_approvals').run();
           db.prepare('DELETE FROM notifications').run();
@@ -6887,8 +7201,35 @@ export function createApp() {
     try {
       checkTripAlertsAndAutoCancellations(db);
     } catch {}
-    const notifications = db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 50').all(req.user!.id);
+    const notifications = db
+      .prepare(
+        `SELECT n.*,
+                nr.id as negotiation_id,
+                nr.action_type as negotiation_action_type,
+                nr.status as negotiation_status,
+                nr.requester_user_id as negotiation_requester_id,
+                req_u.nickname as negotiation_requester_name,
+                nr.passenger_nickname as negotiation_passenger_nickname,
+                nr.destination as negotiation_destination,
+                nr.message as negotiation_message,
+                nr.transferred_trip_id as negotiation_transferred_trip_id
+         FROM notifications n
+         LEFT JOIN negotiation_requests nr ON nr.notification_id = n.id
+         LEFT JOIN users req_u ON req_u.id = nr.requester_user_id
+         WHERE n.user_id = ?
+         ORDER BY n.id DESC
+         LIMIT 50`
+      )
+      .all(req.user!.id);
+    res.set('Cache-Control', 'no-store');
     res.json({ notifications });
+  });
+
+  app.post('/api/notifications/:id/read', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const notifId = Number(req.params.id);
+    db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?').run(notifId, req.user!.id);
+    res.json({ ok: true });
   });
 
   app.post('/api/notifications/read-all', requireAuth, (req: Request, res: Response) => {

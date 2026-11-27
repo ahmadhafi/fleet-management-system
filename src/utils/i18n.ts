@@ -636,6 +636,16 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
   { en: 'Open Approval / Dispatch', id: 'Buka Persetujuan / Dispatch', ko: '승인 / 배차 열기' },
   { en: 'Employee', id: 'Karyawan', ko: '직원' },
   { en: 'Available All Day', id: 'Tersedia Seharian', ko: '종일 이용 가능' },
+  { en: 'Tap to read full message', id: 'Ketuk untuk baca selengkapnya', ko: '전체 내용을 보려면 탭하세요' },
+  { en: 'Notification Details', id: 'Detail Notifikasi', ko: '알림 상세 정보' },
+  { en: 'Accept & Transfer Slot', id: 'Terima & Alihkan Slot', ko: '수락 및 예약 양도' },
+  { en: 'Accepted', id: 'Diterima', ko: '수락됨' },
+  { en: 'added to passengers', id: 'ditambahkan ke penumpang', ko: '탑승자에 추가됨' },
+  { en: 'Booking cancelled & transferred', id: 'Pesanan dibatalkan & dialihkan', ko: '예약 취소 및 양도 완료' },
+  { en: 'Hitchhike accepted! Passenger added to your booking.', id: 'Nebeng diterima! Penumpang ditambahkan ke pesanan Anda.', ko: '합승이 수락되었습니다! 탑승자 명단에 추가되었습니다.' },
+  { en: 'Cancellation accepted! Booking cancelled and transferred to requester', id: 'Pembatalan diterima! Pesanan dibatalkan dan dialihkan ke pemohon', ko: '취소 요청이 수락되었습니다! 예약이 취소되고 요청자에게 양도되었습니다' },
+  { en: 'Hitchhike request rejected.', id: 'Permintaan nebeng ditolak.', ko: '합승 요청이 거절되었습니다.' },
+  { en: 'Cancellation request rejected. Your booking remains active.', id: 'Permintaan pembatalan ditolak. Pesanan Anda tetap aktif.', ko: '취소 요청이 거절되었습니다. 기존 예약이 유지됩니다.' },
 
   // Complete UI Coverage — Approval Lock, Executive Modals, Map Pin, Schedule, Driver, Admin & Reports
   { en: 'Booking cancelled and vehicle/driver slot released.', id: 'Pemesanan dibatalkan dan slot kendaraan/pengemudi telah dibuka kembali.', ko: '예약이 취소되었으며 차량/기사 일정이 해제되었습니다.' },
