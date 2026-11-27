@@ -667,6 +667,14 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
   { en: 'Odometer & Distance', id: 'Odometer & Jarak Tempuh', ko: '주행거리계 및 이동 거리' },
   { en: 'Cancellation Reason', id: 'Alasan Pembatalan', ko: '취소 사유' },
   { en: 'Approval History', id: 'Riwayat Persetujuan', ko: '승인 이력' },
+  { en: 'Hitchhike Passenger(s)', id: 'Penumpang Nebeng', ko: '합승 탑승자' },
+  { en: 'Seats', id: 'Kursi', ko: '좌석' },
+  { en: 'left', id: 'tersisa', ko: '남음' },
+  { en: 'This vehicle is full. No remaining seats available for hitchhike.', id: 'Mobil ini sudah penuh. Tidak ada kursi tersisa untuk nebeng.', ko: '이 차량은 만석입니다. 합승 가능한 좌석이 없습니다.' },
+  { en: 'Your name (Passenger 1)', id: 'Nama Anda (Penumpang 1)', ko: '본인 이름 (탑승자 1)' },
+  { en: 'Additional passenger', id: 'Penumpang tambahan', ko: '추가 탑승자' },
+  { en: 'Add Another Person', id: 'Tambah Orang Lain', ko: '동승자 추가' },
+  { en: 'Car seat limit reached', id: 'Batas kursi mobil tercapai', ko: '차량 좌석 한도 도달' },
 
   // Complete UI Coverage — Approval Lock, Executive Modals, Map Pin, Schedule, Driver, Admin & Reports
   { en: 'Booking cancelled and vehicle/driver slot released.', id: 'Pemesanan dibatalkan dan slot kendaraan/pengemudi telah dibuka kembali.', ko: '예약이 취소되었으며 차량/기사 일정이 해제되었습니다.' },

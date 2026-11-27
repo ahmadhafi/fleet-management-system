@@ -3191,6 +3191,71 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(Number(acceptCancel.body.transferredTrip.requester_id)).toBe(Number(saraLogin.body.user.id));
         expect(Number(acceptCancel.body.transferredTrip.vehicle_id)).toBe(Number(veh.id));
         expect(acceptCancel.body.transferredTrip.destination).toBe('Bandara Soekarno-Hatta T3');
+
+        // 5. Multi-passenger hitchhike limited by car seats + 1-click idempotency (cannot add same passenger 3 times)
+        const created2 = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({
+            vehicle_id: veh.id,
+            purpose: 'Seat Limit & Dedupe Test',
+            origin: 'Samsung Research Indonesia (SRIN), Jakarta Selatan',
+            destination: 'Bandara Soekarno-Hatta T3',
+            start_time: new Date(baseDay.getTime() + 24 * 3600000).toISOString(),
+            end_time: new Date(baseDay.getTime() + 26 * 3600000).toISOString(),
+            passenger_count: 2,
+            passenger_nickname: '1. Hafi, 2. Riza',
+            passengers: [{ nickname: 'Hafi' }, { nickname: 'Riza' }],
+          });
+        expect(created2.status).toBe(201);
+        const trip2Id = created2.body.tripId;
+        const maxSeats = Number(veh.seats || 4);
+
+        // Requesting more passengers than remaining seats is rejected with 400
+        const tooMany = Array.from({ length: maxSeats + 1 }, (_, i) => `ExtraPax${i + 1}`);
+        const overSeatRes = await request(testApp)
+          .post(`/api/trips/${trip2Id}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({ action_type: 'HITCHHIKE', passengers: tooMany });
+        expect(overSeatRes.status).toBe(400);
+
+        // Multi-passenger hitchhike within seat limit succeeds (e.g. Tito + Budi)
+        const multiHh = await request(testApp)
+          .post(`/api/trips/${trip2Id}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({ action_type: 'HITCHHIKE', passengers: ['Tito', 'Budi'] });
+        expect(multiHh.status).toBe(201);
+
+        // Duplicate pending hitchhike request from same user is blocked (409)
+        const dupPending = await request(testApp)
+          .post(`/api/trips/${trip2Id}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({ action_type: 'HITCHHIKE', passengers: ['Tito'] });
+        expect(dupPending.status).toBe(409);
+
+        // 1st Accept adds both Tito and Budi automatically
+        const accept1 = await request(testApp)
+          .post(`/api/negotiations/${multiHh.body.negotiationId}/respond`)
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({ decision: 'ACCEPT' });
+        expect(accept1.status).toBe(200);
+        expect(accept1.body.trip.passenger_count).toBe(4);
+        expect(String(accept1.body.trip.passengers_json)).toContain('Tito');
+        expect(String(accept1.body.trip.passengers_json)).toContain('Budi');
+
+        // 2nd & 3rd clicks on Accept are blocked (409) — Tito is NEVER added multiple times
+        const accept2 = await request(testApp)
+          .post(`/api/negotiations/${multiHh.body.negotiationId}/respond`)
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({ decision: 'ACCEPT' });
+        expect(accept2.status).toBe(409);
+
+        // Legacy hitchhike-accept also blocks duplicates (409)
+        const legacyDup = await request(testApp)
+          .post(`/api/trips/${trip2Id}/hitchhike-accept`)
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({ passenger_nickname: 'Tito' });
+        expect(legacyDup.status).toBe(409);
       });
     });
   });

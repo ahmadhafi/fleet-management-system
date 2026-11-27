@@ -3543,12 +3543,99 @@ export function createApp() {
 
     const reqDept = db.prepare('SELECT name FROM departments WHERE id = ?').get(user.department_id) as { name: string } | undefined;
     const reqDeptName = reqDept?.name || 'Group';
-    const paxName = (passenger_nickname ? String(passenger_nickname).trim() : user.nickname) || user.nickname;
-    const noteText = message ? String(message).trim() : '';
+    const noteText = String(message ?? req.body?.note ?? '').trim();
+
+    const parseExistingPax = (t: any): Array<{ id: number; nickname: string }> => {
+      let list: Array<{ id: number; nickname: string }> = [];
+      if (t.passengers_json) {
+        try {
+          const parsed = JSON.parse(t.passengers_json);
+          if (Array.isArray(parsed)) {
+            list = parsed
+              .map((p: any, idx: number) => ({
+                id: idx + 1,
+                nickname: String(p?.nickname || p?.name || p || '').trim(),
+              }))
+              .filter((p) => Boolean(p.nickname));
+          }
+        } catch {}
+      }
+      if (list.length === 0 && t.passenger_nickname) {
+        list = String(t.passenger_nickname)
+          .split(',')
+          .map((s) => s.replace(/^\d+\.\s*/, '').trim())
+          .filter(Boolean)
+          .map((nickname, idx) => ({ id: idx + 1, nickname }));
+      }
+      return list;
+    };
+
+    const parseRequestedPax = (rawArr: any, rawStr: any, fallback: string): string[] => {
+      const candidates: string[] = [];
+      if (Array.isArray(rawArr)) {
+        for (const item of rawArr) {
+          const n = String(typeof item === 'object' && item !== null ? (item.nickname || item.name || '') : item || '').trim();
+          if (n) candidates.push(n);
+        }
+      }
+      if (candidates.length === 0 && rawStr) {
+        for (const part of String(rawStr).split(/[,\n]+/)) {
+          const n = part.replace(/^\d+\.\s*/, '').trim();
+          if (n) candidates.push(n);
+        }
+      }
+      if (candidates.length === 0 && fallback) {
+        candidates.push(fallback.trim());
+      }
+      const seen = new Set<string>();
+      const unique: string[] = [];
+      for (const name of candidates) {
+        const key = name.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          unique.push(name);
+        }
+      }
+      return unique;
+    };
 
     if (actionNorm === 'HITCHHIKE') {
+      const existingPending = db
+        .prepare(
+          `SELECT id FROM negotiation_requests
+           WHERE trip_request_id = ? AND requester_user_id = ? AND action_type = 'HITCHHIKE' AND status = 'PENDING'
+           LIMIT 1`
+        )
+        .get(tripId, user.id);
+      if (existingPending) {
+        res.status(409).json({ error: 'You already have a pending hitchhike request for this booking.' });
+        return;
+      }
+
+      const currentPax = parseExistingPax(trip);
+      const currentKeys = new Set(currentPax.map((p) => p.nickname.toLowerCase()));
+      const requestedPax = parseRequestedPax(req.body?.passengers, passenger_nickname, user.nickname);
+      const newPax = requestedPax.filter((n) => !currentKeys.has(n.toLowerCase()));
+
+      if (newPax.length === 0) {
+        res.status(409).json({ error: 'Requested passenger is already listed on this booking.' });
+        return;
+      }
+
+      const maxSeats = Number(trip.seats || 7);
+      const remainingSeats = Math.max(0, maxSeats - currentPax.length);
+      if (remainingSeats <= 0) {
+        res.status(400).json({ error: `Vehicle ${trip.registration_plate} is already at full passenger capacity (${maxSeats} seats).` });
+        return;
+      }
+      if (newPax.length > remainingSeats) {
+        res.status(400).json({ error: `Only ${remainingSeats} seat(s) remaining on ${trip.registration_plate} (${maxSeats} seats max).` });
+        return;
+      }
+
+      const paxSummary = newPax.join(', ');
       const title = `🤝 Hitchhike (Join Ride) Request: ${user.nickname} (${reqDeptName})`;
-      const body = `${user.nickname} (${reqDeptName}) would like to hitchhike / join your booked car (${trip.registration_plate} • ${trip.make} ${trip.model}) heading to "${trip.destination}" (${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}). Passenger to add: ${paxName}.${noteText ? ` Note: "${noteText}"` : ''}`;
+      const body = `${user.nickname} (${reqDeptName}) would like to hitchhike / join your booked car (${trip.registration_plate} • ${trip.make} ${trip.model}) heading to "${trip.destination}" (${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}). Passenger(s) to add (${newPax.length}): ${paxSummary}.${noteText ? ` Note: "${noteText}"` : ''}`;
 
       const notifId = sendUserNotification(db, {
         userId: trip.requester_id,
@@ -3564,14 +3651,15 @@ export function createApp() {
           `INSERT INTO negotiation_requests (trip_request_id, notification_id, action_type, requester_user_id, holder_user_id, passenger_nickname, destination, message, status)
            VALUES (?, ?, 'HITCHHIKE', ?, ?, ?, ?, ?, 'PENDING')`
         )
-        .run(tripId, notifId, user.id, trip.requester_id, paxName, destination || trip.destination, noteText || null);
+        .run(tripId, notifId, user.id, trip.requester_id, paxSummary, destination || trip.destination, noteText || null);
       const negotiationId = Number(negRes.lastInsertRowid);
 
       recordAudit(db, user, 'TRIP_HITCHHIKE_REQUESTED', 'TRIP_REQUEST', tripId, null, {
         negotiation_id: negotiationId,
         requester_id: user.id,
         requester_name: user.nickname,
-        passenger_nickname: paxName,
+        passenger_nickname: paxSummary,
+        passengers: newPax,
         destination: destination || trip.destination,
         message: noteText,
       });
@@ -3581,10 +3669,13 @@ export function createApp() {
         action_type: 'HITCHHIKE',
         notificationId: notifId,
         negotiationId,
+        passengers: newPax,
         message: `Hitchhike request sent to ${trip.requester_name} (${trip.department_name}).`,
       });
       return;
     }
+
+    const paxName = (passenger_nickname ? String(passenger_nickname).trim() : user.nickname) || user.nickname;
 
     // REQUEST_CANCEL negotiation
     const title = `🔄 Schedule Negotiation (Cancel Request): ${user.nickname} (${reqDeptName})`;
@@ -3680,11 +3771,17 @@ export function createApp() {
 
     // ---- REJECT (either HITCHHIKE or REQUEST_CANCEL) ----
     if (decisionNorm === 'REJECT') {
-      db.prepare(
-        `UPDATE negotiation_requests
-         SET status = 'REJECTED', decided_by = ?, decided_at = datetime('now')
-         WHERE id = ?`
-      ).run(user.id, negId);
+      const claimRej = db
+        .prepare(
+          `UPDATE negotiation_requests
+           SET status = 'REJECTED', decided_by = ?, decided_at = datetime('now')
+           WHERE id = ? AND status = 'PENDING'`
+        )
+        .run(user.id, negId);
+      if (claimRej.changes === 0) {
+        res.status(409).json({ error: 'This request has already been processed' });
+        return;
+      }
 
       const isHitchhike = nr.action_type === 'HITCHHIKE';
       sendUserNotification(db, {
@@ -3718,7 +3815,7 @@ export function createApp() {
       return;
     }
 
-    // ACCEPT HITCHHIKE -> add requester to passenger list
+    // ACCEPT HITCHHIKE -> atomically claim PENDING request and add all requested passengers (deduplicated & seat-limited)
     if (nr.action_type === 'HITCHHIKE') {
       let currentList: Array<{ id: number; nickname: string }> = [];
       if (trip.passengers_json) {
@@ -3735,60 +3832,99 @@ export function createApp() {
         } catch {}
       }
       if (currentList.length === 0 && trip.passenger_nickname) {
-        currentList = [{ id: 1, nickname: String(trip.passenger_nickname).replace(/^1\.\s*/, '').trim() }];
+        currentList = String(trip.passenger_nickname)
+          .split(',')
+          .map((s) => s.replace(/^\d+\.\s*/, '').trim())
+          .filter(Boolean)
+          .map((nickname, idx) => ({ id: idx + 1, nickname }));
+      }
+
+      const requestedNames = String(nr.passenger_nickname || nr.requester_name || 'Colleague')
+        .split(/[,\n]+/)
+        .map((s) => s.replace(/^\d+\.\s*/, '').trim())
+        .filter(Boolean);
+
+      const seenLower = new Set(currentList.map((p) => p.nickname.toLowerCase()));
+      const toAdd: string[] = [];
+      for (const name of requestedNames) {
+        const key = name.toLowerCase();
+        if (!seenLower.has(key)) {
+          seenLower.add(key);
+          toAdd.push(name);
+        }
       }
 
       const maxSeats = Number(trip.seats || 7);
-      if (currentList.length >= maxSeats) {
-        res.status(400).json({ error: `Vehicle ${trip.registration_plate} is already at full passenger capacity (${maxSeats} seats)` });
+      if (currentList.length + toAdd.length > maxSeats) {
+        const remaining = Math.max(0, maxSeats - currentList.length);
+        res.status(400).json({ error: `Vehicle ${trip.registration_plate} only has ${remaining} seat(s) remaining (${maxSeats} seats max)` });
         return;
       }
 
-      const cleanNick = String(nr.passenger_nickname || nr.requester_name || 'Colleague').trim();
-      const alreadyOnList = currentList.some((p) => p.nickname.toLowerCase() === cleanNick.toLowerCase());
-      if (!alreadyOnList) {
-        currentList.push({ id: currentList.length + 1, nickname: cleanNick });
+      for (const name of toAdd) {
+        currentList.push({ id: currentList.length + 1, nickname: name });
       }
       const nextPaxCount = currentList.length;
       const nextPaxJson = JSON.stringify(currentList);
       const nextPaxNickname = currentList.map((p, idx) => `${idx + 1}. ${p.nickname}`).join(', ');
 
-      runInTransaction(db, () => {
+      const claimed = runInTransaction(db, () => {
+        const claim = db
+          .prepare(
+            `UPDATE negotiation_requests
+             SET status = 'ACCEPTED', decided_by = ?, decided_at = datetime('now')
+             WHERE id = ? AND status = 'PENDING'`
+          )
+          .run(user.id, negId);
+        if (claim.changes === 0) return false;
+
         db.prepare(
           `UPDATE trip_requests
            SET passenger_count = ?, passengers_json = ?, passenger_nickname = ?, updated_at = datetime('now')
            WHERE id = ?`
         ).run(nextPaxCount, nextPaxJson, nextPaxNickname, trip.id);
-
-        db.prepare(
-          `UPDATE negotiation_requests
-           SET status = 'ACCEPTED', decided_by = ?, decided_at = datetime('now')
-           WHERE id = ?`
-        ).run(user.id, negId);
+        return true;
       });
 
+      if (!claimed) {
+        res.status(409).json({ error: 'This hitchhike request has already been processed' });
+        return;
+      }
+
+      const addedLabel = toAdd.length > 0 ? toAdd.join(', ') : requestedNames.join(', ');
       sendUserNotification(db, {
         userId: Number(nr.requester_user_id),
         triggerType: 'HITCHHIKE_ACCEPTED',
         title: '✅ Hitchhike Request Accepted!',
-        body: `${user.nickname} accepted your hitchhike request on ${trip.registration_plate} (${trip.make} ${trip.model}) to "${trip.destination}". You (${cleanNick}) have been added to the passenger list.`,
+        body: `${user.nickname} accepted your hitchhike request on ${trip.registration_plate} (${trip.make} ${trip.model}) to "${trip.destination}". Added to passenger list: ${addedLabel}.`,
         relatedEntityType: 'TRIP_REQUEST',
         relatedEntityId: Number(trip.id),
       });
 
       recordAudit(db, user, 'TRIP_HITCHHIKE_ACCEPTED', 'TRIP_REQUEST', Number(trip.id), null, {
         negotiation_id: negId,
-        added_passenger: cleanNick,
+        added_passengers: toAdd,
         passenger_count: nextPaxCount,
       });
 
       const enriched = broadcastTripUpdate(db, Number(trip.id), 'TRIP_UPDATED');
-      res.json({ ok: true, status: 'ACCEPTED', negotiationId: negId, action_type: 'HITCHHIKE', trip: enriched });
+      res.json({ ok: true, status: 'ACCEPTED', negotiationId: negId, action_type: 'HITCHHIKE', addedPassengers: toAdd, trip: enriched });
       return;
     }
 
     // ACCEPT REQUEST_CANCEL -> automatically cancel original booking & transfer slot to requesting user
     const transferResult = runInTransaction(db, () => {
+      const claim = db
+        .prepare(
+          `UPDATE negotiation_requests
+           SET status = 'ACCEPTED', decided_by = ?, decided_at = datetime('now')
+           WHERE id = ? AND status = 'PENDING'`
+        )
+        .run(user.id, negId);
+      if (claim.changes === 0) {
+        return null;
+      }
+
       const activeAssignment = db
         .prepare('SELECT driver_profile_id FROM assignments WHERE trip_request_id = ? AND is_current = 1')
         .get(trip.id) as { driver_profile_id: number } | undefined;
@@ -3861,11 +3997,7 @@ export function createApp() {
         );
       }
 
-      db.prepare(
-        `UPDATE negotiation_requests
-         SET status = 'ACCEPTED', decided_by = ?, decided_at = datetime('now'), transferred_trip_id = ?
-         WHERE id = ?`
-      ).run(user.id, newTripId, negId);
+      db.prepare('UPDATE negotiation_requests SET transferred_trip_id = ? WHERE id = ?').run(newTripId, negId);
 
       // Mark any other pending negotiation requests on the cancelled original trip as REJECTED
       db.prepare(
@@ -3876,6 +4008,11 @@ export function createApp() {
 
       return { newTripId };
     });
+
+    if (!transferResult) {
+      res.status(409).json({ error: 'This cancellation request has already been processed' });
+      return;
+    }
 
     sendUserNotification(db, {
       userId: Number(nr.requester_user_id),
@@ -3914,14 +4051,28 @@ export function createApp() {
     });
   });
 
-  // Allow current booking holder (or Admin) to approve a hitchhiker and add them to the trip's passenger list
+  // Allow current booking holder (or Admin) to approve a hitchhiker and add them to the trip's passenger list (deduplicated & seat-limited)
   app.post('/api/trips/:id/hitchhike-accept', requireAuth, (req: Request, res: Response) => {
     const db = getDb();
     const user = req.user!;
     const tripId = Number(req.params.id);
-    const { passenger_nickname, hitchhiker_user_id } = req.body ?? {};
+    const { passenger_nickname, passengers, hitchhiker_user_id } = req.body ?? {};
 
-    if (!passenger_nickname || !String(passenger_nickname).trim()) {
+    const requestedNames: string[] = [];
+    if (Array.isArray(passengers)) {
+      for (const p of passengers) {
+        const n = String(typeof p === 'object' && p !== null ? (p.nickname || p.name || '') : p || '').trim();
+        if (n) requestedNames.push(n);
+      }
+    }
+    if (requestedNames.length === 0 && passenger_nickname) {
+      for (const part of String(passenger_nickname).split(/[,\n]+/)) {
+        const n = part.replace(/^\d+\.\s*/, '').trim();
+        if (n) requestedNames.push(n);
+      }
+    }
+
+    if (requestedNames.length === 0) {
       res.status(400).json({ error: 'passenger_nickname is required to add hitchhiker' });
       return;
     }
@@ -3958,17 +4109,38 @@ export function createApp() {
       } catch {}
     }
     if (currentList.length === 0 && trip.passenger_nickname) {
-      currentList = [{ id: 1, nickname: String(trip.passenger_nickname).replace(/^1\.\s*/, '').trim() }];
+      currentList = String(trip.passenger_nickname)
+        .split(',')
+        .map((s) => s.replace(/^\d+\.\s*/, '').trim())
+        .filter(Boolean)
+        .map((nickname, idx) => ({ id: idx + 1, nickname }));
     }
 
-    const maxSeats = Number(trip.seats || 7);
-    if (currentList.length >= maxSeats) {
-      res.status(400).json({ error: `Vehicle ${trip.registration_plate} is already at full passenger capacity (${maxSeats} seats)` });
+    const existingKeys = new Set(currentList.map((p) => p.nickname.toLowerCase()));
+    const toAdd: string[] = [];
+    for (const name of requestedNames) {
+      const key = name.toLowerCase();
+      if (!existingKeys.has(key)) {
+        existingKeys.add(key);
+        toAdd.push(name);
+      }
+    }
+
+    if (toAdd.length === 0) {
+      res.status(409).json({ error: 'Passenger is already in the passenger list (duplicate prevented)' });
       return;
     }
 
-    const cleanNick = String(passenger_nickname).trim();
-    currentList.push({ id: currentList.length + 1, nickname: cleanNick });
+    const maxSeats = Number(trip.seats || 7);
+    if (currentList.length + toAdd.length > maxSeats) {
+      const remaining = Math.max(0, maxSeats - currentList.length);
+      res.status(400).json({ error: `Vehicle ${trip.registration_plate} only has ${remaining} seat(s) remaining (${maxSeats} seats max)` });
+      return;
+    }
+
+    for (const name of toAdd) {
+      currentList.push({ id: currentList.length + 1, nickname: name });
+    }
     const nextPaxCount = currentList.length;
     const nextPaxJson = JSON.stringify(currentList);
     const nextPaxNickname = currentList.map((p, idx) => `${idx + 1}. ${p.nickname}`).join(', ');
@@ -3979,24 +4151,26 @@ export function createApp() {
        WHERE id = ?`
     ).run(nextPaxCount, nextPaxJson, nextPaxNickname, tripId);
 
+    const addedLabel = toAdd.join(', ');
     if (hitchhiker_user_id) {
       sendUserNotification(db, {
         userId: Number(hitchhiker_user_id),
         triggerType: 'HITCHHIKE_ACCEPTED',
         title: '✅ Hitchhike Ride Accepted!',
-        body: `${user.nickname} accepted your hitchhike request on ${trip.registration_plate} to "${trip.destination}". You (${cleanNick}) have been added to the passenger list.`,
+        body: `${user.nickname} accepted your hitchhike request on ${trip.registration_plate} to "${trip.destination}". Added to passenger list: ${addedLabel}.`,
         relatedEntityType: 'TRIP_REQUEST',
         relatedEntityId: tripId,
       });
     }
 
     recordAudit(db, user, 'TRIP_HITCHHIKE_ACCEPTED', 'TRIP_REQUEST', tripId, null, {
-      added_passenger: cleanNick,
+      added_passenger: addedLabel,
+      added_passengers: toAdd,
       passenger_count: nextPaxCount,
     });
 
     const enriched = broadcastTripUpdate(db, tripId, 'TRIP_UPDATED');
-    res.json({ ok: true, trip: enriched });
+    res.json({ ok: true, trip: enriched, addedPassengers: toAdd });
   });
 
   // Direct Bookings & Schedule endpoints (BKG-01 to BKG-11)

@@ -582,6 +582,7 @@ export function App() {
   const [negotiationActionType, setNegotiationActionType] = useState<'HITCHHIKE' | 'REQUEST_CANCEL'>('HITCHHIKE');
   const [negotiationNote, setNegotiationNote] = useState<string>('');
   const [negotiationPassengerNickname, setNegotiationPassengerNickname] = useState<string>('');
+  const [negotiationExtraPassengers, setNegotiationExtraPassengers] = useState<string[]>([]);
   const [negotiationSubmitting, setNegotiationSubmitting] = useState<boolean>(false);
   const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
   const [negotiationRespondBusyId, setNegotiationRespondBusyId] = useState<number | null>(null);
@@ -2461,10 +2462,21 @@ export function App() {
 
   const handleSubmitNegotiation = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!negotiationModalTrip?.id) return;
-    const paxName = (negotiationPassengerNickname || user?.nickname || 'Colleague').trim();
-    if (negotiationActionType === 'HITCHHIKE' && !paxName) {
-      setStatusBanner({ type: 'danger', text: 'Please enter your passenger nickname to hitchhike.' });
+    if (!negotiationModalTrip?.id || negotiationSubmitting) return;
+    const rawNames = [negotiationPassengerNickname || user?.nickname || '', ...negotiationExtraPassengers]
+      .map((s) => String(s || '').trim())
+      .filter(Boolean);
+    const seenLower = new Set<string>();
+    const uniquePax: string[] = [];
+    for (const n of rawNames) {
+      const k = n.toLowerCase();
+      if (!seenLower.has(k)) {
+        seenLower.add(k);
+        uniquePax.push(n);
+      }
+    }
+    if (negotiationActionType === 'HITCHHIKE' && uniquePax.length === 0) {
+      setStatusBanner({ type: 'danger', text: t('Please enter your passenger nickname to hitchhike.') });
       return;
     }
     setNegotiationSubmitting(true);
@@ -2473,7 +2485,9 @@ export function App() {
         method: 'POST',
         body: JSON.stringify({
           action_type: negotiationActionType,
-          passenger_nickname: paxName,
+          passenger_nickname: uniquePax.join(', ') || user?.nickname || 'Colleague',
+          passengers: negotiationActionType === 'HITCHHIKE' ? uniquePax : undefined,
+          message: negotiationNote.trim(),
           note: negotiationNote.trim(),
         }),
       });
@@ -2483,6 +2497,7 @@ export function App() {
       });
       setNegotiationModalTrip(null);
       setNegotiationNote('');
+      setNegotiationExtraPassengers([]);
       await loadAllData(user);
     } catch (err: any) {
       setStatusBanner({ type: 'danger', text: err.message });
@@ -2521,6 +2536,7 @@ export function App() {
   const handleRespondNegotiation = async (notif: any, decision: 'ACCEPT' | 'REJECT') => {
     if (!notif?.negotiation_id) return;
     const negId = Number(notif.negotiation_id);
+    if (negotiationRespondBusyId === negId) return;
     setNegotiationRespondBusyId(negId);
     try {
       const res = await apiRequest(`/api/negotiations/${negId}/respond`, {
@@ -5953,21 +5969,105 @@ export function App() {
                 </div>
               </div>
 
-              {negotiationActionType === 'HITCHHIKE' && (
-                <div>
-                  <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                    Your Passenger Nickname *
-                  </label>
-                  <input
-                    type="text"
-                    className="gf-input"
-                    required
-                    placeholder="e.g. Budi"
-                    value={negotiationPassengerNickname}
-                    onChange={(e) => setNegotiationPassengerNickname(e.target.value)}
-                  />
-                </div>
-              )}
+              {negotiationActionType === 'HITCHHIKE' && (() => {
+                const matchedVeh = vehicles.find((v) => Number(v.id) === Number(negotiationModalTrip.vehicle_id));
+                const maxSeats = Number(negotiationModalTrip.seats || matchedVeh?.seats || 7);
+                let currentPaxCount = Number(negotiationModalTrip.passenger_count || 1);
+                if (negotiationModalTrip.passengers_json) {
+                  try {
+                    const parsed = JSON.parse(negotiationModalTrip.passengers_json);
+                    if (Array.isArray(parsed) && parsed.length > 0) currentPaxCount = parsed.length;
+                  } catch {}
+                }
+                const remainingSeats = Math.max(0, maxSeats - currentPaxCount);
+                const totalRequested = 1 + negotiationExtraPassengers.length;
+                const canAddMore = totalRequested < remainingSeats;
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <label className="type-caption" style={{ fontWeight: 700 }}>
+                        {t('Hitchhike Passenger(s)')} *
+                      </label>
+                      <span
+                        id="hitchhike-seat-counter"
+                        className="mono"
+                        style={{
+                          fontSize: '11.5px',
+                          fontWeight: 800,
+                          color: remainingSeats > 0 ? '#0072de' : '#dc2626',
+                        }}
+                      >
+                        {t('Seats')}: {currentPaxCount}/{maxSeats} ({remainingSeats} {t('left')})
+                      </span>
+                    </div>
+
+                    {remainingSeats <= 0 ? (
+                      <div style={{ padding: '10px 12px', borderRadius: '10px', background: 'rgba(220, 38, 38, 0.12)', border: '1px solid rgba(220, 38, 38, 0.35)', color: '#ef4444', fontSize: '12.5px', fontWeight: 700 }}>
+                        {t('This vehicle is full. No remaining seats available for hitchhike.')}
+                      </div>
+                    ) : (
+                      <>
+                        <input
+                          id="hitchhike-pax-0"
+                          type="text"
+                          className="gf-input"
+                          required
+                          placeholder={t('Your name (Passenger 1)')}
+                          value={negotiationPassengerNickname}
+                          onChange={(e) => setNegotiationPassengerNickname(e.target.value)}
+                        />
+                        {negotiationExtraPassengers.map((extraName, idx) => (
+                          <div key={idx} style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <input
+                              id={`hitchhike-pax-${idx + 1}`}
+                              type="text"
+                              className="gf-input"
+                              style={{ flex: 1 }}
+                              placeholder={`${t('Additional passenger')} ${idx + 2}`}
+                              value={extraName}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setNegotiationExtraPassengers((prev) => prev.map((item, i) => (i === idx ? val : item)));
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="gf-btn gf-btn-outline-danger gf-btn-sm pressable"
+                              style={{ minHeight: '38px', padding: '0 10px' }}
+                              aria-label={t('Remove passenger')}
+                              onClick={() => setNegotiationExtraPassengers((prev) => prev.filter((_, i) => i !== idx))}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <button
+                            id="btn-add-hitchhike-pax"
+                            type="button"
+                            disabled={!canAddMore}
+                            className="gf-btn gf-btn-secondary gf-btn-sm pressable"
+                            style={{ minHeight: '32px', fontSize: '12px' }}
+                            onClick={() => {
+                              if (canAddMore) {
+                                setNegotiationExtraPassengers((prev) => [...prev, '']);
+                              }
+                            }}
+                          >
+                            + {t('Add Another Person')}
+                          </button>
+                          {!canAddMore && (
+                            <span className="type-caption" style={{ fontSize: '11px', color: '#d97706', fontWeight: 700 }}>
+                              {t('Car seat limit reached')}
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div>
                 <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
