@@ -393,20 +393,20 @@ export function App() {
     return pool.find((g) => ['DRV', 'DRIVER', 'DRIVER_G'].includes(String(g.code || '').toUpperCase()) || /driver/i.test(g.name))?.id || pool[0]?.id || 1;
   }, [activeGroups, groupsList]);
 
-  // Theme preference (Light / Dark / System via tokens)
+  // Theme preference (Defaults to Samsung Browser Midnight Dark UI across all browsers)
   const [themePref, setThemePref] = useState<'system' | 'light' | 'dark'>(() => {
-    const saved = localStorage.getItem('gf_theme_pref');
-    return saved === 'light' || saved === 'dark' ? saved : 'system';
+    const saved = localStorage.getItem('gf_theme_pref_v2');
+    return saved === 'light' || saved === 'dark' ? saved : 'dark';
   });
 
   useEffect(() => {
     const root = document.documentElement;
-    if (themePref === 'system') {
-      root.removeAttribute('data-theme');
+    if (themePref === 'light') {
+      root.setAttribute('data-theme', 'light');
     } else {
-      root.setAttribute('data-theme', themePref);
+      root.setAttribute('data-theme', 'dark');
     }
-    localStorage.setItem('gf_theme_pref', themePref);
+    localStorage.setItem('gf_theme_pref_v2', themePref);
   }, [themePref]);
 
   // Auth screen state (Pure Login vs Registration — Revision #2)
@@ -3543,11 +3543,13 @@ export function App() {
             )}
 
             {(() => {
-              const isLockedApprovedTrip = ['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'].includes(
+              const isFinalStatusLocked = ['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'].includes(
                 String(dispatchModalTrip.status)
               );
+              const isPicApprovedLocked = Boolean(dispatchModalTrip.pic_approved);
+              const isFullyLockedModal = isFinalStatusLocked || (isPicApprovedLocked && user.role === 'FM');
 
-              if (isLockedApprovedTrip) {
+              if (isFullyLockedModal) {
                 return (
                   <div id="dispatch-locked-summary" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <div
@@ -3586,7 +3588,10 @@ export function App() {
                           </div>
                         </div>
                       </div>
-                      <StatusBadge label={dispatchModalTrip.status} tone={toneFromStatus(dispatchModalTrip.status)} />
+                      <StatusBadge
+                        label={isFinalStatusLocked ? dispatchModalTrip.status : 'FLEET PIC APPROVED'}
+                        tone={isFinalStatusLocked ? toneFromStatus(dispatchModalTrip.status) : 'blue'}
+                      />
                     </div>
 
                     <div
@@ -3604,7 +3609,7 @@ export function App() {
                     >
                       <Lock size={14} style={{ color: '#258cfb', flexShrink: 0 }} />
                       <span>
-                        {t('Booking is finalized and locked. Only the requester can cancel this booking.')}
+                        {t('Booking is approved and locked. Cannot be edited or rejected; only the requester can cancel this booking.')}
                       </span>
                     </div>
 
@@ -3615,6 +3620,110 @@ export function App() {
                     >
                       {t('Close')}
                     </button>
+                  </div>
+                );
+              }
+
+              // Stage 2 view after Fleet PIC has already approved: Driver & Car are locked and Reject is disabled
+              if (isPicApprovedLocked) {
+                return (
+                  <div id="dispatch-stage2-locked-view" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                        <span className="type-caption" style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                          {t('Assigned Driver & Vehicle')}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: '10.5px',
+                            fontWeight: 700,
+                            color: '#258cfb',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          <Lock size={11} /> {t('Locked by Fleet PIC')}
+                        </span>
+                      </div>
+                      <div
+                        id="dispatch-fixed-vehicle-display"
+                        style={{
+                          padding: '11px 12px',
+                          borderRadius: '10px',
+                          background: 'var(--color-bg-subtle)',
+                          border: '1px solid var(--color-divider)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '10px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                          <div
+                            style={{
+                              width: '34px',
+                              height: '34px',
+                              borderRadius: '8px',
+                              background: '#0072de',
+                              color: '#fff',
+                              display: 'grid',
+                              placeItems: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <Car size={17} />
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--color-text-primary)' }}>
+                              {dispatchModalTrip.assigned_driver_name || t('Assigned Driver')} • {dispatchModalTrip.registration_plate}
+                            </div>
+                            <div className="type-caption" style={{ fontSize: '11.5px', color: 'var(--color-text-secondary)' }}>
+                              {dispatchModalTrip.make} {dispatchModalTrip.model} ({dispatchModalTrip.energy_type || 'Fleet'})
+                            </div>
+                          </div>
+                        </div>
+                        <Lock size={14} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '10px',
+                        background: 'rgba(0, 114, 222, 0.08)',
+                        border: '1px solid rgba(37, 140, 251, 0.3)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '12px',
+                        color: 'var(--color-text-secondary)',
+                      }}
+                    >
+                      <Lock size={14} style={{ color: '#258cfb', flexShrink: 0 }} />
+                      <span>
+                        {t('Approved by Fleet PIC — cannot be rejected or edited. Only the requester can cancel this booking.')}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                      <button
+                        type="button"
+                        className="gf-btn gf-btn-secondary"
+                        style={{ flex: 1 }}
+                        onClick={() => setDispatchModalTrip(null)}
+                      >
+                        {t('Close')}
+                      </button>
+                      <button
+                        type="button"
+                        className="gf-btn gf-btn-primary"
+                        style={{ flex: 1.4 }}
+                        onClick={() => handleAdminTripDecision('APPROVED')}
+                      >
+                        {t('Final Approve')}
+                      </button>
+                    </div>
                   </div>
                 );
               }
@@ -6607,7 +6716,11 @@ export function App() {
                                 <td>
                                   <button
                                     type="button"
-                                    className={t.status === 'PENDING_APPROVAL' ? 'gf-btn gf-btn-primary' : 'gf-btn gf-btn-secondary'}
+                                    className={
+                                      t.status === 'PENDING_APPROVAL' && !(user.role === 'FM' && t.pic_approved)
+                                        ? 'gf-btn gf-btn-primary'
+                                        : 'gf-btn gf-btn-secondary'
+                                    }
                                     onClick={() => {
                                       setDispatchModalTrip(t);
                                       setDispatchVehicleId(t.vehicle_id);
@@ -6616,7 +6729,9 @@ export function App() {
                                       setDispatchDecisionReason('');
                                     }}
                                   >
-                                    {t.status === 'PENDING_APPROVAL' ? 'Review & Dispatch' : 'View Details'}
+                                    {t.status === 'PENDING_APPROVAL' && !(user.role === 'FM' && t.pic_approved)
+                                      ? 'Review & Dispatch'
+                                      : 'View Details'}
                                   </button>
                                 </td>
                               </tr>
@@ -6689,7 +6804,9 @@ export function App() {
                                 setDispatchDecisionReason('');
                               }}
                             >
-                              {tr.status === 'PENDING_APPROVAL' ? t('Review & Dispatch') : t('View Details')}
+                              {tr.status === 'PENDING_APPROVAL' && !(user.role === 'FM' && tr.pic_approved)
+                                ? t('Review & Dispatch')
+                                : t('View Details')}
                             </button>
                           </div>
                         </div>

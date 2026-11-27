@@ -2993,20 +2993,40 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(created.status).toBe(201);
         const tripId = created.body.tripId;
 
-        // Stage 1: Fleet PIC approves
+        // Stage 1: Fleet PIC approves and assigns driver #1
         const s1 = await request(testApp)
           .post(`/api/trips/${tripId}/decision`)
           .set('Authorization', `Bearer ${fmTok}`)
           .send({ decision: 'APPROVED', driver_profile_id: 1, enforce_fixed_driver_car: true });
         expect(s1.status).toBe(200);
+        const stage1VehicleId = Number(s1.body.trip.vehicle_id);
 
-        // Stage 2: Head of WS approves -> trip is now APPROVED
+        // Immediately after Fleet PIC approves Stage 1 (even before Stage 2), nobody (FM, HWS, ADM) can reject it, and FM cannot edit it!
+        for (const tok of [fmTok, hwsTok, admTok]) {
+          const rejectAfterPic = await request(testApp)
+            .post(`/api/trips/${tripId}/decision`)
+            .set('Authorization', `Bearer ${tok}`)
+            .send({ decision: 'REJECTED', reason: 'Attempt to reject after Fleet PIC approved' });
+          expect(rejectAfterPic.status).toBe(400);
+          expect(rejectAfterPic.body.error).toMatch(/already APPROVED by Fleet PIC and locked/i);
+        }
+
+        const editByPicAfterPic = await request(testApp)
+          .post(`/api/trips/${tripId}/decision`)
+          .set('Authorization', `Bearer ${fmTok}`)
+          .send({ decision: 'APPROVED', driver_profile_id: 2 });
+        expect(editByPicAfterPic.status).toBe(400);
+        expect(editByPicAfterPic.body.error).toMatch(/already APPROVED by Fleet PIC and locked/i);
+
+        // Stage 2: Head of WS approves -> even if HWS sends a different driver/vehicle in body, it stays locked to Fleet PIC's assignment
         const s2 = await request(testApp)
           .post(`/api/trips/${tripId}/decision`)
           .set('Authorization', `Bearer ${hwsTok}`)
-          .send({ decision: 'APPROVED', reason: 'Final approved' });
+          .send({ decision: 'APPROVED', driver_profile_id: 3, vehicle_id: 5, reason: 'Final approved' });
         expect(s2.status).toBe(200);
         expect(s2.body.trip.status).toBe('APPROVED');
+        expect(Number(s2.body.trip.vehicle_id)).toBe(stage1VehicleId);
+        expect(Number(s2.body.trip.driver_profile_id)).toBe(1);
 
         // 1. After APPROVED: Fleet PIC, Head of WS, and Admin MUST NOT be able to reject or modify the booking
         for (const tok of [fmTok, hwsTok, admTok]) {
@@ -3041,15 +3061,21 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(cancelByRequester.status).toBe(200);
         expect(cancelByRequester.body.status).toBe('CANCELLED');
 
-        // 3. Verify UI source for locked approved summary & instant Gojek route zoom + ETA on destination selection
+        // 3. Verify UI source for locked approved summary, Samsung Browser Dark Mobile UI parity, & instant Gojek route zoom + ETA
         const appTsx = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf8');
         const routeFieldsTsx = fs.readFileSync(path.resolve(__dirname, '../src/components/RouteFields.tsx'), 'utf8');
         const mapViewTsx = fs.readFileSync(path.resolve(__dirname, '../src/components/MapView.tsx'), 'utf8');
+        const indexHtml = fs.readFileSync(path.resolve(__dirname, '../index.html'), 'utf8');
+        const displayModeTs = fs.readFileSync(path.resolve(__dirname, '../src/utils/displayMode.ts'), 'utf8');
         expect(appTsx).toContain('id="dispatch-locked-summary"');
+        expect(appTsx).toContain('id="dispatch-stage2-locked-view"');
         expect(appTsx).toContain('onSubmitDestination');
         expect(appTsx).toContain('id="route-live-eta-banner"');
         expect(routeFieldsTsx).toContain('onSubmitDestination');
         expect(mapViewTsx).toContain('ResizeObserver');
+        expect(indexHtml).toContain('data-theme="dark"');
+        expect(indexHtml).toContain('data-display-mode="mobile"');
+        expect(displayModeTs).toContain('data-forced-mobile-zoom');
       });
     });
   });

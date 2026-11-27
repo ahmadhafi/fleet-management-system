@@ -18,62 +18,62 @@
   --text-badge-size: 0.75rem;      /* 12px */
   --text-badge-line: 1rem;         /* 16px */
 
-  /* Neutral Surfaces & Text (Light Mode — Samsung One UI Porcelain & Slate) */
-  --color-bg-canvas: #f4f6fa;
-  --color-bg-surface: #ffffff;
-  --color-bg-subtle: #edf1f7;
-  --color-bg-hover: #e2e8f2;
-  --color-divider: #e4eaf2;
-  --color-border: #d4dde8;
-  --color-border-divider: #e4eaf2;
+  /* Neutral Surfaces & Text (Default: Samsung Browser Midnight Dark UI across all browsers) */
+  --color-bg-canvas: #080b11;
+  --color-bg-surface: #141a24;
+  --color-bg-subtle: #1e2633;
+  --color-bg-hover: #263143;
+  --color-divider: #222c3c;
+  --color-border: #334155;
+  --color-border-divider: #222c3c;
 
-  --color-text-primary: #0f172a;
-  --color-text-secondary: #334155;
-  --color-text-muted: #64748b;
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #cbd5e1;
+  --color-text-muted: #94a3b8;
   --color-text-inverse: #ffffff;
 
-  /* Primary Accent: Samsung One UI Blue (#0072DE) & Monochrome Black/White */
+  /* Primary Accent: Samsung One UI Blue (#0072DE / #258CFB) */
   --color-primary: #0072de;
-  --color-samsung-blue: #0072de;
-  --color-samsung-blue-hover: #005bb5;
+  --color-samsung-blue: #258cfb;
+  --color-samsung-blue-hover: #48a0fd;
   --color-samsung-blue-dark: #004494;
-  --color-samsung-blue-text: #005bb5;
-  --color-samsung-blue-tint: #ebf5ff;
-  --color-samsung-blue-row: #dbeafe;
-  --color-samsung-blue-ring: rgba(0, 114, 222, 0.25);
+  --color-samsung-blue-text: #60a5fa;
+  --color-samsung-blue-tint: rgba(37, 140, 251, 0.18);
+  --color-samsung-blue-row: rgba(37, 140, 251, 0.24);
+  --color-samsung-blue-ring: rgba(37, 140, 251, 0.35);
   --color-samsung-black: #0a0a0a;
-  --color-dest-accent: #0f172a;
+  --color-dest-accent: #f8fafc;
 
-  /* Mapped Brand Accent (Samsung Blue replaces Gojek Green) */
-  --color-green: #0072de;
-  --color-green-hover: #005bb5;
-  --color-green-text: #005bb5;
-  --color-green-tint: #ebf5ff;
-  --color-green-ring: rgba(0, 114, 222, 0.25);
+  /* Mapped Brand Accent (Samsung Blue) */
+  --color-green: #258cfb;
+  --color-green-hover: #48a0fd;
+  --color-green-text: #60a5fa;
+  --color-green-tint: rgba(37, 140, 251, 0.18);
+  --color-green-ring: rgba(37, 140, 251, 0.35);
 
-  /* Semantic Status (Chips & Badges — Strictly Samsung Blue/White & Black/White, No Green) */
-  --color-status-green-bg: #ebf5ff;
-  --color-status-green-fg: #005bb5;
-  --color-status-amber-bg: #fef3c7;
-  --color-status-amber-fg: #92400e;
-  --color-status-red: #dc2626;
-  --color-status-red-bg: #fee2e2;
-  --color-status-red-fg: #b91c1c;
-  --color-status-blue-bg: #e0edff;
-  --color-status-blue-fg: #005bb5;
-  --color-status-neutral-bg: #edf1f7;
-  --color-status-neutral-fg: #0f172a;
+  /* Semantic Status (Chips & Badges — Strictly Samsung Blue/White & Slate, No Green) */
+  --color-status-green-bg: rgba(37, 140, 251, 0.22);
+  --color-status-green-fg: #93c5fd;
+  --color-status-amber-bg: rgba(245, 158, 11, 0.2);
+  --color-status-amber-fg: #fcd34d;
+  --color-status-red: #f87171;
+  --color-status-red-bg: rgba(220, 38, 38, 0.22);
+  --color-status-red-fg: #fca5a5;
+  --color-status-blue-bg: rgba(37, 140, 251, 0.22);
+  --color-status-blue-fg: #93c5fd;
+  --color-status-neutral-bg: #1e2633;
+  --color-status-neutral-fg: #cbd5e1;
 
   /* Map Palette (Samsung Blue & Slate) */
-  --color-map-land: #edf1f5;
-  --color-map-park: #e4ebf5;
-  --color-map-water: #d8e5f5;
-  --color-map-road: #ffffff;
-  --color-map-road-minor: #f6f8fb;
-  --color-map-highway: #e0e6ee;
-  --color-map-label: #526071;
-  --color-route-line: #0072de;
-  --color-route-outline: #ffffff;
+  --color-map-land: #111620;
+  --color-map-park: #141c2c;
+  --color-map-water: #0f1d2e;
+  --color-map-road: #222c3c;
+  --color-map-road-minor: #18202d;
+  --color-map-highway: #2d3a4e;
+  --color-map-label: #94a3b8;
+  --color-route-line: #3b82f6;
+  --color-route-outline: #080b11;
 
   /* Radii — GoCar Reference + Samsung One UI Squircle (Cards 16px, Sheets 24px, Pills 9999px) */
   --radius-control: 16px;
@@ -92,11 +92,11 @@
 
   /* Refined Samsung Soft Elevation */
   --shadow-none: none;
-  --shadow-card: 0 2px 12px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.03);
-  --shadow-floating: 0 12px 36px rgba(15, 23, 42, 0.14), 0 3px 10px rgba(15, 23, 42, 0.06);
-  --shadow-sheet: 0 -8px 32px rgba(15, 23, 42, 0.1);
-  --shadow-sticky: 0 -4px 20px rgba(15, 23, 42, 0.07);
-  --shadow-dock: 0 8px 32px rgba(15, 23, 42, 0.12), 0 2px 8px rgba(15, 23, 42, 0.04);
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.25);
+  --shadow-floating: 0 6px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sheet: 0 -6px 28px rgba(0, 0, 0, 0.55);
+  --shadow-sticky: 0 -3px 14px rgba(0, 0, 0, 0.4);
+  --shadow-dock: 0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.25);
 
   /* Z-index Scale */
   --z-map: 1;
@@ -120,15 +120,54 @@
   --touch-min: 48px;
 }
 
+/* Explicit Light Mode Override (only when user manually sets data-theme='light') */
+:root[data-theme='light'] {
+  --color-bg-canvas: #f4f6fa;
+  --color-bg-surface: #ffffff;
+  --color-bg-subtle: #edf1f7;
+  --color-bg-hover: #e2e8f2;
+  --color-divider: #e4eaf2;
+  --color-border: #d4dde8;
+  --color-border-divider: #e4eaf2;
+
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #334155;
+  --color-text-muted: #64748b;
+  --color-text-inverse: #ffffff;
+
+  --color-samsung-blue: #0072de;
+  --color-samsung-blue-hover: #005bb5;
+  --color-samsung-blue-text: #005bb5;
+  --color-samsung-blue-tint: #ebf5ff;
+  --color-samsung-blue-ring: rgba(0, 114, 222, 0.25);
+
+  --color-green: #0072de;
+  --color-green-hover: #005bb5;
+  --color-green-text: #005bb5;
+  --color-green-tint: #ebf5ff;
+  --color-green-ring: rgba(0, 114, 222, 0.25);
+
+  --color-status-green-bg: #ebf5ff;
+  --color-status-green-fg: #005bb5;
+  --color-status-amber-bg: #fef3c7;
+  --color-status-amber-fg: #92400e;
+  --color-status-red: #dc2626;
+  --color-status-red-bg: #fee2e2;
+  --color-status-red-fg: #b91c1c;
+  --color-status-blue-bg: #e0edff;
+  --color-status-blue-fg: #005bb5;
+  --color-status-neutral-bg: #edf1f7;
+  --color-status-neutral-fg: #0f172a;
+}
 
 /* Dark Mode (Samsung AMOLED One UI Midnight) */
 :root[data-theme='dark'] {
-  --color-bg-canvas: #0c0f14;
+  --color-bg-canvas: #080b11;
   --color-bg-surface: #141a24;
-  --color-bg-subtle: #1c2432;
+  --color-bg-subtle: #1e2633;
   --color-bg-hover: #263143;
   --color-divider: #222c3c;
-  --color-border: #2d3a4e;
+  --color-border: #334155;
 
   --color-text-primary: #f8fafc;
   --color-text-secondary: #cbd5e1;
@@ -156,7 +195,7 @@
   --color-status-red-fg: #fca5a5;
   --color-status-blue-bg: rgba(37, 140, 251, 0.22);
   --color-status-blue-fg: #93c5fd;
-  --color-status-neutral-bg: #1c2432;
+  --color-status-neutral-bg: #1e2633;
   --color-status-neutral-fg: #cbd5e1;
 
   --color-map-land: #111620;
@@ -167,7 +206,7 @@
   --color-map-highway: #2d3a4e;
   --color-map-label: #94a3b8;
   --color-route-line: #3b82f6;
-  --color-route-outline: #0c0f14;
+  --color-route-outline: #080b11;
 
   --shadow-floating: 0 6px 24px rgba(0, 0, 0, 0.5);
   --shadow-sheet: 0 -6px 28px rgba(0, 0, 0, 0.55);

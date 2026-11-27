@@ -2622,21 +2622,6 @@ export function createApp() {
       return;
     }
 
-    // Once a booking is APPROVED, IN_PROGRESS, COMPLETED, or CANCELLED, Fleet PIC / Head of WS / Admin cannot modify or reject it.
-    // Approved bookings can only be cancelled by the requester (pemesan) themselves.
-    if (['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'].includes(trip.status)) {
-      recordAudit(db, user, 'POST_APPROVAL_DECISION_REFUSED', 'TRIP_REQUEST', tripId, { status: trip.status }, { attempted_decision: decision });
-      res.status(400).json({
-        error: `Booking #${tripId} is already ${trip.status} and locked. Approved bookings cannot be modified or rejected by approvers; only the requester can cancel their booking.`,
-      });
-      return;
-    }
-
-    if (decision === 'REJECTED' && (!reason || !String(reason).trim())) {
-      res.status(400).json({ error: 'A rejection reason is mandatory when rejecting a trip request (REQ-05)' });
-      return;
-    }
-
     // Dual-Approval Check: Check if an active Head Of WS Part (HWS) account exists in the company
     const hwsCountRow = db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'HWS' AND is_active = 1 AND approval_status = 'APPROVED'").get() as { c: number };
     const hasHwsAccount = (hwsCountRow?.c ?? 0) > 0;
@@ -2647,6 +2632,31 @@ export function createApp() {
 
     const picApprovedPrior = priorApprovals.some((a) => a.decider_role === 'FM');
     const hwsApprovedPrior = priorApprovals.some((a) => a.decider_role === 'HWS');
+
+    // Once a booking is APPROVED, IN_PROGRESS, COMPLETED, or CANCELLED, Fleet PIC / Head of WS / Admin cannot modify or reject it.
+    // Approved bookings can only be cancelled by the requester (pemesan) themselves.
+    if (['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'].includes(trip.status)) {
+      recordAudit(db, user, 'POST_APPROVAL_DECISION_REFUSED', 'TRIP_REQUEST', tripId, { status: trip.status }, { attempted_decision: decision });
+      res.status(400).json({
+        error: `Booking #${tripId} is already ${trip.status} and locked. Approved bookings cannot be modified or rejected by approvers; only the requester can cancel their booking.`,
+      });
+      return;
+    }
+
+    // Once Fleet PIC has approved Stage 1 (picApprovedPrior === true), the booking CANNOT be rejected or edited by Fleet PIC, Head of WS, or Admin.
+    // Only Stage 2 final sign-off (APPROVED) is permitted, and only the requester (pemesan) can cancel the order.
+    if (picApprovedPrior && (decision === 'REJECTED' || user.role === 'FM')) {
+      recordAudit(db, user, 'POST_PIC_APPROVAL_EDIT_OR_REJECT_REFUSED', 'TRIP_REQUEST', tripId, { status: trip.status, pic_approved: true }, { attempted_decision: decision, role: user.role });
+      res.status(400).json({
+        error: `Booking #${tripId} is already APPROVED by Fleet PIC and locked. It cannot be rejected or edited; only the requester can cancel their booking.`,
+      });
+      return;
+    }
+
+    if (decision === 'REJECTED' && (!reason || !String(reason).trim())) {
+      res.status(400).json({ error: 'A rejection reason is mandatory when rejecting a trip request (REQ-05)' });
+      return;
+    }
 
     try {
       const outcome = runInTransaction(db, () => {
@@ -2798,11 +2808,26 @@ export function createApp() {
           )
           .run(tripId, user.id, user.role, finalReason);
 
-        const enforceFixedDriverCarFinal = req.body?.enforce_fixed_driver_car === true;
-        let targetDriverProfileId = driver_profile_id ? Number(driver_profile_id) : trip.preferred_driver_id;
-        let targetVehicleId = vehicle_id ? Number(vehicle_id) : trip.vehicle_id;
+        // If Fleet PIC already approved in Stage 1 (picApprovedPrior), lock driver & vehicle strictly to Stage 1's assignment (cannot edit after Fleet PIC approval)
+        const stage1LockedAsn = picApprovedPrior
+          ? (db
+              .prepare('SELECT vehicle_id, driver_profile_id FROM assignments WHERE trip_request_id = ? AND is_current = 1 ORDER BY id DESC LIMIT 1')
+              .get(tripId) as { vehicle_id: number; driver_profile_id: number } | undefined)
+          : undefined;
 
-        if (enforceFixedDriverCarFinal && targetDriverProfileId) {
+        const enforceFixedDriverCarFinal = req.body?.enforce_fixed_driver_car === true;
+        let targetDriverProfileId = picApprovedPrior
+          ? stage1LockedAsn?.driver_profile_id ?? trip.preferred_driver_id
+          : driver_profile_id
+          ? Number(driver_profile_id)
+          : trip.preferred_driver_id;
+        let targetVehicleId = picApprovedPrior
+          ? stage1LockedAsn?.vehicle_id ?? trip.vehicle_id
+          : vehicle_id
+          ? Number(vehicle_id)
+          : trip.vehicle_id;
+
+        if (!picApprovedPrior && enforceFixedDriverCarFinal && targetDriverProfileId) {
           const fixedVehFinal = db
             .prepare('SELECT id FROM vehicles WHERE default_driver_id = ? LIMIT 1')
             .get(targetDriverProfileId) as { id: number } | undefined;

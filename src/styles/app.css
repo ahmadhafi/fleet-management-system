@@ -628,13 +628,13 @@ textarea {
     right: 0;
     bottom: 0;
     z-index: 1000;
-    background: rgba(255, 255, 255, 0.99);
+    background: var(--color-bg-canvas, #080b11);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    border-top: 1px solid var(--color-divider);
     padding: 6px 12px calc(6px + var(--safe-bottom));
     height: calc(62px + var(--safe-bottom));
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.35);
   }
 
   /* Redundant controls hidden on mobile viewports (< 768px) */
@@ -4206,19 +4206,58 @@ body {
   background: var(--color-bg-canvas);
 }
 
-/* On large widescreen desktop monitors (>= 1200px), if user chooses Mobile View,
-   preview inside a clean 460px mobile column. On all mobile phones, tablets, and
-   laptops (< 1200px), the app is ALWAYS 100% full width with zero side gaps. */
-@media (min-width: 1200px) {
+/* Whenever Mobile View (data-display-mode='mobile') is active on any browser,
+   always enforce the clean mobile chrome (no desktop topbar, full mobile sheet & bottom nav). */
+html[data-display-mode='mobile'] .gf-embedded-topbar,
+html[data-display-mode='mobile'] .gf-topbar-nav,
+html[data-display-mode='mobile'] .gf-desktop-top-nav {
+  display: none !important;
+}
+
+html[data-display-mode='mobile'] .gf-ride-layout {
+  margin-top: 0 !important;
+  flex-direction: column !important;
+  height: 100dvh !important;
+}
+
+html[data-display-mode='mobile'] .gf-bottom-nav {
+  display: flex !important;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  background: var(--color-bg-canvas, #080b11);
+  border-top: 1px solid var(--color-divider);
+}
+
+/* On any viewport wider than a native phone (>= 481px) when not using forced phone zoom,
+   constrain Mobile View (#root) to 460px so @container gfapp (max-width: 767px) always applies. */
+@media (min-width: 481px) {
   html[data-display-mode='mobile'] {
-    background: var(--color-bg-subtle);
+    background: var(--color-bg-canvas, #080b11);
   }
   html[data-display-mode='mobile'] #root {
     max-width: 460px;
     border-left: 1px solid var(--color-divider);
     border-right: 1px solid var(--color-divider);
-    box-shadow: 0 0 40px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.35);
   }
+  html[data-display-mode='mobile'][data-forced-mobile-zoom='true'] #root {
+    max-width: 100%;
+    border-left: none;
+    border-right: none;
+    box-shadow: none;
+  }
+}
+
+:root:not([data-theme='light']) .gf-sheet.is-fullscreen-page {
+  background: #080b11;
+}
+
+:root:not([data-theme='light']) .gf-proto-card {
+  background: #141c28;
+  border-color: #263244;
 }
 
 /* ---------------------------------------------------------------------------
@@ -4293,13 +4332,13 @@ body {
   border-radius: 50%;
   border: 1px solid var(--color-border);
   background: var(--color-bg-surface);
-  color: var(--color-samsung-blue, #0072de);
+  color: var(--color-samsung-blue, #258cfb);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
 .gf-display-toggle-icon.is-dark-glass {
@@ -4362,7 +4401,7 @@ body {
   .gf-auth-card {
     padding: 18px 16px;
     border-radius: 20px;
-    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
   }
 
   /* Compact bottom navigation */
@@ -4387,7 +4426,7 @@ body {
 }
 
 /* ============================================================================
- * GOJEK-STYLE SUPER-APP MOBILE UI (Reference: Screenshot_20261118_193720_Gojek.jpg)
+ * SAMSUNG BROWSER SUPER-APP MOBILE UI (Matched identically across all browsers)
  * ========================================================================== */
 
 /* Top Search Bar */
@@ -4395,8 +4434,8 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: var(--color-bg-surface);
-  border: 1.5px solid var(--color-divider);
+  background: #222a36;
+  border: 1.5px solid #384454;
   border-radius: 99px;
   padding: 8px 14px;
   cursor: pointer;
@@ -4404,18 +4443,18 @@ body {
   min-width: 0;
   width: auto;
   text-align: left;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
   transition: all 140ms ease;
 }
 
-.gf-gojek-search-bar:hover {
-  border-color: var(--color-samsung-blue, #0072de);
-  background: var(--color-samsung-blue-tint, #ebf5ff);
+:root[data-theme='light'] .gf-gojek-search-bar {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
 }
 
-:root[data-theme='dark'] .gf-gojek-search-bar {
-  background: rgba(30, 41, 59, 0.85);
-  border-color: rgba(255, 255, 255, 0.12);
+.gf-gojek-search-bar:hover {
+  border-color: var(--color-samsung-blue, #258cfb);
 }
 
 /* Primary Hero Service Cards (Car / Shuttle Bus / Set Schedule) */
@@ -4433,24 +4472,35 @@ body {
   align-items: center;
   justify-content: space-between;
   text-align: center;
-  background: var(--color-bg-surface);
-  border: 1.5px solid var(--color-divider);
+  background: #252d3a;
+  border: 1.5px solid #3e4a5c;
   border-radius: 18px;
   padding: 12px 6px 14px;
   min-height: 122px;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
   transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
   overflow: hidden;
 }
 
+:root[data-theme='light'] .gf-gojek-hero-card {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
 .gf-gojek-hero-card:hover {
   transform: translateY(-2px);
-  border-color: var(--color-samsung-blue, #0072de);
-  box-shadow: 0 6px 18px rgba(0, 114, 222, 0.15);
+  border-color: var(--color-samsung-blue, #258cfb);
+  box-shadow: 0 6px 18px rgba(0, 114, 222, 0.25);
 }
 
 .gf-gojek-hero-card.is-featured {
+  border-color: #005bb5;
+  background: linear-gradient(180deg, #0b1629 0%, #080d18 100%);
+}
+
+:root[data-theme='light'] .gf-gojek-hero-card.is-featured {
   border-color: rgba(0, 114, 222, 0.35);
   background: linear-gradient(180deg, rgba(0, 114, 222, 0.05) 0%, var(--color-bg-surface) 100%);
 }
@@ -4460,15 +4510,15 @@ body {
   font-weight: 800;
   padding: 2px 8px;
   border-radius: 99px;
-  background: var(--color-samsung-blue-tint, #ebf5ff);
-  color: var(--color-samsung-blue, #0072de);
+  background: rgba(37, 140, 251, 0.2);
+  color: #60a5fa;
   white-space: nowrap;
   letter-spacing: 0.02em;
 }
 
-:root[data-theme='dark'] .gf-gojek-hero-tag {
-  background: rgba(37, 140, 251, 0.18);
-  color: #93c5fd;
+:root[data-theme='light'] .gf-gojek-hero-tag {
+  background: #ebf5ff;
+  color: #0072de;
 }
 
 .gf-gojek-hero-art {
@@ -4494,7 +4544,7 @@ body {
 
 .gf-gojek-hero-subtitle {
   font-size: 10.5px;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   font-weight: 500;
   margin-top: 2px;
 }
@@ -4525,23 +4575,34 @@ body {
   width: 52px;
   height: 52px;
   border-radius: 16px;
-  background: var(--color-bg-subtle);
-  border: 1px solid var(--color-divider);
+  background: #0a101a;
+  border: 1.5px solid #243042;
   color: var(--color-text-primary);
   display: grid;
   place-items: center;
   transition: transform 140ms ease, background-color 140ms ease, border-color 140ms ease;
 }
 
+:root[data-theme='light'] .gf-gojek-quick-tile {
+  background: var(--color-bg-subtle);
+  border-color: var(--color-divider);
+}
+
 .gf-gojek-quick-tile.is-blue {
-  background: var(--color-samsung-blue-tint, #ebf5ff);
+  background: #09172c;
+  border-color: rgba(37, 140, 251, 0.35);
+  color: #258cfb;
+}
+
+:root[data-theme='light'] .gf-gojek-quick-tile.is-blue {
+  background: #ebf5ff;
   border-color: rgba(0, 114, 222, 0.25);
-  color: var(--color-samsung-blue, #0072de);
+  color: #0072de;
 }
 
 .gf-gojek-quick-item:hover .gf-gojek-quick-tile {
   transform: translateY(-2px);
-  border-color: var(--color-samsung-blue, #0072de);
+  border-color: var(--color-samsung-blue, #258cfb);
 }
 
 .gf-gojek-quick-label {
@@ -4556,18 +4617,19 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--color-bg-surface);
-  border: 1.5px solid var(--color-divider);
+  background: #080d17;
+  border: 1.5px solid #162238;
   border-radius: 18px;
   padding: 14px 16px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
   gap: 12px;
   width: 100%;
 }
 
-:root[data-theme='dark'] .gf-gojek-pass-card {
-  background: rgba(30, 41, 59, 0.65);
-  border-color: rgba(255, 255, 255, 0.1);
+:root[data-theme='light'] .gf-gojek-pass-card {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
 }
 
 /* Quick Destinations 2-Column Grid */
@@ -4582,35 +4644,41 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  background: var(--color-bg-surface);
-  border: 1.5px solid var(--color-divider);
+  background: #252d3a;
+  border: 1.5px solid #3e4a5c;
   border-radius: 16px;
   padding: 12px 14px;
   text-align: left;
   cursor: pointer;
   min-height: 106px;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   transition: all 140ms ease;
   width: 100%;
 }
 
+:root[data-theme='light'] .gf-gojek-dest-item {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.03);
+}
+
 .gf-gojek-dest-item:hover {
   transform: translateY(-2px);
-  border-color: var(--color-samsung-blue, #0072de);
-  box-shadow: 0 4px 14px rgba(0, 114, 222, 0.12);
+  border-color: var(--color-samsung-blue, #258cfb);
+  box-shadow: 0 4px 14px rgba(0, 114, 222, 0.22);
 }
 
 .gf-gojek-dest-tag {
   font-size: 10px;
   font-weight: 800;
-  color: var(--color-samsung-blue, #0072de);
-  background: var(--color-samsung-blue-tint, #ebf5ff);
+  color: #60a5fa;
+  background: rgba(37, 140, 251, 0.2);
   padding: 2px 7px;
   border-radius: 6px;
   width: fit-content;
 }
 
-:root[data-theme='dark'] .gf-gojek-dest-tag {
-  background: rgba(37, 140, 251, 0.18);
-  color: #93c5fd;
+:root[data-theme='light'] .gf-gojek-dest-tag {
+  color: #0072de;
+  background: #ebf5ff;
 }
