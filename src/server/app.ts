@@ -3546,26 +3546,35 @@ export function createApp() {
     const noteText = String(message ?? req.body?.note ?? '').trim();
 
     const parseExistingPax = (t: any): Array<{ id: number; nickname: string }> => {
-      let list: Array<{ id: number; nickname: string }> = [];
+      const rawNames: string[] = [];
       if (t.passengers_json) {
         try {
           const parsed = JSON.parse(t.passengers_json);
           if (Array.isArray(parsed)) {
-            list = parsed
-              .map((p: any, idx: number) => ({
-                id: idx + 1,
-                nickname: String(p?.nickname || p?.name || p || '').trim(),
-              }))
-              .filter((p) => Boolean(p.nickname));
+            for (const p of parsed) {
+              const raw = String(p?.nickname || p?.name || p || '').trim();
+              for (const part of raw.split(/[,\n]+/)) {
+                const clean = part.replace(/^\d+\.\s*/, '').trim();
+                if (clean) rawNames.push(clean);
+              }
+            }
           }
         } catch {}
       }
-      if (list.length === 0 && t.passenger_nickname) {
-        list = String(t.passenger_nickname)
-          .split(',')
-          .map((s) => s.replace(/^\d+\.\s*/, '').trim())
-          .filter(Boolean)
-          .map((nickname, idx) => ({ id: idx + 1, nickname }));
+      if (rawNames.length === 0 && t.passenger_nickname) {
+        for (const part of String(t.passenger_nickname).split(/[,\n]+/)) {
+          const clean = part.replace(/^\d+\.\s*/, '').trim();
+          if (clean) rawNames.push(clean);
+        }
+      }
+      const seen = new Set<string>();
+      const list: Array<{ id: number; nickname: string }> = [];
+      for (const name of rawNames) {
+        const key = name.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          list.push({ id: list.length + 1, nickname: name });
+        }
       }
       return list;
     };
@@ -3574,8 +3583,11 @@ export function createApp() {
       const candidates: string[] = [];
       if (Array.isArray(rawArr)) {
         for (const item of rawArr) {
-          const n = String(typeof item === 'object' && item !== null ? (item.nickname || item.name || '') : item || '').trim();
-          if (n) candidates.push(n);
+          const raw = String(typeof item === 'object' && item !== null ? (item.nickname || item.name || '') : item || '').trim();
+          for (const part of raw.split(/[,\n]+/)) {
+            const n = part.replace(/^\d+\.\s*/, '').trim();
+            if (n) candidates.push(n);
+          }
         }
       }
       if (candidates.length === 0 && rawStr) {
@@ -3675,11 +3687,29 @@ export function createApp() {
       return;
     }
 
-    const paxName = (passenger_nickname ? String(passenger_nickname).trim() : user.nickname) || user.nickname;
+    // REQUEST_CANCEL negotiation — capture requester's passenger list (limited by car seats) for automatic swap on accept
+    const existingPendingCancel = db
+      .prepare(
+        `SELECT id FROM negotiation_requests
+         WHERE trip_request_id = ? AND requester_user_id = ? AND action_type = 'REQUEST_CANCEL' AND status = 'PENDING'
+         LIMIT 1`
+      )
+      .get(tripId, user.id);
+    if (existingPendingCancel) {
+      res.status(409).json({ error: 'You already have a pending cancellation/switch request for this booking.' });
+      return;
+    }
 
-    // REQUEST_CANCEL negotiation
+    const cancelPaxList = parseRequestedPax(req.body?.passengers, passenger_nickname, user.nickname);
+    const maxSeatsForCancel = Number(trip.seats || 7);
+    if (cancelPaxList.length > maxSeatsForCancel) {
+      res.status(400).json({ error: `Vehicle ${trip.registration_plate} supports at most ${maxSeatsForCancel} passenger(s).` });
+      return;
+    }
+    const cancelPaxSummary = cancelPaxList.join(', ');
+
     const title = `🔄 Schedule Negotiation (Cancel Request): ${user.nickname} (${reqDeptName})`;
-    const body = `${user.nickname} (${reqDeptName}) is requesting to negotiate your booking on ${trip.registration_plate} (${trip.make} ${trip.model}, ${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}) to "${trip.destination}".${noteText ? ` Reason / Message: "${noteText}"` : ' Please accept to cancel and transfer this booking slot to them, or reject to keep your booking.'}`;
+    const body = `${user.nickname} (${reqDeptName}) is requesting to negotiate your booking on ${trip.registration_plate} (${trip.make} ${trip.model}, ${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}) to "${trip.destination}". New passenger(s) (${cancelPaxList.length}): ${cancelPaxSummary}.${noteText ? ` Reason / Message: "${noteText}"` : ' Please accept to cancel and transfer this booking slot to them, or reject to keep your booking.'}`;
 
     const notifId = sendUserNotification(db, {
       userId: trip.requester_id,
@@ -3695,13 +3725,14 @@ export function createApp() {
         `INSERT INTO negotiation_requests (trip_request_id, notification_id, action_type, requester_user_id, holder_user_id, passenger_nickname, destination, message, status)
          VALUES (?, ?, 'REQUEST_CANCEL', ?, ?, ?, ?, ?, 'PENDING')`
       )
-      .run(tripId, notifId, user.id, trip.requester_id, paxName, destination || trip.destination, noteText || null);
+      .run(tripId, notifId, user.id, trip.requester_id, cancelPaxSummary, destination || trip.destination, noteText || null);
     const negotiationId = Number(negRes.lastInsertRowid);
 
     recordAudit(db, user, 'TRIP_CANCEL_NEGOTIATION_REQUESTED', 'TRIP_REQUEST', tripId, null, {
       negotiation_id: negotiationId,
       requester_id: user.id,
       requester_name: user.nickname,
+      passengers: cancelPaxList,
       message: noteText,
     });
 
@@ -3710,6 +3741,7 @@ export function createApp() {
       action_type: 'REQUEST_CANCEL',
       notificationId: notifId,
       negotiationId,
+      passengers: cancelPaxList,
       message: `Cancellation negotiation request sent to ${trip.requester_name} (${trip.department_name}).`,
     });
   });
@@ -3815,28 +3847,38 @@ export function createApp() {
       return;
     }
 
-    // ACCEPT HITCHHIKE -> atomically claim PENDING request and add all requested passengers (deduplicated & seat-limited)
+    // ACCEPT HITCHHIKE -> atomically claim PENDING request and add all requested passengers as separate numbered entries
     if (nr.action_type === 'HITCHHIKE') {
-      let currentList: Array<{ id: number; nickname: string }> = [];
+      const rawExisting: string[] = [];
       if (trip.passengers_json) {
         try {
           const parsed = JSON.parse(trip.passengers_json);
           if (Array.isArray(parsed)) {
-            currentList = parsed
-              .map((p: any, idx: number) => ({
-                id: idx + 1,
-                nickname: String(p?.nickname || p?.name || p || '').trim(),
-              }))
-              .filter((p) => Boolean(p.nickname));
+            for (const p of parsed) {
+              const raw = String(p?.nickname || p?.name || p || '').trim();
+              for (const part of raw.split(/[,\n]+/)) {
+                const clean = part.replace(/^\d+\.\s*/, '').trim();
+                if (clean) rawExisting.push(clean);
+              }
+            }
           }
         } catch {}
       }
-      if (currentList.length === 0 && trip.passenger_nickname) {
-        currentList = String(trip.passenger_nickname)
-          .split(',')
-          .map((s) => s.replace(/^\d+\.\s*/, '').trim())
-          .filter(Boolean)
-          .map((nickname, idx) => ({ id: idx + 1, nickname }));
+      if (rawExisting.length === 0 && trip.passenger_nickname) {
+        for (const part of String(trip.passenger_nickname).split(/[,\n]+/)) {
+          const clean = part.replace(/^\d+\.\s*/, '').trim();
+          if (clean) rawExisting.push(clean);
+        }
+      }
+
+      const currentList: Array<{ id: number; nickname: string }> = [];
+      const seenLower = new Set<string>();
+      for (const name of rawExisting) {
+        const key = name.toLowerCase();
+        if (!seenLower.has(key)) {
+          seenLower.add(key);
+          currentList.push({ id: currentList.length + 1, nickname: name });
+        }
       }
 
       const requestedNames = String(nr.passenger_nickname || nr.requester_name || 'Colleague')
@@ -3844,7 +3886,6 @@ export function createApp() {
         .map((s) => s.replace(/^\d+\.\s*/, '').trim())
         .filter(Boolean);
 
-      const seenLower = new Set(currentList.map((p) => p.nickname.toLowerCase()));
       const toAdd: string[] = [];
       for (const name of requestedNames) {
         const key = name.toLowerCase();
@@ -3912,7 +3953,7 @@ export function createApp() {
       return;
     }
 
-    // ACCEPT REQUEST_CANCEL -> automatically cancel original booking & transfer slot to requesting user
+    // ACCEPT REQUEST_CANCEL -> cancel original booking & transfer slot to requester with their swapped passenger list (PENDING_APPROVAL)
     const transferResult = runInTransaction(db, () => {
       const claim = db
         .prepare(
@@ -3935,9 +3976,26 @@ export function createApp() {
       db.prepare("UPDATE bookings SET status = 'CANCELLED', cancellation_reason = ?, updated_at = datetime('now') WHERE trip_request_id = ? AND status != 'CANCELLED'").run(cancelReason, trip.id);
       db.prepare('UPDATE assignments SET is_current = 0 WHERE trip_request_id = ? AND is_current = 1').run(trip.id);
 
-      // 2. Create transferred booking for requesting user on the same vehicle & time slot
-      const transferredNick = String(nr.passenger_nickname || nr.requester_name || 'Employee').trim();
-      const transferredPaxJson = JSON.stringify([{ id: 1, nickname: transferredNick }]);
+      // 2. Build swapped passenger list strictly from the requesting user's passenger(s)
+      const maxSeats = Number(trip.seats || 7);
+      const rawSwapped = String(nr.passenger_nickname || nr.requester_name || 'Employee')
+        .split(/[,\n]+/)
+        .map((s) => s.replace(/^\d+\.\s*/, '').trim())
+        .filter(Boolean);
+      const swappedSeen = new Set<string>();
+      const swappedList: Array<{ id: number; nickname: string }> = [];
+      for (const name of rawSwapped) {
+        const k = name.toLowerCase();
+        if (!swappedSeen.has(k) && swappedList.length < maxSeats) {
+          swappedSeen.add(k);
+          swappedList.push({ id: swappedList.length + 1, nickname: name });
+        }
+      }
+      if (swappedList.length === 0) {
+        swappedList.push({ id: 1, nickname: String(nr.requester_name || 'Employee').trim() });
+      }
+      const transferredPaxJson = JSON.stringify(swappedList);
+      const transferredPaxNickname = swappedList.map((p, idx) => `${idx + 1}. ${p.nickname}`).join(', ');
       const transferredPurpose = nr.message
         ? `Transferred booking: ${nr.message}`
         : `Transferred booking (${trip.purpose || 'Operational Trip'})`;
@@ -3950,20 +4008,21 @@ export function createApp() {
              passenger_nickname, passengers_json, purpose, origin, destination,
              start_time, end_time, passenger_count, status,
              reservation_type, return_pickup_time, is_urgent, urgent_reason
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'PENDING_APPROVAL', ?, ?, ?, ?)`
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL', ?, ?, ?, ?)`
         )
         .run(
           nr.requester_user_id,
           nr.requester_department_id,
           trip.vehicle_id,
           trip.preferred_driver_id || activeAssignment?.driver_profile_id || null,
-          `1. ${transferredNick}`,
+          transferredPaxNickname,
           transferredPaxJson,
           transferredPurpose,
           trip.origin,
           transferredDest,
           trip.start_time,
           trip.end_time,
+          swappedList.length,
           trip.reservation_type || 'ONE_WAY',
           trip.return_pickup_time || null,
           Number(trip.is_urgent || 0),
@@ -3971,7 +4030,7 @@ export function createApp() {
         );
       const newTripId = Number(insTrip.lastInsertRowid);
 
-      // Immediately lock the vehicle schedule for the transferred booking
+      // Immediately lock the vehicle schedule for the transferred booking (Pending Approval)
       const insBooking = db
         .prepare(
           `INSERT INTO bookings (vehicle_id, trip_request_id, booked_by, purpose, start_time, end_time, status)
@@ -4006,7 +4065,7 @@ export function createApp() {
          WHERE trip_request_id = ? AND id != ? AND status = 'PENDING'`
       ).run(user.id, trip.id, negId);
 
-      return { newTripId };
+      return { newTripId, swappedPassengers: swappedList.map((p) => p.nickname) };
     });
 
     if (!transferResult) {
@@ -4018,7 +4077,7 @@ export function createApp() {
       userId: Number(nr.requester_user_id),
       triggerType: 'CANCEL_NEGOTIATION_ACCEPTED',
       title: '✅ Booking Transferred to You!',
-      body: `${user.nickname} accepted your cancellation request. Their booking on ${trip.registration_plate} (${trip.make} ${trip.model}) has been cancelled and automatically transferred to you as Booking #${transferResult.newTripId} (${new Date(trip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(trip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}), awaiting approval.`,
+      body: `${user.nickname} accepted your cancellation request. Their booking on ${trip.registration_plate} (${trip.make} ${trip.model}) has been cancelled and automatically transferred to you as Booking #${transferResult.newTripId} (Passengers: ${transferResult.swappedPassengers.join(', ')}), awaiting Fleet PIC & Head of WS approval.`,
       relatedEntityType: 'TRIP_REQUEST',
       relatedEntityId: transferResult.newTripId,
     });
@@ -4026,7 +4085,7 @@ export function createApp() {
     notifyAdmins(db, {
       triggerType: 'TRIP_TRANSFERRED',
       title: '🔄 Booking Cancelled & Transferred',
-      body: `${user.nickname} cancelled Booking #${trip.id} (${trip.registration_plate}) and transferred the slot to ${nr.requester_name} as Booking #${transferResult.newTripId} (awaiting approval).`,
+      body: `${user.nickname} cancelled Booking #${trip.id} (${trip.registration_plate}) and transferred the slot to ${nr.requester_name} (Passengers: ${transferResult.swappedPassengers.join(', ')}) as Booking #${transferResult.newTripId} (awaiting approval).`,
       relatedEntityType: 'TRIP_REQUEST',
       relatedEntityId: transferResult.newTripId,
     });
@@ -4036,6 +4095,7 @@ export function createApp() {
       status: 'CANCELLED',
       transferred_to_user_id: nr.requester_user_id,
       transferred_trip_id: transferResult.newTripId,
+      swapped_passengers: transferResult.swappedPassengers,
     });
 
     const cancelledTrip = broadcastTripUpdate(db, Number(trip.id), 'TRIP_UPDATED', { status: 'CANCELLED' });
@@ -4056,13 +4116,16 @@ export function createApp() {
     const db = getDb();
     const user = req.user!;
     const tripId = Number(req.params.id);
-    const { passenger_nickname, passengers, hitchhiker_user_id } = req.body ?? {};
+    const { passenger_nickname, passengers, hitchhiker_user_id, notification_id } = req.body ?? {};
 
     const requestedNames: string[] = [];
     if (Array.isArray(passengers)) {
       for (const p of passengers) {
-        const n = String(typeof p === 'object' && p !== null ? (p.nickname || p.name || '') : p || '').trim();
-        if (n) requestedNames.push(n);
+        const raw = String(typeof p === 'object' && p !== null ? (p.nickname || p.name || '') : p || '').trim();
+        for (const part of raw.split(/[,\n]+/)) {
+          const n = part.replace(/^\d+\.\s*/, '').trim();
+          if (n) requestedNames.push(n);
+        }
       }
     }
     if (requestedNames.length === 0 && passenger_nickname) {
@@ -4096,27 +4159,38 @@ export function createApp() {
       return;
     }
 
-    let currentList: Array<{ id: number; nickname: string }> = [];
+    const rawExisting: string[] = [];
     if (trip.passengers_json) {
       try {
         const parsed = JSON.parse(trip.passengers_json);
         if (Array.isArray(parsed)) {
-          currentList = parsed.map((p: any, idx: number) => ({
-            id: idx + 1,
-            nickname: String(p?.nickname || p?.name || p || '').trim(),
-          })).filter((p) => Boolean(p.nickname));
+          for (const p of parsed) {
+            const raw = String(p?.nickname || p?.name || p || '').trim();
+            for (const part of raw.split(/[,\n]+/)) {
+              const clean = part.replace(/^\d+\.\s*/, '').trim();
+              if (clean) rawExisting.push(clean);
+            }
+          }
         }
       } catch {}
     }
-    if (currentList.length === 0 && trip.passenger_nickname) {
-      currentList = String(trip.passenger_nickname)
-        .split(',')
-        .map((s) => s.replace(/^\d+\.\s*/, '').trim())
-        .filter(Boolean)
-        .map((nickname, idx) => ({ id: idx + 1, nickname }));
+    if (rawExisting.length === 0 && trip.passenger_nickname) {
+      for (const part of String(trip.passenger_nickname).split(/[,\n]+/)) {
+        const clean = part.replace(/^\d+\.\s*/, '').trim();
+        if (clean) rawExisting.push(clean);
+      }
     }
 
-    const existingKeys = new Set(currentList.map((p) => p.nickname.toLowerCase()));
+    const currentList: Array<{ id: number; nickname: string }> = [];
+    const existingKeys = new Set<string>();
+    for (const name of rawExisting) {
+      const key = name.toLowerCase();
+      if (!existingKeys.has(key)) {
+        existingKeys.add(key);
+        currentList.push({ id: currentList.length + 1, nickname: name });
+      }
+    }
+
     const toAdd: string[] = [];
     for (const name of requestedNames) {
       const key = name.toLowerCase();
@@ -4127,6 +4201,9 @@ export function createApp() {
     }
 
     if (toAdd.length === 0) {
+      if (notification_id) {
+        db.prepare("UPDATE notifications SET is_read = 1, delivery_status = 'ACCEPTED' WHERE id = ? AND user_id = ?").run(Number(notification_id), user.id);
+      }
       res.status(409).json({ error: 'Passenger is already in the passenger list (duplicate prevented)' });
       return;
     }
@@ -4150,6 +4227,10 @@ export function createApp() {
        SET passenger_count = ?, passengers_json = ?, passenger_nickname = ?, updated_at = datetime('now')
        WHERE id = ?`
     ).run(nextPaxCount, nextPaxJson, nextPaxNickname, tripId);
+
+    if (notification_id) {
+      db.prepare("UPDATE notifications SET is_read = 1, delivery_status = 'ACCEPTED' WHERE id = ? AND user_id = ?").run(Number(notification_id), user.id);
+    }
 
     const addedLabel = toAdd.join(', ');
     if (hitchhiker_user_id) {
@@ -7491,7 +7572,7 @@ export function createApp() {
         `SELECT n.*,
                 nr.id as negotiation_id,
                 nr.action_type as negotiation_action_type,
-                nr.status as negotiation_status,
+                COALESCE(nr.status, CASE WHEN n.delivery_status IN ('ACCEPTED', 'REJECTED') THEN n.delivery_status ELSE NULL END) as negotiation_status,
                 nr.requester_user_id as negotiation_requester_id,
                 req_u.nickname as negotiation_requester_name,
                 nr.passenger_nickname as negotiation_passenger_nickname,

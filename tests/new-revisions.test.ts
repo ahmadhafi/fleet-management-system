@@ -3173,11 +3173,16 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(rejectCancel.status).toBe(200);
         expect(rejectCancel.body.status).toBe('REJECTED');
 
-        // 4. Sara requests REQUEST_CANCEL -> Alex accepts -> original cancelled AND transferred to Sara
+        // 4. Sara requests REQUEST_CANCEL with her own 2 passengers -> Alex accepts -> original cancelled AND transferred to Sara with swapped passengers & PENDING_APPROVAL
         const cancelReq2 = await request(testApp)
           .post(`/api/trips/${tripId}/negotiate`)
           .set('Authorization', `Bearer ${saraTok}`)
-          .send({ action_type: 'REQUEST_CANCEL', destination: 'Bandara Soekarno-Hatta T3', message: 'Urgent airport transfer' });
+          .send({
+            action_type: 'REQUEST_CANCEL',
+            passengers: ['Sara Sales', 'Dina Kusuma'],
+            destination: 'Bandara Soekarno-Hatta T3',
+            message: 'Urgent airport transfer',
+          });
         expect(cancelReq2.status).toBe(201);
 
         const acceptCancel = await request(testApp)
@@ -3188,11 +3193,15 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(acceptCancel.body.status).toBe('ACCEPTED');
         expect(acceptCancel.body.cancelledTrip.status).toBe('CANCELLED');
         expect(acceptCancel.body.transferredTripId).toBeGreaterThan(0);
+        expect(acceptCancel.body.transferredTrip.status).toBe('PENDING_APPROVAL');
         expect(Number(acceptCancel.body.transferredTrip.requester_id)).toBe(Number(saraLogin.body.user.id));
         expect(Number(acceptCancel.body.transferredTrip.vehicle_id)).toBe(Number(veh.id));
         expect(acceptCancel.body.transferredTrip.destination).toBe('Bandara Soekarno-Hatta T3');
+        expect(acceptCancel.body.transferredTrip.passenger_count).toBe(2);
+        const swappedPax = JSON.parse(acceptCancel.body.transferredTrip.passengers_json);
+        expect(swappedPax.map((p: any) => p.nickname)).toEqual(['Sara Sales', 'Dina Kusuma']);
 
-        // 5. Multi-passenger hitchhike limited by car seats + 1-click idempotency (cannot add same passenger 3 times)
+        // 5. Multi-passenger hitchhike limited by car seats + 1-click idempotency (each person is a separate numbered passenger)
         const created2 = await request(testApp)
           .post('/api/trips')
           .set('Authorization', `Bearer ${alexTok}`)
@@ -3233,15 +3242,15 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
           .send({ action_type: 'HITCHHIKE', passengers: ['Tito'] });
         expect(dupPending.status).toBe(409);
 
-        // 1st Accept adds both Tito and Budi automatically
+        // 1st Accept adds Tito and Budi as 2 separate individual passengers (total 4, NOT side-by-side as 1)
         const accept1 = await request(testApp)
           .post(`/api/negotiations/${multiHh.body.negotiationId}/respond`)
           .set('Authorization', `Bearer ${alexTok}`)
           .send({ decision: 'ACCEPT' });
         expect(accept1.status).toBe(200);
         expect(accept1.body.trip.passenger_count).toBe(4);
-        expect(String(accept1.body.trip.passengers_json)).toContain('Tito');
-        expect(String(accept1.body.trip.passengers_json)).toContain('Budi');
+        const parsedPax = JSON.parse(accept1.body.trip.passengers_json);
+        expect(parsedPax.map((p: any) => p.nickname)).toEqual(['Hafi', 'Riza', 'Tito', 'Budi']);
 
         // 2nd & 3rd clicks on Accept are blocked (409) — Tito is NEVER added multiple times
         const accept2 = await request(testApp)

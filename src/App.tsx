@@ -265,26 +265,43 @@ export function getScheduleSlotDisplay(isoOrDateStr: string, targetLang?: Suppor
   }
 }
 
-function formatPassengersDisplay(passengersJson?: string | null, passengerNickname?: string | null): string {
+function extractIndividualPassengers(passengersJson?: string | null, passengerNickname?: string | null): string[] {
+  const names: string[] = [];
   if (passengersJson) {
     try {
       const parsed = JSON.parse(passengersJson);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((p: any, idx: number) => `${idx + 1}. ${p.nickname || p.name || p}`).join(', ');
+        for (const p of parsed) {
+          const raw = String(p?.nickname || p?.name || p || '').trim();
+          for (const part of raw.split(/[,\n]+/)) {
+            const clean = part.replace(/^\d+\.\s*/, '').trim();
+            if (clean) names.push(clean);
+          }
+        }
       }
     } catch {}
+  }
+  if (names.length === 0 && passengerNickname) {
+    for (const part of String(passengerNickname).split(/[,\n]+/)) {
+      const clean = part.replace(/^\d+\.\s*/, '').trim();
+      if (clean) names.push(clean);
+    }
+  }
+  return names;
+}
+
+function formatPassengersDisplay(passengersJson?: string | null, passengerNickname?: string | null): string {
+  const names = extractIndividualPassengers(passengersJson, passengerNickname);
+  if (names.length > 0) {
+    return names.map((n, idx) => `${idx + 1}. ${n}`).join('\n');
   }
   return passengerNickname || 'Team';
 }
 
 function formatPassengersMultiLine(passengersJson?: string | null, passengerNickname?: string | null): string {
-  if (passengersJson) {
-    try {
-      const parsed = JSON.parse(passengersJson);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((p: any, idx: number) => `${idx + 1}. ${p.nickname || p.name || p}`).join('\n');
-      }
-    } catch {}
+  const names = extractIndividualPassengers(passengersJson, passengerNickname);
+  if (names.length > 0) {
+    return names.map((n, idx) => `${idx + 1}. ${n}`).join('\n');
   }
   return passengerNickname || 'Team';
 }
@@ -586,6 +603,7 @@ export function App() {
   const [negotiationSubmitting, setNegotiationSubmitting] = useState<boolean>(false);
   const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
   const [negotiationRespondBusyId, setNegotiationRespondBusyId] = useState<number | null>(null);
+  const respondingNegIdsRef = useRef<Set<string>>(new Set());
   const [adminScheduleSubTab, setAdminScheduleSubTab] = useState<'ACTIVE' | 'AUDIT'>('ACTIVE');
   const [scheduleAuditRecords, setScheduleAuditRecords] = useState<any[]>([]);
   const [scheduleAuditDate, setScheduleAuditDate] = useState<string>('');
@@ -1078,9 +1096,8 @@ export function App() {
         let resolvedDest = destCoords;
 
         if (!bookOrigin.trim()) {
-          setBookOrigin('Samsung Office Jakarta (Lobby)');
-          resolvedOrig = myCoords ? { lat: myCoords.lat, lon: myCoords.lon } : { lat: -6.22728, lon: 106.80816 };
-          setOriginCoords(resolvedOrig);
+          // Leave pickup blank — do not auto-fill a default office address; only compute route preview using current GPS if available
+          resolvedOrig = myCoords ? { lat: myCoords.lat, lon: myCoords.lon } : null;
         }
 
         const quickResolveCoords = async (queryStr: string): Promise<{ lat: number; lon: number } | null> => {
@@ -1671,7 +1688,7 @@ export function App() {
             // keep coordinate label
           }
 
-          // Auto-fill pickup field if empty, or fill active route field when requested
+          // Only fill pickup/destination when the user explicitly taps "Current Location" (leave pickup blank by default)
           if (fillActiveField) {
             if (activeRouteField === 'pickup') {
               setBookOrigin(resolvedLabel);
@@ -1681,14 +1698,6 @@ export function App() {
               setBookDest(resolvedLabel);
               setDestCoords({ lat, lon });
             }
-          } else {
-            setBookOrigin((prev) => {
-              if (!prev.trim()) {
-                setOriginCoords({ lat, lon });
-                return resolvedLabel;
-              }
-              return prev;
-            });
           }
 
           // Send user's location to backend so their pinpoint dot appears on the map for all users
@@ -2486,7 +2495,7 @@ export function App() {
         body: JSON.stringify({
           action_type: negotiationActionType,
           passenger_nickname: uniquePax.join(', ') || user?.nickname || 'Colleague',
-          passengers: negotiationActionType === 'HITCHHIKE' ? uniquePax : undefined,
+          passengers: uniquePax.length > 0 ? uniquePax : [user?.nickname || 'Colleague'],
           message: negotiationNote.trim(),
           note: negotiationNote.trim(),
         }),
@@ -2506,22 +2515,41 @@ export function App() {
     }
   };
 
-  const handleAcceptHitchhike = async (tripId: number, passengerNickname: string, requesterUserId?: number) => {
+  const handleAcceptHitchhike = async (tripId: number, passengerNickname: string, requesterUserId?: number, notificationId?: number) => {
+    const lockKey = notificationId ? `notif-${notificationId}` : `trip-${tripId}-${passengerNickname.toLowerCase()}`;
+    if (respondingNegIdsRef.current.has(lockKey)) return;
+    respondingNegIdsRef.current.add(lockKey);
+    if (notificationId) setNegotiationRespondBusyId(notificationId);
     try {
       const res = await apiRequest(`/api/trips/${tripId}/hitchhike-accept`, {
         method: 'POST',
         body: JSON.stringify({
           passenger_nickname: passengerNickname,
           requester_user_id: requesterUserId,
+          notification_id: notificationId,
         }),
       });
+      if (notificationId) {
+        setNotifications((prev: any[]) =>
+          prev.map((item) => (Number(item.id) === Number(notificationId) ? { ...item, is_read: 1, negotiation_status: 'ACCEPTED' } : item))
+        );
+      }
       setStatusBanner({
         type: 'success',
-        text: `Hitchhike accepted! ${passengerNickname} added to Trip #${tripId} (${res.passenger_nickname || ''}).`,
+        text: `Hitchhike accepted! ${Array.isArray(res.addedPassengers) ? res.addedPassengers.join(', ') : passengerNickname} added to Trip #${tripId}.`,
       });
       await loadAllData(user);
     } catch (err: any) {
+      if (notificationId && /already/i.test(String(err.message || ''))) {
+        setNotifications((prev: any[]) =>
+          prev.map((item) => (Number(item.id) === Number(notificationId) ? { ...item, is_read: 1, negotiation_status: 'ACCEPTED' } : item))
+        );
+      } else {
+        respondingNegIdsRef.current.delete(lockKey);
+      }
       setStatusBanner({ type: 'danger', text: err.message });
+    } finally {
+      if (notificationId) setNegotiationRespondBusyId(null);
     }
   };
 
@@ -2536,7 +2564,9 @@ export function App() {
   const handleRespondNegotiation = async (notif: any, decision: 'ACCEPT' | 'REJECT') => {
     if (!notif?.negotiation_id) return;
     const negId = Number(notif.negotiation_id);
-    if (negotiationRespondBusyId === negId) return;
+    const lockKey = `neg-${negId}`;
+    if (respondingNegIdsRef.current.has(lockKey) || negotiationRespondBusyId === negId) return;
+    respondingNegIdsRef.current.add(lockKey);
     setNegotiationRespondBusyId(negId);
     try {
       const res = await apiRequest(`/api/negotiations/${negId}/respond`, {
@@ -2586,6 +2616,9 @@ export function App() {
       }
       await loadAllData(user);
     } catch (err: any) {
+      if (!/already/i.test(String(err.message || ''))) {
+        respondingNegIdsRef.current.delete(lockKey);
+      }
       setStatusBanner({ type: 'danger', text: err.message });
     } finally {
       setNegotiationRespondBusyId(null);
@@ -5916,7 +5949,10 @@ export function App() {
                 <strong>🎯 Destination:</strong> {negotiationModalTrip.origin} → <strong>{negotiationModalTrip.destination}</strong>
               </div>
               <div>
-                <strong>👥 Passengers:</strong> {formatPassengersDisplay(negotiationModalTrip.passengers_json, negotiationModalTrip.passenger_nickname)}
+                <strong>👥 Passengers:</strong>
+                <div style={{ whiteSpace: 'pre-line', marginTop: '2px', paddingLeft: '14px' }}>
+                  {formatPassengersMultiLine(negotiationModalTrip.passengers_json, negotiationModalTrip.passenger_nickname)}
+                </div>
               </div>
               <div>
                 <strong>🕒 Booked Time & Duration:</strong>{' '}
@@ -5935,7 +5971,7 @@ export function App() {
                   <button
                     type="button"
                     className="pressable"
-                    onClick={() => setNegotiationActionType('HITCHHIKE')}
+                    onClick={() => { setNegotiationActionType('HITCHHIKE'); setNegotiationExtraPassengers([]); }}
                     style={{
                       padding: '10px 12px',
                       borderRadius: '10px',
@@ -5952,7 +5988,7 @@ export function App() {
                   <button
                     type="button"
                     className="pressable"
-                    onClick={() => setNegotiationActionType('REQUEST_CANCEL')}
+                    onClick={() => { setNegotiationActionType('REQUEST_CANCEL'); setNegotiationExtraPassengers([]); }}
                     style={{
                       padding: '10px 12px',
                       borderRadius: '10px',
@@ -5969,25 +6005,21 @@ export function App() {
                 </div>
               </div>
 
-              {negotiationActionType === 'HITCHHIKE' && (() => {
+              {(() => {
                 const matchedVeh = vehicles.find((v) => Number(v.id) === Number(negotiationModalTrip.vehicle_id));
                 const maxSeats = Number(negotiationModalTrip.seats || matchedVeh?.seats || 7);
-                let currentPaxCount = Number(negotiationModalTrip.passenger_count || 1);
-                if (negotiationModalTrip.passengers_json) {
-                  try {
-                    const parsed = JSON.parse(negotiationModalTrip.passengers_json);
-                    if (Array.isArray(parsed) && parsed.length > 0) currentPaxCount = parsed.length;
-                  } catch {}
-                }
-                const remainingSeats = Math.max(0, maxSeats - currentPaxCount);
+                const existingNames = extractIndividualPassengers(negotiationModalTrip.passengers_json, negotiationModalTrip.passenger_nickname);
+                const currentPaxCount = existingNames.length || Number(negotiationModalTrip.passenger_count || 1);
+                const isHitchhike = negotiationActionType === 'HITCHHIKE';
+                const seatLimit = isHitchhike ? Math.max(0, maxSeats - currentPaxCount) : maxSeats;
                 const totalRequested = 1 + negotiationExtraPassengers.length;
-                const canAddMore = totalRequested < remainingSeats;
+                const canAddMore = totalRequested < seatLimit;
 
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       <label className="type-caption" style={{ fontWeight: 700 }}>
-                        {t('Hitchhike Passenger(s)')} *
+                        {isHitchhike ? t('Hitchhike Passenger(s)') : t('Your Passenger(s) After Switch')} *
                       </label>
                       <span
                         id="hitchhike-seat-counter"
@@ -5995,14 +6027,16 @@ export function App() {
                         style={{
                           fontSize: '11.5px',
                           fontWeight: 800,
-                          color: remainingSeats > 0 ? '#0072de' : '#dc2626',
+                          color: seatLimit > 0 ? '#0072de' : '#dc2626',
                         }}
                       >
-                        {t('Seats')}: {currentPaxCount}/{maxSeats} ({remainingSeats} {t('left')})
+                        {isHitchhike
+                          ? `${t('Seats')}: ${currentPaxCount}/${maxSeats} (${seatLimit} ${t('left')})`
+                          : `${t('Seats')}: ${totalRequested}/${maxSeats}`}
                       </span>
                     </div>
 
-                    {remainingSeats <= 0 ? (
+                    {seatLimit <= 0 ? (
                       <div style={{ padding: '10px 12px', borderRadius: '10px', background: 'rgba(220, 38, 38, 0.12)', border: '1px solid rgba(220, 38, 38, 0.35)', color: '#ef4444', fontSize: '12.5px', fontWeight: 700 }}>
                         {t('This vehicle is full. No remaining seats available for hitchhike.')}
                       </div>
@@ -9435,8 +9469,8 @@ export function App() {
   // Determine Map visual state
   const mapOrigin =
     bookingStep === 'WAITING' || bookingStep === 'IN_TRIP'
-      ? focusedTrip?.origin || bookOrigin || 'Samsung Office Jakarta (Lobby)'
-      : bookOrigin || 'Samsung Office Jakarta (Lobby)';
+      ? focusedTrip?.origin || bookOrigin || ''
+      : bookOrigin || '';
   const mapDest =
     bookingStep === 'WAITING' || bookingStep === 'IN_TRIP'
       ? focusedTrip?.destination || bookDest
@@ -11424,9 +11458,10 @@ export function App() {
                         ) : isHitchhikeReq && n.related_entity_id ? (
                           <button
                             type="button"
+                            disabled={negotiationRespondBusyId === Number(n.id)}
                             className="gf-btn gf-btn-primary gf-btn-sm pressable"
                             style={{ minHeight: '30px', padding: '0 12px', fontSize: '11.5px' }}
-                            onClick={() => handleAcceptHitchhike(Number(n.related_entity_id), hitchhikerName)}
+                            onClick={() => handleAcceptHitchhike(Number(n.related_entity_id), hitchhikerName, undefined, Number(n.id))}
                           >
                             ✓ {t('Accept Hitchhike')} ({hitchhikerName})
                           </button>

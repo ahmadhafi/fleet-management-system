@@ -42,17 +42,30 @@ function colorFor(trip: any): string {
 }
 
 function parsePassengers(trip: any): string[] {
+  const raw: string[] = [];
   if (trip.passengers_json) {
     try {
       const parsed = JSON.parse(trip.passengers_json);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((p: any) => String(p?.nickname || p?.name || p)).filter(Boolean);
+        for (const p of parsed) {
+          const text = String(p?.nickname || p?.name || p || '').trim();
+          for (const part of text.split(/[,\n]+/)) {
+            const clean = part.replace(/^\d+\.\s*/, '').trim();
+            if (clean) raw.push(clean);
+          }
+        }
       }
     } catch {
       /* ignore malformed JSON */
     }
   }
-  return trip.passenger_nickname ? [String(trip.passenger_nickname)] : [];
+  if (raw.length === 0 && trip.passenger_nickname) {
+    for (const part of String(trip.passenger_nickname).split(/[,\n]+/)) {
+      const clean = part.replace(/^\d+\.\s*/, '').trim();
+      if (clean) raw.push(clean);
+    }
+  }
+  return raw;
 }
 
 /** Dedupe, keep only active bookings that touch the selected day, and clip them to the visible window. */

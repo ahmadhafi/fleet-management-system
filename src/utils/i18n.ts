@@ -675,6 +675,7 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
   { en: 'Additional passenger', id: 'Penumpang tambahan', ko: '추가 탑승자' },
   { en: 'Add Another Person', id: 'Tambah Orang Lain', ko: '동승자 추가' },
   { en: 'Car seat limit reached', id: 'Batas kursi mobil tercapai', ko: '차량 좌석 한도 도달' },
+  { en: 'Your Passenger(s) After Switch', id: 'Daftar Penumpang Anda Setelah Dialihkan', ko: '예약 양도 후 탑승자 명단' },
 
   // Complete UI Coverage — Approval Lock, Executive Modals, Map Pin, Schedule, Driver, Admin & Reports
   { en: 'Booking cancelled and vehicle/driver slot released.', id: 'Pemesanan dibatalkan dan slot kendaraan/pengemudi telah dibuka kembali.', ko: '예약이 취소되었으며 차량/기사 일정이 해제되었습니다.' },
