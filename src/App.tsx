@@ -10289,7 +10289,7 @@ export function App() {
       bookingStep === 'WAITING' ||
       bookingStep === 'IN_TRIP');
 
-  const showBookingMap = isCarBookingMapStep || (navSection === 'DRIVER' && driverSectionTab === 'DISPATCH');
+  const showBookingMap = isCarBookingMapStep || (user.role === 'DRV' && navSection === 'DRIVER' && driverSectionTab === 'DISPATCH');
 
   const handleMapBack = () => {
     if (showSchedulePicker) {
@@ -10613,7 +10613,7 @@ export function App() {
     // -------------------------------------------------------------------------
     // DRIVER DISPATCH SHEET (Gojek-style Driver Check-In + Duty Confirmation)
     // -------------------------------------------------------------------------
-    if (navSection === 'DRIVER') {
+    if (navSection === 'DRIVER' && user.role === 'DRV') {
       const driverCheckedInReady = gpsNoticeAccepted && gpsReportingActive;
       const dedicatedCar = vehicles.find(
         (v) => (v.dedicated_driver_user_id && v.dedicated_driver_user_id === user.id) ||
@@ -12780,7 +12780,7 @@ export function App() {
               showChevron
               onClick={handleInstallPwa}
             />
-            {(user.role === 'DRV' || isPrivileged) && (
+            {user.role === 'DRV' && (
               <ListRow
                 icon={<Navigation size={18} />}
                 title={t('Driver Dispatch Console')}
@@ -13226,7 +13226,7 @@ export function App() {
                 <span className="gf-gojek-quick-label">{t('Trip Log')}</span>
               </button>
 
-              {(user.role === "DRV" || isPrivileged) ? (
+              {user.role === 'DRV' ? (
                 <button
                   type="button"
                   className="gf-gojek-quick-item pressable"
@@ -15950,7 +15950,7 @@ export function App() {
         onSignOut={handleLogout}
         onOpenProfile={handleOpenProfileModal}
         hideChromeDuringBooking={(inActiveBookingFlow || (navSection === 'HOME' && customerHomeMode === 'GOCAR_LANDING')) && !isDriverOnly}
-        isDriverOrPrivileged={user.role === 'DRV' || Boolean(isPrivileged)}
+        isDriverOrPrivileged={user.role === 'DRV'}
         isPrivileged={Boolean(isPrivileged)}
         isDriverOnly={isDriverOnly}
         unreadInboxCount={unreadCount}
@@ -15958,16 +15958,20 @@ export function App() {
         pendingAdminCount={pendingTrips.length + pendingUsers.length}
         userNickname={user?.nickname}
         departmentName={user?.department_name}
-        onSwitchToDriverDispatch={() => {
-          setNavSection('DRIVER');
-          setDriverSectionTab('DISPATCH');
-          setDriverDispatchDrawerOpen(false);
-          setSheetSnap('peek');
-        }}
+        onSwitchToDriverDispatch={
+          user.role === 'DRV'
+            ? () => {
+                setNavSection('DRIVER');
+                setDriverSectionTab('DISPATCH');
+                setDriverDispatchDrawerOpen(false);
+                setSheetSnap('peek');
+              }
+            : undefined
+        }
         onSwitchToAdmin={() => setNavSection('ADMIN')}
         mapStage={
           showBookingMap ? (() => {
-            const isDriverDispatchMap = navSection === 'DRIVER' && driverSectionTab === 'DISPATCH';
+            const isDriverDispatchMap = user.role === 'DRV' && navSection === 'DRIVER' && driverSectionTab === 'DISPATCH';
             const isDriverFullMap = isDriverDispatchMap && !driverDispatchDrawerOpen;
             const isDriverOnline = Boolean(gpsNoticeAccepted && gpsReportingActive);
             const driverCompletedCount = trips.filter(

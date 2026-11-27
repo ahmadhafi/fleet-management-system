@@ -3484,6 +3484,22 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(events[2].startH).toBeCloseTo(21, 2);
         expect(events[2].endH).toBeCloseTo(23.5, 2);
       });
+
+      it('prevents Admins (ADM/FM/HWS) from entering Driver View or seeing Driver Dispatch shortcuts', async () => {
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const appTsx = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf-8');
+
+        // 1. Driver View & map rendering strictly require user.role === 'DRV'
+        expect(appTsx).toContain("if (navSection === 'DRIVER' && user.role === 'DRV')");
+        expect(appTsx).toContain("const showBookingMap = isCarBookingMapStep || (user.role === 'DRV' && navSection === 'DRIVER' && driverSectionTab === 'DISPATCH');");
+
+        // 2. AppShell Driver tab and Home/Profile Driver Dispatch shortcuts are DRV-only (never isPrivileged)
+        expect(appTsx).toContain("isDriverOrPrivileged={user.role === 'DRV'}");
+        expect(appTsx).not.toContain('isDriverOrPrivileged={user.role === \'DRV\' || Boolean(isPrivileged)}');
+        expect(appTsx).not.toContain('{(user.role === "DRV" || isPrivileged) ? (');
+        expect(appTsx).not.toContain("{(user.role === 'DRV' || isPrivileged) && (");
+      });
     });
   });
 });
