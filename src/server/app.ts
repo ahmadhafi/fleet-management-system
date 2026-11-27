@@ -115,6 +115,42 @@ export function broadcastTripUpdate(db: AppDatabase, tripId: number, eventType =
       data: { trip: enrichedTrip, ...extraData },
     });
 
+    // Broadcast lightweight schedule update to all authenticated clients so the Driver Schedule calendar stays live
+    liveEvents.broadcast({
+      type: 'SCHEDULE_UPDATED',
+      data: {
+        trip: {
+          id: enrichedTrip.id,
+          requester_id: enrichedTrip.requester_id,
+          requester_name: enrichedTrip.requester_name,
+          requester_username: enrichedTrip.requester_username,
+          department_id: enrichedTrip.department_id,
+          department_name: enrichedTrip.department_name,
+          vehicle_id: enrichedTrip.vehicle_id,
+          registration_plate: enrichedTrip.registration_plate,
+          make: enrichedTrip.make,
+          model: enrichedTrip.model,
+          car_type: enrichedTrip.car_type,
+          energy_type: enrichedTrip.energy_type,
+          passenger_nickname: enrichedTrip.passenger_nickname,
+          passengers_json: enrichedTrip.passengers_json,
+          passenger_count: enrichedTrip.passenger_count,
+          purpose: enrichedTrip.purpose,
+          origin: enrichedTrip.origin,
+          destination: enrichedTrip.destination,
+          start_time: enrichedTrip.start_time,
+          end_time: enrichedTrip.end_time,
+          status: enrichedTrip.status,
+          booking_status: enrichedTrip.booking_status,
+          reservation_type: enrichedTrip.reservation_type,
+          return_pickup_time: enrichedTrip.return_pickup_time,
+          driver_profile_id: enrichedTrip.driver_profile_id,
+          assigned_driver_name: enrichedTrip.assigned_driver_name,
+          assigned_driver_phone: enrichedTrip.assigned_driver_phone,
+        },
+      },
+    });
+
     return enrichedTrip;
   } catch {
     return null;
@@ -571,16 +607,19 @@ export function createApp() {
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
+      'Cache-Control': 'no-cache, no-store, no-transform',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
+    if (typeof res.flushHeaders === 'function') {
+      res.flushHeaders();
+    }
 
-    res.write(`: connected (user ${user.id}, role ${user.role})\n\n`);
+    res.write(`retry: 1500\n: connected (user ${user.id}, role ${user.role})\n\n`);
 
     const onLiveEvent = (event: LiveEvent) => {
       try {
-        const matchesUser = event.userId === undefined || event.userId === user.id;
+        const matchesUser = event.userId === undefined || Number(event.userId) === Number(user.id);
         const matchesRole =
           event.role === undefined ||
           event.role === user.role ||
@@ -602,10 +641,13 @@ export function createApp() {
     const heartbeatTimer = setInterval(() => {
       try {
         res.write(': heartbeat\n\n');
+        if (typeof (res as any).flush === 'function') {
+          (res as any).flush();
+        }
       } catch {
         clearInterval(heartbeatTimer);
       }
-    }, 15_000);
+    }, 10_000);
     heartbeatTimer.unref();
 
     req.on('close', () => {
@@ -2230,6 +2272,7 @@ export function createApp() {
       };
     });
 
+    res.set('Cache-Control', 'no-store');
     res.json({ trips: enriched });
   });
 
@@ -3322,6 +3365,8 @@ export function createApp() {
              tr.start_time, tr.end_time, tr.passenger_count, tr.status, tr.reservation_type, tr.return_pickup_time,
              u.nickname as requester_name,
              u.group_username as requester_username,
+             u.contact_number as requester_contact,
+             COALESCE(dp.contact_number, def_dp.contact_number) as assigned_driver_phone,
              d.name as department_name,
              v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.seats,
              b.id as booking_id, b.status as booking_status,
@@ -3346,7 +3391,8 @@ export function createApp() {
             .all(user.driver_profile_id ?? -1, user.driver_profile_id ?? -1, user.driver_profile_id ?? -1)
         : db.prepare(`${baseSelect} ORDER BY tr.start_time ASC`).all();
 
-    res.json({ scheduleTrips: rows, can_view_all_schedules: canViewAllSchedules });
+    res.set('Cache-Control', 'no-store');
+    res.json({ scheduleTrips: rows, trips: rows, can_view_all_schedules: canViewAllSchedules });
   });
 
   // Item #5: Negotiate with current booking holder to Hitchhike (Join Ride if same destination) or Request Cancellation

@@ -4735,3 +4735,236 @@ html[data-display-mode='mobile'] .gf-bottom-nav {
   color: #0072de;
   background: #ebf5ff;
 }
+
+/* ===================================================================
+   Google Calendar–style Driver Schedule (07:00 – 17:00)
+   =================================================================== */
+.gf-gcal {
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  overflow: hidden;
+}
+.gf-gcal-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.gf-gcal-grid { position: relative; }
+.gf-gcal-head,
+.gf-gcal-body { display: grid; }
+.gf-gcal-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+.gf-gcal-head-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--color-surface);
+}
+.gf-gcal-head-cell {
+  padding: 8px 8px 7px;
+  border-left: 1px solid var(--color-divider);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.gf-gcal-plate {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 5px;
+  border: 1.5px solid var(--color-text-primary);
+  color: var(--color-text-primary);
+}
+.gf-gcal-car {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gf-gcal-driver {
+  font-size: 11.5px;
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gf-gcal-count {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #0072de;
+}
+.gf-gcal-count.is-busy { color: #d97706; }
+.gf-gcal-body { position: relative; }
+.gf-gcal-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-divider);
+}
+.gf-gcal-hour-label {
+  position: absolute;
+  right: 6px;
+  transform: translateY(-1px);
+  padding-top: 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+}
+.gf-gcal-col {
+  position: relative;
+  border-left: 1px solid var(--color-divider);
+}
+.gf-gcal-cell {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--color-divider);
+}
+.gf-gcal-book {
+  position: absolute;
+  inset: 3px;
+  border: 1px dashed transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: transparent;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.gf-gcal-book:hover,
+.gf-gcal-book:focus-visible {
+  background: rgba(0, 114, 222, 0.08);
+  border-color: rgba(0, 114, 222, 0.45);
+  color: #0072de;
+}
+@media (hover: none) {
+  .gf-gcal-book { color: rgba(0, 114, 222, 0.55); }
+}
+.gf-gcal-event {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid;
+  border-left-width: 4px;
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  font-family: inherit;
+}
+.gf-gcal-event.is-pending {
+  background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(255, 255, 255, 0.18) 6px 12px);
+}
+.gf-gcal-event-name {
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gf-gcal-event-time {
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.95;
+}
+.gf-gcal-event-sub {
+  font-size: 10.5px;
+  line-height: 1.2;
+  opacity: 0.92;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gf-gcal-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #ea4335;
+  z-index: 2;
+  pointer-events: none;
+}
+.gf-gcal-now::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ea4335;
+}
+.gf-gcal-col:not(:first-of-type) .gf-gcal-now::before {
+  display: none;
+}
+.gf-gcal-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+@media (min-width: 768px) {
+  .gf-gcal-sheet-backdrop { align-items: center; }
+}
+.gf-gcal-sheet {
+  width: min(460px, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+  background: #111827;
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 18px 18px 0 0;
+  padding: 16px 16px calc(18px + var(--safe-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 -6px 28px rgba(0, 0, 0, 0.5);
+}
+:root[data-theme='light'] .gf-gcal-sheet {
+  background: #ffffff;
+}
+@media (min-width: 768px) {
+  .gf-gcal-sheet { border-radius: 18px; }
+}
+.gf-gcal-sheet-head { display: flex; align-items: center; gap: 10px; }
+.gf-gcal-sheet-swatch { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; }
+.gf-gcal-sheet-title { font-size: 17px; font-weight: 800; }
+.gf-gcal-sheet-sub { font-size: 12px; color: var(--color-text-secondary); }
+.gf-gcal-sheet-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.gf-gcal-sheet-row > svg { flex-shrink: 0; color: var(--color-text-secondary); }
+.gf-gcal-sheet-row a { color: #0072de; font-weight: 700; }
+.gf-gcal-pax { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
+.gf-gcal-sheet-purpose { font-size: 12.5px; color: var(--color-text-secondary); font-style: italic; }

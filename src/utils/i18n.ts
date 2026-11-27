@@ -624,6 +624,18 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
   { en: 'Accept Hitchhike', id: 'Terima Nebeng (Tambah Penumpang)', ko: '합승 수락 (동승자 추가)' },
   { en: 'Auto-Accepted Order', id: 'Order Otomatis Diterima', ko: '자동 수락된 배차' },
   { en: 'Back', id: 'Kembali', ko: '뒤로' },
+  { en: 'Driver Schedule', id: 'Jadwal Pengemudi', ko: '기사 배차 일정' },
+  { en: 'booked', id: 'dipesan', ko: '예약됨' },
+  { en: 'Pool Driver', id: 'Pengemudi Pool', ko: '대기 기사' },
+  { en: 'You', id: 'Anda', ko: '본인' },
+  { en: 'pax', id: 'orang', ko: '명' },
+  { en: 'Passengers On Board', id: 'Penumpang di Dalam Mobil', ko: '탑승자 명단' },
+  { en: 'Tap a booking to see who booked the car and who is on board', id: 'Ketuk jadwal untuk melihat pemesan dan daftar penumpang', ko: '예약을 탭하여 예약자와 탑승자를 확인하세요' },
+  { en: 'Previous day', id: 'Hari sebelumnya', ko: '이전 날짜' },
+  { en: 'Next day', id: 'Hari berikutnya', ko: '다음 날짜' },
+  { en: 'Open Approval / Dispatch', id: 'Buka Persetujuan / Dispatch', ko: '승인 / 배차 열기' },
+  { en: 'Employee', id: 'Karyawan', ko: '직원' },
+  { en: 'Available All Day', id: 'Tersedia Seharian', ko: '종일 이용 가능' },
 
   // Complete UI Coverage — Approval Lock, Executive Modals, Map Pin, Schedule, Driver, Admin & Reports
   { en: 'Booking cancelled and vehicle/driver slot released.', id: 'Pemesanan dibatalkan dan slot kendaraan/pengemudi telah dibuka kembali.', ko: '예약이 취소되었으며 차량/기사 일정이 해제되었습니다.' },

@@ -53,6 +53,7 @@ import {
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
 import { AppShell, AdminShell, type NavSection, type AdminModule } from './components/AppShell';
+import { DriverScheduleCalendar, todayLocalDateStr } from './components/DriverScheduleCalendar';
 import { BottomSheet, type SnapPoint } from './components/BottomSheet';
 import {
   MapView,
@@ -778,8 +779,8 @@ export function App() {
       setBookings(bkgRes.bookings || []);
       setNotifications(ntfRes.notifications || []);
       setUserPins(pinRes.pins || []);
-      if (Array.isArray(calRes.trips)) {
-        setCalendarTrips(calRes.trips);
+      if (Array.isArray(calRes.scheduleTrips || calRes.trips)) {
+        setCalendarTrips(calRes.scheduleTrips || calRes.trips);
       }
       if (Array.isArray(deptRes.departments) && deptRes.departments.length > 0) {
         setGroupsList(deptRes.departments);
@@ -1757,14 +1758,16 @@ export function App() {
       detectAndReportUserLocation(false);
     }, 45 * 1000);
 
-    // Fast real-time trip & dispatch status synchronization poller (runs every 4 seconds)
-    // Synchronizes booking approvals, driver assignments, trip starts, and completions across requester, driver, and admin
-    const syncInterval = window.setInterval(async () => {
+    // Ultra-low-latency trip & schedule sync helper (shared by SSE reconnect, focus/visibility, and fast fallback poller)
+    let syncInFlight = false;
+    const syncTripsAndSchedule = async () => {
+      if (syncInFlight) return;
+      syncInFlight = true;
       try {
         const [trpRes, bkgRes, calRes] = await Promise.all([
           apiRequest('/api/trips'),
           apiRequest('/api/bookings'),
-          apiRequest('/api/schedule/calendar').catch(() => ({ trips: [] })),
+          apiRequest('/api/schedule/calendar').catch(() => ({ scheduleTrips: [], trips: [] })),
         ]);
         if (Array.isArray(trpRes.trips)) {
           setTrips(trpRes.trips);
@@ -1772,8 +1775,9 @@ export function App() {
         if (Array.isArray(bkgRes.bookings)) {
           setBookings(bkgRes.bookings);
         }
-        if (Array.isArray(calRes.trips)) {
-          setCalendarTrips(calRes.trips);
+        const calList = calRes.scheduleTrips || calRes.trips;
+        if (Array.isArray(calList)) {
+          setCalendarTrips(calList);
         }
         if (['DRV', 'ADM', 'FM'].includes(user.role)) {
           const dspRes = await apiRequest('/api/driver/dispatches').catch(() => ({ dispatches: [] }));
@@ -1781,8 +1785,37 @@ export function App() {
             setDispatches(dspRes.dispatches);
           }
         }
-      } catch {}
-    }, 4 * 1000);
+      } catch {
+      } finally {
+        syncInFlight = false;
+      }
+    };
+
+    const upsertCalendarTrip = (trip: any) => {
+      if (!trip || !trip.id) return;
+      const st = String(trip.status || '').toUpperCase();
+      const bSt = String(trip.booking_status || '').toUpperCase();
+      const isInactive = ['COMPLETED', 'CANCELLED', 'REJECTED'].includes(st) || ['COMPLETED', 'CANCELLED'].includes(bSt);
+      setCalendarTrips((prev: any[]) => {
+        if (isInactive) {
+          return prev.filter((c: any) => Number(c.id) !== Number(trip.id));
+        }
+        const idx = prev.findIndex((c: any) => Number(c.id) === Number(trip.id));
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = { ...next[idx], ...trip };
+          return next;
+        }
+        return [trip, ...prev];
+      });
+    };
+
+    // Fast fallback poller (runs every 1.8s when tab is visible — guarantees low latency even if proxy buffers SSE)
+    const syncInterval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void syncTripsAndSchedule();
+      }
+    }, 1800);
 
     // Real-time notification poller (delivers alerts to Driver, User, Admin, Head of WS Part, Fleet Operation PIC)
     const notifInterval = window.setInterval(async () => {
@@ -1794,8 +1827,7 @@ export function App() {
           const newItems = list.filter((n: any) => !prevIds.has(n.id) && !n.is_read);
           if (newItems.length > 0) {
             // Immediately sync trips and bookings when an alert arrives
-            apiRequest('/api/trips').then((r) => { if (r.trips) setTrips(r.trips); }).catch(() => {});
-            apiRequest('/api/bookings').then((r) => { if (r.bookings) setBookings(r.bookings); }).catch(() => {});
+            void syncTripsAndSchedule();
             for (const item of newItems) {
               triggerSystemNotification(item.title, { body: item.body });
             }
@@ -1803,7 +1835,7 @@ export function App() {
           return list;
         });
       } catch {}
-    }, 10 * 1000);
+    }, 8 * 1000);
 
     // Real-time Fleet Map GPS positions poller (updates vehicle markers to follow real drivers live)
     let fleetInterval: number | null = null;
@@ -1818,18 +1850,51 @@ export function App() {
       }, 10 * 1000);
     }
 
-    // Ultra-low latency Real-Time Server-Sent Events (SSE) Stream (< 50ms push)
+    // Ultra-low latency Real-Time Server-Sent Events (SSE) Stream (< 50ms push) with auto-reconnect
     let sseSource: EventSource | null = null;
+    let sseReconnectTimer: number | null = null;
+    let disposed = false;
     const authToken = getStoredToken();
-    if (authToken && typeof EventSource !== 'undefined') {
+
+    const connectSse = () => {
+      if (disposed || !authToken || typeof EventSource === 'undefined') return;
+      if (sseSource) {
+        try {
+          sseSource.close();
+        } catch {}
+        sseSource = null;
+      }
       try {
         const streamUrl = `/api/live/stream?token=${encodeURIComponent(authToken)}`;
-        sseSource = new EventSource(streamUrl);
+        const es = new EventSource(streamUrl);
+        sseSource = es;
 
-        sseSource.onmessage = (event) => {
+        es.onopen = () => {
+          void syncTripsAndSchedule();
+        };
+
+        es.onerror = () => {
+          if (disposed) return;
+          if (es.readyState === EventSource.CLOSED && sseReconnectTimer === null) {
+            sseReconnectTimer = window.setTimeout(() => {
+              sseReconnectTimer = null;
+              connectSse();
+            }, 1500);
+          }
+        };
+
+        es.onmessage = (event) => {
           try {
             const payload = JSON.parse(event.data);
             if (!payload || !payload.type) return;
+
+            if (payload.type === 'SCHEDULE_UPDATED') {
+              const schedTrip = payload.data?.trip;
+              if (schedTrip && schedTrip.id) {
+                upsertCalendarTrip(schedTrip);
+              }
+              return;
+            }
 
             if (
               [
@@ -1848,7 +1913,7 @@ export function App() {
               const trip = payload.data?.trip;
               if (trip && trip.id) {
                 setTrips((prev: any[]) => {
-                  const idx = prev.findIndex((t: any) => t.id === trip.id);
+                  const idx = prev.findIndex((t: any) => Number(t.id) === Number(trip.id));
                   if (idx >= 0) {
                     const nextList = [...prev];
                     nextList[idx] = { ...nextList[idx], ...trip };
@@ -1856,6 +1921,7 @@ export function App() {
                   }
                   return [trip, ...prev];
                 });
+                upsertCalendarTrip(trip);
 
                 if (payload.type === 'TRIP_APPROVED') {
                   playNotificationChime();
@@ -1904,7 +1970,7 @@ export function App() {
                 type: 'warning',
                 text: rem.body || '⏰ Reminder: Your operational car is ready. Please tap "I Am Here / Confirm Boarding" or board within 20 minutes of departure.',
               });
-              apiRequest('/api/trips').then((r) => { if (r.trips) setTrips(r.trips); }).catch(() => {});
+              void syncTripsAndSchedule();
             } else if (payload.type === 'NOTIFICATION') {
               const notif = payload.data;
               if (notif && notif.id) {
@@ -1914,16 +1980,34 @@ export function App() {
                 });
                 playNotificationChime();
                 triggerSystemNotification(notif.title, { body: notif.body });
-                apiRequest('/api/trips').then((r) => { if (r.trips) setTrips(r.trips); }).catch(() => {});
-                apiRequest('/api/bookings').then((r) => { if (r.bookings) setBookings(r.bookings); }).catch(() => {});
+                void syncTripsAndSchedule();
               }
             }
           } catch {}
         };
       } catch {}
-    }
+    };
+
+    connectSse();
+
+    const handleResumeSync = () => {
+      if (document.visibilityState === 'visible') {
+        void syncTripsAndSchedule();
+        if (!sseSource || sseSource.readyState === EventSource.CLOSED) {
+          connectSse();
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleResumeSync);
+    window.addEventListener('focus', handleResumeSync);
+    window.addEventListener('online', handleResumeSync);
 
     return () => {
+      disposed = true;
+      document.removeEventListener('visibilitychange', handleResumeSync);
+      window.removeEventListener('focus', handleResumeSync);
+      window.removeEventListener('online', handleResumeSync);
+      if (sseReconnectTimer !== null) window.clearTimeout(sseReconnectTimer);
       if (sseSource) sseSource.close();
       window.clearInterval(locInterval);
       window.clearInterval(syncInterval);
@@ -6534,6 +6618,67 @@ export function App() {
             );
           })()}
 
+          {adminModule === 'DRIVER_SCHEDULE' && (() => {
+            const adminSchedDate = scheduleCalendarDate || todayLocalDateStr();
+            const schedById = new Map<number, any>();
+            for (const ct of calendarTrips) schedById.set(Number(ct.id), ct);
+            for (const tr of trips) {
+              const prev = schedById.get(Number(tr.id));
+              schedById.set(Number(tr.id), prev ? { ...prev, ...tr } : tr);
+            }
+            const shiftDate = (days: number) => {
+              const [yy, mm, dd] = adminSchedDate.split('-').map(Number);
+              const d = new Date(yy, (mm || 1) - 1, dd || 1);
+              d.setDate(d.getDate() + days);
+              setScheduleCalendarDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+            };
+            return (
+              <section className="gf-card-flat" id="admin-driver-schedule" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <div>
+                    <h2 className="type-section" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '15px', margin: 0 }}>
+                      <Calendar size={16} /> {t('Driver Schedule')}
+                    </h2>
+                    <p className="type-caption" style={{ margin: '2px 0 0' }}>
+                      {t('Tap a booking to see who booked the car and who is on board')}
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    <button type="button" className="gf-btn gf-btn-secondary gf-btn-sm" onClick={() => shiftDate(-1)} aria-label={t('Previous day')}>‹</button>
+                    <input
+                      id="admin-schedule-date-input"
+                      type="date"
+                      className="gf-input"
+                      style={{ minHeight: '34px', height: '34px', padding: '0 10px', fontSize: '13px', width: 'auto' }}
+                      value={adminSchedDate}
+                      onChange={(e) => setScheduleCalendarDate(e.target.value)}
+                    />
+                    <button type="button" className="gf-btn gf-btn-secondary gf-btn-sm" onClick={() => shiftDate(1)} aria-label={t('Next day')}>›</button>
+                    <button type="button" className="gf-btn gf-btn-secondary gf-btn-sm" onClick={() => setScheduleCalendarDate(todayLocalDateStr())}>
+                      {t('Today')}
+                    </button>
+                  </div>
+                </div>
+                <DriverScheduleCalendar
+                  vehicles={vehicles}
+                  trips={Array.from(schedById.values())}
+                  dateStr={adminSchedDate}
+                  currentUserId={user.id}
+                  showContacts
+                  onOpenTrip={(tr) => {
+                    const full = trips.find((x) => Number(x.id) === Number(tr.id)) || tr;
+                    setDispatchModalTrip(full);
+                    setDispatchVehicleId(full.vehicle_id);
+                    const defaultDrv = full.driver_profile_id || full.preferred_driver_id || drivers[0]?.id || '';
+                    setDispatchDriverId(defaultDrv ? String(defaultDrv) : '');
+                    setDispatchDecisionReason('');
+                  }}
+                  openTripLabel={t('Open Approval / Dispatch')}
+                />
+              </section>
+            );
+          })()}
+
           {adminModule === 'ADMIN_DISPATCH' && (
             <>
               {user.role === 'ADM' && (
@@ -11118,7 +11263,7 @@ export function App() {
     // SET SCHEDULE: GOOGLE CALENDAR-STYLE FLEET & DRIVER TIMETABLE (07:00 AM - 04:00 PM)
     // -------------------------------------------------------------------------
     if (bookingStep === 'SCHEDULE_VIEW') {
-      const selectedDateStr = scheduleCalendarDate || new Date().toISOString().slice(0, 10);
+      const selectedDateStr = scheduleCalendarDate || todayLocalDateStr();
       const isDriverRole = user.role === 'DRV' && !isPrivileged;
       const myDedicatedVehicle = vehicles.find(
         (v) =>
@@ -11127,7 +11272,14 @@ export function App() {
       );
 
       // Active calendar trips: exclude COMPLETED, CANCELLED, and REJECTED so finished/cancelled bookings disappear immediately
-      const rawCalendarSource = calendarTrips.length > 0 ? calendarTrips : trips;
+      // Merge the all-users schedule feed with live (SSE-updated) trips so status changes show instantly
+      const calendarById = new Map<number, any>();
+      for (const ct of calendarTrips) calendarById.set(Number(ct.id), ct);
+      for (const tr of trips) {
+        const prev = calendarById.get(Number(tr.id));
+        calendarById.set(Number(tr.id), prev ? { ...prev, ...tr } : tr);
+      }
+      const rawCalendarSource = Array.from(calendarById.values());
       const activeCalendarTrips = rawCalendarSource.filter((t) => {
         if (['COMPLETED', 'CANCELLED', 'REJECTED'].includes(String(t.status || '').toUpperCase())) return false;
         if (String(t.booking_status || '').toUpperCase() === 'CANCELLED') return false;
@@ -11160,13 +11312,6 @@ export function App() {
         return true;
       });
 
-      // 07:00 AM to 04:00 PM (07:00 - 16:00) Google Calendar hourly rows
-      const calendarHours = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-      const formatHourAmPm = (h: number) => {
-        if (h === 12) return '12:00 PM';
-        return h < 12 ? `0${h}:00 AM`.slice(-8) : `0${h - 12}:00 PM`.slice(-8);
-      };
-
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {feedbackBanner}
@@ -11198,7 +11343,7 @@ export function App() {
                   {t('Set Schedule (07:00 AM - 04:00 PM)')}
                 </h1>
                 <p className="type-caption" style={{ margin: '2px 0 0' }}>
-                  Google Calendar View • Group &amp; PIC, Passengers, Destination &amp; Duration
+                  {t('Tap a booking to see who booked the car and who is on board')}
                 </p>
               </div>
             </div>
@@ -11271,335 +11416,46 @@ export function App() {
             )}
           </div>
 
-          {/* Info Note: Completed/Cancelled auto-removal & Hitchhike/Negotiation policy */}
-          <div
-            style={{
-              padding: '10px 14px',
-              borderRadius: '10px',
-              background: '#ebf5ff',
-              border: '1px solid #93c5fd',
-              color: '#005bb5',
-              fontSize: '12px',
-              lineHeight: 1.45,
-            }}
-          >
-            📅 <strong>Google Calendar Schedule (07:00 AM – 04:00 PM):</strong> Completed or cancelled bookings are automatically removed. Booked time slots are locked, but you can tap <strong>Negotiate / Hitchhike</strong> on any booked slot to hitchhike (if heading to the same destination) or negotiate with the current holder (PIC) to release the slot.
-          </div>
-
-          {/* Per-Vehicle Google Calendar Day View (07:00 AM to 04:00 PM) */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {visibleVehicles.map((v) => {
-              const vehicleTrips = activeCalendarTrips
-                .filter((t) => Number(t.vehicle_id) === v.id)
-                .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
-
-              const isFreeNow =
-                v.status === 'Available' &&
-                vehicleTrips.every((t) => {
-                  const now = Date.now();
-                  const start = new Date(t.start_time).getTime();
-                  const end = new Date(t.end_time).getTime();
-                  return now < start || now > end;
-                });
-
-              return (
-                <div
-                  key={v.id}
-                  style={{
-                    padding: '14px',
-                    borderRadius: 'var(--radius-card)',
-                    border: '1.5px solid var(--color-border)',
-                    background: 'var(--color-surface)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '12px',
-                    boxShadow: 'var(--shadow-sm)',
-                  }}
-                >
-                  {/* Vehicle & Driver Header */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <span
-                          className="mono"
-                          style={{
-                            padding: '3px 8px',
-                            borderRadius: '6px',
-                            border: '1.5px solid var(--color-text-primary)',
-                            fontWeight: 800,
-                            fontSize: '12px',
-                          }}
-                        >
-                          {v.registration_plate}
-                        </span>
-                        <span className="type-body" style={{ fontWeight: 800, fontSize: '15px' }}>
-                          {v.make} {v.model}
-                        </span>
-                        <span className="type-caption">• {v.seats} Seats • {v.energy_type}</span>
-                      </div>
-                      <div className="type-caption" style={{ marginTop: '4px', color: 'var(--color-text-secondary)' }}>
-                        👤 {t('Driver')}: <strong>{v.default_driver_name || 'Assigned Company Driver'}</strong>
-                        {v.default_driver_phone ? ` (${v.default_driver_phone})` : ''}
-                      </div>
-                    </div>
-                    <StatusBadge
-                      label={v.status !== 'Available' ? v.status : vehicleTrips.length > 0 ? `${vehicleTrips.length} Booked Slot(s)` : isFreeNow ? 'Available All Day' : 'Booked'}
-                      tone={v.status !== 'Available' ? 'neutral' : vehicleTrips.length === 0 ? 'blue' : 'amber'}
-                    />
-                  </div>
-
-                  {/* Visual 07:00 AM - 04:00 PM Horizontal Timeline Bar */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px', fontWeight: 700 }} className="type-caption mono">
-                      <span>07:00 AM</span>
-                      <span>10:00 AM</span>
-                      <span>01:00 PM</span>
-                      <span>04:00 PM</span>
-                    </div>
-                    <div className="gf-timeline-track" style={{ position: 'relative', height: '14px', borderRadius: '7px' }}>
-                      {vehicleTrips.map((t) => {
-                        const startD = new Date(t.start_time);
-                        const endD = new Date(t.end_time);
-                        const startH = startD.getHours() + startD.getMinutes() / 60;
-                        const endH = Math.max(startH + 0.5, endD.getHours() + endD.getMinutes() / 60);
-                        // 07:00 to 16:00 is a 9-hour window
-                        const clampedStart = Math.max(7, Math.min(16, startH));
-                        const clampedEnd = Math.max(clampedStart + 0.4, Math.min(16, endH));
-                        const leftPct = Math.max(0, Math.min(100, ((clampedStart - 7) / 9) * 100));
-                        const widthPct = Math.max(6, Math.min(100 - leftPct, ((clampedEnd - clampedStart) / 9) * 100));
-
-                        return (
-                          <div
-                            key={t.id}
-                            className="gf-timeline-block"
-                            style={{ left: `${leftPct}%`, width: `${widthPct}%`, cursor: 'pointer' }}
-                            onClick={() => {
-                              if (t.requester_id !== user.id && !isDriverRole) {
-                                setNegotiationModalTrip(t);
-                                setNegotiationPassengerNickname(user.nickname || '');
-                                setNegotiationActionType('HITCHHIKE');
-                              }
-                            }}
-                            title={`${startD.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${endD.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}: ${t.department_name} • PIC: ${t.requester_name} • Pax: ${formatPassengersDisplay(t.passengers_json, t.passenger_nickname)} → ${t.destination}`}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Google Calendar Hourly Grid (07:00 AM to 04:00 PM) */}
-                  <div
-                    style={{
-                      border: '1px solid var(--color-border)',
-                      borderRadius: '12px',
-                      overflow: 'hidden',
-                      background: 'var(--color-bg-subtle)',
-                    }}
-                  >
-                    {calendarHours.map((hour) => {
-                      // Find any booking overlapping this hour [hour:00, hour+1:00)
-                      const overlappingTrips = vehicleTrips.filter((t) => {
-                        const s = new Date(t.start_time);
-                        const e = new Date(t.end_time);
-                        const sH = s.getHours() + s.getMinutes() / 60;
-                        const eH = e.getHours() + e.getMinutes() / 60;
-                        return sH < hour + 1 && eH > hour;
-                      });
-
-                      const isHourBooked = overlappingTrips.length > 0;
-
-                      return (
-                        <div
-                          key={hour}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'stretch',
-                            borderBottom: hour < 16 ? '1px solid var(--color-divider)' : 'none',
-                            minHeight: isHourBooked ? '68px' : '40px',
-                            background: isHourBooked ? '#ebf5ff' : 'var(--color-surface)',
-                          }}
-                        >
-                          {/* Left Hour Column (07:00 AM - 04:00 PM) */}
-                          <div
-                            className="mono"
-                            style={{
-                              width: '84px',
-                              flexShrink: 0,
-                              padding: '8px 10px',
-                              fontSize: '11.5px',
-                              fontWeight: 800,
-                              color: isHourBooked ? '#005bb5' : 'var(--color-text-secondary)',
-                              borderRight: '1px solid var(--color-divider)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              background: isHourBooked ? '#dbeafe' : 'var(--color-bg-subtle)',
-                            }}
-                          >
-                            {formatHourAmPm(hour)}
-                          </div>
-
-                          {/* Right Slot Content */}
-                          <div style={{ flex: 1, padding: '8px 12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '8px' }}>
-                            {!isHourBooked ? (
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
-                                  Available slot ({formatHourAmPm(hour)})
-                                </span>
-                                {!isDriverRole && v.status === 'Available' && (
-                                  <button
-                                    type="button"
-                                    className="gf-btn gf-btn-ghost gf-btn-sm pressable"
-                                    style={{ minHeight: '26px', height: '26px', padding: '0 10px', fontSize: '11.5px', color: '#0072de', fontWeight: 800 }}
-                                    onClick={() =>
-                                      requireLocationBeforeCarUse(() => {
-                                        const [yr, mo, dy] = selectedDateStr.split('-').map(Number);
-                                        const slotStart = new Date();
-                                        if (yr && mo && dy) slotStart.setFullYear(yr, mo - 1, dy);
-                                        slotStart.setHours(hour, 0, 0, 0);
-                                        if (slotStart.getTime() < Date.now()) {
-                                          slotStart.setTime(roundUpTo5MinMs(Date.now() + 30 * 60000));
-                                        }
-                                        const slotEnd = new Date(slotStart.getTime() + 2 * 3600000);
-                                        setBookVehicleId(v.id);
-                                        setBookStart(toLocalDateTimeInput(slotStart));
-                                        setBookEnd(toLocalDateTimeInput(slotEnd));
-                                        setBookDurationHours(2);
-                                        setScheduleMode('SCHEDULE');
-                                        setBookingStep('ROUTE');
-                                        setSheetSnap('full');
-                                      })
-                                    }
-                                  >
-                                    + Book {formatHourAmPm(hour)}
-                                  </button>
-                                )}
-                              </div>
-                            ) : (
-                              overlappingTrips.map((t) => {
-                                const sTime = new Date(t.start_time);
-                                const eTime = new Date(t.end_time);
-                                const durHrs = Math.max(0.5, Math.round(((eTime.getTime() - sTime.getTime()) / 3600000) * 10) / 10);
-                                const paxDisplay = formatPassengersDisplay(t.passengers_json, t.passenger_nickname);
-                                const modeLabel = formatReservationModeLabel(t.reservation_type, t.return_pickup_time) || 'Standard Trip';
-                                const isMyBooking = Number(t.requester_id) === Number(user.id);
-
-                                return (
-                                  <div
-                                    key={`${t.id}-${hour}`}
-                                    style={{
-                                      padding: '8px 10px',
-                                      borderRadius: '8px',
-                                      background: '#ffffff',
-                                      borderLeft: '4px solid #0072de',
-                                      boxShadow: '0 1px 4px rgba(0, 114, 222, 0.12)',
-                                      display: 'flex',
-                                      flexDirection: 'column',
-                                      gap: '4px',
-                                    }}
-                                  >
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                                        <span className="mono" style={{ fontSize: '12px', fontWeight: 800, color: '#005bb5' }}>
-                                          🕒 {sTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {eTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({durHrs}h)
-                                        </span>
-                                        <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '1px 7px', borderRadius: '4px', background: '#ebf5ff', color: '#0072de', border: '1px solid #93c5fd' }}>
-                                          {modeLabel}
-                                        </span>
-                                      </div>
-                                      <StatusBadge label="UNAVAILABLE • BOOKED" tone="amber" />
-                                    </div>
-
-                                    <div style={{ fontSize: '12.5px', color: 'var(--color-text-primary)', lineHeight: 1.35 }}>
-                                      <strong>🏢 Group &amp; PIC:</strong>{' '}
-                                      <span className="notranslate" translate="no" style={{ fontWeight: 800 }}>{t.department_name || 'Company Group'}</span>{' '}
-                                      • PIC: <strong>{t.requester_name || 'Employee'}</strong>
-                                      {t.requester_contact ? ` (${t.requester_contact})` : ''}
-                                    </div>
-
-                                    <div style={{ fontSize: '12px', color: 'var(--color-text-primary)', lineHeight: 1.35 }}>
-                                      <strong>👥 Passenger(s):</strong> {paxDisplay}
-                                    </div>
-
-                                    <div style={{ fontSize: '12px', color: 'var(--color-text-primary)', lineHeight: 1.35 }}>
-                                      <strong>🎯 Destination:</strong> {t.origin} → <strong>{t.destination}</strong>
-                                      {t.purpose ? ` (${t.purpose})` : ''}
-                                    </div>
-
-                                    {/* Actions: If another user holds this booking, allow Negotiate to Cancel or Hitchhike; if current user holds it, allow Cancel */}
-                                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
-                                      {isMyBooking ? (
-                                        <button
-                                          type="button"
-                                          className="gf-btn gf-btn-outline-danger gf-btn-sm pressable"
-                                          style={{ minHeight: '28px', padding: '0 10px', fontSize: '11.5px' }}
-                                          onClick={() => handleCancelBookingRequest(t)}
-                                        >
-                                          {t('Cancel Booking')}
-                                        </button>
-                                      ) : !isDriverRole ? (
-                                        <>
-                                          <button
-                                            type="button"
-                                            className="gf-btn gf-btn-primary gf-btn-sm pressable"
-                                            style={{ minHeight: '28px', padding: '0 10px', fontSize: '11.5px' }}
-                                            onClick={() => {
-                                              setNegotiationModalTrip(t);
-                                              setNegotiationActionType('HITCHHIKE');
-                                              setNegotiationPassengerNickname(user.nickname || '');
-                                              setNegotiationNote(`Heading to ${t.destination} too, may I hitchhike?`);
-                                            }}
-                                          >
-                                            🚗 {t('Hitchhike (Same Destination)')}
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="gf-btn gf-btn-secondary gf-btn-sm pressable"
-                                            style={{ minHeight: '28px', padding: '0 10px', fontSize: '11.5px' }}
-                                            onClick={() => {
-                                              setNegotiationModalTrip(t);
-                                              setNegotiationActionType('REQUEST_CANCEL');
-                                              setNegotiationPassengerNickname(user.nickname || '');
-                                              setNegotiationNote('Need this vehicle slot urgently, can we coordinate?');
-                                            }}
-                                          >
-                                            🔄 {t('Negotiate to Cancel')}
-                                          </button>
-                                        </>
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                );
-                              })
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Quick Action: Select & Book This Vehicle */}
-                  {!isDriverRole && (
-                    <button
-                      type="button"
-                      className="gf-btn gf-btn-secondary gf-btn-full"
-                      style={{ minHeight: '38px', fontSize: '13px', fontWeight: 700 }}
-                      onClick={() =>
-                        requireLocationBeforeCarUse(() => {
-                          setBookVehicleId(v.id);
-                          setBookReservationType('ONE_WAY');
-                          setBookingStep('ROUTE');
-                          setSheetSnap('full');
-                        })
+          {/* Google Calendar–style day view: one column per car & driver, bookings blocked from start → end with the booker's name */}
+          <DriverScheduleCalendar
+            vehicles={visibleVehicles}
+            trips={activeCalendarTrips}
+            dateStr={selectedDateStr}
+            currentUserId={user.id}
+            showContacts={isPrivileged}
+            onBookSlot={
+              isDriverRole
+                ? undefined
+                : (vehicleId, hour) =>
+                    requireLocationBeforeCarUse(() => {
+                      const [yr, mo, dy] = selectedDateStr.split('-').map(Number);
+                      const slotStart = new Date();
+                      if (yr && mo && dy) slotStart.setFullYear(yr, mo - 1, dy);
+                      slotStart.setHours(hour, 0, 0, 0);
+                      if (slotStart.getTime() < Date.now()) {
+                        slotStart.setTime(roundUpTo5MinMs(Date.now() + 30 * 60000));
                       }
-                    >
-                      {t('Select & Book This Vehicle')}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                      const slotEnd = new Date(slotStart.getTime() + 2 * 3600000);
+                      setBookVehicleId(vehicleId);
+                      setBookStart(toLocalDateTimeInput(slotStart));
+                      setBookEnd(toLocalDateTimeInput(slotEnd));
+                      setBookDurationHours(2);
+                      setScheduleMode('SCHEDULE');
+                      setBookingStep('ROUTE');
+                      setSheetSnap('full');
+                    })
+            }
+            onNegotiate={
+              isDriverRole
+                ? undefined
+                : (tr) => {
+                    setNegotiationModalTrip(tr);
+                    setNegotiationActionType('HITCHHIKE');
+                    setNegotiationPassengerNickname(user.nickname || '');
+                    setNegotiationNote(`Heading to ${tr.destination} too, may I hitchhike?`);
+                  }
+            }
+          />
         </div>
       );
     }

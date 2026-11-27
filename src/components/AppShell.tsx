@@ -13,6 +13,7 @@ import {
   BarChart3,
   Map,
   ScrollText,
+  CalendarDays,
 } from 'lucide-react';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { DisplayModeToggle } from './DisplayModeToggle';
@@ -21,7 +22,7 @@ import { useAppLanguage } from '../utils/i18n';
 
 
 export type NavSection = 'HOME' | 'ACTIVITY' | 'INBOX' | 'PROFILE' | 'DRIVER' | 'ADMIN';
-export type AdminModule = 'FLEET_MAP' | 'ADMIN_DISPATCH' | 'FLEET_OPS' | 'ANALYTICS_REPORT' | 'AUDIT';
+export type AdminModule = 'FLEET_MAP' | 'ADMIN_DISPATCH' | 'DRIVER_SCHEDULE' | 'FLEET_OPS' | 'ANALYTICS_REPORT' | 'AUDIT';
 
 interface NavItem {
   id: NavSection;
@@ -489,6 +490,21 @@ export const AdminShell: React.FC<AdminShellProps> = ({
         )}
       </button>
 
+      {/* 2b. Driver Schedule (Google Calendar day view) */}
+      <button
+        type="button"
+        id="admin-nav-driver-schedule"
+        className={`gf-btn pressable ${activeModule === 'DRIVER_SCHEDULE' ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
+        style={{ justifyContent: 'flex-start', gap: '10px', fontSize: '14px', padding: '12px 14px' }}
+        onClick={() => {
+          onSelectModule('DRIVER_SCHEDULE');
+          setMobileMenuOpen(false);
+        }}
+      >
+        <CalendarDays size={18} />
+        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700 }}>{t('Driver Schedule')}</span>
+      </button>
+
       {/* 3. Fleet, Drivers & Energy */}
       <button
         type="button"
@@ -659,6 +675,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
         <nav className="gf-admin-bottom-nav" aria-label="Admin mobile tabs">
           {[
             { id: 'ADMIN_DISPATCH' as const, label: 'Dispatch', icon: <FileCheck size={18} />, badge: pendingCount },
+            { id: 'DRIVER_SCHEDULE' as const, label: 'Schedule', icon: <CalendarDays size={18} /> },
             { id: 'FLEET_MAP' as const, label: 'Map', icon: <Map size={18} /> },
             { id: 'FLEET_OPS' as const, label: 'Fleet', icon: <Car size={18} /> },
             { id: 'ANALYTICS_REPORT' as const, label: 'Reports', icon: <BarChart3 size={18} /> },
