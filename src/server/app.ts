@@ -312,8 +312,8 @@ export function createApp() {
     res.json({
       status: 'ok',
       service: 'GalaxyFleet Corporate Fleet Management',
-      api_build: '2026-11-28-live-sync-v4',
-      features: ['negotiation_hydration', 'notification_respond_fallback', 'different_location_transfer', 'multi_worker_sqljs_sync', 'gojek_topdown_cars'],
+      api_build: '2026-11-28-live-sync-v5',
+      features: ['negotiation_hydration', 'notification_respond_fallback', 'negotiate_route_aliases', 'different_location_transfer', 'multi_worker_sqljs_sync', 'gojek_topdown_cars', 'i18n_notifications'],
       uptime_sec: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
     });
@@ -336,7 +336,7 @@ export function createApp() {
       const mem = process.memoryUsage();
       res.json({
         status: dbCheck?.alive === 1 ? 'ready' : 'degraded',
-        api_build: '2026-11-28-live-sync-v4',
+        api_build: '2026-11-28-live-sync-v5',
         database: 'connected',
         sqlite_wal: true,
         memory: {
@@ -2386,7 +2386,7 @@ export function createApp() {
       SELECT tr.*,
              u.nickname as requester_name,
              u.group_username as requester_username,
-             d.name as department_name,
+             COALESCE(d.name, 'Group') as department_name,
              v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.battery_percent, v.seats,
              b.id as booking_id, b.status as booking_status,
              a.id as assignment_id, a.driver_profile_id, a.acknowledged_at,
@@ -2395,7 +2395,7 @@ export function createApp() {
              dp.contact_number as assigned_driver_phone
       FROM trip_requests tr
       JOIN users u ON u.id = tr.requester_id
-      JOIN departments d ON d.id = tr.department_id
+      LEFT JOIN departments d ON d.id = tr.department_id
       JOIN vehicles v ON v.id = tr.vehicle_id
       LEFT JOIN bookings b ON b.trip_request_id = tr.id AND b.status != 'CANCELLED'
       LEFT JOIN assignments a ON a.trip_request_id = tr.id AND a.is_current = 1
@@ -3610,14 +3610,14 @@ export function createApp() {
              u.group_username as requester_username,
              u.contact_number as requester_contact,
              COALESCE(dp.contact_number, def_dp.contact_number) as assigned_driver_phone,
-             d.name as department_name,
+             COALESCE(d.name, 'Group') as department_name,
              v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.seats,
              b.id as booking_id, b.status as booking_status,
              a.id as assignment_id, a.driver_profile_id,
              COALESCE(dp.full_name, def_dp.full_name, 'Pool Driver') as assigned_driver_name
       FROM trip_requests tr
       JOIN users u ON u.id = tr.requester_id
-      JOIN departments d ON d.id = tr.department_id
+      LEFT JOIN departments d ON d.id = tr.department_id
       JOIN vehicles v ON v.id = tr.vehicle_id
       LEFT JOIN bookings b ON b.trip_request_id = tr.id AND b.status NOT IN ('CANCELLED', 'COMPLETED')
       LEFT JOIN assignments a ON a.trip_request_id = tr.id AND a.is_current = 1
@@ -3783,10 +3783,10 @@ export function createApp() {
   });
 
   // Item #5: Negotiate with current booking holder to Hitchhike (Join Ride if same destination) or Request Cancellation
-  app.post('/api/trips/:id/negotiate', requireAuth, (req: Request, res: Response) => {
+  const handleNegotiateTripRequest = (req: Request, res: Response, rawTripId?: number) => {
     const db = getDb();
     const user = req.user!;
-    const tripId = Number(req.params.id);
+    let tripId = Number(rawTripId ?? req.params.id ?? req.body?.trip_id ?? 0);
     const { action_type, passenger_nickname, message, origin, destination, purpose } = req.body ?? {};
     const actionNorm = String(action_type || 'HITCHHIKE').toUpperCase();
 
@@ -3795,12 +3795,25 @@ export function createApp() {
       return;
     }
 
+    // Resolve negative synthetic standalone booking IDs (-100000 - booking.id) or explicit booking_id
+    if (tripId <= -100000 || (!tripId && req.body?.booking_id)) {
+      const bookingLookupId = tripId <= -100000 ? -100000 - tripId : Number(req.body?.booking_id || 0);
+      if (bookingLookupId > 0) {
+        const bk = db.prepare('SELECT id, trip_request_id FROM bookings WHERE id = ?').get(bookingLookupId) as
+          | { id: number; trip_request_id: number | null }
+          | undefined;
+        if (bk?.trip_request_id) {
+          tripId = Number(bk.trip_request_id);
+        }
+      }
+    }
+
     const trip = db
       .prepare(
-        `SELECT tr.*, u.nickname as requester_name, d.name as department_name, v.registration_plate, v.make, v.model, v.seats
+        `SELECT tr.*, u.nickname as requester_name, COALESCE(d.name, 'Group') as department_name, v.registration_plate, v.make, v.model, v.seats
          FROM trip_requests tr
          JOIN users u ON u.id = tr.requester_id
-         JOIN departments d ON d.id = tr.department_id
+         LEFT JOIN departments d ON d.id = tr.department_id
          JOIN vehicles v ON v.id = tr.vehicle_id
          WHERE tr.id = ?`
       )
@@ -4091,6 +4104,23 @@ export function createApp() {
       passengers: cancelPaxList,
       message: `Cancellation & transfer request sent to ${trip.requester_name} (${trip.department_name}).`,
     });
+  };
+
+  app.post('/api/trips/:id/negotiate', requireAuth, (req: Request, res: Response) => {
+    handleNegotiateTripRequest(req, res, Number(req.params.id));
+  });
+
+  app.post(['/api/trips/negotiate', '/api/negotiations'], requireAuth, (req: Request, res: Response) => {
+    handleNegotiateTripRequest(req, res, Number(req.body?.trip_id || req.body?.tripId || 0));
+  });
+
+  app.post('/api/bookings/:id/negotiate', requireAuth, (req: Request, res: Response) => {
+    const db = getDb();
+    const bookingId = Number(req.params.id);
+    const bk = db.prepare('SELECT id, trip_request_id FROM bookings WHERE id = ?').get(bookingId) as
+      | { id: number; trip_request_id: number | null }
+      | undefined;
+    handleNegotiateTripRequest(req, res, bk?.trip_request_id ? Number(bk.trip_request_id) : -100000 - bookingId);
   });
 
   const isLegacyCancelNotificationRow = (n: any) => {
@@ -4970,11 +5000,13 @@ export function createApp() {
     const canViewAllSchedules = ['ADM', 'FM', 'HWS'].includes(user.role);
 
     const baseQuery = `
-      SELECT b.*, v.registration_plate, v.make, v.model, v.car_type, v.energy_type,
-             u.nickname as booked_by_name, d.name as department_name,
-             tr.destination, tr.origin, tr.passenger_nickname, tr.passengers_json, tr.passenger_count,
+      SELECT b.*, v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.seats,
+             u.nickname as booked_by_name, u.group_username as requester_username, u.contact_number as requester_contact,
+             COALESCE(d.name, 'Group') as department_name,
+             tr.status as trip_status, tr.destination, tr.origin, tr.passenger_nickname, tr.passengers_json, tr.passenger_count,
              tr.reservation_type, tr.return_pickup_time,
-             a.driver_profile_id, dp.full_name as driver_name
+             a.driver_profile_id, COALESCE(dp.full_name, def_dp.full_name, 'Pool Driver') as driver_name,
+             COALESCE(dp.contact_number, def_dp.contact_number) as assigned_driver_phone
       FROM bookings b
       JOIN vehicles v ON v.id = b.vehicle_id
       JOIN users u ON u.id = b.booked_by
@@ -4982,6 +5014,7 @@ export function createApp() {
       LEFT JOIN trip_requests tr ON tr.id = b.trip_request_id
       LEFT JOIN assignments a ON (a.booking_id = b.id OR (a.trip_request_id = b.trip_request_id AND b.trip_request_id IS NOT NULL)) AND a.is_current = 1
       LEFT JOIN driver_profiles dp ON dp.id = a.driver_profile_id
+      LEFT JOIN driver_profiles def_dp ON def_dp.id = v.default_driver_id
     `;
 
     let bookings: unknown[];

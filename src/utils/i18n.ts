@@ -992,6 +992,57 @@ export const TRANSLATION_ITEMS: TranslationItem[] = [
   { en: 'Approve & Transfer Slot', id: 'Setujui & Alihkan Slot', ko: '승인 및 슬롯 양도' },
   { en: 'Timeslot', id: 'Jadwal Waktu', ko: '예약 시간' },
   { en: 'New Passenger(s)', id: 'Penumpang Baru', ko: '새 탑승자' },
+  { en: 'Current Holder (PIC)', id: 'Pemesan Saat Ini (PIC)', ko: '현재 예약자 (PIC)' },
+  { en: 'Standard Trip', id: 'Perjalanan Standar', ko: '일반 운행' },
+  { en: 'Booked Time & Duration', id: 'Waktu & Durasi Booking', ko: '예약 시간 및 기간' },
+  { en: 'Choose Action', id: 'Pilih Aksi', ko: '요청 유형 선택' },
+  { en: 'Hitchhike Passenger(s)', id: 'Penumpang Nebeng', ko: '합승 탑승자' },
+  { en: 'Your Passenger(s) After Switch', id: 'Penumpang Anda Setelah Tukar Slot', ko: '슬롯 변경 후 탑승자' },
+  { en: 'Seats', id: 'Kursi', ko: '좌석' },
+  { en: 'left', id: 'tersisa', ko: '석 남음' },
+  { en: 'This vehicle is full. No remaining seats available for hitchhike.', id: 'Mobil ini sudah penuh. Tidak ada sisa kursi untuk nebeng.', ko: '차량 좌석이 가득 찼습니다. 합승 가능한 남은 좌석이 없습니다.' },
+  { en: 'Your name (Passenger 1)', id: 'Nama Anda (Penumpang 1)', ko: '본인 이름 (탑승자 1)' },
+  { en: 'Additional passenger', id: 'Penumpang tambahan', ko: '추가 탑승자' },
+  { en: 'Remove passenger', id: 'Hapus penumpang', ko: '탑승자 삭제' },
+  { en: 'Add Another Person', id: 'Tambah Orang Lain', ko: '동승자 추가' },
+  { en: 'Car seat limit reached', id: 'Batas kursi mobil tercapai', ko: '차량 좌석 한도에 도달했습니다' },
+  { en: 'Message to', id: 'Pesan untuk', ko: '메시지 대상' },
+  { en: 'Optional', id: 'Opsional', ko: '선택' },
+  { en: 'Booking Holder', id: 'Pemesan Mobil', ko: '예약자' },
+  { en: 'Sending...', id: 'Mengirim...', ko: '전송 중...' },
+  { en: 'Send Hitchhike Request', id: 'Kirim Permintaan Nebeng', ko: '합승 요청 보내기' },
+  { en: 'Send Cancel Negotiation', id: 'Kirim Permintaan Tukar/Batal Slot', ko: '취소/양도 요청 보내기' },
+  { en: 'Need this car urgently for a client visit, can we coordinate?', id: 'Butuh mobil ini mendesak untuk kunjungan klien, boleh koordinasi tukar slot?', ko: '고객 방문으로 차량이 급히 필요합니다. 슬롯 조율이 가능할까요?' },
+  { en: 'e.g. Client Visit / Site Inspection', id: 'cth. Kunjungan Klien / Inspeksi Lokasi', ko: '예: 고객사 방문 / 현장 점검' },
+  { en: 'When the current holder accepts in their Inbox, this car timeslot transfers to you automatically and will require fresh approval from the Fleet Manager & Head of WS.', id: 'Saat pemesan saat ini menyetujui di Kotak Masuk, jadwal mobil ini otomatis dialihkan ke Anda dan memerlukan persetujuan ulang dari Fleet Manager & Head of WS.', ko: '현재 예약자가 받은함에서 승인하면 차량 시간 슬롯이 자동으로 양도되며 Fleet Manager 및 Head of WS의 신규 승인이 필요합니다.' },
+  { en: 'Approving cancels your booking and automatically transfers this car timeslot to the requester. Fresh approval from Fleet Manager & Head of WS will be required.', id: 'Menyetujui akan membatalkan booking Anda dan otomatis mengalihkan jadwal mobil ini ke pemohon. Persetujuan ulang dari Fleet Manager & Head of WS akan diperlukan.', ko: '승인하면 기존 예약이 취소되고 차량 시간 슬롯이 요청자에게 자동 양도됩니다. Fleet Manager 및 Head of WS의 신규 승인이 필요합니다.' },
+  { en: 'Requester', id: 'Pemohon', ko: '요청자' },
+  { en: 'Car', id: 'Mobil', ko: '차량' },
+  { en: 'Purpose', id: 'Keperluan', ko: '목적' },
+  { en: 'Message', id: 'Pesan', ko: '메시지' },
+  { en: 'Accept Hitchhike', id: 'Setujui Nebeng', ko: '합승 승인' },
+  { en: 'Reject', id: 'Tolak', ko: '거절' },
+  { en: 'Approved', id: 'Disetujui', ko: '승인됨' },
+  { en: 'Accepted', id: 'Diterima', ko: '수락됨' },
+  { en: 'Rejected', id: 'Ditolak', ko: '거절됨' },
+  { en: 'added to passengers', id: 'ditambahkan ke daftar penumpang', ko: '탑승자 목록에 추가됨' },
+  { en: 'Cancellation accepted! Booking cancelled and transferred to requester', id: 'Pembatalan disetujui! Booking dibatalkan dan slot dialihkan ke pemohon', ko: '취소 및 양도가 승인되었습니다! 기존 예약이 취소되고 요청자에게 양도되었습니다' },
+  { en: 'Hitchhike accepted! Passenger added to your booking.', id: 'Permintaan nebeng diterima! Penumpang ditambahkan ke booking Anda.', ko: '합승 요청이 수락되었습니다! 탑승자가 예약에 추가되었습니다.' },
+  { en: 'Hitchhike request rejected.', id: 'Permintaan nebeng ditolak.', ko: '합승 요청이 거절되었습니다.' },
+  { en: 'Cancellation request rejected. Your booking remains active.', id: 'Permintaan pembatalan/tukar slot ditolak. Booking Anda tetap aktif.', ko: '취소/양도 요청이 거절되었습니다. 기존 예약이 유지됩니다.' },
+  { en: 'Tap to read full message', id: 'Ketuk untuk baca pesan lengkap', ko: '눌러서 전체 메시지 보기' },
+  { en: 'Notification Details', id: 'Detail Notifikasi', ko: '알림 상세' },
+  { en: 'In Use Now', id: 'Sedang Digunakan', ko: '현재 운행 중' },
+  { en: 'Available All Day', id: 'Tersedia Sepanjang Hari', ko: '종일 이용 가능' },
+  { en: 'booked', id: 'dipesan', ko: '건 예약됨' },
+  { en: 'Other booked dates', id: 'Tanggal lain yang dipesan', ko: '다른 예약 날짜' },
+  { en: 'Please enter your passenger nickname to hitchhike.', id: 'Silakan masukkan nama panggilan penumpang untuk nebeng.', ko: '합승할 탑승자 이름을 입력해 주세요.' },
+  { en: 'Please enter both your Pickup Location and Destination for the transferred car slot.', id: 'Silakan isi Lokasi Jemput dan Tujuan untuk slot mobil yang dialihkan.', ko: '양도받을 차량의 픽업 위치와 목적지를 모두 입력해 주세요.' },
+  { en: 'Clear pickup', id: 'Hapus lokasi jemput', ko: '픽업 위치 지우기' },
+  { en: 'Clear destination', id: 'Hapus tujuan', ko: '목적지 지우기' },
+  { en: 'Locating...', id: 'Mencari lokasi...', ko: '위치 확인 중...' },
+  { en: 'Searching locations...', id: 'Mencari alamat...', ko: '위치 검색 중...' },
+  { en: 'Server backend is still running an older process. Please click Stop then Start (or Restart) in cPanel Setup Node.js App, then try again.', id: 'Backend server masih menjalankan proses lama. Silakan klik Stop lalu Start (atau Restart) di cPanel Setup Node.js App, lalu coba lagi.', ko: '서버 백엔드가 이전 프로세스로 실행 중입니다. cPanel Setup Node.js App에서 Stop 후 Start(또는 Restart)를 누른 뒤 다시 시도해 주세요.' },
 ];
 
 /**
@@ -1604,5 +1655,123 @@ export function useAppLanguage(): {
     setLang,
     t: (text: string) => t(text, lang),
   };
+}
+
+/**
+ * Translates dynamic server-generated notification titles, bodies, and transfer/hitchhike
+ * status messages into Indonesian (id) or Korean (ko) while preserving names, plates, routes, and quotes.
+ */
+export function translateNotificationText(rawText: string, lang: SupportedLang): string {
+  const input = String(rawText || '');
+  if (!input || lang === 'en') return input;
+
+  // Strip any legacy leading 🔄 symbol cleanly when rendering
+  let out = input.replace(/^[\u{1F300}-\u{1FAFF}\u2600-\u26FF\s]+/u, '').trim();
+
+  if (lang === 'id') {
+    const replacements: Array<[RegExp, string]> = [
+      [/Schedule Negotiation \(Cancel & Transfer\):/gi, 'Negosiasi Jadwal (Batal & Alihkan Slot):'],
+      [/Schedule Negotiation \(Cancel Request\):/gi, 'Negosiasi Jadwal (Permintaan Batal/Alihkan):'],
+      [/Schedule Negotiation \(Hitchhike Request\):/gi, 'Negosiasi Jadwal (Permintaan Nebeng):'],
+      [/Hitchhike Request Accepted!?/gi, 'Permintaan Nebeng Diterima!'],
+      [/Hitchhike Ride Accepted!?/gi, 'Permintaan Nebeng Diterima!'],
+      [/Hitchhike Request Declined/gi, 'Permintaan Nebeng Ditolak'],
+      [/Slot Transferred\s*[—–-]\s*Awaiting Approval/gi, 'Slot Dialihkan — Menunggu Persetujuan'],
+      [/Cancellation Request Declined/gi, 'Permintaan Pembatalan/Pengalihan Ditolak'],
+      [/Transferred Booking Requires Approval/gi, 'Booking Pengalihan Memerlukan Persetujuan'],
+      [/Booking Approved & Dispatched!?/gi, 'Booking Disetujui & Pengemudi Ditugaskan!'],
+      [/Booking Cancelled by Passenger/gi, 'Booking Dibatalkan oleh Penumpang'],
+      [/Approved\/Pending Booking Cancelled/gi, 'Booking Disetujui/Menunggu Dibatalkan'],
+      [/New Booking Request Pending Approval/gi, 'Permintaan Booking Baru Menunggu Persetujuan'],
+      [/Fleet PWA Push Notification Active/gi, 'Notifikasi Push Fleet PWA Aktif'],
+      [/is requesting to transfer your booking slot on/gi, 'meminta pengalihan slot booking Anda pada'],
+      [/is requesting to negotiate your booking on/gi, 'meminta negosiasi/pengalihan booking Anda pada'],
+      [/is requesting to hitchhike on your booking/gi, 'meminta nebeng pada booking Anda'],
+      [/wants to hitchhike on your booking/gi, 'ingin nebeng pada booking Anda'],
+      [/New Route \(Different Location\):/gi, 'Rute Baru (Lokasi Berbeda):'],
+      [/New Route \(Same Location\):/gi, 'Rute Baru (Lokasi Sama):'],
+      [/New Route:/gi, 'Rute Baru:'],
+      [/New Passenger\(s\)/gi, 'Penumpang Baru'],
+      [/Passenger\(s\) to add/gi, 'Penumpang yang ditambahkan'],
+      [/Reason\s*\/\s*Message:/gi, 'Alasan / Pesan:'],
+      [/\bPurpose:/gi, 'Keperluan:'],
+      [/\bMessage:/gi, 'Pesan:'],
+      [/\bRoute:/gi, 'Rute:'],
+      [/\bPassengers:/gi, 'Penumpang:'],
+      [/\bStatus:\s*Pending fresh approval from Fleet Manager \(FM\) & Head of WS \(HWS\)\./gi, 'Status: Menunggu persetujuan ulang dari Fleet Manager (FM) & Head of WS (HWS).'],
+      [/Accept to cancel your booking and transfer this timeslot to them \(their booking will require fresh Fleet Manager & Head of WS approval\), or reject to keep your booking\./gi, 'Setujui untuk membatalkan booking Anda dan mengalihkan jadwal ini ke mereka (booking mereka memerlukan persetujuan ulang dari Fleet Manager & Head of WS), atau tolak untuk mempertahankan booking Anda.'],
+      [/accepted your cancellation & transfer request!/gi, 'menyetujui permintaan pembatalan & pengalihan slot Anda!'],
+      [/slot has been transferred to you as Booking #/gi, 'telah dialihkan kepada Anda sebagai Booking #'],
+      [/accepted your hitchhike request on/gi, 'menerima permintaan nebeng Anda pada'],
+      [/Added to passenger list:/gi, 'Ditambahkan ke daftar penumpang:'],
+      [/declined your hitchhike request on/gi, 'menolak permintaan nebeng Anda pada'],
+      [/declined your cancellation\/transfer request for/gi, 'menolak permintaan pembatalan/pengalihan Anda untuk'],
+      [/Their booking remains active\./gi, 'Booking mereka tetap aktif.'],
+      [/Action Required:\s*Fresh Stage 1 \(Fleet Operation PIC\) & Stage 2 \(Head of WS\) approval is required\./gi, 'Tindakan Diperlukan: Persetujuan ulang Tahap 1 (Fleet Operation PIC) & Tahap 2 (Head of WS) diperlukan.'],
+      [/Cancellation & transfer request sent to /gi, 'Permintaan pembatalan & pengalihan slot terkirim ke '],
+      [/Hitchhike request sent to /gi, 'Permintaan nebeng terkirim ke '],
+      [/Push notifications enabled for /gi, 'Notifikasi push aktif untuk '],
+      [/You will receive booking updates, reminders, and dispatch alerts\./gi, 'Anda akan menerima pembaruan booking, pengingat, dan info penugasan.'],
+      [/Note:/gi, 'Catatan:'],
+    ];
+    for (const [re, rep] of replacements) {
+      out = out.replace(re, rep);
+    }
+    return out;
+  }
+
+  if (lang === 'ko') {
+    const replacements: Array<[RegExp, string]> = [
+      [/Schedule Negotiation \(Cancel & Transfer\):/gi, '일정 협의 (취소 및 슬롯 양도):'],
+      [/Schedule Negotiation \(Cancel Request\):/gi, '일정 협의 (취소/양도 요청):'],
+      [/Schedule Negotiation \(Hitchhike Request\):/gi, '일정 협의 (합승 요청):'],
+      [/Hitchhike Request Accepted!?/gi, '합승 요청이 수락되었습니다!'],
+      [/Hitchhike Ride Accepted!?/gi, '합승 요청이 수락되었습니다!'],
+      [/Hitchhike Request Declined/gi, '합승 요청이 거절되었습니다'],
+      [/Slot Transferred\s*[—–-]\s*Awaiting Approval/gi, '슬롯 양도 완료 — 승인 대기 중'],
+      [/Cancellation Request Declined/gi, '취소/양도 요청이 거절되었습니다'],
+      [/Transferred Booking Requires Approval/gi, '양도된 예약 승인 필요'],
+      [/Booking Approved & Dispatched!?/gi, '예약 승인 및 배차 완료!'],
+      [/Booking Cancelled by Passenger/gi, '탑승자에 의해 예약 취소됨'],
+      [/Approved\/Pending Booking Cancelled/gi, '승인/대기 예약 취소됨'],
+      [/New Booking Request Pending Approval/gi, '신규 배차 요청 승인 대기'],
+      [/Fleet PWA Push Notification Active/gi, 'Fleet PWA 푸시 알림 활성화됨'],
+      [/is requesting to transfer your booking slot on/gi, '님이 다음 예약 슬롯 양도를 요청했습니다:'],
+      [/is requesting to negotiate your booking on/gi, '님이 다음 예약에 대해 취소/양도 협의를 요청했습니다:'],
+      [/is requesting to hitchhike on your booking/gi, '님이 다음 예약에 합승을 요청했습니다'],
+      [/wants to hitchhike on your booking/gi, '님이 다음 예약에 합승을 요청했습니다'],
+      [/New Route \(Different Location\):/gi, '새 경로 (다른 위치):'],
+      [/New Route \(Same Location\):/gi, '새 경로 (동일 위치):'],
+      [/New Route:/gi, '새 경로:'],
+      [/New Passenger\(s\)/gi, '새 탑승자'],
+      [/Passenger\(s\) to add/gi, '추가할 탑승자'],
+      [/Reason\s*\/\s*Message:/gi, '사유 / 메시지:'],
+      [/\bPurpose:/gi, '목적:'],
+      [/\bMessage:/gi, '메시지:'],
+      [/\bRoute:/gi, '경로:'],
+      [/\bPassengers:/gi, '탑승자:'],
+      [/\bStatus:\s*Pending fresh approval from Fleet Manager \(FM\) & Head of WS \(HWS\)\./gi, '상태: Fleet Manager(FM) 및 Head of WS(HWS)의 신규 승인 대기 중입니다.'],
+      [/Accept to cancel your booking and transfer this timeslot to them \(their booking will require fresh Fleet Manager & Head of WS approval\), or reject to keep your booking\./gi, '승인하면 기존 예약이 취소되고 시간 슬롯이 양도됩니다(Fleet Manager 및 Head of WS의 신규 승인 필요). 거절하면 기존 예약이 유지됩니다.'],
+      [/accepted your cancellation & transfer request!/gi, '님이 취소 및 슬롯 양도 요청을 수락했습니다!'],
+      [/slot has been transferred to you as Booking #/gi, '슬롯이 예약 번호 #로 양도되었습니다: '],
+      [/accepted your hitchhike request on/gi, '님이 다음 예약의 합승 요청을 수락했습니다:'],
+      [/Added to passenger list:/gi, '탑승자 목록에 추가됨:'],
+      [/declined your hitchhike request on/gi, '님이 다음 예약의 합승 요청을 거절했습니다:'],
+      [/declined your cancellation\/transfer request for/gi, '님이 다음 예약의 취소/양도 요청을 거절했습니다:'],
+      [/Their booking remains active\./gi, '기존 예약이 그대로 유지됩니다.'],
+      [/Action Required:\s*Fresh Stage 1 \(Fleet Operation PIC\) & Stage 2 \(Head of WS\) approval is required\./gi, '조치 필요: 1단계(Fleet Operation PIC) 및 2단계(Head of WS) 신규 승인이 필요합니다.'],
+      [/Cancellation & transfer request sent to /gi, '취소 및 슬롯 양도 요청을 전송했습니다: '],
+      [/Hitchhike request sent to /gi, '합승 요청을 전송했습니다: '],
+      [/Push notifications enabled for /gi, '푸시 알림이 활성화되었습니다: '],
+      [/You will receive booking updates, reminders, and dispatch alerts\./gi, '예약 업데이트, 출발 알림 및 배차 안내를 받게 됩니다.'],
+      [/Note:/gi, '메모:'],
+    ];
+    for (const [re, rep] of replacements) {
+      out = out.replace(re, rep);
+    }
+    return out;
+  }
+
+  return out;
 }
 

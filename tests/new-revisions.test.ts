@@ -3836,6 +3836,115 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(mapViewSrc).not.toContain('width:50px;height:50px;border-radius:50%');
         expect(mapViewSrc).not.toContain('width:52px;height:52px;border-radius:50%');
       });
+
+      it('supports all hitchhike/cancel negotiate route aliases, shows Account A bookings when Account B logs in, and translates notifications & transfer/hitchhike UI into ID and KO', async () => {
+        resetDbForTesting(':memory:');
+        const testApp = createApp();
+        const { t: translateUi, translateNotificationText } = await import('../src/utils/i18n.ts');
+
+        const alexLogin = await request(testApp).post('/api/auth/login').send({ group_username: 'emp_alex', password: 'Emp@123' });
+        const saraLogin = await request(testApp).post('/api/auth/login').send({ group_username: 'emp_sara', password: 'Emp@123' });
+        const alexTok = alexLogin.body.token;
+        const saraTok = saraLogin.body.token;
+
+        const vehiclesRes = await request(testApp).get('/api/vehicles').set('Authorization', `Bearer ${alexTok}`);
+        const veh1 = vehiclesRes.body.vehicles[0];
+        const veh2 = vehiclesRes.body.vehicles[1];
+        const tomorrow = new Date(Date.now() + 30 * 60 * 60 * 1000);
+        const start1 = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 9, 0, 0).toISOString();
+        const end1 = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 11, 0, 0).toISOString();
+
+        // 1. Account A (Alex) creates a booking
+        const create1 = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({
+            vehicle_id: veh1.id,
+            purpose: 'Factory Inspection',
+            origin: 'Samsung Cikarang Factory',
+            destination: 'SCBD Jakarta',
+            start_time: start1,
+            end_time: end1,
+            passenger_count: 1,
+            passenger_nickname: 'Alex',
+          });
+        expect(create1.status).toBe(201);
+        const trip1Id = Number(create1.body.trip.id);
+
+        // 2. Account B (Sara) logs in -> sees Account A's booking in BOTH /api/schedule/calendar AND /api/bookings
+        const saraCal = await request(testApp).get('/api/schedule/calendar').set('Authorization', `Bearer ${saraTok}`);
+        expect(saraCal.status).toBe(200);
+        expect((saraCal.body.scheduleTrips || []).some((tr: any) => Number(tr.id) === trip1Id)).toBe(true);
+
+        const saraBookings = await request(testApp).get('/api/bookings').set('Authorization', `Bearer ${saraTok}`);
+        expect(saraBookings.status).toBe(200);
+        const matchedBooking = (saraBookings.body.bookings || []).find((b: any) => Number(b.trip_request_id) === trip1Id);
+        expect(matchedBooking).toBeTruthy();
+        expect(matchedBooking.trip_status).toBe('PENDING_APPROVAL');
+
+        // 3. Test ALL negotiate route aliases (zero 404s!)
+        const negPrimary = await request(testApp)
+          .post(`/api/trips/${trip1Id}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({ action_type: 'HITCHHIKE', passengers: ['Sara'], message: 'May I join?' });
+        expect(negPrimary.status).toBe(201);
+
+        const negAliasBody = await request(testApp)
+          .post('/api/trips/negotiate')
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({ trip_id: trip1Id, action_type: 'REQUEST_CANCEL', origin: 'SCBD', destination: 'CGK T3', message: 'Need swap' });
+        expect(negAliasBody.status).toBe(201);
+
+        // Create a 2nd booking to verify /api/bookings/:id/negotiate and /api/negotiations aliases
+        const create2 = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({
+            vehicle_id: veh2.id,
+            purpose: 'Vendor Visit',
+            origin: 'Cikarang',
+            destination: 'Karawang',
+            start_time: start1,
+            end_time: end1,
+            passenger_count: 1,
+            passenger_nickname: 'Alex',
+          });
+        expect(create2.status).toBe(201);
+        const trip2Id = Number(create2.body.trip.id);
+        const bk2 = (await request(testApp).get('/api/bookings').set('Authorization', `Bearer ${saraTok}`)).body.bookings.find(
+          (b: any) => Number(b.trip_request_id) === trip2Id
+        );
+        expect(bk2).toBeTruthy();
+
+        const negBookingAlias = await request(testApp)
+          .post(`/api/bookings/${bk2.id}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({ action_type: 'HITCHHIKE', passengers: ['Sara'] });
+        expect(negBookingAlias.status).toBe(201);
+
+        const negRootAlias = await request(testApp)
+          .post('/api/negotiations')
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({ trip_id: trip2Id, action_type: 'REQUEST_CANCEL', origin: 'Cikarang', destination: 'Bekasi' });
+        expect(negRootAlias.status).toBe(201);
+
+        // 4. Verify full EN / ID / KO translations for Notifications & Transfer / Hitchhike UI
+        expect(translateUi('Car Slot Transfer Approval', 'id')).toBe('Persetujuan Pengalihan Slot Mobil');
+        expect(translateUi('Car Slot Transfer Approval', 'ko')).toBe('차량 슬롯 양도 승인');
+        expect(translateUi('Send Hitchhike Request', 'id')).toBe('Kirim Permintaan Nebeng');
+        expect(translateUi('Send Hitchhike Request', 'ko')).toBe('합승 요청 보내기');
+        expect(translateUi('Send Cancel Negotiation', 'id')).toBe('Kirim Permintaan Tukar/Batal Slot');
+        expect(translateUi('Send Cancel Negotiation', 'ko')).toBe('취소/양도 요청 보내기');
+
+        const titleSample = 'Schedule Negotiation (Cancel & Transfer): Tito (People G)';
+        expect(translateNotificationText(titleSample, 'id')).toContain('Negosiasi Jadwal (Batal & Alihkan Slot): Tito (People G)');
+        expect(translateNotificationText(titleSample, 'ko')).toContain('일정 협의 (취소 및 슬롯 양도): Tito (People G)');
+
+        const bodySample = 'Tito (People G) is requesting to transfer your booking slot on B 1904 DOI.\nNew Route (Different Location): Cikarang → CGK T3.';
+        expect(translateNotificationText(bodySample, 'id')).toContain('meminta pengalihan slot booking Anda pada B 1904 DOI');
+        expect(translateNotificationText(bodySample, 'id')).toContain('Rute Baru (Lokasi Berbeda):');
+        expect(translateNotificationText(bodySample, 'ko')).toContain('새 경로 (다른 위치):');
+      });
     });
   });
 });

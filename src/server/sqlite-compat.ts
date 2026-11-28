@@ -111,6 +111,7 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
   private inTransaction = false;
   private lastDiskMtimeMs = 0;
   private lastDiskSize = 0;
+  private lastDiskIno = 0;
 
   constructor(filePath: string) {
     this.filePath = filePath;
@@ -132,10 +133,12 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
       this.db = buf.length > 0 ? new sqlJsModule.Database(new Uint8Array(buf)) : new sqlJsModule.Database();
       this.lastDiskMtimeMs = stat.mtimeMs;
       this.lastDiskSize = stat.size;
+      this.lastDiskIno = stat.ino;
     } else if (!this.db) {
       this.db = new sqlJsModule.Database();
       this.lastDiskMtimeMs = 0;
       this.lastDiskSize = 0;
+      this.lastDiskIno = 0;
     }
   }
 
@@ -144,7 +147,7 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
     try {
       if (!fs.existsSync(this.filePath)) return;
       const stat = fs.statSync(this.filePath);
-      if (stat.mtimeMs !== this.lastDiskMtimeMs || stat.size !== this.lastDiskSize) {
+      if (stat.mtimeMs !== this.lastDiskMtimeMs || stat.size !== this.lastDiskSize || stat.ino !== this.lastDiskIno) {
         this.loadFromDisk();
       }
     } catch {
@@ -163,6 +166,7 @@ class SqlJsDatabaseAdapter implements SqliteDatabaseEngine {
         const stat = fs.statSync(this.filePath);
         this.lastDiskMtimeMs = stat.mtimeMs;
         this.lastDiskSize = stat.size;
+        this.lastDiskIno = stat.ino;
       } catch {}
     } catch (err) {
       try {

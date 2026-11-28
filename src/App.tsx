@@ -69,7 +69,7 @@ import {
 } from './components/MapView';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
 import { DisplayModeToggle } from './components/DisplayModeToggle';
-import { useAppLanguage, startDomTranslationObserver, translateDomTree, type SupportedLang } from './utils/i18n';
+import { useAppLanguage, startDomTranslationObserver, translateDomTree, translateNotificationText, type SupportedLang } from './utils/i18n';
 import { SamsungBusLogo } from './components/SamsungBusLogo';
 import { CompanyCarIcon } from './components/CompanyCarIcon';
 import { RouteFields } from './components/RouteFields';
@@ -2751,26 +2751,44 @@ export function App() {
     }
     setNegotiationSubmitting(true);
     try {
-      const res = await apiRequest(`/api/trips/${negotiationModalTrip.id}/negotiate`, {
-        method: 'POST',
-        body: JSON.stringify({
-          action_type: negotiationActionType,
-          passenger_nickname: uniquePax.join(', ') || user?.nickname || 'Colleague',
-          passengers: uniquePax.length > 0 ? uniquePax : [user?.nickname || 'Colleague'],
-          ...(negotiationActionType === 'REQUEST_CANCEL'
-            ? {
-                origin: resolvedOrigin,
-                destination: resolvedDestination || negotiationModalTrip.destination,
-                purpose: negotiationPurpose.trim() || undefined,
-              }
-            : {}),
-          message: negotiationNote.trim(),
-          note: negotiationNote.trim(),
-        }),
-      });
+      const targetTripId = Number(negotiationModalTrip.trip_request_id || negotiationModalTrip.id);
+      const negPayload = {
+        trip_id: targetTripId,
+        booking_id: negotiationModalTrip.booking_id ? Number(negotiationModalTrip.booking_id) : undefined,
+        action_type: negotiationActionType,
+        passenger_nickname: uniquePax.join(', ') || user?.nickname || 'Colleague',
+        passengers: uniquePax.length > 0 ? uniquePax : [user?.nickname || 'Colleague'],
+        ...(negotiationActionType === 'REQUEST_CANCEL'
+          ? {
+              origin: resolvedOrigin,
+              destination: resolvedDestination || negotiationModalTrip.destination,
+              purpose: negotiationPurpose.trim() || undefined,
+            }
+          : {}),
+        message: negotiationNote.trim(),
+        note: negotiationNote.trim(),
+      };
+      let res: any;
+      try {
+        res = await apiRequest(`/api/trips/${targetTripId}/negotiate`, {
+          method: 'POST',
+          body: JSON.stringify(negPayload),
+        });
+      } catch (firstErr: any) {
+        if (/api endpoint not found/i.test(String(firstErr?.message || ''))) {
+          res = await apiRequest('/api/trips/negotiate', {
+            method: 'POST',
+            body: JSON.stringify(negPayload),
+          });
+        } else {
+          throw firstErr;
+        }
+      }
+      const rawSuccessMsg =
+        res.message || `Request sent to ${negotiationModalTrip.requester_name || 'booking holder'} (${negotiationModalTrip.department_name || 'Group'}).`;
       setStatusBanner({
         type: 'success',
-        text: res.message || `Request sent to ${negotiationModalTrip.requester_name || 'booking holder'} (${negotiationModalTrip.department_name || 'Group'}).`,
+        text: translateNotificationText(rawSuccessMsg, lang),
       });
       setNegotiationModalTrip(null);
       setNegotiationNote('');
@@ -2781,7 +2799,11 @@ export function App() {
       setNegotiationPurpose('');
       await loadAllData(user);
     } catch (err: any) {
-      setStatusBanner({ type: 'danger', text: err.message });
+      const errMsg = String(err?.message || 'Request failed');
+      const friendlyMsg = /api endpoint not found/i.test(errMsg)
+        ? t('Server backend is still running an older process. Please click Stop then Start (or Restart) in cPanel Setup Node.js App, then try again.')
+        : translateNotificationText(errMsg, lang);
+      setStatusBanner({ type: 'danger', text: friendlyMsg });
     } finally {
       setNegotiationSubmitting(false);
     }
@@ -3404,23 +3426,81 @@ export function App() {
     [trips]
   );
 
+  // Authoritative cross-account active schedule list merging /api/schedule/calendar, /api/trips, and /api/bookings
+  // Guarantees every employee (e.g. Tito) immediately sees bookings made by any other employee (e.g. Hafi)
+  const allActiveScheduleTrips = useMemo(() => {
+    const mergedById = new Map<number, any>();
+    for (const b of bookings) {
+      const bSt = String(b.status || '').toUpperCase();
+      const tSt = String(b.trip_status || '').toUpperCase();
+      if (['CANCELLED', 'COMPLETED'].includes(bSt)) continue;
+      if (['CANCELLED', 'COMPLETED', 'REJECTED'].includes(tSt)) continue;
+      const syntheticId = b.trip_request_id ? Number(b.trip_request_id) : -100000 - Number(b.id);
+      const normStatus = tSt || (bSt === 'ACTIVE' ? 'APPROVED' : bSt || 'PENDING_APPROVAL');
+      mergedById.set(syntheticId, {
+        id: syntheticId,
+        trip_request_id: b.trip_request_id ? Number(b.trip_request_id) : null,
+        booking_id: Number(b.id),
+        booking_status: b.status,
+        vehicle_id: b.vehicle_id,
+        requester_id: b.booked_by,
+        requester_name: b.booked_by_name || 'Colleague',
+        requester_username: b.requester_username || '',
+        requester_contact: b.requester_contact || '',
+        department_name: b.department_name || 'Group',
+        registration_plate: b.registration_plate || '',
+        make: b.make || '',
+        model: b.model || '',
+        car_type: b.car_type || '',
+        energy_type: b.energy_type || '',
+        seats: b.seats || 7,
+        origin: b.origin || '',
+        destination: b.destination || b.purpose || 'Operational Trip',
+        purpose: b.purpose || '',
+        start_time: b.start_time,
+        end_time: b.end_time,
+        passenger_nickname: b.passenger_nickname || b.booked_by_name || '',
+        passengers_json: b.passengers_json || null,
+        passenger_count: b.passenger_count || 1,
+        reservation_type: b.reservation_type || 'ONE_WAY',
+        return_pickup_time: b.return_pickup_time || null,
+        driver_profile_id: b.driver_profile_id || null,
+        assigned_driver_name: b.driver_name || 'Pool Driver',
+        assigned_driver_phone: b.assigned_driver_phone || '',
+        status: normStatus,
+      });
+    }
+    for (const ct of calendarTrips) {
+      const id = Number(ct.id);
+      const prev = mergedById.get(id);
+      mergedById.set(id, prev ? { ...prev, ...ct } : ct);
+    }
+    for (const tr of trips) {
+      const id = Number(tr.id);
+      const st = String(tr.status || '').toUpperCase();
+      const bSt = String(tr.booking_status || '').toUpperCase();
+      if (['COMPLETED', 'CANCELLED', 'REJECTED'].includes(st) || ['COMPLETED', 'CANCELLED'].includes(bSt)) {
+        mergedById.delete(id);
+        continue;
+      }
+      const prev = mergedById.get(id);
+      mergedById.set(id, prev ? { ...prev, ...tr } : tr);
+    }
+    return Array.from(mergedById.values()).filter((tr) => {
+      const st = String(tr.status || '').toUpperCase();
+      const bSt = String(tr.booking_status || '').toUpperCase();
+      return ['PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS'].includes(st) && !['CANCELLED', 'COMPLETED'].includes(bSt);
+    });
+  }, [calendarTrips, trips, bookings]);
+
   // Live car availability count: total Available fleet vehicles minus vehicles with active bookings today / in-progress right now
   const liveAvailableCarsCount = useMemo(() => {
     const nowMs = Date.now();
     const todayStr = todayLocalDateStr();
-    const mergedById = new Map<number, any>();
-    for (const ct of calendarTrips) mergedById.set(Number(ct.id), ct);
-    for (const tr of trips) {
-      const prev = mergedById.get(Number(tr.id));
-      mergedById.set(Number(tr.id), prev ? { ...prev, ...tr } : tr);
-    }
     const bookedVehicleIds = new Set<number>();
-    for (const tr of mergedById.values()) {
-      const st = String(tr.status || '').toUpperCase();
-      const bSt = String(tr.booking_status || '').toUpperCase();
-      if (!['PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS'].includes(st)) continue;
-      if (['CANCELLED', 'COMPLETED'].includes(bSt)) continue;
+    for (const tr of allActiveScheduleTrips) {
       if (!tr.vehicle_id) continue;
+      const st = String(tr.status || '').toUpperCase();
       if (st === 'IN_PROGRESS') {
         bookedVehicleIds.add(Number(tr.vehicle_id));
         continue;
@@ -3439,9 +3519,9 @@ export function App() {
       }
     }
     return vehicles.filter((v) => v.status === 'Available' && !bookedVehicleIds.has(Number(v.id))).length;
-  }, [vehicles, calendarTrips, trips]);
+  }, [vehicles, allActiveScheduleTrips]);
 
-  // Immediately fetch fresh server-side vehicles & calendar schedule whenever opening Home, Schedule Calendar, or switching calendar date
+  // Immediately fetch fresh server-side vehicles, bookings & calendar schedule whenever opening Home, Schedule Calendar, or switching calendar date
   useEffect(() => {
     if (!user) return;
     if (navSection !== 'HOME' && !(navSection === 'ADMIN' && adminModule === 'DRIVER_SCHEDULE')) return;
@@ -3450,11 +3530,13 @@ export function App() {
     Promise.all([
       apiRequest('/api/vehicles').catch(() => null),
       apiRequest('/api/schedule/calendar').catch(() => null),
-    ]).then(([vehRes, calRes]) => {
+      apiRequest('/api/bookings').catch(() => null),
+    ]).then(([vehRes, calRes, bkgRes]) => {
       if (cancelled) return;
       if (Array.isArray(vehRes?.vehicles)) setVehicles(vehRes.vehicles);
       const calList = calRes?.scheduleTrips || calRes?.trips;
       if (Array.isArray(calList)) setCalendarTrips(calList);
+      if (Array.isArray(bkgRes?.bookings)) setBookings(bkgRes.bookings);
     });
     return () => {
       cancelled = true;
@@ -6520,21 +6602,21 @@ export function App() {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 800, color: '#3b82f6' }}>
-                  Current Holder (PIC): {negotiationModalTrip.requester_name || 'Colleague'} ({negotiationModalTrip.department_name || 'Group'})
+                  {t('Current Holder (PIC)')}: {negotiationModalTrip.requester_name || t('Booking Holder')} ({negotiationModalTrip.department_name || t('Group')})
                 </span>
-                <StatusBadge label={formatReservationModeLabel(negotiationModalTrip.reservation_type, negotiationModalTrip.return_pickup_time) || 'Standard Trip'} tone="blue" />
+                <StatusBadge label={t(formatReservationModeLabel(negotiationModalTrip.reservation_type, negotiationModalTrip.return_pickup_time) || 'Standard Trip')} tone="blue" />
               </div>
               <div>
-                <strong>Route:</strong> {negotiationModalTrip.origin} → <strong>{negotiationModalTrip.destination}</strong>
+                <strong>{t('Route')}:</strong> {negotiationModalTrip.origin} → <strong>{negotiationModalTrip.destination}</strong>
               </div>
               <div>
-                <strong>Passengers:</strong>
+                <strong>{t('Passengers')}:</strong>
                 <div style={{ whiteSpace: 'pre-line', marginTop: '2px', paddingLeft: '14px' }}>
                   {formatPassengersMultiLine(negotiationModalTrip.passengers_json, negotiationModalTrip.passenger_nickname)}
                 </div>
               </div>
               <div>
-                <strong>Booked Time & Duration:</strong>{' '}
+                <strong>{t('Booked Time & Duration')}:</strong>{' '}
                 {new Date(negotiationModalTrip.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} –{' '}
                 {new Date(negotiationModalTrip.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{' '}
                 ({Math.max(1, Math.round((new Date(negotiationModalTrip.end_time).getTime() - new Date(negotiationModalTrip.start_time).getTime()) / 3600000))}h)
@@ -6544,7 +6626,7 @@ export function App() {
             <form onSubmit={handleSubmitNegotiation} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
                 <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '6px' }}>
-                  Choose Action:
+                  {t('Choose Action')}:
                 </label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   <button
@@ -7033,15 +7115,19 @@ export function App() {
 
               <div>
                 <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Message to {negotiationModalTrip.requester_name || 'Booking Holder'} (Optional)
+                  {t('Message to')} {negotiationModalTrip.requester_name || t('Booking Holder')} ({t('Optional')})
                 </label>
                 <input
                   type="text"
                   className="gf-input"
                   placeholder={
                     negotiationActionType === 'HITCHHIKE'
-                      ? `Heading to ${negotiationModalTrip.destination} too, may I join your ride?`
-                      : 'Need this car urgently for a client visit, can we coordinate?'
+                      ? lang === 'id'
+                        ? `Searah ke ${negotiationModalTrip.destination} juga, boleh ikut nebeng?`
+                        : lang === 'ko'
+                        ? `${negotiationModalTrip.destination} 방면으로 이동합니다. 합승 가능할까요?`
+                        : `Heading to ${negotiationModalTrip.destination} too, may I join your ride?`
+                      : t('Need this car urgently for a client visit, can we coordinate?')
                   }
                   value={negotiationNote}
                   onChange={(e) => setNegotiationNote(e.target.value)}
@@ -7075,10 +7161,10 @@ export function App() {
                   }
                 >
                   {negotiationSubmitting
-                    ? 'Sending...'
+                    ? t('Sending...')
                     : negotiationActionType === 'HITCHHIKE'
-                    ? 'Send Hitchhike Request'
-                    : 'Send Cancel Negotiation'}
+                    ? t('Send Hitchhike Request')
+                    : t('Send Cancel Negotiation')}
                 </button>
               </div>
             </form>
@@ -7385,7 +7471,7 @@ export function App() {
                 <Bell size={18} style={{ color: '#0072de', flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="gf-gcal-sheet-title" style={{ fontSize: '15.5px', lineHeight: 1.3 }}>
-                    {sn.title}
+                    {translateNotificationText(sn.title, lang)}
                   </div>
                   {sn.created_at && (
                     <div className="gf-gcal-sheet-sub" style={{ marginTop: '2px' }}>
@@ -7423,7 +7509,7 @@ export function App() {
 
                   <div id="notification-detail-body" style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '13px', lineHeight: 1.45, color: 'var(--color-text-primary)' }}>
                     {!hasStructuredTransferFields && sn.body && (
-                      <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{sn.body}</div>
+                      <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{translateNotificationText(sn.body, lang)}</div>
                     )}
                     {sn.negotiation_requester_name && (
                       <div>
@@ -7519,7 +7605,7 @@ export function App() {
                       border: '1px solid var(--color-divider)',
                     }}
                   >
-                    {sn.body}
+                    {translateNotificationText(sn.body, lang)}
                   </div>
 
                   {isNegotiation && (
@@ -8332,11 +8418,7 @@ export function App() {
           {adminModule === 'DRIVER_SCHEDULE' && (() => {
             const adminSchedDate = scheduleCalendarDate || todayLocalDateStr();
             const schedById = new Map<number, any>();
-            for (const ct of calendarTrips) schedById.set(Number(ct.id), ct);
-            for (const tr of trips) {
-              const prev = schedById.get(Number(tr.id));
-              schedById.set(Number(tr.id), prev ? { ...prev, ...tr } : tr);
-            }
+            for (const ct of allActiveScheduleTrips) schedById.set(Number(ct.id), ct);
             const shiftDate = (days: number) => {
               const [yy, mm, dd] = adminSchedDate.split('-').map(Number);
               const d = new Date(yy, (mm || 1) - 1, dd || 1);
@@ -12951,7 +13033,7 @@ export function App() {
                       <Bell size={18} style={{ color: n.is_read ? 'var(--color-text-muted)' : '#0072de', marginTop: '2px', flexShrink: 0 }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                          <span style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--color-text-primary)' }}>{n.title}</span>
+                          <span style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--color-text-primary)' }}>{translateNotificationText(n.title, lang)}</span>
                           {!n.is_read && <span className="gf-dot-green" style={{ background: '#0072de', flexShrink: 0 }} aria-label="Unread" />}
                         </div>
                         <div
@@ -12966,7 +13048,7 @@ export function App() {
                             overflow: 'hidden',
                           }}
                         >
-                          {n.body}
+                          {translateNotificationText(n.body, lang)}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '4px' }}>
                           <span className="type-caption" style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
@@ -13514,33 +13596,30 @@ export function App() {
           (v.default_driver_name && v.default_driver_name.toLowerCase() === (user.nickname || '').toLowerCase())
       );
 
-      // Active calendar trips: exclude COMPLETED, CANCELLED, and REJECTED so finished/cancelled bookings disappear immediately
-      // Merge the all-users schedule feed with live (SSE-updated) trips so status changes show instantly
-      const calendarById = new Map<number, any>();
-      for (const ct of calendarTrips) calendarById.set(Number(ct.id), ct);
-      for (const tr of trips) {
-        const prev = calendarById.get(Number(tr.id));
-        calendarById.set(Number(tr.id), prev ? { ...prev, ...tr } : tr);
-      }
-      const rawCalendarSource = Array.from(calendarById.values());
+      // Active calendar trips: merged from /api/schedule/calendar, /api/trips, and /api/bookings across all accounts
+      const rawCalendarSource = allActiveScheduleTrips;
+      const otherBookedDateCounts = new Map<string, number>();
+      const pad2Local = (n: number) => String(n).padStart(2, '0');
       const activeCalendarTrips = rawCalendarSource.filter((t) => {
         if (['COMPLETED', 'CANCELLED', 'REJECTED'].includes(String(t.status || '').toUpperCase())) return false;
         if (String(t.booking_status || '').toUpperCase() === 'CANCELLED') return false;
-        // Match selected date (either local date or ISO prefix)
         const startD = new Date(t.start_time);
         const endD = new Date(t.end_time);
         if (!Number.isNaN(startD.getTime()) && !Number.isNaN(endD.getTime())) {
-          const pad = (n: number) => String(n).padStart(2, '0');
-          const localStartDate = `${startD.getFullYear()}-${pad(startD.getMonth() + 1)}-${pad(startD.getDate())}`;
-          const localEndDate = `${endD.getFullYear()}-${pad(endD.getMonth() + 1)}-${pad(endD.getDate())}`;
-          return (
+          const localStartDate = `${startD.getFullYear()}-${pad2Local(startD.getMonth() + 1)}-${pad2Local(startD.getDate())}`;
+          const localEndDate = `${endD.getFullYear()}-${pad2Local(endD.getMonth() + 1)}-${pad2Local(endD.getDate())}`;
+          const matchesSelected =
             localStartDate === selectedDateStr ||
             localEndDate === selectedDateStr ||
-            String(t.start_time).startsWith(selectedDateStr)
-          );
+            String(t.start_time).startsWith(selectedDateStr);
+          if (!matchesSelected && localStartDate) {
+            otherBookedDateCounts.set(localStartDate, (otherBookedDateCounts.get(localStartDate) || 0) + 1);
+          }
+          return matchesSelected;
         }
         return String(t.start_time || '').startsWith(selectedDateStr);
       });
+      const otherBookedDates = Array.from(otherBookedDateCounts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 
       const nowMs = Date.now();
       const isViewingToday = selectedDateStr === todayLocalDateStr();
@@ -13676,6 +13755,25 @@ export function App() {
                 <Chip active={scheduleFilterTab === 'BOOKED'} onClick={() => setScheduleFilterTab('BOOKED')}>
                   {t('Booked Today')} ({activeCalendarTrips.length})
                 </Chip>
+              </div>
+            )}
+
+            {otherBookedDates.length > 0 && (
+              <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', paddingTop: '4px', borderTop: '1px solid var(--color-divider)' }}>
+                <span className="type-caption" style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
+                  {t('Other booked dates')}:
+                </span>
+                {otherBookedDates.slice(0, 5).map(([dateKey, count]) => (
+                  <button
+                    key={dateKey}
+                    type="button"
+                    className="gf-btn gf-btn-secondary gf-btn-sm pressable"
+                    style={{ minHeight: '26px', padding: '0 9px', fontSize: '11.5px', fontWeight: 700, borderColor: 'rgba(0, 114, 222, 0.35)', color: '#0072de' }}
+                    onClick={() => setScheduleCalendarDate(dateKey)}
+                  >
+                    {dateKey} ({count})
+                  </button>
+                ))}
               </div>
             )}
           </div>
