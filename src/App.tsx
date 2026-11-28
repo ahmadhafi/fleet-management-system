@@ -51,10 +51,11 @@ import {
   Info,
   KeyRound,
   Copy,
+  Gauge,
 } from 'lucide-react';
 import { apiRequest, getStoredToken, setStoredToken, urlBase64ToUint8Array } from './api';
 import { AppShell, AdminShell, type NavSection, type AdminModule } from './components/AppShell';
-import { DriverScheduleCalendar, todayLocalDateStr } from './components/DriverScheduleCalendar';
+import { DriverScheduleCalendar, isHistoryTripRecord, todayLocalDateStr } from './components/DriverScheduleCalendar';
 import { BottomSheet, type SnapPoint } from './components/BottomSheet';
 import {
   MapView,
@@ -607,6 +608,9 @@ export function App() {
   const [bookNotes, setBookNotes] = useState('');
   const [bookUrgentReason, setBookUrgentReason] = useState<string>('');
   const [bookDurationHours, setBookDurationHours] = useState<number>(2);
+  const userEditedBookEndRef = useRef<boolean>(false);
+  const [bookEndAutoEtaMin, setBookEndAutoEtaMin] = useState<number | null>(null);
+  const [enlargedPhotoModal, setEnlargedPhotoModal] = useState<{ src: string; title: string; subtitle?: string } | null>(null);
   const [liveAvailability, setLiveAvailability] = useState<{ vehicles: any[]; drivers: any[] } | null>(null);
   const [scheduleFilterTab, setScheduleFilterTab] = useState<'ALL' | 'AVAILABLE' | 'BOOKED'>('ALL');
   const [scheduleCalendarDate, setScheduleCalendarDate] = useState<string>(() => {
@@ -1369,6 +1373,46 @@ export function App() {
       window.clearTimeout(timer);
     };
   }, [user, bookOrigin, bookDest, originCoords, destCoords, myCoords, scheduleMode, bookStart]);
+
+  const computeEtaReturnMs = useCallback((startMs: number, durationMin: number): number => {
+    const safeMin = Math.max(15, Math.ceil(Math.max(1, durationMin) / 5) * 5);
+    return startMs + safeMin * 60_000;
+  }, []);
+
+  const formatBookingDuration = useCallback((startVal: string, endVal: string, fallbackHours: number): string => {
+    const sMs = startVal ? new Date(startVal).getTime() : NaN;
+    const eMs = endVal ? new Date(endVal).getTime() : NaN;
+    if (Number.isNaN(sMs) || Number.isNaN(eMs) || eMs <= sMs) {
+      return `${fallbackHours}h`;
+    }
+    const diffMin = Math.max(1, Math.round((eMs - sMs) / 60_000));
+    if (diffMin < 60) return `${diffMin}m`;
+    const hrs = Math.floor(diffMin / 60);
+    const remMin = diffMin % 60;
+    return remMin === 0 ? `${hrs}h` : `${hrs}h ${remMin}m`;
+  }, []);
+
+  // Whenever user changes destination, allow the new route's ETA to auto-prefill return time again
+  useEffect(() => {
+    userEditedBookEndRef.current = false;
+  }, [bookDest]);
+
+  // Auto-prefill Return Date & Time from route estimation time (ETA) for Standard Trip unless user manually edited it
+  useEffect(() => {
+    if (bookReservationType !== 'ONE_WAY') {
+      setBookEndAutoEtaMin(null);
+      return;
+    }
+    const etaMin = Number(calculatedRoute?.durationMin || 0);
+    if (!etaMin || etaMin <= 0 || userEditedBookEndRef.current) return;
+    const sMs = bookStart ? new Date(bookStart).getTime() : NaN;
+    if (Number.isNaN(sMs)) return;
+    const nextEndMs = computeEtaReturnMs(sMs, etaMin);
+    const nextEndLocal = toLocalDateTimeInput(new Date(nextEndMs));
+    setBookEnd((prev) => (prev === nextEndLocal ? prev : nextEndLocal));
+    setBookDurationHours(Math.max(0.25, Number(((nextEndMs - sMs) / 3600000).toFixed(2))));
+    setBookEndAutoEtaMin(etaMin);
+  }, [calculatedRoute?.durationMin, bookStart, bookReservationType, computeEtaReturnMs]);
 
   // Live availability check when schedule dates change
   useEffect(() => {
@@ -2377,7 +2421,11 @@ export function App() {
     d.setHours(h, m, 0, 0);
     const sIso = toLocalDateTimeInput(d);
     setBookStart(sIso);
-    const eMs = d.getTime() + bookDurationHours * 3600000;
+    const etaMin = Number(calculatedRoute?.durationMin || 0);
+    const eMs =
+      !userEditedBookEndRef.current && bookReservationType === 'ONE_WAY' && etaMin > 0
+        ? computeEtaReturnMs(d.getTime(), etaMin)
+        : d.getTime() + bookDurationHours * 3600000;
     setBookEnd(toLocalDateTimeInput(new Date(eMs)));
     if (bookReservationType === 'DROP_AND_PICKUP') {
       setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
@@ -2392,7 +2440,11 @@ export function App() {
     }
     const sIso = toLocalDateTimeInput(targetD);
     setBookStart(sIso);
-    const eMs = targetD.getTime() + bookDurationHours * 3600000;
+    const etaMin = Number(calculatedRoute?.durationMin || 0);
+    const eMs =
+      !userEditedBookEndRef.current && bookReservationType === 'ONE_WAY' && etaMin > 0
+        ? computeEtaReturnMs(targetD.getTime(), etaMin)
+        : targetD.getTime() + bookDurationHours * 3600000;
     setBookEnd(toLocalDateTimeInput(new Date(eMs)));
     if (bookReservationType === 'DROP_AND_PICKUP') {
       setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
@@ -2600,6 +2652,8 @@ export function App() {
       setBookNotes('');
       setBookUrgentReason('');
       setBookReservationType('ONE_WAY');
+      userEditedBookEndRef.current = false;
+      setBookEndAutoEtaMin(null);
       const nextDefaultMs = roundUpTo5MinMs(Date.now() + 2 * 3600000);
       setBookStart(toLocalDateTimeInput(new Date(nextDefaultMs)));
       setBookEnd(toLocalDateTimeInput(new Date(nextDefaultMs + 2 * 3600000)));
@@ -3521,6 +3575,66 @@ export function App() {
       return ['PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS'].includes(st) && !['CANCELLED', 'COMPLETED'].includes(bSt);
     });
   }, [calendarTrips, trips, bookings]);
+
+  // Complete calendar schedule including active AND finished/cancelled/rejected/transferred trips for usage audit
+  const allCalendarAuditTrips = useMemo(() => {
+    const mergedById = new Map<number, any>();
+    for (const b of bookings) {
+      const bSt = String(b.status || '').toUpperCase();
+      const tSt = String(b.trip_status || '').toUpperCase();
+      const syntheticId = b.trip_request_id ? Number(b.trip_request_id) : -100000 - Number(b.id);
+      const normStatus = tSt || (bSt === 'ACTIVE' ? 'APPROVED' : bSt || 'PENDING_APPROVAL');
+      mergedById.set(syntheticId, {
+        id: syntheticId,
+        trip_request_id: b.trip_request_id ? Number(b.trip_request_id) : null,
+        booking_id: Number(b.id),
+        booking_status: b.status,
+        cancellation_reason: b.cancellation_reason || null,
+        vehicle_id: b.vehicle_id,
+        requester_id: b.booked_by,
+        requester_name: b.booked_by_name || 'Colleague',
+        requester_username: b.requester_username || '',
+        requester_contact: b.requester_contact || '',
+        department_name: b.department_name || 'Group',
+        registration_plate: b.registration_plate || '',
+        make: b.make || '',
+        model: b.model || '',
+        car_type: b.car_type || '',
+        energy_type: b.energy_type || '',
+        seats: Number(vehicles.find((v) => Number(v.id) === Number(b.vehicle_id))?.seats || b.seats || 5),
+        origin: b.origin || '',
+        destination: b.destination || b.purpose || 'Operational Trip',
+        purpose: b.purpose || '',
+        start_time: b.start_time,
+        end_time: b.end_time,
+        passenger_nickname: b.passenger_nickname || b.booked_by_name || '',
+        passengers_json: b.passengers_json || null,
+        passenger_count: b.passenger_count || 1,
+        reservation_type: b.reservation_type || 'ONE_WAY',
+        return_pickup_time: b.return_pickup_time || null,
+        driver_profile_id: b.driver_profile_id || null,
+        assigned_driver_name: b.driver_name || 'Pool Driver',
+        assigned_driver_phone: b.assigned_driver_phone || '',
+        status: normStatus,
+      });
+    }
+    for (const ct of calendarTrips) {
+      const id = Number(ct.id);
+      const prev = mergedById.get(id);
+      mergedById.set(id, prev ? { ...prev, ...ct } : ct);
+    }
+    for (const rec of scheduleAuditRecords) {
+      const id = Number(rec.id);
+      const prev = mergedById.get(id);
+      mergedById.set(id, prev ? { ...prev, ...rec } : rec);
+    }
+    for (const tr of trips) {
+      const id = Number(tr.id);
+      const prev = mergedById.get(id);
+      mergedById.set(id, prev ? { ...prev, ...tr } : tr);
+    }
+    return Array.from(mergedById.values());
+  }, [calendarTrips, trips, bookings, scheduleAuditRecords, vehicles]);
 
   // Live car availability count: total Available fleet vehicles minus vehicles with active bookings today / in-progress right now
   const liveAvailableCarsCount = useMemo(() => {
@@ -4495,6 +4609,76 @@ export function App() {
                     <span style={{ color: '#258cfb', fontWeight: 700 }}>
                       • Return {new Date(dispatchModalTrip.return_pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
+                  )}
+                </div>
+              )}
+              {(dispatchModalTrip.start_odometer != null ||
+                dispatchModalTrip.end_odometer != null ||
+                dispatchModalTrip.start_odometer_photo_url ||
+                dispatchModalTrip.end_odometer_photo_url) && (
+                <div
+                  id="dispatch-odometer-photos"
+                  style={{
+                    marginTop: '6px',
+                    paddingTop: '8px',
+                    borderTop: '1px solid var(--color-divider)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', fontSize: '11.5px', fontWeight: 700 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'var(--color-text-primary)' }}>
+                      <Gauge size={13} style={{ color: 'var(--color-samsung-blue)' }} /> {t('Odometer & Distance')}
+                    </span>
+                    <span className="mono" style={{ color: 'var(--color-samsung-blue-text)' }}>
+                      {dispatchModalTrip.start_odometer ?? '-'} → {dispatchModalTrip.end_odometer ?? '-'} km
+                      {dispatchModalTrip.distance_km != null ? ` (${dispatchModalTrip.distance_km} km)` : ''}
+                    </span>
+                  </div>
+                  {(dispatchModalTrip.start_odometer_photo_url || dispatchModalTrip.end_odometer_photo_url) && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      {dispatchModalTrip.start_odometer_photo_url ? (
+                        <button
+                          type="button"
+                          className="pressable"
+                          onClick={() =>
+                            setEnlargedPhotoModal({
+                              src: dispatchModalTrip.start_odometer_photo_url,
+                              title: `${t('Start Odometer Photo')} — #${dispatchModalTrip.id}`,
+                              subtitle: `${dispatchModalTrip.registration_plate || ''} • ${dispatchModalTrip.start_odometer ?? '-'} km`,
+                            })
+                          }
+                          style={{ padding: 0, border: '1px solid var(--color-border)', borderRadius: '8px', overflow: 'hidden', background: 'var(--color-bg-surface)', cursor: 'pointer', textAlign: 'left' }}
+                        >
+                          <img src={dispatchModalTrip.start_odometer_photo_url} alt={t('Start Odometer Photo')} style={{ width: '100%', height: '72px', objectFit: 'cover', display: 'block' }} />
+                          <div style={{ padding: '4px 6px', fontSize: '10px', fontWeight: 700, color: 'var(--color-text-primary)', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>{t('Start Odo')}</span>
+                            <span style={{ color: 'var(--color-samsung-blue-text)' }}>{t('Tap to enlarge')}</span>
+                          </div>
+                        </button>
+                      ) : null}
+                      {dispatchModalTrip.end_odometer_photo_url ? (
+                        <button
+                          type="button"
+                          className="pressable"
+                          onClick={() =>
+                            setEnlargedPhotoModal({
+                              src: dispatchModalTrip.end_odometer_photo_url,
+                              title: `${t('End Odometer Photo')} — #${dispatchModalTrip.id}`,
+                              subtitle: `${dispatchModalTrip.registration_plate || ''} • ${dispatchModalTrip.end_odometer ?? '-'} km${dispatchModalTrip.distance_km != null ? ` (${dispatchModalTrip.distance_km} km)` : ''}`,
+                            })
+                          }
+                          style={{ padding: 0, border: '1px solid var(--color-border)', borderRadius: '8px', overflow: 'hidden', background: 'var(--color-bg-surface)', cursor: 'pointer', textAlign: 'left' }}
+                        >
+                          <img src={dispatchModalTrip.end_odometer_photo_url} alt={t('End Odometer Photo')} style={{ width: '100%', height: '72px', objectFit: 'cover', display: 'block' }} />
+                          <div style={{ padding: '4px 6px', fontSize: '10px', fontWeight: 700, color: 'var(--color-text-primary)', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>{t('End Odo')}</span>
+                            <span style={{ color: 'var(--color-samsung-blue-text)' }}>{t('Tap to enlarge')}</span>
+                          </div>
+                        </button>
+                      ) : null}
+                    </div>
                   )}
                 </div>
               )}
@@ -7762,6 +7946,50 @@ export function App() {
           </div>
         );
       })()}
+
+      {enlargedPhotoModal && (
+        <div
+          id="odometer-photo-lightbox"
+          className="gf-gcal-sheet-backdrop"
+          style={{ zIndex: 10000, padding: '16px', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setEnlargedPhotoModal(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={enlargedPhotoModal.title}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '680px',
+              background: 'var(--color-bg-surface)',
+              borderRadius: '14px',
+              border: '1px solid var(--color-border)',
+              overflow: 'hidden',
+              boxShadow: '0 20px 50px rgba(0, 0, 0, 0.45)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid var(--color-divider)' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-text-primary)' }}>{enlargedPhotoModal.title}</div>
+                {enlargedPhotoModal.subtitle && <div style={{ fontSize: '11.5px', color: 'var(--color-text-secondary)' }}>{enlargedPhotoModal.subtitle}</div>}
+              </div>
+              <button
+                type="button"
+                className="gf-icon-btn-48 pressable"
+                style={{ width: 32, height: 32 }}
+                onClick={() => setEnlargedPhotoModal(null)}
+                aria-label={t('Close')}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ padding: '10px', background: '#0b1120', display: 'flex', justifyContent: 'center', alignItems: 'center', maxHeight: '72vh', overflow: 'auto' }}>
+              <img src={enlargedPhotoModal.src} alt={enlargedPhotoModal.title} style={{ maxWidth: '100%', maxHeight: '68vh', objectFit: 'contain', borderRadius: '6px' }} />
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -8503,7 +8731,7 @@ export function App() {
           {adminModule === 'DRIVER_SCHEDULE' && (() => {
             const adminSchedDate = scheduleCalendarDate || todayLocalDateStr();
             const schedById = new Map<number, any>();
-            for (const ct of allActiveScheduleTrips) schedById.set(Number(ct.id), ct);
+            for (const ct of allCalendarAuditTrips) schedById.set(Number(ct.id), ct);
             const shiftDate = (days: number) => {
               const [yy, mm, dd] = adminSchedDate.split('-').map(Number);
               const d = new Date(yy, (mm || 1) - 1, dd || 1);
@@ -8592,8 +8820,14 @@ export function App() {
                       dateStr={adminSchedDate}
                       currentUserId={user.id}
                       showContacts
+                      showOdometerPhotos
                       onOpenTrip={(tr) => {
-                        const full = trips.find((x) => Number(x.id) === Number(tr.id)) || tr;
+                        const auditMatch = scheduleAuditRecords.find((x) => Number(x.id) === Number(tr.id));
+                        const full = trips.find((x) => Number(x.id) === Number(tr.id)) || auditMatch || tr;
+                        if (isHistoryTripRecord(full)) {
+                          setSelectedAuditRecord(auditMatch ? { ...full, ...auditMatch } : full);
+                          return;
+                        }
                         setDispatchModalTrip(full);
                         setDispatchVehicleId(full.vehicle_id);
                         const defaultDrv = full.driver_profile_id || full.preferred_driver_id || drivers[0]?.id || '';
@@ -11144,11 +11378,118 @@ export function App() {
                     <div><strong>{t('Route')}:</strong> {rec.origin} → {rec.destination}</div>
                     <div><strong>{t('Purpose')}:</strong> {rec.purpose}</div>
                     <div><strong>{t('Passengers On Board')}:</strong> {formatPassengersDisplay(rec.passengers_json, rec.passenger_nickname)} ({rec.passenger_count || 1})</div>
-                    {(rec.start_odometer != null || rec.end_odometer != null || rec.distance_km != null) && (
-                      <div>
-                        <strong>{t('Odometer & Distance')}:</strong> {rec.start_odometer ?? '-'} → {rec.end_odometer ?? '-'} km ({rec.distance_km ?? 0} km)
+                    {(rec.start_odometer != null ||
+                      rec.end_odometer != null ||
+                      rec.distance_km != null ||
+                      rec.start_odometer_photo_url ||
+                      rec.end_odometer_photo_url ||
+                      st === 'COMPLETED' ||
+                      st === 'IN_PROGRESS') && (
+                      <div
+                        id="audit-odometer-photos"
+                        style={{
+                          marginTop: '4px',
+                          padding: '10px',
+                          borderRadius: '10px',
+                          background: 'var(--color-bg-subtle)',
+                          border: '1px solid var(--color-border)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                            <Gauge size={14} style={{ color: 'var(--color-samsung-blue)' }} />
+                            {t('Odometer & Distance')}
+                          </span>
+                          <span className="mono" style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-samsung-blue-text)' }}>
+                            {rec.start_odometer ?? '-'} → {rec.end_odometer ?? '-'} km ({rec.distance_km ?? 0} km)
+                          </span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                          {rec.start_odometer_photo_url ? (
+                            <button
+                              type="button"
+                              className="pressable"
+                              data-testid="audit-start-odo-photo"
+                              onClick={() =>
+                                setEnlargedPhotoModal({
+                                  src: rec.start_odometer_photo_url,
+                                  title: `${t('Start Odometer Photo')} — #${rec.id}`,
+                                  subtitle: `${rec.registration_plate || ''} • ${rec.start_odometer ?? '-'} km`,
+                                })
+                              }
+                              style={{
+                                padding: 0,
+                                border: '1px solid var(--color-border)',
+                                borderRadius: '8px',
+                                overflow: 'hidden',
+                                background: 'var(--color-bg-surface)',
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                              }}
+                            >
+                              <img
+                                src={rec.start_odometer_photo_url}
+                                alt={t('Start Odometer Photo')}
+                                style={{ width: '100%', height: '92px', objectFit: 'cover', display: 'block' }}
+                              />
+                              <div style={{ padding: '4px 6px', fontSize: '10.5px', fontWeight: 700, color: 'var(--color-text-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span>{t('Start Odo')}</span>
+                                <span style={{ color: 'var(--color-samsung-blue-text)', fontSize: '10px' }}>{t('Tap to enlarge')}</span>
+                              </div>
+                            </button>
+                          ) : (
+                            <div style={{ padding: '14px 8px', borderRadius: '8px', border: '1px dashed var(--color-border)', textAlign: 'center', fontSize: '11px', color: 'var(--color-text-muted)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                              <Camera size={14} />
+                              <span>{t('No start photo')}</span>
+                            </div>
+                          )}
+
+                          {rec.end_odometer_photo_url ? (
+                            <button
+                              type="button"
+                              className="pressable"
+                              data-testid="audit-end-odo-photo"
+                              onClick={() =>
+                                setEnlargedPhotoModal({
+                                  src: rec.end_odometer_photo_url,
+                                  title: `${t('End Odometer Photo')} — #${rec.id}`,
+                                  subtitle: `${rec.registration_plate || ''} • ${rec.end_odometer ?? '-'} km (${rec.distance_km ?? 0} km)`,
+                                })
+                              }
+                              style={{
+                                padding: 0,
+                                border: '1px solid var(--color-border)',
+                                borderRadius: '8px',
+                                overflow: 'hidden',
+                                background: 'var(--color-bg-surface)',
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                              }}
+                            >
+                              <img
+                                src={rec.end_odometer_photo_url}
+                                alt={t('End Odometer Photo')}
+                                style={{ width: '100%', height: '92px', objectFit: 'cover', display: 'block' }}
+                              />
+                              <div style={{ padding: '4px 6px', fontSize: '10.5px', fontWeight: 700, color: 'var(--color-text-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span>{t('End Odo')}</span>
+                                <span style={{ color: 'var(--color-samsung-blue-text)', fontSize: '10px' }}>{t('Tap to enlarge')}</span>
+                              </div>
+                            </button>
+                          ) : (
+                            <div style={{ padding: '14px 8px', borderRadius: '8px', border: '1px dashed var(--color-border)', textAlign: 'center', fontSize: '11px', color: 'var(--color-text-muted)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                              <Camera size={14} />
+                              <span>{t('No end photo')}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
+                    {rec.transferred_to_trip_id && <div><strong>{t('Transferred To')}:</strong> #{rec.transferred_to_trip_id}</div>}
+                    {rec.transferred_from_trip_id && <div><strong>{t('Transferred From')}:</strong> #{rec.transferred_from_trip_id}</div>}
                     {rec.cancellation_reason && <div><strong>{t('Cancellation Reason')}:</strong> {rec.cancellation_reason}</div>}
                     {Array.isArray(rec.decisions) && rec.decisions.length > 0 && (
                       <div style={{ marginTop: '4px', paddingTop: '6px', borderTop: '1px solid var(--color-divider)' }}>
@@ -13681,13 +14022,11 @@ export function App() {
           (v.default_driver_name && v.default_driver_name.toLowerCase() === (user.nickname || '').toLowerCase())
       );
 
-      // Active calendar trips: merged from /api/schedule/calendar, /api/trips, and /api/bookings across all accounts
-      const rawCalendarSource = allActiveScheduleTrips;
+      // Calendar trips: all bookings (active + completed/cancelled/rejected/transferred history) for full usage audit
+      const rawCalendarSource = allCalendarAuditTrips;
       const otherBookedDateCounts = new Map<string, number>();
       const pad2Local = (n: number) => String(n).padStart(2, '0');
-      const activeCalendarTrips = rawCalendarSource.filter((t) => {
-        if (['COMPLETED', 'CANCELLED', 'REJECTED'].includes(String(t.status || '').toUpperCase())) return false;
-        if (String(t.booking_status || '').toUpperCase() === 'CANCELLED') return false;
+      const calendarTripsOnSelectedDate = rawCalendarSource.filter((t) => {
         const startD = new Date(t.start_time);
         const endD = new Date(t.end_time);
         if (!Number.isNaN(startD.getTime()) && !Number.isNaN(endD.getTime())) {
@@ -13704,6 +14043,7 @@ export function App() {
         }
         return String(t.start_time || '').startsWith(selectedDateStr);
       });
+      const activeCalendarTrips = calendarTripsOnSelectedDate.filter((t) => !isHistoryTripRecord(t));
       const otherBookedDates = Array.from(otherBookedDateCounts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 
       const nowMs = Date.now();
@@ -13718,7 +14058,7 @@ export function App() {
         }
         const startD = new Date(t.start_time);
         const endD = new Date(t.end_time || t.start_time);
-        const endMs = Math.max(endD.getTime(), startD.getTime() + 30 * 60_000);
+        const endMs = Math.max(endD.getTime(), startD.getTime() + 15 * 60_000);
         if (!isViewingToday || Number.isNaN(endMs) || endMs > nowMs) {
           busyVehicleIdsOnSelectedDate.add(Number(t.vehicle_id));
         }
@@ -13735,7 +14075,7 @@ export function App() {
           return v.status === 'Available' && !busyVehicleIdsOnSelectedDate.has(Number(v.id));
         }
         if (scheduleFilterTab === 'BOOKED') {
-          return activeCalendarTrips.some((t) => Number(t.vehicle_id) === Number(v.id));
+          return calendarTripsOnSelectedDate.some((t) => Number(t.vehicle_id) === Number(v.id));
         }
         return true;
       });
@@ -13866,10 +14206,11 @@ export function App() {
           {/* Google Calendar–style day view: one column per car & driver, bookings blocked from start → end with the booker's name */}
           <DriverScheduleCalendar
             vehicles={visibleVehicles}
-            trips={activeCalendarTrips}
+            trips={calendarTripsOnSelectedDate}
             dateStr={selectedDateStr}
             currentUserId={user.id}
             showContacts={isPrivileged}
+            showOdometerPhotos={isPrivileged || user.role === 'DRV'}
             onBookSlot={
               isDriverRole
                 ? undefined
@@ -15665,8 +16006,13 @@ export function App() {
                     2. {t('Departure & Return Time')}
                   </div>
                   <div style={{ fontSize: '12.5px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                    {new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → {new Date(bookEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({bookDurationHours}h)
+                    {new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → {new Date(bookEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({formatBookingDuration(bookStart, bookEnd, bookDurationHours)})
                   </div>
+                  {bookEndAutoEtaMin != null && bookReservationType === 'ONE_WAY' && (
+                    <div id="booking-eta-prefill-hint" style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--color-samsung-blue-text)', marginTop: '1px' }}>
+                      {t('Auto-filled from route ETA')} (~{bookEndAutoEtaMin} {t('min')}) · {t('Editable')}
+                    </div>
+                  )}
                 </div>
               </div>
               <button
@@ -15744,7 +16090,11 @@ export function App() {
                               }
                               const sIso = toLocalDateTimeInput(target);
                               setBookStart(sIso);
-                              const eMs = target.getTime() + bookDurationHours * 3600000;
+                              const etaMin = Number(calculatedRoute?.durationMin || 0);
+                              const eMs =
+                                !userEditedBookEndRef.current && bookReservationType === 'ONE_WAY' && etaMin > 0
+                                  ? computeEtaReturnMs(target.getTime(), etaMin)
+                                  : target.getTime() + bookDurationHours * 3600000;
                               setBookEnd(toLocalDateTimeInput(new Date(eMs)));
                               if (bookReservationType === 'DROP_AND_PICKUP') {
                                 setBookReturnPickupTime(toLocalDateTimeInput(new Date(eMs - 1800000)));
@@ -15800,7 +16150,12 @@ export function App() {
                               key={mode.id}
                               type="button"
                               className="pressable"
-                              onClick={() => setBookReservationType(mode.id)}
+                              onClick={() => {
+                                setBookReservationType(mode.id);
+                                if (mode.id === 'ONE_WAY') {
+                                  userEditedBookEndRef.current = false;
+                                }
+                              }}
                               style={{
                                 padding: '8px 6px',
                                 borderRadius: '10px',
@@ -15839,7 +16194,11 @@ export function App() {
                             if (e.target.value) {
                               const newStartMs = new Date(e.target.value).getTime();
                               if (!Number.isNaN(newStartMs)) {
-                                const newEndMs = newStartMs + bookDurationHours * 3600000;
+                                const etaMin = Number(calculatedRoute?.durationMin || 0);
+                                const newEndMs =
+                                  !userEditedBookEndRef.current && bookReservationType === 'ONE_WAY' && etaMin > 0
+                                    ? computeEtaReturnMs(newStartMs, etaMin)
+                                    : newStartMs + bookDurationHours * 3600000;
                                 setBookEnd(toLocalDateTimeInput(new Date(newEndMs)));
                                 if (bookReservationType === 'DROP_AND_PICKUP') {
                                   const curRpMs = bookReturnPickupTime ? new Date(bookReturnPickupTime).getTime() : NaN;
@@ -15874,7 +16233,7 @@ export function App() {
                                   const nextEndMs = rpMs + 3600000;
                                   setBookEnd(toLocalDateTimeInput(new Date(nextEndMs)));
                                   if (!Number.isNaN(sMs) && sMs > 0) {
-                                    setBookDurationHours(Math.max(1, Math.round((nextEndMs - sMs) / 3600000)));
+                                    setBookDurationHours(Math.max(0.25, Number(((nextEndMs - sMs) / 3600000).toFixed(2))));
                                   }
                                 }
                               }
@@ -15886,6 +16245,11 @@ export function App() {
                       <div>
                         <label className="type-caption" htmlFor="schedule-end" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
                           {t('Return Date & Time *')}
+                          {bookEndAutoEtaMin != null && bookReservationType === 'ONE_WAY' && (
+                            <span style={{ marginLeft: '6px', fontSize: '10px', color: 'var(--color-samsung-blue-text)' }}>
+                              ({t('Route ETA')})
+                            </span>
+                          )}
                         </label>
                         <input
                           id="schedule-end"
@@ -15894,9 +16258,14 @@ export function App() {
                           required
                           value={bookEnd}
                           onChange={(e) => {
+                            userEditedBookEndRef.current = true;
+                            setBookEndAutoEtaMin(null);
                             setBookEnd(e.target.value);
                             if (e.target.value && bookStart) {
-                              const diffHrs = Math.max(1, Math.round((new Date(e.target.value).getTime() - new Date(bookStart).getTime()) / 3600000));
+                              const diffHrs = Math.max(
+                                0.25,
+                                Number(((new Date(e.target.value).getTime() - new Date(bookStart).getTime()) / 3600000).toFixed(2))
+                              );
                               setBookDurationHours(diffHrs);
                             }
                           }}
@@ -16268,7 +16637,7 @@ export function App() {
               id="summary-schedule-row"
               icon={<Calendar size={18} />}
               title={t('Schedule & Reservation')}
-              subtitle={`${new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → ${new Date(bookEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${bookDurationHours}h) • ${formatReservationModeLabel(bookReservationType, bookReservationType === 'DROP_AND_PICKUP' ? bookReturnPickupTime : null) || 'Standard Trip'}`}
+              subtitle={`${new Date(bookStart).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} → ${new Date(bookEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${formatBookingDuration(bookStart, bookEnd, bookDurationHours)}) • ${formatReservationModeLabel(bookReservationType, bookReservationType === 'DROP_AND_PICKUP' ? bookReturnPickupTime : null) || 'Standard Trip'}`}
               showChevron
               onClick={() => setBookingStep('VEHICLE')}
             />

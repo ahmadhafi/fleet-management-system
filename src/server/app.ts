@@ -312,8 +312,8 @@ export function createApp() {
     res.json({
       status: 'ok',
       service: 'GalaxyFleet Corporate Fleet Management',
-      api_build: '2026-11-28-live-sync-v7',
-      features: ['negotiation_hydration', 'notification_respond_fallback', 'negotiate_route_aliases', 'different_location_transfer', 'multi_worker_sqljs_sync', 'gojek_topdown_cars', 'i18n_notifications', 'editable_vehicle_seats'],
+      api_build: '2026-11-28-live-sync-v8',
+      features: ['negotiation_hydration', 'notification_respond_fallback', 'negotiate_route_aliases', 'different_location_transfer', 'multi_worker_sqljs_sync', 'gojek_topdown_cars', 'i18n_notifications', 'editable_vehicle_seats', 'odometer_photos_admin', 'eta_prefill_schedule', 'calendar_full_audit_history'],
       uptime_sec: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
     });
@@ -336,7 +336,7 @@ export function createApp() {
       const mem = process.memoryUsage();
       res.json({
         status: dbCheck?.alive === 1 ? 'ready' : 'degraded',
-        api_build: '2026-11-28-live-sync-v7',
+        api_build: '2026-11-28-live-sync-v8',
         database: 'connected',
         sqlite_wal: true,
         memory: {
@@ -2395,6 +2395,9 @@ export function createApp() {
              COALESCE(d.name, 'Group') as department_name,
              v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.battery_percent, v.seats,
              b.id as booking_id, b.status as booking_status,
+             (SELECT b2.cancellation_reason FROM bookings b2 WHERE b2.trip_request_id = tr.id ORDER BY b2.id DESC LIMIT 1) as cancellation_reason,
+             (SELECT sn.transferred_trip_id FROM negotiation_requests sn WHERE sn.trip_request_id = tr.id AND sn.status = 'ACCEPTED' AND sn.transferred_trip_id IS NOT NULL ORDER BY sn.id DESC LIMIT 1) as transferred_to_trip_id,
+             (SELECT sn.trip_request_id FROM negotiation_requests sn WHERE sn.transferred_trip_id = tr.id AND sn.status = 'ACCEPTED' ORDER BY sn.id DESC LIMIT 1) as transferred_from_trip_id,
              a.id as assignment_id, a.driver_profile_id, a.acknowledged_at,
              dp.user_id as assigned_driver_user_id,
              dp.full_name as assigned_driver_name,
@@ -3618,30 +3621,36 @@ export function createApp() {
     const db = getDb();
     const user = req.user!;
     const canViewAllSchedules = user.role !== 'DRV';
+    const includeOdoPhotos = isPrivilegedRole(user) || user.role === 'DRV';
 
     const baseSelect = `
       SELECT tr.id, tr.requester_id, tr.department_id, tr.vehicle_id, tr.preferred_driver_id,
              tr.passenger_nickname, tr.passengers_json, tr.purpose, tr.origin, tr.destination,
              tr.start_time, tr.end_time, tr.passenger_count, tr.status, tr.reservation_type, tr.return_pickup_time,
+             tr.start_odometer, tr.end_odometer, tr.distance_km,
+             tr.start_odometer_time, tr.end_odometer_time,
+             tr.actual_start_time, tr.actual_end_time, tr.parking_return_note,
+             ${includeOdoPhotos ? 'tr.start_odometer_photo_url, tr.end_odometer_photo_url,' : 'NULL as start_odometer_photo_url, NULL as end_odometer_photo_url,'}
              u.nickname as requester_name,
              u.group_username as requester_username,
              u.contact_number as requester_contact,
              COALESCE(dp.contact_number, def_dp.contact_number) as assigned_driver_phone,
              COALESCE(d.name, 'Group') as department_name,
              v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.seats,
-             b.id as booking_id, b.status as booking_status,
+             b.id as booking_id, b.status as booking_status, b.cancellation_reason,
+             (SELECT sn.transferred_trip_id FROM negotiation_requests sn WHERE sn.trip_request_id = tr.id AND sn.status = 'ACCEPTED' AND sn.transferred_trip_id IS NOT NULL ORDER BY sn.id DESC LIMIT 1) as transferred_to_trip_id,
+             (SELECT sn.trip_request_id FROM negotiation_requests sn WHERE sn.transferred_trip_id = tr.id AND sn.status = 'ACCEPTED' ORDER BY sn.id DESC LIMIT 1) as transferred_from_trip_id,
              a.id as assignment_id, a.driver_profile_id,
              COALESCE(dp.full_name, def_dp.full_name, 'Pool Driver') as assigned_driver_name
       FROM trip_requests tr
       JOIN users u ON u.id = tr.requester_id
       LEFT JOIN departments d ON d.id = tr.department_id
       JOIN vehicles v ON v.id = tr.vehicle_id
-      LEFT JOIN bookings b ON b.trip_request_id = tr.id AND b.status NOT IN ('CANCELLED', 'COMPLETED')
-      LEFT JOIN assignments a ON a.trip_request_id = tr.id AND a.is_current = 1
+      LEFT JOIN bookings b ON b.id = (SELECT b2.id FROM bookings b2 WHERE b2.trip_request_id = tr.id ORDER BY b2.id DESC LIMIT 1)
+      LEFT JOIN assignments a ON a.id = (SELECT a2.id FROM assignments a2 WHERE a2.trip_request_id = tr.id ORDER BY a2.is_current DESC, a2.id DESC LIMIT 1)
       LEFT JOIN driver_profiles dp ON dp.id = a.driver_profile_id
       LEFT JOIN driver_profiles def_dp ON def_dp.id = v.default_driver_id
-      WHERE tr.status IN ('PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS')
-        AND (b.status IS NULL OR b.status NOT IN ('CANCELLED', 'COMPLETED'))
+      WHERE 1 = 1
     `;
 
     const tripRows =
@@ -3651,7 +3660,7 @@ export function createApp() {
             .all(user.driver_profile_id ?? -1, user.driver_profile_id ?? -1, user.driver_profile_id ?? -1)
         : db.prepare(`${baseSelect} ORDER BY tr.start_time ASC`).all();
 
-    // Also include standalone active bookings (created directly via /api/bookings without a trip_request_id)
+    // Also include standalone bookings (created directly via /api/bookings without a trip_request_id), including history for audit
     const standaloneQuery = `
       SELECT (-100000 - b.id) as id, b.booked_by as requester_id, u.department_id as department_id,
              b.vehicle_id, v.default_driver_id as preferred_driver_id,
@@ -3660,11 +3669,16 @@ export function createApp() {
              b.start_time, b.end_time, 1 as passenger_count,
              CASE WHEN b.status = 'ACTIVE' THEN 'APPROVED' ELSE b.status END as status,
              'ONE_WAY' as reservation_type, NULL as return_pickup_time,
+             NULL as start_odometer, NULL as end_odometer, NULL as distance_km,
+             NULL as start_odometer_time, NULL as end_odometer_time,
+             NULL as actual_start_time, NULL as actual_end_time, NULL as parking_return_note,
+             NULL as start_odometer_photo_url, NULL as end_odometer_photo_url,
              u.nickname as requester_name, u.group_username as requester_username, u.contact_number as requester_contact,
              def_dp.contact_number as assigned_driver_phone,
              COALESCE(d.name, 'Operations') as department_name,
              v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.seats,
-             b.id as booking_id, b.status as booking_status,
+             b.id as booking_id, b.status as booking_status, b.cancellation_reason,
+             NULL as transferred_to_trip_id, NULL as transferred_from_trip_id,
              NULL as assignment_id, v.default_driver_id as driver_profile_id,
              COALESCE(def_dp.full_name, 'Pool Driver') as assigned_driver_name
       FROM bookings b
@@ -3673,7 +3687,7 @@ export function createApp() {
       JOIN vehicles v ON v.id = b.vehicle_id
       LEFT JOIN driver_profiles def_dp ON def_dp.id = v.default_driver_id
       WHERE b.trip_request_id IS NULL
-        AND b.status IN ('PENDING_APPROVAL', 'ACTIVE', 'IN_PROGRESS')
+        AND b.status IN ('PENDING_APPROVAL', 'ACTIVE', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED')
     `;
     const standaloneRows =
       user.role === 'DRV'
@@ -3701,15 +3715,19 @@ export function createApp() {
              tr.passenger_nickname, tr.passengers_json, tr.purpose, tr.origin, tr.destination,
              tr.start_time, tr.end_time, tr.passenger_count, tr.status,
              tr.start_odometer, tr.end_odometer, tr.distance_km,
+             tr.start_odometer_photo_url, tr.end_odometer_photo_url,
+             tr.start_odometer_time, tr.end_odometer_time,
              tr.actual_start_time, tr.actual_end_time, tr.parking_return_note,
              tr.reservation_type, tr.return_pickup_time, tr.created_at, tr.updated_at,
              u.nickname as requester_name,
              u.group_username as requester_username,
              u.contact_number as requester_contact,
-             d.name as department_name,
+             COALESCE(d.name, 'Group') as department_name,
              v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.seats,
              (SELECT b.status FROM bookings b WHERE b.trip_request_id = tr.id ORDER BY b.id DESC LIMIT 1) as booking_status,
              (SELECT b.cancellation_reason FROM bookings b WHERE b.trip_request_id = tr.id ORDER BY b.id DESC LIMIT 1) as cancellation_reason,
+             (SELECT sn.transferred_trip_id FROM negotiation_requests sn WHERE sn.trip_request_id = tr.id AND sn.status = 'ACCEPTED' AND sn.transferred_trip_id IS NOT NULL ORDER BY sn.id DESC LIMIT 1) as transferred_to_trip_id,
+             (SELECT sn.trip_request_id FROM negotiation_requests sn WHERE sn.transferred_trip_id = tr.id AND sn.status = 'ACCEPTED' ORDER BY sn.id DESC LIMIT 1) as transferred_from_trip_id,
              COALESCE(
                (SELECT dp.full_name FROM assignments a JOIN driver_profiles dp ON dp.id = a.driver_profile_id WHERE a.trip_request_id = tr.id ORDER BY a.is_current DESC, a.id DESC LIMIT 1),
                def_dp.full_name,
@@ -3721,7 +3739,7 @@ export function createApp() {
              ) as assigned_driver_phone
       FROM trip_requests tr
       JOIN users u ON u.id = tr.requester_id
-      JOIN departments d ON d.id = tr.department_id
+      LEFT JOIN departments d ON d.id = tr.department_id
       JOIN vehicles v ON v.id = tr.vehicle_id
       LEFT JOIN driver_profiles def_dp ON def_dp.id = v.default_driver_id
     `;

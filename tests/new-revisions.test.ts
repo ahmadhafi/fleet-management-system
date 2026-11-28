@@ -2577,12 +2577,14 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
           });
         expect(okCompleteWithPhoto.status).toBe(200);
 
-        // 7. Once trip is COMPLETED (or CANCELLED), it is automatically removed from /api/schedule/calendar
+        // 7. Once trip is COMPLETED, it remains in /api/schedule/calendar for usage audit with status COMPLETED
         const calAfterComplete = await request(testApp)
           .get('/api/schedule/calendar')
           .set('Authorization', `Bearer ${localEmpToken}`);
         expect(calAfterComplete.status).toBe(200);
-        expect(calAfterComplete.body.scheduleTrips.some((t: any) => Number(t.id) === Number(rtTripId))).toBe(false);
+        const completedCalEntry = calAfterComplete.body.scheduleTrips.find((t: any) => Number(t.id) === Number(rtTripId));
+        expect(completedCalEntry).toBeTruthy();
+        expect(completedCalEntry.status).toBe('COMPLETED');
 
         // 8. Verify UI terminology ("Chauffeur" replaced by "Driver", Back buttons present, Auto-Accepted Order present)
         const appTsx = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf8');
@@ -4108,6 +4110,157 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
           .send({ decision: 'REJECT' });
         expect(rejRes.status).toBe(200);
         expect(rejRes.body.status).toBe('REJECTED');
+      });
+
+      it('exposes start/end odometer photos to Admin in calendar & audit APIs, keeps completed/cancelled/transferred trips on calendar for usage audit, and auto-prefills return time from route ETA', async () => {
+        resetDbForTesting(':memory:');
+        const testApp = createApp();
+        const { getDayScheduleEvents } = await import('../src/components/DriverScheduleCalendar.tsx');
+
+        const admLogin = await request(testApp).post('/api/auth/login').send({ group_username: 'admin', password: 'Admin@123' });
+        const empLogin = await request(testApp).post('/api/auth/login').send({ group_username: 'emp_alex', password: 'Emp@123' });
+        const saraLogin = await request(testApp).post('/api/auth/login').send({ group_username: 'emp_sara', password: 'Emp@123' });
+        const fmLogin = await request(testApp).post('/api/auth/login').send({ group_username: 'fleetmgr', password: 'Fleet@123' });
+        const drvLogin = await request(testApp).post('/api/auth/login').send({ group_username: 'drv_budi', password: 'Driver@123' });
+
+        const admTok = admLogin.body.token;
+        const empTok = empLogin.body.token;
+        const saraTok = saraLogin.body.token;
+        const fmTok = fmLogin.body.token;
+        const drvTok = drvLogin.body.token;
+
+        const vehRes = await request(testApp).get('/api/vehicles').set('Authorization', `Bearer ${admTok}`);
+        const veh1 = vehRes.body.vehicles[0];
+        const veh2 = vehRes.body.vehicles[1] || veh1;
+
+        const baseDay = new Date(Date.now() + 24 * 3600000);
+        baseDay.setHours(9, 0, 0, 0);
+        const start1 = baseDay.toISOString();
+        const end1 = new Date(baseDay.getTime() + 45 * 60000).toISOString();
+
+        // 1. Create, approve, start (with start odo photo), and complete (with end odo photo) Trip 1
+        const t1 = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${empTok}`)
+          .send({
+            vehicle_id: veh1.id,
+            purpose: 'Odo Photo & Calendar Audit Trip',
+            origin: 'HQ Lobby',
+            destination: 'SCBD Office',
+            start_time: start1,
+            end_time: end1,
+            passenger_count: 1,
+            passengers: [{ nickname: 'Alex' }],
+          });
+        expect(t1.status).toBe(201);
+        const trip1Id = Number(t1.body.trip.id);
+
+        await request(testApp)
+          .post(`/api/approvals/${trip1Id}/decision`)
+          .set('Authorization', `Bearer ${fmTok}`)
+          .send({ decision: 'APPROVED', vehicle_id: veh1.id });
+        await request(testApp)
+          .post(`/api/approvals/${trip1Id}/decision`)
+          .set('Authorization', `Bearer ${admTok}`)
+          .send({ decision: 'APPROVED', vehicle_id: veh1.id });
+
+        const startPhoto = 'data:image/jpeg;base64,/9j/START_ODO_SAMPLE==';
+        const endPhoto = 'data:image/jpeg;base64,/9j/END_ODO_SAMPLE==';
+        const sOdo = Number(veh1.current_odometer || 10000) + 5;
+        const eOdo = sOdo + 32;
+
+        const startRes = await request(testApp)
+          .post(`/api/driver/trips/${trip1Id}/start`)
+          .set('Authorization', `Bearer ${drvTok}`)
+          .send({ start_odometer: sOdo, start_odometer_photo: startPhoto });
+        expect(startRes.status).toBe(200);
+
+        const compRes = await request(testApp)
+          .post(`/api/driver/trips/${trip1Id}/complete`)
+          .set('Authorization', `Bearer ${drvTok}`)
+          .send({ end_odometer: eOdo, end_odometer_photo: endPhoto });
+        expect(compRes.status).toBe(200);
+
+        // 2. Create Trip 2 and transfer it via negotiation so we have a TRANSFERRED/CANCELLED history record + transferred target
+        const start2 = new Date(baseDay.getTime() + 3 * 3600000).toISOString();
+        const end2 = new Date(baseDay.getTime() + 4 * 3600000).toISOString();
+        const t2 = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${empTok}`)
+          .send({
+            vehicle_id: veh2.id,
+            purpose: 'Transferable Audit Trip',
+            origin: 'HQ Lobby',
+            destination: 'Jababeka Plant',
+            start_time: start2,
+            end_time: end2,
+            passenger_count: 1,
+            passengers: [{ nickname: 'Alex' }],
+          });
+        expect(t2.status).toBe(201);
+        const trip2Id = Number(t2.body.trip.id);
+
+        const negReq = await request(testApp)
+          .post(`/api/trips/${trip2Id}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({ action_type: 'REQUEST_CANCEL', passengers: ['Sara'], origin: 'HQ', destination: 'Airport' });
+        expect(negReq.status).toBe(201);
+        const negAccept = await request(testApp)
+          .post(`/api/negotiations/${negReq.body.negotiationId}/respond`)
+          .set('Authorization', `Bearer ${empTok}`)
+          .send({ decision: 'ACCEPT' });
+        expect(negAccept.status).toBe(200);
+        const transferredTripId = Number(negAccept.body.transferredTripId);
+        expect(transferredTripId).toBeGreaterThan(0);
+
+        // 3. Admin /api/schedule/calendar returns COMPLETED + TRANSFERRED/CANCELLED + new transferred trip WITH odometer photos
+        const admCal = await request(testApp).get('/api/schedule/calendar').set('Authorization', `Bearer ${admTok}`);
+        expect(admCal.status).toBe(200);
+        const calTrips = admCal.body.scheduleTrips as any[];
+        const completedEntry = calTrips.find((x) => Number(x.id) === trip1Id);
+        expect(completedEntry).toBeTruthy();
+        expect(completedEntry.status).toBe('COMPLETED');
+        expect(completedEntry.start_odometer).toBe(sOdo);
+        expect(completedEntry.end_odometer).toBe(eOdo);
+        expect(completedEntry.distance_km).toBe(32);
+        expect(completedEntry.start_odometer_photo_url).toBe(startPhoto);
+        expect(completedEntry.end_odometer_photo_url).toBe(endPhoto);
+
+        const transferredOrig = calTrips.find((x) => Number(x.id) === trip2Id);
+        expect(transferredOrig).toBeTruthy();
+        expect(transferredOrig.status).toBe('CANCELLED');
+        expect(Number(transferredOrig.transferred_to_trip_id)).toBe(transferredTripId);
+
+        const transferredNew = calTrips.find((x) => Number(x.id) === transferredTripId);
+        expect(transferredNew).toBeTruthy();
+        expect(Number(transferredNew.transferred_from_trip_id)).toBe(trip2Id);
+
+        // 4. Admin /api/schedule/audit also includes both odometer photos & transfer links
+        const admAudit = await request(testApp).get('/api/schedule/audit?status=ALL').set('Authorization', `Bearer ${admTok}`);
+        expect(admAudit.status).toBe(200);
+        const auditCompleted = (admAudit.body.records as any[]).find((x) => Number(x.id) === trip1Id);
+        expect(auditCompleted).toBeTruthy();
+        expect(auditCompleted.start_odometer_photo_url).toBe(startPhoto);
+        expect(auditCompleted.end_odometer_photo_url).toBe(endPhoto);
+
+        // 5. getDayScheduleEvents keeps completed & transferred trips on the calendar with isHistory / isTransferred flags
+        const pad2 = (n: number) => String(n).padStart(2, '0');
+        const dateStr = `${baseDay.getFullYear()}-${pad2(baseDay.getMonth() + 1)}-${pad2(baseDay.getDate())}`;
+        const dayEvents = getDayScheduleEvents(calTrips, dateStr);
+        const evCompleted = dayEvents.find((e) => Number(e.trip.id) === trip1Id);
+        const evTransferred = dayEvents.find((e) => Number(e.trip.id) === trip2Id);
+        expect(evCompleted?.isHistory).toBe(true);
+        expect(evTransferred?.isHistory).toBe(true);
+        expect(evTransferred?.isTransferred).toBe(true);
+
+        // 6. Verify App.tsx has route ETA auto-prefill (editable) & odometer photo lightbox hooks
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const appTsx = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf-8');
+        expect(appTsx).toContain('computeEtaReturnMs');
+        expect(appTsx).toContain('userEditedBookEndRef');
+        expect(appTsx).toContain('id="audit-odometer-photos"');
+        expect(appTsx).toContain('id="odometer-photo-lightbox"');
       });
     });
   });
