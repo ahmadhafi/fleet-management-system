@@ -116,14 +116,95 @@ export const SAMSUNG_JABABEKA_FACILITY = {
 };
 
 const QUICK_CORPORATE_POIS = [
-  { label: 'Samsung Jababeka (SEIN)', name: 'PT Samsung Electronics Indonesia - Jababeka Plant', address: 'Jl. Jababeka Raya Blok F. 29 No.31, Harja Mekar, Kec. Cikarang Utara, Kabupaten Bekasi, Jawa Barat 17530', lat: -6.287549, lon: 107.1356063 },
-  { label: 'Plant 1 (Sunter)', name: 'Manufacturing Plant 1', address: 'Jl. Danau Sunter Barat No. 8, Sunter Jaya, Jakarta Utara', lat: -6.13842, lon: 106.88561 },
-  { label: 'Plant 2 (Karawang)', name: 'Manufacturing Plant 2', address: 'Kawasan Industri KIIC Lot A-1, Telukjambe Timur, Karawang Barat', lat: -6.34789, lon: 107.28912 },
-  { label: 'Central Pool', name: 'Central Fleet Pool & Operations Base', address: 'Jl. Rawa Gelam IV No. 2, Kawasan Industri Pulogadung, Jakarta Timur', lat: -6.19834, lon: 106.88873 },
-  { label: 'SCBD Head Office', name: 'Head Office - SCBD District 8', address: 'District 8 SCBD, Treasury Tower Lt. 35, Jl. Jend. Sudirman Kav. 52-53, Jakarta Selatan', lat: -6.22728, lon: 106.80816 },
-  { label: 'Soekarno-Hatta (CGK)', name: 'Bandara Internasional Soekarno-Hatta (CGK) - Terminal 3', address: 'Bandara Soekarno-Hatta Terminal 3 Ultimate, Benda, Kota Tangerang', lat: -6.12556, lon: 106.65589 },
-  { label: 'Whoosh Halim (KCIC)', name: 'Stasiun Kereta Cepat Whoosh Halim (KCIC)', address: 'Jl. Akses Stasiun Kereta Cepat Halim, Makasar, Jakarta Timur', lat: -6.24876, lon: 106.88765 },
-  { label: 'Cikarang Hub', name: 'Cikarang Assembly Plant', address: 'Greenland International Industrial Center (GIIC), Deltamas, Cikarang Pusat', lat: -6.37521, lon: 107.16834 },
+  {
+    label: 'PT ShinHeung Indonesia I (Lippo)',
+    name: 'PT ShinHeung Indonesia I (Lippo)',
+    tag: 'Lippo',
+    sub: 'Cikarang Selatan, Bekasi',
+    address: 'Jl. Inti I Blok C 3 No.2, Cibatu, Cikarang Selatan, Kabupaten Bekasi, Jawa Barat 17530',
+    lat: -6.335926,
+    lon: 107.135425,
+    mapsUrl: 'https://maps.app.goo.gl/2s3r49HDxX31nbZNA?g_st=ac',
+  },
+  {
+    label: 'PT ShinHeung Indonesia II (Jurong)',
+    name: 'PT ShinHeung Indonesia II (Jurong)',
+    tag: 'Jurong',
+    sub: 'Jababeka III, Cikarang Utara',
+    address: 'Kawasan Industri Jababeka III, Jl. Tekno Raya Blok A-5A, Pasir Gombong, Cikarang Utara, Bekasi 17530',
+    lat: -6.282772,
+    lon: 107.156785,
+    mapsUrl: 'https://maps.app.goo.gl/MQyPAuSYpgE9aNdV6?g_st=ac',
+  },
+  {
+    label: 'PT DaeHwa',
+    name: 'PT DaeHwa',
+    tag: 'DaeHwa',
+    sub: 'Mekarmukti, Cikarang Utara',
+    address: 'Jl. Industri Utara IV, Mekarmukti, Cikarang Utara, Kabupaten Bekasi, Jawa Barat 17530',
+    lat: -6.298682,
+    lon: 107.159264,
+    mapsUrl: 'https://maps.app.goo.gl/Hqv5sC5WGR7M14ik7?g_st=ac',
+  },
+  {
+    label: 'PT Longvin Indonesia',
+    name: 'PT Longvin Indonesia',
+    tag: 'Longvin',
+    sub: 'Parungkuda, Sukabumi',
+    address: 'Jl. Siliwangi Kp. Palagan, Bojong Kokosan, Parungkuda, Kabupaten Sukabumi, Jawa Barat 43157',
+    lat: -6.826819,
+    lon: 106.758685,
+    mapsUrl: 'https://maps.app.goo.gl/kKjtkU2o8atKyMci9?g_st=ac',
+  },
+  {
+    label: 'PT Samsung Electronics Indonesia Sales (SEIN-S)',
+    name: 'PT Samsung Electronics Indonesia Sales (SEIN-S)',
+    tag: 'SEIN-S',
+    sub: 'Karet Tengsin, Jakarta Pusat',
+    address: 'Jl. K.H. Mas Mansyur No.126, Karet Tengsin, Tanah Abang, Jakarta Pusat 10220',
+    lat: -6.210764,
+    lon: 106.817327,
+    mapsUrl: 'https://maps.app.goo.gl/kfoE4RLXgMkdFLsD6?g_st=ac',
+  },
+  {
+    label: 'PT Samsung Research Indonesia (SRIN)',
+    name: 'PT Samsung Research Indonesia (SRIN)',
+    tag: 'SRIN',
+    sub: 'Wisma GKBI, Sudirman',
+    address: 'Wisma GKBI Lt. 26, Jl. Jend. Sudirman No. 28, Bendungan Hilir, Tanah Abang, Jakarta Pusat 10210',
+    lat: -6.217587,
+    lon: 106.813037,
+    mapsUrl: 'https://maps.app.goo.gl/hEsBnzeycz12dVvdA?g_st=ac',
+  },
+  {
+    label: 'Samsung SDS Indonesia',
+    name: 'Samsung SDS Indonesia',
+    tag: 'SDS',
+    sub: 'Wisma GKBI, Sudirman',
+    address: 'Wisma GKBI, Jl. Jend. Sudirman No. 28, Bendungan Hilir, Tanah Abang, Jakarta Pusat 10210',
+    lat: -6.217587,
+    lon: 106.813037,
+    mapsUrl: 'https://maps.app.goo.gl/hEsBnzeycz12dVvdA?g_st=ac',
+  },
+  {
+    label: 'Samsung Electronics Indonesia Factory (SEIN-P)',
+    name: 'Samsung Electronics Indonesia Factory (SEIN-P)',
+    tag: 'SEIN-P',
+    sub: 'Jababeka Factory, Cikarang',
+    address: 'Jl. Jababeka Raya Blok F. 29 No.31, Harja Mekar, Kec. Cikarang Utara, Kabupaten Bekasi, Jawa Barat 17530',
+    lat: -6.288812,
+    lon: 107.134738,
+    mapsUrl: 'https://maps.app.goo.gl/eCrM8e4eEqwYsv7BA?g_st=ac',
+  },
+  {
+    label: 'Soekarno-Hatta (CGK)',
+    name: 'Bandara Internasional Soekarno-Hatta (CGK) - Terminal 3',
+    tag: 'Airport',
+    sub: 'Terminal 3 Ultimate (CGK)',
+    address: 'Bandara Soekarno-Hatta Terminal 3 Ultimate, Benda, Kota Tangerang',
+    lat: -6.12556,
+    lon: 106.65589,
+  },
 ];
 
 type BookingStep = 'HOME' | 'ROUTE' | 'VEHICLE' | 'SUMMARY' | 'WAITING' | 'IN_TRIP' | 'SCHEDULE_VIEW';
@@ -15053,50 +15134,25 @@ export function App() {
               <h3 style={{ fontSize: '15.5px', fontWeight: 800, margin: 0 }}>{t('Quick Destinations')}</h3>
 
               <div className="gf-gojek-dest-grid">
-                {[
-                  {
-                    poi: QUICK_CORPORATE_POIS[3],
-                    tag: 'Head Office',
-                    title: 'SCBD Head Office',
-                    sub: 'District 8, Sudirman',
-                  },
-                  {
-                    poi: QUICK_CORPORATE_POIS[4],
-                    tag: 'Airport VIP',
-                    title: 'Soekarno-Hatta T3',
-                    sub: 'Terminal 3 Ultimate',
-                  },
-                  {
-                    poi: QUICK_CORPORATE_POIS[0],
-                    tag: 'Plant 1',
-                    title: 'Plant 1 Sunter',
-                    sub: 'Manufacturing Plant',
-                  },
-                  {
-                    poi: QUICK_CORPORATE_POIS[1],
-                    tag: 'Plant 2',
-                    title: 'Plant 2 Karawang',
-                    sub: 'KIIC Industrial Area',
-                  },
-                ].map((item, idx) => (
+                {QUICK_CORPORATE_POIS.map((poi, idx) => (
                   <button
-                    key={idx}
+                    key={poi.label || idx}
                     type="button"
                     className="gf-gojek-dest-item pressable"
                     onClick={() =>
                       requireLocationBeforeCarUse(() => {
-                        setBookDest(item.poi.name);
-                        setDestCoords({ lat: item.poi.lat, lon: item.poi.lon });
+                        setBookDest(poi.name);
+                        setDestCoords({ lat: poi.lat, lon: poi.lon });
                         setBookReservationType('ONE_WAY');
                         setBookingStep('VEHICLE');
                         setSheetSnap('half');
                       })
                     }
                   >
-                    <span className="gf-gojek-dest-tag">{t(item.tag)}</span>
+                    <span className="gf-gojek-dest-tag">{poi.tag}</span>
                     <div style={{ marginTop: '6px' }}>
-                      <div style={{ fontWeight: 800, fontSize: '13.5px', lineHeight: 1.25 }}>{t(item.title)}</div>
-                      <div className="type-caption" style={{ marginTop: '2px', fontSize: '11px' }}>{t(item.sub)}</div>
+                      <div style={{ fontWeight: 800, fontSize: '13px', lineHeight: 1.25 }}>{poi.label}</div>
+                      <div className="type-caption" style={{ marginTop: '2px', fontSize: '11px' }}>{poi.sub}</div>
                     </div>
                   </button>
                 ))}
@@ -15233,15 +15289,9 @@ export function App() {
         );
       }
 
-      // PROTOTYPE SCREEN 2: CAR BOOKING LANDING (Reference: 1794990260264.jpg in Samsung Blue)
-      const primaryPoi = QUICK_CORPORATE_POIS[0] || {
-        name: 'Manufacturing Plant 1',
-        label: 'Plant 1 (Sunter)',
-        address: 'Jl. Danau Sunter Barat No. 8, Sunter Jaya, Jakarta Utara',
-        lat: -6.1436,
-        lon: 106.8691,
-      };
-      const secondaryPois = (recentPlacesList.length > 1 ? recentPlacesList.slice(1, 4) : QUICK_CORPORATE_POIS.slice(1, 4));
+      // PROTOTYPE SCREEN 2: CAR BOOKING LANDING
+      const primaryPoi = QUICK_CORPORATE_POIS[7] || QUICK_CORPORATE_POIS[0];
+      const secondaryPois = recentPlacesList.length > 1 ? recentPlacesList.slice(1, 5) : QUICK_CORPORATE_POIS.filter((p) => p !== primaryPoi);
 
       return (
         <div className="gf-proto-land-shell">
