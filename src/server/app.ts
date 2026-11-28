@@ -312,8 +312,8 @@ export function createApp() {
     res.json({
       status: 'ok',
       service: 'GalaxyFleet Corporate Fleet Management',
-      api_build: '2026-11-28-live-sync-v5',
-      features: ['negotiation_hydration', 'notification_respond_fallback', 'negotiate_route_aliases', 'different_location_transfer', 'multi_worker_sqljs_sync', 'gojek_topdown_cars', 'i18n_notifications'],
+      api_build: '2026-11-28-live-sync-v6',
+      features: ['negotiation_hydration', 'notification_respond_fallback', 'negotiate_route_aliases', 'different_location_transfer', 'multi_worker_sqljs_sync', 'gojek_topdown_cars', 'i18n_notifications', 'editable_vehicle_seats'],
       uptime_sec: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
     });
@@ -336,7 +336,7 @@ export function createApp() {
       const mem = process.memoryUsage();
       res.json({
         status: dbCheck?.alive === 1 ? 'ready' : 'degraded',
-        api_build: '2026-11-28-live-sync-v5',
+        api_build: '2026-11-28-live-sync-v6',
         database: 'connected',
         sqlite_wal: true,
         memory: {
@@ -2001,6 +2001,12 @@ export function createApp() {
       return;
     }
 
+    const nextSeats = seats !== undefined && seats !== '' ? Number(seats) : Number(prev.seats);
+    if (!Number.isInteger(nextSeats) || nextSeats < 1 || nextSeats > 50) {
+      res.status(400).json({ error: 'seats must be an integer between 1 and 50' });
+      return;
+    }
+
     const nextDefaultDriver =
       default_driver_id !== undefined
         ? default_driver_id
@@ -2032,7 +2038,7 @@ export function createApp() {
       car_type !== undefined ? String(car_type).trim() : String(prev.car_type),
       year !== undefined ? Number(year) : Number(prev.year),
       nextEnergy,
-      seats !== undefined ? Number(seats) : Number(prev.seats),
+      nextSeats,
       current_odometer !== undefined ? Number(current_odometer) : Number(prev.current_odometer),
       battery_percent !== undefined ? (battery_percent === null ? null : Number(battery_percent)) : (prev.battery_percent === null ? null : Number(prev.battery_percent)),
       nextStatus,
@@ -2732,6 +2738,17 @@ export function createApp() {
             throw err;
           }
         } else {
+          const vehCapacityRow = db
+            .prepare('SELECT id, registration_plate, seats FROM vehicles WHERE id = ?')
+            .get(resolvedVehicleId) as { id: number; registration_plate: string; seats: number } | undefined;
+          if (vehCapacityRow) {
+            const maxVehSeats = Number(vehCapacityRow.seats || 5);
+            if (pax > maxVehSeats) {
+              const err = new Error(`Vehicle ${vehCapacityRow.registration_plate} supports at most ${maxVehSeats} passenger(s).`);
+              (err as Error & { status?: number }).status = 400;
+              throw err;
+            }
+          }
           const vConflict = checkVehicleConflict(db, resolvedVehicleId, start_time, end_time);
           if (vConflict.hasConflict) {
             const err = new Error(vConflict.reason || 'Vehicle conflict');
@@ -3922,7 +3939,7 @@ export function createApp() {
         return;
       }
 
-      const maxSeats = Number(trip.seats || 7);
+      const maxSeats = Number(trip.seats || 5);
       const remainingSeats = Math.max(0, maxSeats - currentPax.length);
       if (remainingSeats <= 0) {
         res.status(400).json({ error: `Vehicle ${trip.registration_plate} is already at full passenger capacity (${maxSeats} seats).` });
@@ -4016,7 +4033,7 @@ export function createApp() {
     }
 
     const cancelPaxList = parseRequestedPax(req.body?.passengers, passenger_nickname, user.nickname);
-    const maxSeatsForCancel = Number(trip.seats || 7);
+    const maxSeatsForCancel = Number(trip.seats || 5);
     if (cancelPaxList.length > maxSeatsForCancel) {
       res.status(400).json({ error: `Vehicle ${trip.registration_plate} supports at most ${maxSeatsForCancel} passenger(s).` });
       return;
@@ -4529,7 +4546,7 @@ export function createApp() {
         }
       }
 
-      const maxSeats = Number(trip.seats || 7);
+      const maxSeats = Number(trip.seats || 5);
       if (currentList.length + toAdd.length > maxSeats) {
         const remaining = Math.max(0, maxSeats - currentList.length);
         res.status(400).json({ error: `Vehicle ${trip.registration_plate} only has ${remaining} seat(s) remaining (${maxSeats} seats max)` });
@@ -4611,7 +4628,7 @@ export function createApp() {
       db.prepare('UPDATE assignments SET is_current = 0 WHERE trip_request_id = ? AND is_current = 1').run(trip.id);
 
       // 2. Build swapped passenger list strictly from the requesting user's passenger(s)
-      const maxSeats = Number(trip.seats || 7);
+      const maxSeats = Number(trip.seats || 5);
       const rawSwapped = String(nr.passenger_nickname || nr.requester_name || 'Employee')
         .split(/[,\n]+/)
         .map((s) => s.replace(/^\d+\.\s*/, '').trim())
@@ -4939,7 +4956,7 @@ export function createApp() {
       return;
     }
 
-    const maxSeats = Number(trip.seats || 7);
+    const maxSeats = Number(trip.seats || 5);
     if (currentList.length + toAdd.length > maxSeats) {
       const remaining = Math.max(0, maxSeats - currentList.length);
       res.status(400).json({ error: `Vehicle ${trip.registration_plate} only has ${remaining} seat(s) remaining (${maxSeats} seats max)` });

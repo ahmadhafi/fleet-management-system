@@ -3945,6 +3945,119 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(translateNotificationText(bodySample, 'id')).toContain('Rute Baru (Lokasi Berbeda):');
         expect(translateNotificationText(bodySample, 'ko')).toContain('새 경로 (다른 위치):');
       });
+
+      it('allows Admin to edit vehicle seat capacity and enforces the car seat limit on booking, hitchhike, and cancel/transfer', async () => {
+        const testApp = createApp();
+        const admLogin = await request(testApp)
+          .post('/api/auth/login')
+          .send({ group_username: 'admin', password: 'Admin@123' });
+        expect(admLogin.status).toBe(200);
+        const admTok = admLogin.body.token;
+
+        const alexLogin = await request(testApp)
+          .post('/api/auth/login')
+          .send({ group_username: 'emp_alex', password: 'Emp@123' });
+        const saraLogin = await request(testApp)
+          .post('/api/auth/login')
+          .send({ group_username: 'emp_sara', password: 'Emp@123' });
+        const alexTok = alexLogin.body.token;
+        const saraTok = saraLogin.body.token;
+
+        // Pick a 7-seat vehicle and reduce its capacity to 4 seats via Admin Edit Vehicle
+        const vehList = await request(testApp).get('/api/vehicles').set('Authorization', `Bearer ${admTok}`);
+        const mpv = vehList.body.vehicles.find((v: any) => Number(v.seats) === 7);
+        expect(mpv).toBeTruthy();
+
+        // Invalid seat count rejected
+        const badSeats = await request(testApp)
+          .patch(`/api/vehicles/${mpv.id}`)
+          .set('Authorization', `Bearer ${admTok}`)
+          .send({ seats: 0 });
+        expect(badSeats.status).toBe(400);
+
+        // Admin reduces seat capacity to 4
+        const reduceRes = await request(testApp)
+          .patch(`/api/vehicles/${mpv.id}`)
+          .set('Authorization', `Bearer ${admTok}`)
+          .send({ seats: 4 });
+        expect(reduceRes.status).toBe(200);
+        expect(Number(reduceRes.body.vehicle.seats)).toBe(4);
+
+        const start = new Date(Date.now() + 9 * 3600_000).toISOString();
+        const end = new Date(Date.now() + 10 * 3600_000).toISOString();
+
+        // Booking with 5 passengers on a 4-seat car is rejected
+        const overBook = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({
+            vehicle_id: mpv.id,
+            purpose: 'Overcapacity Check',
+            origin: 'HQ',
+            destination: 'Plant 1',
+            start_time: start,
+            end_time: end,
+            passenger_count: 5,
+            passengers: [{ nickname: 'A' }, { nickname: 'B' }, { nickname: 'C' }, { nickname: 'D' }, { nickname: 'E' }],
+          });
+        expect(overBook.status).toBe(400);
+
+        // Booking with 2 passengers succeeds
+        const validBook = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({
+            vehicle_id: mpv.id,
+            purpose: 'Valid 2-Pax Booking',
+            origin: 'HQ',
+            destination: 'Plant 1',
+            start_time: start,
+            end_time: end,
+            passenger_count: 2,
+            passengers: [{ nickname: 'Alex' }, { nickname: 'Dina' }],
+          });
+        expect(validBook.status).toBe(201);
+        const tripId = Number(validBook.body.trip.id);
+
+        // Hitchhike with 3 passengers (2+3 = 5 > 4) is rejected
+        const overHitch = await request(testApp)
+          .post(`/api/trips/${tripId}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({ action_type: 'HITCHHIKE', passengers: ['Sara', 'Tito', 'Riza'] });
+        expect(overHitch.status).toBe(400);
+
+        // Cancel/Transfer with 5 passengers (> 4 seats) is rejected
+        const overTransfer = await request(testApp)
+          .post(`/api/trips/${tripId}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({
+            action_type: 'REQUEST_CANCEL',
+            passengers: ['Sara', 'Tito', 'Riza', 'Joshua', 'Budi'],
+            origin: 'HQ',
+            destination: 'CGK',
+          });
+        expect(overTransfer.status).toBe(400);
+
+        // Cancel/Transfer with 4 passengers (== 4 seats) succeeds
+        const okTransfer = await request(testApp)
+          .post(`/api/trips/${tripId}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({
+            action_type: 'REQUEST_CANCEL',
+            passengers: ['Sara', 'Tito', 'Riza', 'Joshua'],
+            origin: 'HQ',
+            destination: 'CGK',
+          });
+        expect(okTransfer.status).toBe(201);
+
+        // Admin increases seat capacity back to 5
+        const incRes = await request(testApp)
+          .patch(`/api/vehicles/${mpv.id}`)
+          .set('Authorization', `Bearer ${admTok}`)
+          .send({ seats: 5 });
+        expect(incRes.status).toBe(200);
+        expect(Number(incRes.body.vehicle.seats)).toBe(5);
+      });
     });
   });
 });

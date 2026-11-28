@@ -702,7 +702,7 @@ export function App() {
     year: String(new Date().getFullYear()),
     vin: '',
     energy_type: 'Gasoline' as 'Gasoline' | 'Electric',
-    seats: '7',
+    seats: '5',
     current_odometer: '0',
     battery_percent: '100',
     last_parking_spot: '',
@@ -2737,6 +2737,22 @@ export function App() {
       setStatusBanner({ type: 'danger', text: t('Please enter your passenger nickname to hitchhike.') });
       return;
     }
+    const matchedVehForSubmit = vehicles.find((v) => Number(v.id) === Number(negotiationModalTrip.vehicle_id));
+    const maxSeatsForSubmit = Number(matchedVehForSubmit?.seats || negotiationModalTrip.seats || 5);
+    const existingPaxCountForSubmit =
+      extractIndividualPassengers(negotiationModalTrip.passengers_json, negotiationModalTrip.passenger_nickname).length ||
+      Number(negotiationModalTrip.passenger_count || 1);
+    const maxAllowedPax =
+      negotiationActionType === 'HITCHHIKE'
+        ? Math.max(0, maxSeatsForSubmit - existingPaxCountForSubmit)
+        : maxSeatsForSubmit;
+    if (uniquePax.length > maxAllowedPax) {
+      setStatusBanner({
+        type: 'danger',
+        text: `${t('Passenger count exceeds this car seat capacity.')} (${maxAllowedPax} ${t('seats')})`,
+      });
+      return;
+    }
     const resolvedOrigin =
       negotiationActionType === 'REQUEST_CANCEL'
         ? (negotiationLocationMode === 'DIFFERENT' ? negotiationOrigin.trim() : String(negotiationModalTrip.origin || '').trim()) || String(negotiationModalTrip.origin || '').trim()
@@ -3240,7 +3256,7 @@ export function App() {
         year: String(new Date().getFullYear()),
         vin: '',
         energy_type: 'Gasoline',
-        seats: '7',
+        seats: '5',
         current_odometer: '0',
         battery_percent: '100',
         last_parking_spot: '',
@@ -3453,7 +3469,7 @@ export function App() {
         model: b.model || '',
         car_type: b.car_type || '',
         energy_type: b.energy_type || '',
-        seats: b.seats || 7,
+        seats: Number(vehicles.find((v) => Number(v.id) === Number(b.vehicle_id))?.seats || b.seats || 5),
         origin: b.origin || '',
         destination: b.destination || b.purpose || 'Operational Trip',
         purpose: b.purpose || '',
@@ -4286,6 +4302,62 @@ export function App() {
                     onChange={(e) => setEditingVehicle({ ...editingVehicle, model: e.target.value })}
                   />
                 </div>
+              </div>
+              <div>
+                <label className="type-caption" htmlFor="edit-vehicle-seats-input" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  {t('Passenger Seat Capacity')} *
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    id="edit-vehicle-seats-dec"
+                    type="button"
+                    className="gf-btn gf-btn-secondary pressable"
+                    style={{ minWidth: '40px', padding: '0 12px', fontWeight: 800, fontSize: '16px' }}
+                    aria-label="Decrease seat capacity"
+                    onClick={() =>
+                      setEditingVehicle({
+                        ...editingVehicle,
+                        seats: Math.max(1, Number(editingVehicle.seats || 5) - 1),
+                      })
+                    }
+                  >
+                    -
+                  </button>
+                  <input
+                    id="edit-vehicle-seats-input"
+                    type="number"
+                    className="gf-input mono"
+                    min={1}
+                    max={50}
+                    required
+                    style={{ textAlign: 'center', fontWeight: 700 }}
+                    value={editingVehicle.seats ?? 5}
+                    onChange={(e) =>
+                      setEditingVehicle({
+                        ...editingVehicle,
+                        seats: Math.max(1, Math.min(50, Number(e.target.value) || 1)),
+                      })
+                    }
+                  />
+                  <button
+                    id="edit-vehicle-seats-inc"
+                    type="button"
+                    className="gf-btn gf-btn-secondary pressable"
+                    style={{ minWidth: '40px', padding: '0 12px', fontWeight: 800, fontSize: '16px' }}
+                    aria-label="Increase seat capacity"
+                    onClick={() =>
+                      setEditingVehicle({
+                        ...editingVehicle,
+                        seats: Math.min(50, Number(editingVehicle.seats || 5) + 1),
+                      })
+                    }
+                  >
+                    +
+                  </button>
+                </div>
+                <p className="type-caption" style={{ marginTop: '3px', color: 'var(--color-text-secondary)' }}>
+                  {t('Maximum passenger seats allowed for booking, hitchhike, and slot transfer.')}
+                </p>
               </div>
               <div>
                 <label className="type-caption" style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>Operational Status</label>
@@ -7005,7 +7077,7 @@ export function App() {
 
               {(() => {
                 const matchedVeh = vehicles.find((v) => Number(v.id) === Number(negotiationModalTrip.vehicle_id));
-                const maxSeats = Number(negotiationModalTrip.seats || matchedVeh?.seats || 7);
+                const maxSeats = Number(matchedVeh?.seats || negotiationModalTrip.seats || 5);
                 const existingNames = extractIndividualPassengers(negotiationModalTrip.passengers_json, negotiationModalTrip.passenger_nickname);
                 const currentPaxCount = existingNames.length || Number(negotiationModalTrip.passenger_count || 1);
                 const isHitchhike = negotiationActionType === 'HITCHHIKE';
@@ -7025,7 +7097,7 @@ export function App() {
                         style={{
                           fontSize: '11.5px',
                           fontWeight: 800,
-                          color: seatLimit > 0 ? '#0072de' : '#dc2626',
+                          color: seatLimit > 0 && totalRequested <= seatLimit ? '#0072de' : '#dc2626',
                         }}
                       >
                         {isHitchhike
@@ -7149,16 +7221,16 @@ export function App() {
                   type="submit"
                   className="gf-btn gf-btn-primary"
                   style={{ flex: 1.4 }}
-                  disabled={
-                    negotiationSubmitting ||
-                    (negotiationActionType === 'HITCHHIKE' &&
-                      Math.max(
-                        0,
-                        Number(negotiationModalTrip.seats || vehicles.find((v) => Number(v.id) === Number(negotiationModalTrip.vehicle_id))?.seats || 7) -
-                          (extractIndividualPassengers(negotiationModalTrip.passengers_json, negotiationModalTrip.passenger_nickname).length ||
-                            Number(negotiationModalTrip.passenger_count || 1))
-                      ) <= 0)
-                  }
+                  disabled={(() => {
+                    if (negotiationSubmitting) return true;
+                    const matchedVeh = vehicles.find((v) => Number(v.id) === Number(negotiationModalTrip.vehicle_id));
+                    const maxSeats = Number(matchedVeh?.seats || negotiationModalTrip.seats || 5);
+                    const currentPaxCount =
+                      extractIndividualPassengers(negotiationModalTrip.passengers_json, negotiationModalTrip.passenger_nickname).length ||
+                      Number(negotiationModalTrip.passenger_count || 1);
+                    const seatLimit = negotiationActionType === 'HITCHHIKE' ? Math.max(0, maxSeats - currentPaxCount) : maxSeats;
+                    return seatLimit <= 0 || 1 + negotiationExtraPassengers.length > seatLimit;
+                  })()}
                 >
                   {negotiationSubmitting
                     ? t('Sending...')
@@ -15898,7 +15970,7 @@ export function App() {
                 <label className="type-caption" style={{ fontWeight: 700 }}>
                   {t('Passengers Name (1, 2, 3...)')} *
                 </label>
-                {bookPassengers.length < (selectedVehicle?.seats || 7) && (
+                {bookPassengers.length < (selectedVehicle?.seats || 5) && (
                   <button
                     type="button"
                     className="gf-btn gf-btn-secondary gf-btn-sm pressable"
@@ -16091,7 +16163,7 @@ export function App() {
                 <label className="type-caption" style={{ fontWeight: 700 }}>
                   {t('Passengers Name (1, 2, 3...)')} *
                 </label>
-                {bookPassengers.length < (selectedVehicle?.seats || 7) && (
+                {bookPassengers.length < (selectedVehicle?.seats || 5) && (
                   <button
                     type="button"
                     className="gf-btn gf-btn-secondary gf-btn-sm pressable"
