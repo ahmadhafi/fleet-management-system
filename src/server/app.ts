@@ -312,8 +312,8 @@ export function createApp() {
     res.json({
       status: 'ok',
       service: 'GalaxyFleet Corporate Fleet Management',
-      api_build: '2026-11-28-live-sync-v9',
-      features: ['negotiation_hydration', 'notification_respond_fallback', 'negotiate_route_aliases', 'different_location_transfer', 'multi_worker_sqljs_sync', 'gojek_topdown_cars', 'i18n_notifications', 'editable_vehicle_seats', 'odometer_photos_admin', 'eta_prefill_schedule', 'calendar_full_audit_history', 'driver_exact_route_coords'],
+      api_build: '2026-11-28-live-sync-v10',
+      features: ['negotiation_hydration', 'notification_respond_fallback', 'negotiate_route_aliases', 'different_location_transfer', 'multi_worker_sqljs_sync', 'gojek_topdown_cars', 'i18n_notifications', 'editable_vehicle_seats', 'odometer_photos_admin', 'eta_prefill_schedule', 'calendar_full_audit_history', 'driver_exact_route_coords', 'proximity_geocode_sort'],
       uptime_sec: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
     });
@@ -336,7 +336,7 @@ export function createApp() {
       const mem = process.memoryUsage();
       res.json({
         status: dbCheck?.alive === 1 ? 'ready' : 'degraded',
-        api_build: '2026-11-28-live-sync-v9',
+        api_build: '2026-11-28-live-sync-v10',
         database: 'connected',
         sqlite_wal: true,
         memory: {
@@ -971,7 +971,12 @@ export function createApp() {
       return;
     }
 
-    const cacheKey = q.toLowerCase();
+    const nearLat = req.query.nearLat !== undefined ? Number(req.query.nearLat) : NaN;
+    const nearLon = req.query.nearLon !== undefined ? Number(req.query.nearLon) : NaN;
+    const hasNear = Number.isFinite(nearLat) && Number.isFinite(nearLon);
+    const cacheKey = hasNear
+      ? `${q.toLowerCase()}@${nearLat.toFixed(2)},${nearLon.toFixed(2)}`
+      : q.toLowerCase();
     const cached = geocodeSearchCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       res.json({ results: cached.results });
@@ -998,9 +1003,10 @@ export function createApp() {
 
     // 2. Fetch ArcGIS World Geocoder, MapTiler, OSM Nominatim, & Photon Komoot across ALL of Indonesia in parallel (no Jabodetabek-only lock)
     const arcgisPromise = (async () => {
+      const locParam = hasNear ? `&location=${encodeURIComponent(`${nearLon},${nearLat}`)}` : '';
       const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?SingleLine=${encodeURIComponent(
         q
-      )}&countryCode=IDN&maxLocations=15&outFields=PlaceName,Place_addr,Match_addr,City,Region&f=pjson`;
+      )}&countryCode=IDN${locParam}&maxLocations=15&outFields=PlaceName,Place_addr,Match_addr,City,Region&f=pjson`;
       const resp = await fetch(url, {
         headers: { Accept: 'application/json' },
         signal: AbortSignal.timeout(4500),
@@ -1133,6 +1139,15 @@ export function createApp() {
           pushUniqueResult(item);
         }
       }
+    }
+
+    if (hasNear && results.length > 1) {
+      const distSq = (r: { lat: number; lon: number }) => {
+        const dLat = r.lat - nearLat;
+        const dLon = r.lon - nearLon;
+        return dLat * dLat + dLon * dLon;
+      };
+      results.sort((a, b) => distSq(a) - distSq(b));
     }
 
     const finalResults = results.slice(0, 35);

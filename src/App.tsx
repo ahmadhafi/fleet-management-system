@@ -1639,7 +1639,8 @@ export function App() {
     let cancelled = false;
     const cleanPlaceQuery = (raw: string) =>
       raw
-        .replace(/\s*\(Spot [A-Z0-9]+\)$/i, '')
+        .replace(/\s*[•·-]\s*Spot\s+[A-Z0-9]+$/i, '')
+        .replace(/\s*\(Spot\s+[A-Z0-9]+\)$/i, '')
         .replace(/\s*\(Main Lobby Gate\)$/i, '')
         .replace(/\s*\(Lobby\)$/i, '')
         .trim();
@@ -1662,42 +1663,72 @@ export function App() {
       Number.isFinite(savedDestLat) &&
       Number.isFinite(savedDestLon);
 
-    const quickGeocode = async (queryStr: string): Promise<{ lat: number; lon: number } | null> => {
+    const quickGeocode = async (
+      queryStr: string,
+      bias?: { lat: number; lon: number } | null
+    ): Promise<{ lat: number; lon: number } | null> => {
       const cleaned = cleanPlaceQuery(queryStr);
       if (!cleaned || cleaned.length < 2) return null;
-      const gServer = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(cleaned)}`).catch(() => null);
-      if (gServer?.results?.[0]) {
+      const nearQs =
+        bias && Number.isFinite(bias.lat) && Number.isFinite(bias.lon)
+          ? `&nearLat=${encodeURIComponent(bias.lat)}&nearLon=${encodeURIComponent(bias.lon)}`
+          : '';
+      const gServer = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(cleaned)}${nearQs}`).catch(() => null);
+      if (Array.isArray(gServer?.results) && gServer.results.length > 0) {
+        if (bias && Number.isFinite(bias.lat) && Number.isFinite(bias.lon)) {
+          const sorted = [...gServer.results].sort((a: any, b: any) => {
+            const da = Math.hypot(Number(a.lat) - bias.lat, Number(a.lon) - bias.lon);
+            const db = Math.hypot(Number(b.lat) - bias.lat, Number(b.lon) - bias.lon);
+            return da - db;
+          });
+          return { lat: Number(sorted[0].lat), lon: Number(sorted[0].lon) };
+        }
         return { lat: Number(gServer.results[0].lat), lon: Number(gServer.results[0].lon) };
       }
+      const locParam =
+        bias && Number.isFinite(bias.lat) && Number.isFinite(bias.lon)
+          ? `&location=${encodeURIComponent(`${bias.lon},${bias.lat}`)}`
+          : '';
       const gArc = await fetch(
         `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?SingleLine=${encodeURIComponent(
           cleaned
-        )}&countryCode=IDN&maxLocations=1&f=pjson`
+        )}&countryCode=IDN${locParam}&maxLocations=5&f=pjson`
       )
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null);
-      const cand = gArc?.candidates?.[0];
-      if (cand && Number.isFinite(Number(cand.location?.y)) && Number.isFinite(Number(cand.location?.x))) {
-        return { lat: Number(cand.location.y), lon: Number(cand.location.x) };
+      const cands = Array.isArray(gArc?.candidates) ? gArc.candidates : [];
+      if (cands.length > 0) {
+        const best =
+          bias && Number.isFinite(bias.lat) && Number.isFinite(bias.lon)
+            ? [...cands].sort((a: any, b: any) => {
+                const da = Math.hypot(Number(a.location?.y) - bias.lat, Number(a.location?.x) - bias.lon);
+                const db = Math.hypot(Number(b.location?.y) - bias.lat, Number(b.location?.x) - bias.lon);
+                return da - db;
+              })[0]
+            : cands[0];
+        if (best && Number.isFinite(Number(best.location?.y)) && Number.isFinite(Number(best.location?.x))) {
+          return { lat: Number(best.location.y), lon: Number(best.location.x) };
+        }
       }
       return null;
     };
 
     const run = async () => {
-      const [oHit, dHit] = await Promise.all([
-        hasSavedOrig
-          ? Promise.resolve({ lat: savedOrigLat, lon: savedOrigLon })
-          : drvOriginStr
-          ? quickGeocode(drvOriginStr)
-          : Promise.resolve(null),
-        hasSavedDest
-          ? Promise.resolve({ lat: savedDestLat, lon: savedDestLon })
-          : quickGeocode(drvDestStr),
-      ]);
+      const gpsBias = myCoords && Number.isFinite(myCoords.lat) && Number.isFinite(myCoords.lon) ? myCoords : null;
+      const dHit = hasSavedDest
+        ? { lat: savedDestLat, lon: savedDestLon }
+        : await quickGeocode(drvDestStr, gpsBias);
       if (cancelled) return;
-      const effO = oHit || (myCoords ? { lat: myCoords.lat, lon: myCoords.lon } : { lat: -6.22728, lon: 106.80816 });
+      const origBias = gpsBias || dHit;
+      const oHit = hasSavedOrig
+        ? { lat: savedOrigLat, lon: savedOrigLon }
+        : drvOriginStr
+        ? await quickGeocode(drvOriginStr, origBias)
+        : null;
+      if (cancelled) return;
+      const effO = oHit || (gpsBias ? { lat: gpsBias.lat, lon: gpsBias.lon } : { lat: -6.22728, lon: 106.80816 });
       const effD = dHit || { lat: effO.lat - 0.018, lon: effO.lon + 0.022 };
-      setDriverOriginCoords(oHit || (myCoords ? { lat: myCoords.lat, lon: myCoords.lon } : null));
+      setDriverOriginCoords(oHit || (gpsBias ? { lat: gpsBias.lat, lon: gpsBias.lon } : null));
       setDriverDestCoords(dHit);
 
       if (!dHit) {
@@ -1776,7 +1807,17 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [user, activeDriverDispatch?.trip_request_id, activeDriverDispatch?.origin, activeDriverDispatch?.destination]);
+  }, [
+    user,
+    activeDriverDispatch?.trip_request_id,
+    activeDriverDispatch?.origin,
+    activeDriverDispatch?.destination,
+    activeDriverDispatch?.origin_lat,
+    activeDriverDispatch?.origin_lon,
+    activeDriverDispatch?.dest_lat,
+    activeDriverDispatch?.dest_lon,
+    Boolean(myCoords),
+  ]);
 
   // Handlers: Login, Registration & Sign Out
   const handleLogin = async (e: React.FormEvent) => {
@@ -8219,27 +8260,32 @@ export function App() {
       {navAppModalTarget && (() => {
         const cleanNavLabel = (raw: string) =>
           raw
-            .replace(/\s*\(Spot [A-Z0-9]+\)$/i, '')
+            .replace(/\s*[•·-]\s*Spot\s+[A-Z0-9]+$/i, '')
+            .replace(/\s*\(Spot\s+[A-Z0-9]+\)$/i, '')
             .replace(/\s*\(Main Lobby Gate\)$/i, '')
             .replace(/\s*\(Lobby\)$/i, '')
             .trim();
         const isPickupMode = navAppModalTarget.targetMode === 'PICKUP' && Boolean(navAppModalTarget.origin);
         const rawTargetLabel = isPickupMode ? String(navAppModalTarget.origin || '') : String(navAppModalTarget.destination || '');
         const targetLabel = cleanNavLabel(rawTargetLabel) || rawTargetLabel;
-        const targetCoords = isPickupMode ? navAppModalTarget.originCoords : navAppModalTarget.destCoords;
+        const targetCoords = isPickupMode
+          ? navAppModalTarget.originCoords || (Number(activeDriverDispatch?.trip_request_id) === Number(navAppModalTarget.tripId) ? driverOriginCoords : null)
+          : navAppModalTarget.destCoords || (Number(activeDriverDispatch?.trip_request_id) === Number(navAppModalTarget.tripId) ? driverDestCoords : null);
         const hasCoords = Boolean(targetCoords && Number.isFinite(targetCoords.lat) && Number.isFinite(targetCoords.lon));
         const encAddr = encodeURIComponent(targetLabel);
         const latLonStr = hasCoords ? `${targetCoords!.lat},${targetCoords!.lon}` : '';
+        // For Pickup: bare street names (no comma/city) are ambiguous across Indonesia, so prefer exact resolved coordinates when available
+        const isBareStreet = !targetLabel.includes(',');
+        const useCoordsForGoogle = hasCoords && (isPickupMode && isBareStreet ? true : !targetLabel);
 
         const navApps = [
           {
             id: 'google-maps',
             name: 'Google Maps',
             desc: t('Turn-by-turn driving navigation'),
-            // Always route to the exact destination inputted by the user (using clean place name when coords aren't saved, or exact saved pin)
-            url: targetLabel
-              ? `https://www.google.com/maps/dir/?api=1&destination=${encAddr}&travelmode=driving`
-              : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(latLonStr)}&travelmode=driving`,
+            url: useCoordsForGoogle
+              ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(latLonStr)}&travelmode=driving`
+              : `https://www.google.com/maps/dir/?api=1&destination=${encAddr}&travelmode=driving`,
           },
           {
             id: 'waze',
@@ -8261,9 +8307,9 @@ export function App() {
             id: 'apple-maps',
             name: 'Apple Maps',
             desc: t('iOS / macOS driving directions'),
-            url: targetLabel
-              ? `https://maps.apple.com/?daddr=${encAddr}&dirflg=d`
-              : `https://maps.apple.com/?daddr=${encodeURIComponent(latLonStr)}&dirflg=d`,
+            url: useCoordsForGoogle
+              ? `https://maps.apple.com/?daddr=${encodeURIComponent(latLonStr)}&dirflg=d`
+              : `https://maps.apple.com/?daddr=${encAddr}&dirflg=d`,
           },
           {
             id: 'here-wego',
@@ -12788,8 +12834,18 @@ export function App() {
                               tripId: Number(tripId),
                               origin: d.origin || '',
                               destination: d.destination || '',
-                              originCoords: sameSelected ? driverOriginCoords : null,
-                              destCoords: sameSelected ? driverDestCoords : null,
+                              originCoords:
+                                d.origin_lat != null && d.origin_lon != null
+                                  ? { lat: Number(d.origin_lat), lon: Number(d.origin_lon) }
+                                  : sameSelected
+                                  ? driverOriginCoords
+                                  : null,
+                              destCoords:
+                                d.dest_lat != null && d.dest_lon != null
+                                  ? { lat: Number(d.dest_lat), lon: Number(d.dest_lon) }
+                                  : sameSelected
+                                  ? driverDestCoords
+                                  : null,
                               targetMode: 'DESTINATION',
                             });
                           }}
@@ -17874,14 +17930,20 @@ export function App() {
                   driverTripInProgress={isDriverDispatchMap && driverTripInProgress}
                   followDriver={isDriverDispatchMap && driverTripInProgress}
                   onOpenNavigationApps={
-                    isDriverDispatchMap && activeDriverDispatch
+                    isDriverDispatchMap && activeDriverDispatch && !driverDispatchDrawerOpen
                       ? () =>
                           setNavAppModalTarget({
                             tripId: Number(activeDriverDispatch.trip_request_id),
                             origin: activeDriverDispatch.origin || '',
                             destination: activeDriverDispatch.destination || '',
-                            originCoords: driverOriginCoords,
-                            destCoords: driverDestCoords,
+                            originCoords:
+                              activeDriverDispatch.origin_lat != null && activeDriverDispatch.origin_lon != null
+                                ? { lat: Number(activeDriverDispatch.origin_lat), lon: Number(activeDriverDispatch.origin_lon) }
+                                : driverOriginCoords,
+                            destCoords:
+                              activeDriverDispatch.dest_lat != null && activeDriverDispatch.dest_lon != null
+                                ? { lat: Number(activeDriverDispatch.dest_lat), lon: Number(activeDriverDispatch.dest_lon) }
+                                : driverDestCoords,
                             targetMode: 'DESTINATION',
                           })
                       : undefined

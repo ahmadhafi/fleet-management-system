@@ -1345,8 +1345,8 @@ export const MapView: React.FC<MapViewProps> = ({
     >
       <div ref={mapContainerRef} id="map-container" style={{ width: '100%', height: '100%', zIndex: 1 }} />
 
-      {/* Driver Active Trip Route & External Navigation Bar */}
-      {driverMapMode && destination && (
+      {/* Driver Active Trip Route & External Navigation Bar (full-map mode only; drawer already has Navigate button) */}
+      {driverMapMode && destination && onOpenNavigationApps && (
         <div
           id="driver-map-route-bar"
           style={{
