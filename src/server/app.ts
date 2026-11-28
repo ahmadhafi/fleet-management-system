@@ -312,8 +312,8 @@ export function createApp() {
     res.json({
       status: 'ok',
       service: 'GalaxyFleet Corporate Fleet Management',
-      api_build: '2026-11-28-live-sync-v8',
-      features: ['negotiation_hydration', 'notification_respond_fallback', 'negotiate_route_aliases', 'different_location_transfer', 'multi_worker_sqljs_sync', 'gojek_topdown_cars', 'i18n_notifications', 'editable_vehicle_seats', 'odometer_photos_admin', 'eta_prefill_schedule', 'calendar_full_audit_history'],
+      api_build: '2026-11-28-live-sync-v9',
+      features: ['negotiation_hydration', 'notification_respond_fallback', 'negotiate_route_aliases', 'different_location_transfer', 'multi_worker_sqljs_sync', 'gojek_topdown_cars', 'i18n_notifications', 'editable_vehicle_seats', 'odometer_photos_admin', 'eta_prefill_schedule', 'calendar_full_audit_history', 'driver_exact_route_coords'],
       uptime_sec: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
     });
@@ -336,7 +336,7 @@ export function createApp() {
       const mem = process.memoryUsage();
       res.json({
         status: dbCheck?.alive === 1 ? 'ready' : 'degraded',
-        api_build: '2026-11-28-live-sync-v8',
+        api_build: '2026-11-28-live-sync-v9',
         database: 'connected',
         sqlite_wal: true,
         memory: {
@@ -2574,6 +2574,10 @@ export function createApp() {
       purpose,
       origin,
       destination,
+      origin_lat,
+      origin_lon,
+      dest_lat,
+      dest_lon,
       start_time,
       end_time,
       passenger_count,
@@ -2783,13 +2787,18 @@ export function createApp() {
           }
         }
 
+        const safeCoord = (v: unknown): number | null => {
+          const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+          return Number.isFinite(n) && n >= -90 && n <= 180 ? n : null;
+        };
         const tripRes = db
           .prepare(
             `INSERT INTO trip_requests (
               requester_id, department_id, vehicle_id, preferred_driver_id, passenger_nickname, passengers_json,
-              purpose, origin, destination, start_time, end_time, passenger_count, notes, status,
+              purpose, origin, destination, origin_lat, origin_lon, dest_lat, dest_lon,
+              start_time, end_time, passenger_count, notes, status,
               is_urgent, urgent_reason, reservation_type, return_pickup_time
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL', ?, ?, ?, ?)`
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL', ?, ?, ?, ?)`
           )
           .run(
             user.id,
@@ -2801,6 +2810,10 @@ export function createApp() {
             String(purpose).trim(),
             String(origin).trim(),
             String(destination).trim(),
+            safeCoord(origin_lat),
+            safeCoord(origin_lon),
+            safeCoord(dest_lat),
+            safeCoord(dest_lon),
             start_time,
             end_time,
             pax,
@@ -5388,7 +5401,8 @@ export function createApp() {
     const query = `
       SELECT a.id as assignment_id, a.trip_request_id, a.booking_id, a.vehicle_id, a.driver_profile_id,
              a.effective_start, a.effective_end, a.acknowledged_at, a.reason as assignment_reason,
-             tr.purpose, tr.origin, tr.destination, tr.passenger_count, tr.notes, tr.status as trip_status,
+             tr.purpose, tr.origin, tr.destination, tr.origin_lat, tr.origin_lon, tr.dest_lat, tr.dest_lon,
+             tr.passenger_count, tr.notes, tr.status as trip_status,
              tr.reservation_type, tr.return_pickup_time,
              tr.start_odometer, tr.end_odometer, tr.distance_km,
              v.registration_plate, v.make, v.model, v.car_type, v.energy_type, v.current_odometer, v.battery_percent, v.last_parking_spot,

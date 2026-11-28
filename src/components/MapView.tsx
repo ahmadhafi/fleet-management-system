@@ -1230,10 +1230,10 @@ export const MapView: React.FC<MapViewProps> = ({
         if (!bounds.isValid()) return;
         const containerW = mapContainerRef.current.clientWidth || window.innerWidth || 390;
         if (containerW < 768) {
-          // On mobile, .gf-map-stage-host is already sized to the exact visible upper map area above the bottom sheet
+          // On mobile, frame route cleanly inside the visible map area (leaving room for Driver topbar, right FABs, and bottom route card)
           m.fitBounds(bounds, {
-            paddingTopLeft: [28, 52],
-            paddingBottomRight: [28, 34],
+            paddingTopLeft: driverMapMode ? [32, 84] : [28, 52],
+            paddingBottomRight: driverMapMode ? [74, 140] : [28, 34],
             maxZoom: 16,
             animate,
             duration: 0.55,
@@ -1346,7 +1346,7 @@ export const MapView: React.FC<MapViewProps> = ({
       <div ref={mapContainerRef} id="map-container" style={{ width: '100%', height: '100%', zIndex: 1 }} />
 
       {/* Driver Active Trip Route & External Navigation Bar */}
-      {driverMapMode && showRoute && destination && (
+      {driverMapMode && destination && (
         <div
           id="driver-map-route-bar"
           style={{

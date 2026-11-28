@@ -1628,7 +1628,7 @@ export function App() {
     };
   }, [user, driverTripInProgress, gpsReportingActive, gpsNoticeAccepted]);
 
-  // Compute road route geometry & ETA for the driver's active/assigned trip so they see the full route on the map
+  // Compute road route geometry & ETA for the driver's active/assigned trip using the exact coordinates booked by the user
   useEffect(() => {
     if (!user || user.role !== 'DRV' || !activeDriverDispatch || !activeDriverDispatch.destination) {
       setDriverRoute(null);
@@ -1637,18 +1637,41 @@ export function App() {
       return;
     }
     let cancelled = false;
-    const drvOriginStr = String(activeDriverDispatch.origin || '').trim();
-    const drvDestStr = String(activeDriverDispatch.destination || '').trim();
+    const cleanPlaceQuery = (raw: string) =>
+      raw
+        .replace(/\s*\(Spot [A-Z0-9]+\)$/i, '')
+        .replace(/\s*\(Main Lobby Gate\)$/i, '')
+        .replace(/\s*\(Lobby\)$/i, '')
+        .trim();
+
+    const drvOriginStr = cleanPlaceQuery(String(activeDriverDispatch.origin || ''));
+    const drvDestStr = cleanPlaceQuery(String(activeDriverDispatch.destination || ''));
+
+    const savedOrigLat = Number(activeDriverDispatch.origin_lat);
+    const savedOrigLon = Number(activeDriverDispatch.origin_lon);
+    const savedDestLat = Number(activeDriverDispatch.dest_lat);
+    const savedDestLon = Number(activeDriverDispatch.dest_lon);
+    const hasSavedOrig =
+      activeDriverDispatch.origin_lat != null &&
+      activeDriverDispatch.origin_lon != null &&
+      Number.isFinite(savedOrigLat) &&
+      Number.isFinite(savedOrigLon);
+    const hasSavedDest =
+      activeDriverDispatch.dest_lat != null &&
+      activeDriverDispatch.dest_lon != null &&
+      Number.isFinite(savedDestLat) &&
+      Number.isFinite(savedDestLon);
 
     const quickGeocode = async (queryStr: string): Promise<{ lat: number; lon: number } | null> => {
-      if (!queryStr) return null;
-      const gServer = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(queryStr)}`).catch(() => null);
+      const cleaned = cleanPlaceQuery(queryStr);
+      if (!cleaned || cleaned.length < 2) return null;
+      const gServer = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(cleaned)}`).catch(() => null);
       if (gServer?.results?.[0]) {
         return { lat: Number(gServer.results[0].lat), lon: Number(gServer.results[0].lon) };
       }
       const gArc = await fetch(
         `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?SingleLine=${encodeURIComponent(
-          queryStr
+          cleaned
         )}&countryCode=IDN&maxLocations=1&f=pjson`
       )
         .then((r) => (r.ok ? r.json() : null))
@@ -1662,14 +1685,25 @@ export function App() {
 
     const run = async () => {
       const [oHit, dHit] = await Promise.all([
-        drvOriginStr ? quickGeocode(drvOriginStr) : Promise.resolve(null),
-        quickGeocode(drvDestStr),
+        hasSavedOrig
+          ? Promise.resolve({ lat: savedOrigLat, lon: savedOrigLon })
+          : drvOriginStr
+          ? quickGeocode(drvOriginStr)
+          : Promise.resolve(null),
+        hasSavedDest
+          ? Promise.resolve({ lat: savedDestLat, lon: savedDestLon })
+          : quickGeocode(drvDestStr),
       ]);
       if (cancelled) return;
       const effO = oHit || (myCoords ? { lat: myCoords.lat, lon: myCoords.lon } : { lat: -6.22728, lon: 106.80816 });
       const effD = dHit || { lat: effO.lat - 0.018, lon: effO.lon + 0.022 };
-      setDriverOriginCoords(effO);
-      setDriverDestCoords(effD);
+      setDriverOriginCoords(oHit || (myCoords ? { lat: myCoords.lat, lon: myCoords.lon } : null));
+      setDriverDestCoords(dHit);
+
+      if (!dHit) {
+        setDriverRoute(null);
+        return;
+      }
 
       let routeRes = await apiRequest(
         `/api/route?originLat=${encodeURIComponent(effO.lat)}&originLon=${encodeURIComponent(effO.lon)}&destLat=${encodeURIComponent(effD.lat)}&destLon=${encodeURIComponent(effD.lon)}`
@@ -2792,6 +2826,10 @@ export function App() {
           purpose: effectivePurpose,
           origin: bookOrigin.trim(),
           destination: bookDest.trim(),
+          origin_lat: originCoords?.lat ?? myCoords?.lat ?? null,
+          origin_lon: originCoords?.lon ?? myCoords?.lon ?? null,
+          dest_lat: destCoords?.lat ?? null,
+          dest_lon: destCoords?.lon ?? null,
           start_time: startIso,
           end_time: endIso,
           reservation_type: bookReservationType,
@@ -8179,8 +8217,15 @@ export function App() {
       )}
 
       {navAppModalTarget && (() => {
+        const cleanNavLabel = (raw: string) =>
+          raw
+            .replace(/\s*\(Spot [A-Z0-9]+\)$/i, '')
+            .replace(/\s*\(Main Lobby Gate\)$/i, '')
+            .replace(/\s*\(Lobby\)$/i, '')
+            .trim();
         const isPickupMode = navAppModalTarget.targetMode === 'PICKUP' && Boolean(navAppModalTarget.origin);
-        const targetLabel = isPickupMode ? String(navAppModalTarget.origin || '') : String(navAppModalTarget.destination || '');
+        const rawTargetLabel = isPickupMode ? String(navAppModalTarget.origin || '') : String(navAppModalTarget.destination || '');
+        const targetLabel = cleanNavLabel(rawTargetLabel) || rawTargetLabel;
         const targetCoords = isPickupMode ? navAppModalTarget.originCoords : navAppModalTarget.destCoords;
         const hasCoords = Boolean(targetCoords && Number.isFinite(targetCoords.lat) && Number.isFinite(targetCoords.lon));
         const encAddr = encodeURIComponent(targetLabel);
@@ -8191,16 +8236,17 @@ export function App() {
             id: 'google-maps',
             name: 'Google Maps',
             desc: t('Turn-by-turn driving navigation'),
-            url: hasCoords
-              ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(latLonStr)}&travelmode=driving`
-              : `https://www.google.com/maps/dir/?api=1&destination=${encAddr}&travelmode=driving`,
+            // Always route to the exact destination inputted by the user (using clean place name when coords aren't saved, or exact saved pin)
+            url: targetLabel
+              ? `https://www.google.com/maps/dir/?api=1&destination=${encAddr}&travelmode=driving`
+              : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(latLonStr)}&travelmode=driving`,
           },
           {
             id: 'waze',
             name: 'Waze',
             desc: t('Live traffic & community route'),
             url: hasCoords
-              ? `https://waze.com/ul?ll=${encodeURIComponent(latLonStr)}&navigate=yes`
+              ? `https://waze.com/ul?ll=${encodeURIComponent(latLonStr)}&q=${encAddr}&navigate=yes`
               : `https://waze.com/ul?q=${encAddr}&navigate=yes`,
           },
           {
@@ -8215,9 +8261,9 @@ export function App() {
             id: 'apple-maps',
             name: 'Apple Maps',
             desc: t('iOS / macOS driving directions'),
-            url: hasCoords
-              ? `https://maps.apple.com/?daddr=${encodeURIComponent(latLonStr)}&dirflg=d`
-              : `https://maps.apple.com/?daddr=${encAddr}&dirflg=d`,
+            url: targetLabel
+              ? `https://maps.apple.com/?daddr=${encAddr}&dirflg=d`
+              : `https://maps.apple.com/?daddr=${encodeURIComponent(latLonStr)}&dirflg=d`,
           },
           {
             id: 'here-wego',
@@ -17860,7 +17906,7 @@ export function App() {
                   currentUserId={user.id}
                   onLocateMe={() => detectAndReportUserLocation(false)}
                   locatingUser={locatingUser}
-                  showRoute={isDriverDispatchMap ? Boolean(activeDriverDispatch?.destination) : showRouteOnMap}
+                  showRoute={isDriverDispatchMap ? Boolean(activeDriverDispatch?.destination && driverDestCoords) : showRouteOnMap}
                   routeGeometry={isDriverDispatchMap && activeDriverDispatch ? driverRoute?.geometry || null : calculatedRoute?.geometry || null}
                   routeMetrics={isDriverDispatchMap && activeDriverDispatch ? driverRoute : calculatedRoute}
                   pinMode={navSection === 'HOME' && bookingStep === 'ROUTE' && routeTab === 'PIN'}

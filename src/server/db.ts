@@ -683,6 +683,18 @@ function initializeSchema(db: AppDatabase) {
     db.exec('ALTER TABLE trip_requests ADD COLUMN last_reminder_sent_at TEXT;');
   } catch {}
   try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN origin_lat REAL;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN origin_lon REAL;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN dest_lat REAL;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE trip_requests ADD COLUMN dest_lon REAL;');
+  } catch {}
+  try {
     db.exec('ALTER TABLE driver_profiles ADD COLUMN petty_cash_balance REAL NOT NULL DEFAULT 500000;');
   } catch {}
   try {
