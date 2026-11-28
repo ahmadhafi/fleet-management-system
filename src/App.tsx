@@ -15612,9 +15612,9 @@ export function App() {
                       style={{
                         padding: '8px 6px',
                         borderRadius: '10px',
-                        border: selected ? '2px solid #0072de' : '1px solid var(--color-border)',
-                        background: selected ? '#ebf5ff' : 'var(--color-surface)',
-                        color: selected ? '#005bb5' : 'var(--color-text-primary)',
+                        border: selected ? '2px solid var(--color-samsung-blue)' : '1px solid var(--color-border)',
+                        background: selected ? 'var(--color-samsung-blue-tint)' : 'var(--color-bg-surface)',
+                        color: selected ? 'var(--color-samsung-blue-text)' : 'var(--color-text-primary)',
                         textAlign: 'center',
                         cursor: 'pointer',
                         display: 'flex',
@@ -15623,7 +15623,7 @@ export function App() {
                       }}
                     >
                       <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1.2 }}>{mode.label}</span>
-                      <span style={{ fontSize: '10px', opacity: 0.8, lineHeight: 1.15 }}>{mode.sub}</span>
+                      <span style={{ fontSize: '10px', opacity: 0.85, lineHeight: 1.15 }}>{mode.sub}</span>
                     </button>
                   );
                 })}
@@ -15631,11 +15631,24 @@ export function App() {
             </div>
 
             {/* Departure & Return Time Selector Banner */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: '12px', background: '#ebf5ff', border: '1px solid #93c5fd', gap: '8px', flexWrap: 'wrap' }}>
+            <div
+              id="booking-departure-return-banner"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 12px',
+                borderRadius: '12px',
+                background: 'var(--color-samsung-blue-tint)',
+                border: '1px solid var(--color-samsung-blue-ring)',
+                gap: '8px',
+                flexWrap: 'wrap',
+              }}
+            >
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                <Clock size={18} style={{ color: '#0072de', flexShrink: 0 }} />
+                <Clock size={18} style={{ color: 'var(--color-samsung-blue)', flexShrink: 0 }} />
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#005bb5', textTransform: 'uppercase' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-samsung-blue-text)', textTransform: 'uppercase' }}>
                     2. {t('Departure & Return Time')}
                   </div>
                   <div style={{ fontSize: '12.5px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
@@ -15778,9 +15791,9 @@ export function App() {
                               style={{
                                 padding: '8px 6px',
                                 borderRadius: '10px',
-                                border: selected ? '1.5px solid #0072de' : '1px solid var(--color-border)',
-                                background: selected ? '#ebf5ff' : 'var(--color-surface)',
-                                color: selected ? '#005bb5' : 'var(--color-text-primary)',
+                                border: selected ? '1.5px solid var(--color-samsung-blue)' : '1px solid var(--color-border)',
+                                background: selected ? 'var(--color-samsung-blue-tint)' : 'var(--color-bg-surface)',
+                                color: selected ? 'var(--color-samsung-blue-text)' : 'var(--color-text-primary)',
                                 textAlign: 'center',
                                 cursor: 'pointer',
                                 display: 'flex',
@@ -15921,18 +15934,18 @@ export function App() {
             style={{
               padding: '14px',
               borderRadius: '14px',
-              background: 'var(--color-surface)',
-              border: '1.5px solid #93c5fd',
+              background: 'var(--color-bg-surface)',
+              border: '1.5px solid var(--color-samsung-blue-ring)',
               display: 'flex',
               flexDirection: 'column',
               gap: '12px',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '13.5px', fontWeight: 800, color: '#005bb5' }}>
+              <span style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--color-samsung-blue-text)' }}>
                 3. {t('Trip Purpose')} &amp; {t('Passengers Name (1, 2, 3...)')}
               </span>
-              <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#ebf5ff', color: '#0072de' }}>
+              <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: 'var(--color-samsung-blue-tint)', color: 'var(--color-samsung-blue-text)' }}>
                 {t('* Mandatory')}
               </span>
             </div>
@@ -15995,8 +16008,8 @@ export function App() {
                         width: '26px',
                         height: '26px',
                         borderRadius: '50%',
-                        background: '#ebf5ff',
-                        color: '#005bb5',
+                        background: 'var(--color-samsung-blue-tint)',
+                        color: 'var(--color-samsung-blue-text)',
                         fontWeight: 800,
                         fontSize: '12px',
                         display: 'flex',
@@ -16049,8 +16062,8 @@ export function App() {
             style={{
               padding: '12px 14px',
               borderRadius: '14px',
-              background: '#ebf5ff',
-              border: '1.5px solid #93c5fd',
+              background: 'var(--color-samsung-blue-tint)',
+              border: '1.5px solid var(--color-samsung-blue-ring)',
               display: 'flex',
               alignItems: 'center',
               gap: '10px',
@@ -16060,10 +16073,10 @@ export function App() {
               <Car size={18} />
             </div>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: '13px', fontWeight: 800, color: '#005bb5' }}>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-samsung-blue-text)' }}>
                 {t('Vehicle & Driver Assigned by Fleet Manager')}
               </div>
-              <div className="type-caption" style={{ fontSize: '11.5px', color: '#1e3a8a', marginTop: '2px' }}>
+              <div className="type-caption" style={{ fontSize: '11.5px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
                 {t('You do not need to pick a car. When approving your request, Fleet Manager will assign an available company car & driver for your schedule.')}
               </div>
             </div>
@@ -16188,8 +16201,8 @@ export function App() {
                         width: '26px',
                         height: '26px',
                         borderRadius: '50%',
-                        background: '#ebf5ff',
-                        color: '#005bb5',
+                        background: 'var(--color-samsung-blue-tint)',
+                        color: 'var(--color-samsung-blue-text)',
                         fontWeight: 800,
                         fontSize: '12px',
                         display: 'flex',
