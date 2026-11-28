@@ -745,6 +745,18 @@ export function App() {
   const [activeTripOdoInput, setActiveTripOdoInput] = useState<Record<number, string>>({});
   const [activeTripBatteryInput, setActiveTripBatteryInput] = useState<Record<number, string>>({});
   const [activeTripParkingInput, setActiveTripParkingInput] = useState<Record<number, string>>({});
+  const [driverSelectedTripId, setDriverSelectedTripId] = useState<number | null>(null);
+  const [driverRoute, setDriverRoute] = useState<RouteCalculationResult | null>(null);
+  const [driverOriginCoords, setDriverOriginCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [driverDestCoords, setDriverDestCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [navAppModalTarget, setNavAppModalTarget] = useState<{
+    tripId?: number;
+    origin?: string;
+    destination: string;
+    originCoords?: { lat: number; lon: number } | null;
+    destCoords?: { lat: number; lon: number } | null;
+    targetMode: 'DESTINATION' | 'PICKUP';
+  } | null>(null);
 
   // Fleet Ops Sub-forms State
   const [opsSubTab, setOpsSubTab] = useState<'VEHICLES' | 'DRIVERS' | 'GROUPS' | 'FUEL_EV' | 'MAINTENANCE' | 'EXPENSES' | 'DOCUMENTS'>('VEHICLES');
@@ -1556,6 +1568,181 @@ export function App() {
       }
     };
   }, [gpsReportingActive, gpsNoticeAccepted, sendDriverLocationReport]);
+
+  // Active dispatch selected for the Driver map route & live tracking (auto-prioritizes IN_PROGRESS trip)
+  const activeDriverDispatch = useMemo(() => {
+    if (!user || user.role !== 'DRV' || dispatches.length === 0) return null;
+    if (driverSelectedTripId != null) {
+      const explicit = dispatches.find(
+        (d) => Number(d.trip_request_id) === Number(driverSelectedTripId) && d.trip_status !== 'COMPLETED' && d.trip_status !== 'CANCELLED'
+      );
+      if (explicit) return explicit;
+    }
+    const inProg = dispatches.find((d) => d.trip_status === 'IN_PROGRESS');
+    if (inProg) return inProg;
+    return dispatches.find((d) => d.trip_status !== 'COMPLETED' && d.trip_status !== 'CANCELLED' && d.trip_status !== 'REJECTED') || null;
+  }, [user, dispatches, driverSelectedTripId]);
+
+  const driverTripInProgress = Boolean(activeDriverDispatch && activeDriverDispatch.trip_status === 'IN_PROGRESS');
+
+  // Continuous live GPS watchPosition so the driver's in-app avatar smoothly follows where they go during a trip
+  useEffect(() => {
+    if (!user || user.role !== 'DRV') return;
+    if (!driverTripInProgress && !(gpsReportingActive && gpsNoticeAccepted)) return;
+    if (typeof navigator === 'undefined' || !navigator.geolocation || typeof navigator.geolocation.watchPosition !== 'function') return;
+
+    let lastServerPushMs = 0;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const lat = Number(pos.coords.latitude);
+        const lon = Number(pos.coords.longitude);
+        const acc = Number(pos.coords.accuracy || 15);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        setMyCoords({ lat, lon, accuracy: acc });
+        const nowMs = Date.now();
+        const pushIntervalMs = driverTripInProgress ? 5000 : 30000;
+        if (nowMs - lastServerPushMs >= pushIntervalMs) {
+          lastServerPushMs = nowMs;
+          apiRequest('/api/driver/location', {
+            method: 'POST',
+            body: JSON.stringify({
+              latitude: lat,
+              longitude: lon,
+              accuracy_meters: Math.round(acc),
+              captured_at: new Date(pos.timestamp || nowMs).toISOString(),
+              permission_state: 'GRANTED',
+            }),
+          })
+            .then((res) => setLastDriverGpsReport(res.report || null))
+            .catch(() => {});
+        }
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
+    );
+
+    return () => {
+      try {
+        navigator.geolocation.clearWatch(watchId);
+      } catch {}
+    };
+  }, [user, driverTripInProgress, gpsReportingActive, gpsNoticeAccepted]);
+
+  // Compute road route geometry & ETA for the driver's active/assigned trip so they see the full route on the map
+  useEffect(() => {
+    if (!user || user.role !== 'DRV' || !activeDriverDispatch || !activeDriverDispatch.destination) {
+      setDriverRoute(null);
+      setDriverOriginCoords(null);
+      setDriverDestCoords(null);
+      return;
+    }
+    let cancelled = false;
+    const drvOriginStr = String(activeDriverDispatch.origin || '').trim();
+    const drvDestStr = String(activeDriverDispatch.destination || '').trim();
+
+    const quickGeocode = async (queryStr: string): Promise<{ lat: number; lon: number } | null> => {
+      if (!queryStr) return null;
+      const gServer = await apiRequest(`/api/geocode/search?q=${encodeURIComponent(queryStr)}`).catch(() => null);
+      if (gServer?.results?.[0]) {
+        return { lat: Number(gServer.results[0].lat), lon: Number(gServer.results[0].lon) };
+      }
+      const gArc = await fetch(
+        `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?SingleLine=${encodeURIComponent(
+          queryStr
+        )}&countryCode=IDN&maxLocations=1&f=pjson`
+      )
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      const cand = gArc?.candidates?.[0];
+      if (cand && Number.isFinite(Number(cand.location?.y)) && Number.isFinite(Number(cand.location?.x))) {
+        return { lat: Number(cand.location.y), lon: Number(cand.location.x) };
+      }
+      return null;
+    };
+
+    const run = async () => {
+      const [oHit, dHit] = await Promise.all([
+        drvOriginStr ? quickGeocode(drvOriginStr) : Promise.resolve(null),
+        quickGeocode(drvDestStr),
+      ]);
+      if (cancelled) return;
+      const effO = oHit || (myCoords ? { lat: myCoords.lat, lon: myCoords.lon } : { lat: -6.22728, lon: 106.80816 });
+      const effD = dHit || { lat: effO.lat - 0.018, lon: effO.lon + 0.022 };
+      setDriverOriginCoords(effO);
+      setDriverDestCoords(effD);
+
+      let routeRes = await apiRequest(
+        `/api/route?originLat=${encodeURIComponent(effO.lat)}&originLon=${encodeURIComponent(effO.lon)}&destLat=${encodeURIComponent(effD.lat)}&destLon=${encodeURIComponent(effD.lon)}`
+      ).catch(() => null);
+
+      if (!routeRes || routeRes.source === 'fallback') {
+        const directUrls = [
+          `https://routing.openstreetmap.de/routed-car/route/v1/driving/${effO.lon},${effO.lat};${effD.lon},${effD.lat}?overview=full&geometries=geojson`,
+          `https://router.project-osrm.org/route/v1/driving/${effO.lon},${effO.lat};${effD.lon},${effD.lat}?overview=full&geometries=geojson`,
+        ];
+        for (const dUrl of directUrls) {
+          try {
+            const dr = await fetch(dUrl, { headers: { Accept: 'application/json' } });
+            if (dr.ok) {
+              const dd = await dr.json();
+              const rt = dd?.routes?.[0];
+              if (rt && typeof rt.distance === 'number' && typeof rt.duration === 'number') {
+                const dKm = Math.max(0.2, Number((rt.distance / 1000).toFixed(1)));
+                const dMin = Math.max(2, Math.round((rt.duration * 1.2) / 60));
+                const etaDate = new Date(Date.now() + dMin * 60_000);
+                const geom = Array.isArray(rt.geometry?.coordinates)
+                  ? rt.geometry.coordinates
+                      .filter((pt: any) => Array.isArray(pt) && pt.length >= 2)
+                      .map((pt: any) => [Number(pt[1]), Number(pt[0])] as [number, number])
+                  : undefined;
+                if (geom && geom.length >= 2) {
+                  routeRes = {
+                    distanceKm: dKm,
+                    durationMin: dMin,
+                    etaIso: etaDate.toISOString(),
+                    etaText: etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    geometry: geom,
+                  };
+                  break;
+                }
+              }
+            }
+          } catch {}
+        }
+      }
+
+      if (cancelled) return;
+      if (routeRes && routeRes.distanceKm > 0) {
+        const etaDate = routeRes.etaIso ? new Date(routeRes.etaIso) : new Date(Date.now() + Number(routeRes.durationMin || 10) * 60_000);
+        setDriverRoute({
+          distanceKm: Number(routeRes.distanceKm || 0),
+          durationMin: Number(routeRes.durationMin || 0),
+          etaIso: routeRes.etaIso,
+          etaText: etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          geometry: Array.isArray(routeRes.geometry) ? routeRes.geometry : undefined,
+        });
+      } else {
+        const est = estimateRouteMetrics(drvOriginStr || 'Pickup', drvDestStr, effO, effD);
+        const etaDate = new Date(Date.now() + est.durationMin * 60_000);
+        setDriverRoute({
+          distanceKm: est.distanceKm,
+          durationMin: est.durationMin,
+          etaIso: etaDate.toISOString(),
+          etaText: etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          geometry: [
+            [effO.lat, effO.lon],
+            [(effO.lat + effD.lat) / 2, (effO.lon + effD.lon) / 2],
+            [effD.lat, effD.lon],
+          ],
+        });
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, activeDriverDispatch?.trip_request_id, activeDriverDispatch?.origin, activeDriverDispatch?.destination]);
 
   // Handlers: Login, Registration & Sign Out
   const handleLogin = async (e: React.FormEvent) => {
@@ -7990,6 +8177,170 @@ export function App() {
           </div>
         </div>
       )}
+
+      {navAppModalTarget && (() => {
+        const isPickupMode = navAppModalTarget.targetMode === 'PICKUP' && Boolean(navAppModalTarget.origin);
+        const targetLabel = isPickupMode ? String(navAppModalTarget.origin || '') : String(navAppModalTarget.destination || '');
+        const targetCoords = isPickupMode ? navAppModalTarget.originCoords : navAppModalTarget.destCoords;
+        const hasCoords = Boolean(targetCoords && Number.isFinite(targetCoords.lat) && Number.isFinite(targetCoords.lon));
+        const encAddr = encodeURIComponent(targetLabel);
+        const latLonStr = hasCoords ? `${targetCoords!.lat},${targetCoords!.lon}` : '';
+
+        const navApps = [
+          {
+            id: 'google-maps',
+            name: 'Google Maps',
+            desc: t('Turn-by-turn driving navigation'),
+            url: hasCoords
+              ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(latLonStr)}&travelmode=driving`
+              : `https://www.google.com/maps/dir/?api=1&destination=${encAddr}&travelmode=driving`,
+          },
+          {
+            id: 'waze',
+            name: 'Waze',
+            desc: t('Live traffic & community route'),
+            url: hasCoords
+              ? `https://waze.com/ul?ll=${encodeURIComponent(latLonStr)}&navigate=yes`
+              : `https://waze.com/ul?q=${encAddr}&navigate=yes`,
+          },
+          {
+            id: 'amap',
+            name: 'Amap (Gaode Maps)',
+            desc: t('Amap / Gaode car navigation'),
+            url: hasCoords
+              ? `https://uri.amap.com/navigation?to=${encodeURIComponent(`${targetCoords!.lon},${targetCoords!.lat},${targetLabel}`)}&mode=car&callnative=1`
+              : `https://uri.amap.com/search?keyword=${encAddr}&callnative=1`,
+          },
+          {
+            id: 'apple-maps',
+            name: 'Apple Maps',
+            desc: t('iOS / macOS driving directions'),
+            url: hasCoords
+              ? `https://maps.apple.com/?daddr=${encodeURIComponent(latLonStr)}&dirflg=d`
+              : `https://maps.apple.com/?daddr=${encAddr}&dirflg=d`,
+          },
+          {
+            id: 'here-wego',
+            name: 'HERE WeGo',
+            desc: t('Offline & highway car navigation'),
+            url: hasCoords
+              ? `https://share.here.com/r/mylocation/${encodeURIComponent(latLonStr)},${encAddr}`
+              : `https://wego.here.com/search/${encAddr}`,
+          },
+        ];
+
+        return (
+          <div
+            id="driver-nav-app-modal"
+            className="gf-gcal-sheet-backdrop"
+            style={{ zIndex: 9999 }}
+            onClick={() => setNavAppModalTarget(null)}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('Open Navigation App')}
+          >
+            <div className="gf-gcal-sheet" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '460px' }}>
+              <div className="gf-gcal-sheet-head">
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="gf-gcal-sheet-title">{t('Open Navigation App')}</div>
+                  <div className="gf-gcal-sheet-sub">{t('Choose your preferred navigation app')}</div>
+                </div>
+                <button
+                  type="button"
+                  className="gf-icon-btn-48 pressable"
+                  style={{ width: 34, height: 34 }}
+                  aria-label={t('Close')}
+                  onClick={() => setNavAppModalTarget(null)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {navAppModalTarget.origin && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                  <button
+                    type="button"
+                    className={`gf-btn gf-btn-sm pressable ${!isPickupMode ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
+                    onClick={() => setNavAppModalTarget((prev) => (prev ? { ...prev, targetMode: 'DESTINATION' } : null))}
+                  >
+                    {t('Destination')}
+                  </button>
+                  <button
+                    type="button"
+                    className={`gf-btn gf-btn-sm pressable ${isPickupMode ? 'gf-btn-primary' : 'gf-btn-secondary'}`}
+                    onClick={() => setNavAppModalTarget((prev) => (prev ? { ...prev, targetMode: 'PICKUP' } : null))}
+                  >
+                    {t('Pickup Location')}
+                  </button>
+                </div>
+              )}
+
+              <div
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: '10px',
+                  background: 'var(--color-bg-subtle)',
+                  border: '1px solid var(--color-border)',
+                  fontSize: '12.5px',
+                  fontWeight: 700,
+                  color: 'var(--color-text-primary)',
+                }}
+              >
+                <div style={{ fontSize: '10.5px', fontWeight: 800, color: 'var(--color-samsung-blue-text)', textTransform: 'uppercase', marginBottom: '2px' }}>
+                  {isPickupMode ? t('Pickup Location') : t('Destination')}
+                </div>
+                {targetLabel}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {navApps.map((appItem) => (
+                  <a
+                    key={appItem.id}
+                    id={`nav-app-${appItem.id}`}
+                    href={appItem.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="gf-btn gf-btn-secondary pressable"
+                    style={{
+                      minHeight: '44px',
+                      justifyContent: 'space-between',
+                      padding: '8px 12px',
+                      textDecoration: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                    onClick={() => setNavAppModalTarget(null)}
+                  >
+                    <div style={{ textAlign: 'left' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-text-primary)' }}>{appItem.name}</div>
+                      <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>{appItem.desc}</div>
+                    </div>
+                    <Navigation size={16} style={{ color: 'var(--color-samsung-blue)', flexShrink: 0 }} />
+                  </a>
+                ))}
+
+                <button
+                  type="button"
+                  id="nav-app-copy-address"
+                  className="gf-btn gf-btn-secondary gf-btn-sm pressable"
+                  style={{ minHeight: '38px' }}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard?.writeText(targetLabel);
+                      setStatusBanner({ type: 'success', text: t('Destination address copied to clipboard.') });
+                    } catch {
+                      setStatusBanner({ type: 'info', text: targetLabel });
+                    }
+                    setNavAppModalTarget(null);
+                  }}
+                >
+                  <Copy size={14} /> {t('Copy Address for Other App')}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 
@@ -8077,7 +8428,7 @@ export function App() {
                 fontSize: '12.5px',
               }}
             >
-              <span style={{ fontWeight: 600, lineHeight: 1.35, flex: 1, minWidth: 0 }}>{statusBanner.text}</span>
+              <span style={{ fontWeight: 600, lineHeight: 1.35, flex: 1, minWidth: 0 }}>{t(statusBanner.text)}</span>
               <button
                 type="button"
                 className="gf-btn gf-btn-secondary gf-btn-sm"
@@ -11868,7 +12219,7 @@ export function App() {
               gap: '8px',
             }}
           >
-            <span className="type-caption" style={{ fontWeight: 700, color: 'inherit' }}>{statusBanner.text}</span>
+            <span className="type-caption" style={{ fontWeight: 700, color: 'inherit' }}>{t(statusBanner.text)}</span>
             <button
               type="button"
               onClick={() => setStatusBanner(null)}
@@ -12361,9 +12712,46 @@ export function App() {
                       </div>
                     )}
                     <div className="type-caption">
-                      Passenger: {d.requester_name} ({d.passenger_count} pax) • Odo: {d.current_odometer} km
+                      {t('Passenger')}: {d.requester_name} ({d.passenger_count} {t('pax')}) • {t('Odo')}: {d.current_odometer} km
                       {d.energy_type === 'Electric' ? ` • ${d.battery_percent ?? 100}%` : ''}
                     </div>
+
+                    {!isCompleted && tripId && (
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button
+                          id={`driver-view-route-btn-${tripId}`}
+                          type="button"
+                          className="gf-btn gf-btn-secondary gf-btn-sm pressable"
+                          style={{ flex: '1 1 130px', minHeight: '36px', fontSize: '12px', fontWeight: 700 }}
+                          onClick={() => {
+                            setDriverSelectedTripId(Number(tripId));
+                            setDriverDispatchDrawerOpen(false);
+                          }}
+                        >
+                          <MapPin size={14} /> {t('View Route on Map')}
+                        </button>
+                        <button
+                          id={`driver-navigate-btn-${tripId}`}
+                          type="button"
+                          className="gf-btn gf-btn-primary gf-btn-sm pressable"
+                          style={{ flex: '1 1 130px', minHeight: '36px', fontSize: '12px', fontWeight: 800 }}
+                          onClick={() => {
+                            setDriverSelectedTripId(Number(tripId));
+                            const sameSelected = Number(activeDriverDispatch?.trip_request_id) === Number(tripId);
+                            setNavAppModalTarget({
+                              tripId: Number(tripId),
+                              origin: d.origin || '',
+                              destination: d.destination || '',
+                              originCoords: sameSelected ? driverOriginCoords : null,
+                              destCoords: sameSelected ? driverDestCoords : null,
+                              targetMode: 'DESTINATION',
+                            });
+                          }}
+                        >
+                          <Navigation size={14} /> {t('Navigate')}
+                        </button>
+                      </div>
+                    )}
 
                     {!isCompleted && tripId && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--color-divider)' }}>
@@ -14974,7 +15362,7 @@ export function App() {
                   gap: '8px',
                 }}
               >
-                <span className="type-caption" style={{ fontWeight: 700, color: 'inherit' }}>{statusBanner.text}</span>
+                <span className="type-caption" style={{ fontWeight: 700, color: 'inherit' }}>{t(statusBanner.text)}</span>
                 <button
                   type="button"
                   onClick={() => setStatusBanner(null)}
@@ -17436,6 +17824,22 @@ export function App() {
                   hasDriverTopbar={isDriverDispatchMap}
                   driverMapMode={isDriverDispatchMap}
                   driverOnline={isDriverOnline}
+                  driverAvatarUrl={user?.photo_url || getDriverAvatarDataUri(user?.nickname || 'Driver')}
+                  driverTripInProgress={isDriverDispatchMap && driverTripInProgress}
+                  followDriver={isDriverDispatchMap && driverTripInProgress}
+                  onOpenNavigationApps={
+                    isDriverDispatchMap && activeDriverDispatch
+                      ? () =>
+                          setNavAppModalTarget({
+                            tripId: Number(activeDriverDispatch.trip_request_id),
+                            origin: activeDriverDispatch.origin || '',
+                            destination: activeDriverDispatch.destination || '',
+                            originCoords: driverOriginCoords,
+                            destCoords: driverDestCoords,
+                            targetMode: 'DESTINATION',
+                          })
+                      : undefined
+                  }
                   driverVehicleModel={(() => {
                     const myProf = drivers.find((d) => d.user_id === user.id);
                     const myVeh = myProf ? vehicles.find((v) => v.default_driver_id === myProf.id) : null;
@@ -17446,19 +17850,19 @@ export function App() {
                     const myVeh = myProf ? vehicles.find((v) => v.default_driver_id === myProf.id) : null;
                     return myVeh?.energy_type || focusedTrip?.energy_type || 'Gasoline';
                   })()}
-                  origin={mapOrigin}
-                  destination={mapDest}
-                  originCoords={originCoords}
-                  destCoords={destCoords}
+                  origin={isDriverDispatchMap && activeDriverDispatch ? activeDriverDispatch.origin || '' : mapOrigin}
+                  destination={isDriverDispatchMap && activeDriverDispatch ? activeDriverDispatch.destination || '' : mapDest}
+                  originCoords={isDriverDispatchMap && activeDriverDispatch ? driverOriginCoords : originCoords}
+                  destCoords={isDriverDispatchMap && activeDriverDispatch ? driverDestCoords : destCoords}
                   myCoords={myCoords}
                   userPins={[]}
                   fleetPositions={undefined}
                   currentUserId={user.id}
                   onLocateMe={() => detectAndReportUserLocation(false)}
                   locatingUser={locatingUser}
-                  showRoute={showRouteOnMap}
-                  routeGeometry={calculatedRoute?.geometry || null}
-                  routeMetrics={calculatedRoute}
+                  showRoute={isDriverDispatchMap ? Boolean(activeDriverDispatch?.destination) : showRouteOnMap}
+                  routeGeometry={isDriverDispatchMap && activeDriverDispatch ? driverRoute?.geometry || null : calculatedRoute?.geometry || null}
+                  routeMetrics={isDriverDispatchMap && activeDriverDispatch ? driverRoute : calculatedRoute}
                   pinMode={navSection === 'HOME' && bookingStep === 'ROUTE' && routeTab === 'PIN'}
                   onPinMoveAddress={(place: GeoPlace) => {
                     if (activeRouteField === 'pickup') {

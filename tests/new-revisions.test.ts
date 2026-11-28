@@ -4262,6 +4262,49 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(appTsx).toContain('id="audit-odometer-photos"');
         expect(appTsx).toContain('id="odometer-photo-lightbox"');
       });
+
+      it('provides Driver trip route visibility, external navigation app chooser (Google Maps, Waze, Amap, Apple Maps, HERE WeGo), live GPS avatar tracking, and complete EN/ID/KO translations', async () => {
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const { t } = await import('../src/utils/i18n.ts');
+
+        const appTsx = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf-8');
+        const mapViewTsx = fs.readFileSync(path.resolve(__dirname, '../src/components/MapView.tsx'), 'utf-8');
+
+        // 1. Driver route & external Navigation App Chooser (Google Maps, Waze, Amap, Apple Maps, HERE WeGo, Copy Address)
+        expect(appTsx).toContain('id="driver-nav-app-modal"');
+        expect(appTsx).toContain('https://www.google.com/maps/dir/?api=1&destination=');
+        expect(appTsx).toContain('https://waze.com/ul?');
+        expect(appTsx).toContain('https://uri.amap.com/navigation?');
+        expect(appTsx).toContain('https://maps.apple.com/?daddr=');
+        expect(appTsx).toContain('https://share.here.com/r/mylocation/');
+        expect(appTsx).toContain('driver-view-route-btn-');
+        expect(appTsx).toContain('driver-navigate-btn-');
+
+        // 2. Continuous live GPS watchPosition & in-app moving driver avatar with camera follow
+        expect(appTsx).toContain('navigator.geolocation.watchPosition');
+        expect(appTsx).toContain('driverTripInProgress={isDriverDispatchMap && driverTripInProgress}');
+        expect(appTsx).toContain('followDriver={isDriverDispatchMap && driverTripInProgress}');
+        expect(mapViewTsx).toContain('gf-live-driver-avatar-badge');
+        expect(mapViewTsx).toContain('id="driver-map-route-bar"');
+        expect(mapViewTsx).toContain('map.panTo([myCoords.lat, myCoords.lon]');
+
+        // 3. Complete EN -> ID & KO translation coverage including composite Label: Value and dynamic odometer strings
+        const samples = [
+          'Open Navigation App',
+          'View Route on Map',
+          'Navigate',
+          'Live Trip Route',
+          'Total Completed Trips',
+          'Energy Type: Electric',
+          'Recorded: 10:00',
+          '2. Type Start Odometer Manually (km) * — Min: 12000 km',
+        ];
+        for (const phrase of samples) {
+          expect(t(phrase, 'id')).not.toBe(phrase);
+          expect(t(phrase, 'ko')).not.toBe(phrase);
+        }
+      });
     });
   });
 });

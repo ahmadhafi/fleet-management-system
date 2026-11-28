@@ -255,6 +255,10 @@ interface MapViewProps {
   driverOnline?: boolean;
   driverVehicleModel?: string;
   driverVehicleEnergyType?: string;
+  driverAvatarUrl?: string | null;
+  driverTripInProgress?: boolean;
+  followDriver?: boolean;
+  onOpenNavigationApps?: () => void;
 }
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -289,6 +293,10 @@ export const MapView: React.FC<MapViewProps> = ({
   driverOnline = false,
   driverVehicleModel,
   driverVehicleEnergyType,
+  driverAvatarUrl = null,
+  driverTripInProgress = false,
+  followDriver = false,
+  onOpenNavigationApps,
 }) => {
   const { t } = useAppLanguage();
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -537,13 +545,27 @@ export const MapView: React.FC<MapViewProps> = ({
     baseTileLayerRef.current = attachManagedTileLayer(activeLayer, map);
   }, [activeLayer]);
 
-  // Automatically fly to the user's detected GPS location the first time it arrives
+  // Automatically fly to the user's detected GPS location the first time it arrives,
+  // and continuously follow the driver's live GPS while driving a trip
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !myCoords || hasCenteredOnMyCoordsRef.current) return;
-    hasCenteredOnMyCoordsRef.current = true;
-    map.setView([myCoords.lat, myCoords.lon], 15, { animate: true });
-  }, [myCoords]);
+    if (!map || !myCoords || !Number.isFinite(myCoords.lat) || !Number.isFinite(myCoords.lon)) return;
+    if (!hasCenteredOnMyCoordsRef.current) {
+      hasCenteredOnMyCoordsRef.current = true;
+      map.setView([myCoords.lat, myCoords.lon], 15, { animate: true });
+      return;
+    }
+    if (followDriver || driverTripInProgress) {
+      map.panTo([myCoords.lat, myCoords.lon], { animate: true, duration: 0.65 });
+    }
+  }, [myCoords, followDriver, driverTripInProgress]);
+
+  // Smoothly follow assigned driver's live GPS for passengers during IN_TRIP
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !driverActive || !driverCoords || !Number.isFinite(driverCoords.lat) || !Number.isFinite(driverCoords.lon)) return;
+    map.panTo([driverCoords.lat, driverCoords.lon], { animate: true, duration: 0.65 });
+  }, [driverActive, driverCoords?.lat, driverCoords?.lon]);
 
   // Handle Pin-on-Map Drag, Tap-to-Pin & Reverse Geocoding
   useEffect(() => {
@@ -744,11 +766,20 @@ export const MapView: React.FC<MapViewProps> = ({
         driverVehicleEnergyType,
         selfHeading
       );
+      const driverAvatarBadgeHtml =
+        driverTripInProgress && driverAvatarUrl
+          ? `<div class="gf-live-driver-avatar-badge" style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);width:28px;height:28px;border-radius:50%;overflow:hidden;border:2.5px solid #0072de;background:#ffffff;box-shadow:0 2px 8px rgba(0,114,222,0.45);z-index:2;"><img src="${driverAvatarUrl}" alt="Driver" style="width:100%;height:100%;object-fit:cover;display:block;" /></div>`
+          : '';
+      const driverPulseRingHtml = driverTripInProgress
+        ? `<div style="position:absolute;width:54px;height:54px;border-radius:50%;background:rgba(0,114,222,0.16);border:2px solid rgba(0,114,222,0.45);pointer-events:none;"></div>`
+        : '';
       const driverSelfCarIcon = L.divIcon({
         className: 'gf-leaflet-marker',
         html: `
-          <div class="gf-driver-map-car-marker ${driverOnline ? 'is-online' : ''}" style="position:relative;display:flex;align-items:center;justify-content:center;transform:translate(-50%,-50%);cursor:pointer;">
+          <div class="gf-driver-map-car-marker ${driverOnline ? 'is-online' : ''} ${driverTripInProgress ? 'is-in-trip' : ''}" data-live-driver-avatar="true" style="position:relative;display:flex;align-items:center;justify-content:center;transform:translate(-50%,-50%);cursor:pointer;">
+            ${driverPulseRingHtml}
             ${driverTopDownHtml}
+            ${driverAvatarBadgeHtml}
           </div>
         `,
         iconSize: [0, 0],
@@ -769,7 +800,7 @@ export const MapView: React.FC<MapViewProps> = ({
         html: `
           <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);">
             <div style="background:#0072de;color:#ffffff;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,114,222,0.3);margin-bottom:4px;">
-              You
+              ${t('You')}
             </div>
             <div style="width:16px;height:16px;border-radius:9999px;background:#0072de;outline:3px solid #ffffff;box-shadow:0 0 0 6px rgba(0,114,222,0.25), 0 2px 6px rgba(0,0,0,0.3);"></div>
           </div>
@@ -779,7 +810,7 @@ export const MapView: React.FC<MapViewProps> = ({
       });
       L.marker([myCoords.lat, myCoords.lon], { icon: meIcon }).addTo(pinsLayer);
     }
-  }, [userPins, currentUserId, myCoords, originCoords, driverMapMode, driverOnline, driverVehicleModel, driverVehicleEnergyType, activeVehicleModel, effOrigin, effDest, routeGeometry]);
+  }, [userPins, currentUserId, myCoords, originCoords, driverMapMode, driverOnline, driverVehicleModel, driverVehicleEnergyType, driverAvatarUrl, driverTripInProgress, activeVehicleModel, effOrigin, effDest, routeGeometry, t]);
 
   // Render Operational Fleet Vehicles (Admin Fleet Live Map)
   useEffect(() => {
@@ -1313,6 +1344,53 @@ export const MapView: React.FC<MapViewProps> = ({
       onKeyDown={handleKeyDown}
     >
       <div ref={mapContainerRef} id="map-container" style={{ width: '100%', height: '100%', zIndex: 1 }} />
+
+      {/* Driver Active Trip Route & External Navigation Bar */}
+      {driverMapMode && showRoute && destination && (
+        <div
+          id="driver-map-route-bar"
+          style={{
+            position: 'absolute',
+            left: '12px',
+            right: '64px',
+            bottom: '16px',
+            zIndex: 550,
+            background: 'var(--color-bg-surface)',
+            border: '1px solid var(--color-samsung-blue-ring)',
+            borderRadius: '14px',
+            padding: '10px 12px',
+            boxShadow: '0 8px 24px rgba(15, 23, 42, 0.22)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '10px',
+          }}
+        >
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-samsung-blue-text)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+              {driverTripInProgress ? t('Live Trip Route') : t('Assigned Trip Route')}
+            </div>
+            <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {destination}
+            </div>
+            <div style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+              {`${metrics.distanceKm} km • ~${metrics.durationMin} ${t('min')}${metrics.etaText ? ` • ETA ${metrics.etaText}` : ''}`}
+            </div>
+          </div>
+          {onOpenNavigationApps && (
+            <button
+              id="driver-map-navigate-btn"
+              type="button"
+              className="gf-btn gf-btn-primary gf-btn-sm pressable"
+              style={{ minHeight: '36px', padding: '0 12px', fontSize: '12px', fontWeight: 800, flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+              onClick={onOpenNavigationApps}
+            >
+              <Navigation2 size={14} />
+              {t('Navigate')}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Floating 3-Layer Map Switcher (Streets, Satellite, Terrain) — hidden in clean Gojek Driver Home mode */}
       {!driverMapMode && (
