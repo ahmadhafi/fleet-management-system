@@ -2918,10 +2918,23 @@ export function App() {
       const endpoint = targetNegId
         ? `/api/negotiations/${targetNegId}/respond`
         : `/api/notifications/${notifId}/respond-negotiation`;
-      const res = await apiRequest(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({ decision }),
-      });
+      let res: any;
+      try {
+        res = await apiRequest(endpoint, {
+          method: 'POST',
+          body: JSON.stringify({ decision, negotiation_id: targetNegId || undefined, notification_id: notifId || undefined }),
+        });
+      } catch (firstErr: any) {
+        const firstMsg = String(firstErr?.message || '');
+        if (/api endpoint not found|negotiation request not found/i.test(firstMsg) && notifId) {
+          res = await apiRequest('/api/negotiations/respond', {
+            method: 'POST',
+            body: JSON.stringify({ decision, negotiation_id: targetNegId || undefined, notification_id: notifId }),
+          });
+        } else {
+          throw firstErr;
+        }
+      }
       const transferredId = res?.transferredTripId || null;
       const resolvedNegId = res?.negotiationId ? Number(res.negotiationId) : targetNegId;
       decidedNegMapRef.current.set(lockKey, { status: nextStatus, transferredTripId: transferredId });
@@ -2983,9 +2996,9 @@ export function App() {
           matchesTarget(prev) ? { ...prev, negotiation_status: 'PENDING' } : prev
         );
       }
-      const friendlyMsg = /api endpoint not found|not found/i.test(errMsg)
+      const friendlyMsg = /^api endpoint not found$/i.test(errMsg.trim())
         ? t('Server backend is still running an older process. Please click Stop then Start (or Restart) in cPanel Setup Node.js App, then try again.')
-        : errMsg;
+        : translateNotificationText(errMsg, lang);
       setStatusBanner({ type: 'danger', text: friendlyMsg });
     } finally {
       setNegotiationRespondBusyId(null);

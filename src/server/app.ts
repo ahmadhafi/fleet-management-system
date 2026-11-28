@@ -312,7 +312,7 @@ export function createApp() {
     res.json({
       status: 'ok',
       service: 'GalaxyFleet Corporate Fleet Management',
-      api_build: '2026-11-28-live-sync-v6',
+      api_build: '2026-11-28-live-sync-v7',
       features: ['negotiation_hydration', 'notification_respond_fallback', 'negotiate_route_aliases', 'different_location_transfer', 'multi_worker_sqljs_sync', 'gojek_topdown_cars', 'i18n_notifications', 'editable_vehicle_seats'],
       uptime_sec: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
@@ -336,7 +336,7 @@ export function createApp() {
       const mem = process.memoryUsage();
       res.json({
         status: dbCheck?.alive === 1 ? 'ready' : 'degraded',
-        api_build: '2026-11-28-live-sync-v6',
+        api_build: '2026-11-28-live-sync-v7',
         database: 'connected',
         sqlite_wal: true,
         memory: {
@@ -4410,19 +4410,35 @@ export function createApp() {
       return;
     }
 
-    const nr = db
+    let nr = db
       .prepare(
-        `SELECT nr.*, req_u.nickname as requester_name, req_u.department_id as requester_department_id
+        `SELECT nr.*, COALESCE(req_u.nickname, 'Colleague') as requester_name, req_u.department_id as requester_department_id
          FROM negotiation_requests nr
-         JOIN users req_u ON req_u.id = nr.requester_user_id
+         LEFT JOIN users req_u ON req_u.id = nr.requester_user_id
          WHERE nr.id = ?`
       )
       .get(negId) as any;
+
+    if (!nr && negId > 0) {
+      // Fallback: if caller passed a notification_id instead of negotiation_requests.id, resolve via notification_id
+      nr = db
+        .prepare(
+          `SELECT nr.*, COALESCE(req_u.nickname, 'Colleague') as requester_name, req_u.department_id as requester_department_id
+           FROM negotiation_requests nr
+           LEFT JOIN users req_u ON req_u.id = nr.requester_user_id
+           WHERE nr.notification_id = ?
+           ORDER BY nr.id DESC
+           LIMIT 1`
+        )
+        .get(negId) as any;
+    }
 
     if (!nr) {
       res.status(404).json({ error: 'Negotiation request not found' });
       return;
     }
+
+    const resolvedNegId = Number(nr.id);
 
     if (Number(nr.holder_user_id) !== Number(user.id) && !isPrivilegedRole(user)) {
       res.status(403).json({ error: 'Only the current booking holder or an Admin can respond to this request' });
@@ -4436,17 +4452,20 @@ export function createApp() {
 
     const trip = db
       .prepare(
-        `SELECT tr.*, v.seats, v.registration_plate, v.make, v.model
+        `SELECT tr.*,
+                COALESCE(tr.vehicle_id, b.vehicle_id) as vehicle_id,
+                COALESCE(v.seats, bv.seats, 5) as seats,
+                COALESCE(v.registration_plate, bv.registration_plate, 'TBD') as registration_plate,
+                COALESCE(v.make, bv.make, 'Company') as make,
+                COALESCE(v.model, bv.model, 'Car') as model
          FROM trip_requests tr
-         JOIN vehicles v ON v.id = tr.vehicle_id
-         WHERE tr.id = ?`
+         LEFT JOIN bookings b ON b.trip_request_id = tr.id
+         LEFT JOIN vehicles v ON v.id = tr.vehicle_id
+         LEFT JOIN vehicles bv ON bv.id = b.vehicle_id
+         WHERE tr.id = ?
+         LIMIT 1`
       )
       .get(nr.trip_request_id) as any;
-
-    if (!trip) {
-      res.status(404).json({ error: 'Associated booking not found' });
-      return;
-    }
 
     if (nr.notification_id) {
       db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ?').run(nr.notification_id);
@@ -4460,22 +4479,26 @@ export function createApp() {
            SET status = 'REJECTED', decided_by = ?, decided_at = datetime('now')
            WHERE id = ? AND status = 'PENDING'`
         )
-        .run(user.id, negId);
+        .run(user.id, resolvedNegId);
       if (claimRej.changes === 0) {
         res.status(409).json({ error: 'This request has already been processed' });
         return;
       }
 
       const isHitchhike = nr.action_type === 'HITCHHIKE';
+      const plateLabel = trip?.registration_plate || 'Company Car';
+      const carLabel = trip ? `${trip.make} ${trip.model}` : 'Fleet Vehicle';
+      const destLabel = trip?.destination || nr.destination || 'Destination';
+      const tripRefId = Number(trip?.id || nr.trip_request_id || 0);
       sendUserNotification(db, {
         userId: Number(nr.requester_user_id),
         triggerType: isHitchhike ? 'HITCHHIKE_REJECTED' : 'CANCEL_NEGOTIATION_REJECTED',
         title: isHitchhike ? 'Hitchhike Request Declined' : 'Cancellation Request Declined',
         body: isHitchhike
-          ? `${user.nickname} declined your hitchhike request on ${trip.registration_plate} (${trip.make} ${trip.model}) to "${trip.destination}".${reasonText ? ` Note: "${reasonText}"` : ''}`
-          : `${user.nickname} declined your cancellation/transfer request for ${trip.registration_plate} (${trip.make} ${trip.model}) to "${trip.destination}". Their booking remains active.${reasonText ? ` Note: "${reasonText}"` : ''}`,
+          ? `${user.nickname} declined your hitchhike request on ${plateLabel} (${carLabel}) to "${destLabel}".${reasonText ? ` Note: "${reasonText}"` : ''}`
+          : `${user.nickname} declined your cancellation/transfer request for ${plateLabel} (${carLabel}) to "${destLabel}". Their booking remains active.${reasonText ? ` Note: "${reasonText}"` : ''}`,
         relatedEntityType: 'TRIP_REQUEST',
-        relatedEntityId: Number(trip.id),
+        relatedEntityId: tripRefId,
       });
 
       recordAudit(
@@ -4483,14 +4506,19 @@ export function createApp() {
         user,
         isHitchhike ? 'TRIP_HITCHHIKE_REJECTED' : 'TRIP_CANCEL_NEGOTIATION_REJECTED',
         'TRIP_REQUEST',
-        Number(trip.id),
-        { negotiation_id: negId, status: 'PENDING' },
-        { status: 'REJECTED', reason: reasonText || null }
+        tripRefId,
+        { status: 'PENDING' },
+        { negotiation_id: resolvedNegId, status: 'REJECTED', reason: reasonText || null }
       );
-
-      res.json({ ok: true, status: 'REJECTED', negotiationId: negId, action_type: nr.action_type });
+      res.json({ ok: true, status: 'REJECTED', negotiationId: resolvedNegId, action_type: nr.action_type });
       return;
     }
+
+    if (!trip) {
+      res.status(404).json({ error: 'Associated booking not found' });
+      return;
+    }
+    negId = resolvedNegId;
 
     // ---- ACCEPT ----
     if (!['PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS'].includes(trip.status)) {

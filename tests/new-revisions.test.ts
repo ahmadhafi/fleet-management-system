@@ -4058,6 +4058,57 @@ describe('New Revisions: Passenger List, Driver Receipt DB Storage & Cyber Secur
         expect(incRes.status).toBe(200);
         expect(Number(incRes.body.vehicle.seats)).toBe(5);
       });
+
+      it('responds to negotiations cleanly even when trip_requests.vehicle_id is NULL or notification_id is passed as ID', async () => {
+        const testApp = createApp();
+        const alexLogin = await request(testApp)
+          .post('/api/auth/login')
+          .send({ group_username: 'emp_alex', password: 'Emp@123' });
+        const saraLogin = await request(testApp)
+          .post('/api/auth/login')
+          .send({ group_username: 'emp_sara', password: 'Emp@123' });
+        const alexTok = alexLogin.body.token;
+        const saraTok = saraLogin.body.token;
+
+        const start = new Date(Date.now() + 14 * 3600_000).toISOString();
+        const end = new Date(Date.now() + 15 * 3600_000).toISOString();
+        const created = await request(testApp)
+          .post('/api/trips')
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({
+            purpose: 'Pending Vehicle Trip',
+            origin: 'HQ',
+            destination: 'Plant 2',
+            start_time: start,
+            end_time: end,
+            passenger_count: 1,
+            passengers: [{ nickname: 'Alex' }],
+          });
+        expect(created.status).toBe(201);
+        const tripId = Number(created.body.trip.id);
+
+        // Request cancel/transfer negotiation
+        const negRes = await request(testApp)
+          .post(`/api/trips/${tripId}/negotiate`)
+          .set('Authorization', `Bearer ${saraTok}`)
+          .send({ action_type: 'REQUEST_CANCEL', passengers: ['Sara'], origin: 'HQ', destination: 'CGK' });
+        expect(negRes.status).toBe(201);
+        const notifId = Number(negRes.body.notificationId);
+
+        // Simulate trip_requests referencing a retired/deleted vehicle_id (LEFT JOIN vehicles must still resolve cleanly)
+        const db = getDb();
+        db.exec('PRAGMA foreign_keys = OFF;');
+        db.prepare('UPDATE trip_requests SET vehicle_id = 99999 WHERE id = ?').run(tripId);
+        db.exec('PRAGMA foreign_keys = ON;');
+
+        // Respond using notification_id passed to /api/negotiations/:id/respond — must NOT 404!
+        const rejRes = await request(testApp)
+          .post(`/api/negotiations/${notifId}/respond`)
+          .set('Authorization', `Bearer ${alexTok}`)
+          .send({ decision: 'REJECT' });
+        expect(rejRes.status).toBe(200);
+        expect(rejRes.body.status).toBe('REJECTED');
+      });
     });
   });
 });
